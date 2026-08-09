@@ -68,7 +68,8 @@
   --win: 84 66% 52%; --draw: 41 78% 51%; --loss: 350 84% 62%;
   --gold: 42 62% 48%; --accent: 84 66% 52%;
   --lime-deep: 108 56% 27%; --amber-ink: 43 82% 33%; --pitch: 151 51% 14%;
-  --pitch-copy: #507a5f; --feature-chart-ink: #657185;
+  /* .panel-pitch stays dark in Daylight, so its supporting ink is invariant. */
+  --pitch-copy: #a9c7b4; --feature-chart-ink: #657185;
   /* Cards read white->faint-sage here, mirroring the dark theme's
      surface->deeper-surface fall rather than inverting it. --pitch stays dark
      in this theme by design, so .panel-pitch and its white ink are correct in
