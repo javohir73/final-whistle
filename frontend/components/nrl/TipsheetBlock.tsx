@@ -146,7 +146,7 @@ function TipsheetRow({
         </span>
         {live ? (
           <span
-            className="inline-flex items-center gap-1.5 rounded-full bg-loss/15 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss"
+            className="inline-flex items-center gap-1.5 rounded-full bg-loss/15 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss-wash-ink"
             aria-label="Live"
           >
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-loss" aria-hidden />
@@ -201,7 +201,7 @@ function TipsheetRow({
           Prediction arriving before kickoff.
         </p>
       ) : finished ? (
-        <p className={cn("mt-3 text-center text-xs font-semibold", pickCorrect ? "text-lime-deep" : "text-loss")}>
+        <p className={cn("mt-3 text-center text-xs font-semibold", pickCorrect ? "text-lime-deep" : "text-loss-ink")}>
           <span aria-hidden>{pickCorrect ? "✓" : "✕"}</span> Picked {pickLabel(match)} ({pct(p.pick_confidence)}) —{" "}
           {pickCorrect ? "called it" : "missed it"}
         </p>

@@ -91,8 +91,10 @@ describe("FeatureHero", () => {
 
     expect(screen.queryByRole("link")).toBeNull();
     // The labels stay for layout, but there's no link to the wrong sport.
-    expect(screen.getByText("Make your pick")).toBeInTheDocument();
-    expect(screen.getByText("Why 62%?")).toBeInTheDocument();
+    const primary = screen.getByText("Make your pick");
+    const secondary = screen.getByText("Why 62%?");
+    expect(primary).toHaveClass("opacity-disabled");
+    expect(secondary).toHaveClass("opacity-disabled");
   });
 
   it("prints the expected margin in the caption when there's no predicted score", () => {

@@ -140,8 +140,8 @@ export default async function NrlTeamPage({
               streak.result === "W"
                 ? "bg-win/15 text-lime-deep"
                 : streak.result === "L"
-                  ? "bg-loss/15 text-loss"
-                  : "bg-draw/15 text-amber-ink"
+                  ? "bg-loss/15 text-loss-wash-ink"
+                  : "bg-draw/15 text-gold-wash-ink"
             }`}
           >
             {streak.length}-game{" "}
@@ -287,7 +287,7 @@ function StatTile({
     <div className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center">
       <p
         className={`font-display text-xl font-extrabold tabular-nums ${
-          tone === "up" ? "text-lime-deep" : tone === "down" ? "text-loss" : "text-foreground"
+          tone === "up" ? "text-lime-deep" : tone === "down" ? "text-loss-ink" : "text-foreground"
         }`}
       >
         {value}
@@ -341,8 +341,8 @@ function FixtureRow({ fixture: f, season }: { fixture: NrlTeamFixture; season: n
 
 const RESULT_TONE: Record<string, string> = {
   W: "bg-win/15 text-lime-deep",
-  D: "bg-draw/15 text-amber-ink",
-  L: "bg-loss/15 text-loss",
+  D: "bg-draw/15 text-gold-wash-ink",
+  L: "bg-loss/15 text-loss-wash-ink",
 };
 
 function ResultRow({ result: r, season }: { result: NrlTeamResult; season: number }) {
@@ -361,7 +361,7 @@ function ResultRow({ result: r, season }: { result: NrlTeamResult; season: numbe
       </div>
       {r.model_called != null && (
         <span
-          className={`text-xs font-semibold ${r.model_called ? "text-lime-deep" : "text-loss"}`}
+          className={`text-xs font-semibold ${r.model_called ? "text-lime-deep" : "text-loss-ink"}`}
           title={r.model_called ? "The ML model called this one" : "The ML model missed this one"}
         >
           <span aria-hidden>{r.model_called ? "✓" : "✕"}</span> ML model

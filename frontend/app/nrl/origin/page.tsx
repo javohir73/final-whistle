@@ -108,7 +108,7 @@ export default async function OriginPage({
             href={yr === series.seasons[0] ? "/nrl/origin" : `/nrl/origin?season=${yr}`}
             className={cn(
               "rounded-full px-3 py-1 text-xs font-semibold",
-              yr === series.season ? "bg-lime-deep text-black" : "glass text-muted",
+              yr === series.season ? "bg-lime-deep text-lime-deep-ink" : "glass text-muted",
             )}
           >
             {yr}
@@ -168,7 +168,7 @@ export default async function OriginPage({
         </section>
       ) : null}
 
-      <p className="mt-8 text-xs text-white/40">{series.disclaimer}</p>
+      <p className="mt-8 text-xs text-origin-disclaimer">{series.disclaimer}</p>
     </div>
   );
 }

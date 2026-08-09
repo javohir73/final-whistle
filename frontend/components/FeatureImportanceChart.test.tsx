@@ -51,9 +51,19 @@ jest.mock("recharts", () => {
     },
     Bar: ({ children }: any) => React.createElement(React.Fragment, null, children),
     Cell: () => null,
-    LabelList: () => null,
+    LabelList: ({ className, style }: any) =>
+      React.createElement("i", {
+        "data-testid": "chart-value-ink",
+        "data-class": className,
+        "data-fill": style?.fill,
+      }),
     XAxis: () => null,
-    YAxis: () => null,
+    YAxis: ({ className, tick }: any) =>
+      React.createElement("i", {
+        "data-testid": "chart-axis-ink",
+        "data-class": className,
+        "data-fill": tick.fill,
+      }),
   };
 });
 
@@ -77,6 +87,16 @@ describe("FeatureImportanceChart", () => {
     // …and the 0–1 weight is rendered as a rounded percentage.
     expect(screen.getByText("66%")).toBeInTheDocument();
     expect(screen.getByText("20%")).toBeInTheDocument();
+    expect(screen.getByTestId("chart-axis-ink")).toHaveAttribute(
+      "data-class",
+      "feature-chart-axis",
+    );
+    expect(screen.getByTestId("chart-value-ink")).toHaveAttribute(
+      "data-class",
+      "fill-feature-chart-ink",
+    );
+    expect(screen.getByTestId("chart-axis-ink")).not.toHaveAttribute("data-fill");
+    expect(screen.getByTestId("chart-value-ink")).not.toHaveAttribute("data-fill");
 
     // The fix: the wrapper carries an explicit, non-zero inline height so
     // recharts has a real box to draw into (height 0 was the empty section).

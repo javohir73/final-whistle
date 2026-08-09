@@ -74,7 +74,7 @@ export function PlayHub({ nrlTipsheet, hasBrackets, champion }: PlayHubProps) {
           </p>
           <Link
             href="/football/ucl/fixtures"
-            className="mt-3 inline-flex text-sm font-semibold text-accent hover:underline"
+            className="mt-3 inline-flex text-sm font-semibold text-lime-deep hover:underline"
           >
             View Champions League fixtures →
           </Link>

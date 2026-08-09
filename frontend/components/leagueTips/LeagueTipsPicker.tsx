@@ -404,7 +404,7 @@ function PredictionRow({
                 <span className="text-muted"> · Final {formatScore(match.score_home, match.score_away)}</span>
               ) : null}
               {your.graded_at ? (
-                <span className={your.points && your.points > 0 ? "text-lime-deep" : "text-loss"}>
+                <span className={your.points && your.points > 0 ? "text-lime-deep" : "text-loss-ink"}>
                   {" "}
                   — {your.exact ? "exact score!" : your.points ? "correct result" : "missed"}
                 </span>
@@ -438,7 +438,7 @@ function PredictionRow({
         </div>
       )}
 
-      {error ? <p className="mt-2 text-center text-xs font-medium text-loss">{error}</p> : null}
+      {error ? <p className="mt-2 text-center text-xs font-medium text-loss-ink">{error}</p> : null}
     </div>
   );
 }
@@ -470,7 +470,7 @@ function GoalStepper({
           onClick={() => onDelta(-1)}
           className={cn(
             "grid h-11 w-11 place-items-center rounded-xl border border-border bg-surface-2/50 text-lg font-bold text-muted transition",
-            "hover:border-win/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
+            "hover:border-win/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-disabled-40",
           )}
         >
           −
@@ -494,7 +494,7 @@ function GoalStepper({
           onClick={() => onDelta(1)}
           className={cn(
             "grid h-11 w-11 place-items-center rounded-xl border border-border bg-surface-2/50 text-lg font-bold text-muted transition",
-            "hover:border-win/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
+            "hover:border-win/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-disabled-40",
           )}
         >
           +

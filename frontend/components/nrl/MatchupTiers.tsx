@@ -8,8 +8,8 @@ function tier(rank: number | null): { label: string; cls: string } {
   if (rank == null) return { label: "—", cls: "bg-surface-2 text-muted" };
   if (rank <= 4) return { label: "Elite", cls: "bg-win/15 text-lime-deep" };
   if (rank <= 8) return { label: "Strong", cls: "bg-win/10 text-lime-deep" };
-  if (rank <= 12) return { label: "Mid", cls: "bg-draw/15 text-amber-ink" };
-  return { label: "Struggling", cls: "bg-loss/15 text-loss" };
+  if (rank <= 12) return { label: "Mid", cls: "bg-draw/15 text-gold-wash-ink" };
+  return { label: "Struggling", cls: "bg-loss/15 text-loss-wash-ink" };
 }
 
 function TierChip({ heading, rank }: { heading: string; rank: number | null }) {

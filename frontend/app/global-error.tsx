@@ -20,6 +20,16 @@ export default function GlobalError({
 
   return (
     <html lang="en">
+      <head>
+        <style>{`:root { --crash-muted: #6b7c71; } .theme-daylight { --crash-muted: #59685f; }`}</style>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{if(localStorage.getItem("fw_theme")==="light"){' +
+              'document.documentElement.classList.add("theme-daylight");}}catch(e){}',
+          }}
+        />
+      </head>
       <body
         style={{
           margin: 0,
@@ -37,7 +47,7 @@ export default function GlobalError({
         }}
       >
         <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Something went wrong</h1>
-        <p style={{ fontSize: "0.875rem", color: "#6b7c71", maxWidth: "28rem" }}>
+        <p style={{ fontSize: "0.875rem", color: "var(--crash-muted)", maxWidth: "28rem" }}>
           The app hit an unexpected error. Please try again.
         </p>
         <button

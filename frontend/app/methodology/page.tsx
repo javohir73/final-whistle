@@ -399,7 +399,7 @@ export default async function MethodologyPage() {
 
       {/* Limitations */}
       <section className="glass rounded-2xl border-gold/20 bg-gold/[0.04] p-6">
-        <h2 className="font-display text-lg font-bold text-gold">Limitations</h2>
+        <h2 className="font-display text-lg font-bold text-gold-ink">Limitations</h2>
         <ul className="mt-2 list-inside list-disc space-y-1.5 text-sm text-muted">
           <li>{listYears(data.backtest_years).replace(/&/, "and")} ({data.reliability_n} matches) is still a small sample — treat single-tournament numbers with caution.</li>
           <li>

@@ -3,8 +3,8 @@ import { cn } from "@/lib/utils";
 
 const COLOR: Record<string, string> = {
   W: "bg-win/15 text-lime-deep",
-  D: "bg-draw/15 text-amber-ink",
-  L: "bg-loss/15 text-loss",
+  D: "bg-draw/15 text-gold-wash-ink",
+  L: "bg-loss/15 text-loss-wash-ink",
 };
 
 /** Colored W/D/L chips of a team's recent results (most recent first). */

@@ -117,7 +117,7 @@ describe("MatchCard (variant=\"compact\")", () => {
     render(<MatchCard match={match} variant="compact" />);
 
     expect(screen.getByText("0–2")).toBeInTheDocument();
-    expect(screen.getByText(/Upset/)).toHaveClass("text-loss");
+    expect(screen.getByText(/Upset/)).toHaveClass("text-loss-ink");
   });
 
   it("promotes the live win probabilities into the bar and leads with the score", () => {

@@ -119,7 +119,7 @@ export function TeamHeader({
 
       {/* Host badge -- gold pill, amber-ink at 12px bold to clear the a11y floor */}
       {team.is_host && (
-        <span className="mt-2.5 inline-block rounded-full bg-gold/15 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-ink ring-1 ring-gold/30">
+        <span className="mt-2.5 inline-block rounded-full bg-gold/15 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-gold-wash-ink ring-1 ring-gold/30">
           Tournament host
         </span>
       )}

@@ -89,7 +89,7 @@ export function MatchCard({
             </span>
             {live ? (
               <span
-                className="status-live-ring inline-flex items-center gap-1.5 rounded-full bg-loss/15 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss"
+                className="status-live-ring inline-flex items-center gap-1.5 rounded-full bg-loss/15 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss-wash-ink"
                 aria-label={`Live, ${liveLabel(match)}`}
               >
                 <span className="status-live-dot h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
@@ -130,7 +130,7 @@ export function MatchCard({
             {finished && verdict ? (
               <span
                 className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
-                  verdict.kind === "miss" ? "text-loss" : "text-lime-deep"
+                  verdict.kind === "miss" ? "text-loss-ink" : "text-lime-deep"
                 }`}
               >
                 <span aria-hidden>{verdict.kind === "miss" ? "✕" : "✓"}</span>
@@ -261,8 +261,8 @@ function CompactRow({
             {teams.home} <span className="font-normal text-muted">v</span> {teams.away}
           </div>
           <div className="mt-0.5 truncate text-note">
-            <span className={live ? "font-semibold text-loss" : "text-muted"}>{metaLabel}</span>
-            {match.venue && <span className="text-muted/70"> · {match.venue}</span>}
+            <span className={live ? "font-semibold text-loss-ink" : "text-muted"}>{metaLabel}</span>
+            {match.venue && <span className="text-muted-solid"> · {match.venue}</span>}
           </div>
         </div>
         {showScore ? (
@@ -312,7 +312,7 @@ function CompactRow({
       {verdict && (
         <div
           className={`mt-2 flex items-center gap-1.5 text-note font-semibold ${
-            verdict.kind === "miss" ? "text-loss" : "text-lime-deep"
+            verdict.kind === "miss" ? "text-loss-ink" : "text-lime-deep"
           }`}
         >
           <span aria-hidden>{verdict.kind === "miss" ? "✕" : "✓"}</span>

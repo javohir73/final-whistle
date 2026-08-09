@@ -268,7 +268,7 @@ export function StandingsTable({
                     onClick={(e) => e.stopPropagation()}
                     className="flex min-w-0 items-center gap-2.5 py-3 hover:text-lime-deep"
                   >
-                    <span className={cn("text-rank w-7 shrink-0 text-center", rankText || "text-muted")}>
+                    <span className={cn("text-rank w-7 shrink-0 text-center", rankText === "text-gold" ? "text-gold-ink" : rankText || "text-muted")}>
                       {rank}
                     </span>
                     <span className="shrink-0">

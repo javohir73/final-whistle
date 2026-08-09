@@ -125,7 +125,7 @@ export function UserPredictionCard({
             </span>
             {live ? (
               <span
-                className="mt-1 inline-flex items-center gap-1 text-note font-bold uppercase tracking-wide text-loss"
+                className="mt-1 inline-flex items-center gap-1 text-note font-bold uppercase tracking-wide text-loss-ink"
                 aria-label={`Live, ${liveLabel(match)}`}
               >
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-loss" aria-hidden />
@@ -170,7 +170,7 @@ export function UserPredictionCard({
         <div className="mt-1.5 flex flex-col items-center text-xs font-semibold">
           <span className="flex items-center gap-1">
             <span aria-hidden>{matchVerdict.kind === "miss" ? "✗" : "✓"}</span>
-            <span className={matchVerdict.kind === "miss" ? "text-loss" : "text-lime-deep"}>
+            <span className={matchVerdict.kind === "miss" ? "text-loss-ink" : "text-lime-deep"}>
               {matchVerdict.label}
             </span>
             <BasisTag verdict={matchVerdict} />

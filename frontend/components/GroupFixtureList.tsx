@@ -50,7 +50,7 @@ function FixtureRow({ match, tz }: { match: MatchSummary; tz: string }) {
         </span>
         <span className="mt-0.5 block truncate text-xs text-muted">
           {live ? (
-            <span className="inline-flex items-center gap-1.5 font-semibold text-loss">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-loss-ink">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-loss" aria-hidden />
               {liveLabel(match)}
             </span>
