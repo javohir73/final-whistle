@@ -15,10 +15,10 @@ redirect failures, or measured declared-stop contrast failures. Loading, empty,
 error, and disabled FeatureHero states passed 8/8 representative checks.
 
 The audit deliberately does not call continuously interpolated gradients an
-automatic pass from endpoint colours alone. It records 6,214 deduplicated Daylight
-exemptions: 6,213 continuous-gradient text records requiring rendered-pixel evidence
-and one mobile-nav label over an image. All 70 route-viewport screenshots and all
-eight state screenshots were reviewed; no legibility, overflow, clipping, or
+automatic pass from endpoint colours alone. It records 6,209 deduplicated Daylight
+exemptions: 6,208 continuous-gradient text records requiring rendered-pixel evidence
+and one mobile-nav label over an image (P0 1,056; P1 2,954; P2 2,199). All 70
+route-viewport screenshots and all eight state screenshots were reviewed; no legibility, overflow, clipping, or
 unintended-surface defect was found. The exact exemption ledger is retained in the
 untracked audit evidence.
 
@@ -39,6 +39,8 @@ or invariant pitch stops, not an assumed page background.
 | `--action-ink` | `156 33% 6%` | background `96 23% 96%` → `150 38% 9%` | 1.639 → 9.623 on win |
 | `--draw-ink` | `38 94% 58%` | draw `41 78% 51%` → `43 82% 29%` | 1.998 → 5.042 on canvas |
 | `--loss-ink` | `351 90% 64%` | loss `350 84% 62%` → `350 84% 45%` | 3.278 → 4.979 on canvas |
+| `--loss-ink` on relegation rank rows | `351 90% 64%` | loss `350 84% 62%` → `350 84% 45%` | 3.120–3.368 → 4.740–5.117 on the actual 4% loss row wash |
+| `--hint-ink` | `129 10% 62% / 0.8` | muted/80 → opaque `140 8% 38%` | 1.931–2.047 → 5.401–5.841 on glass stops |
 | `--lime-deep-ink` | `0 0% 0%` | black → `96 23% 96%` | 3.254 → 5.983 on deep lime |
 | `--origin-disclaimer` | `0 0% 100% / 0.4` | white/40 → `140 8% 38%` | 1.031 → 5.415 on canvas |
 | `--disabled-opacity` | `0.6` | `0.6` → `1` | primary ~3.20–3.25 → 9.571; secondary ~4.39 → 15.740–16.968 |
@@ -76,19 +78,31 @@ darkStyleDiffs: 0
 ```
 
 The upgraded resolver separately reports 310 pre-existing Floodlight declared-stop
-contrast failures (P0 78, P1 202, P2 30) over unchanged computed styles, plus 6,042
+contrast failures (P0 78, P1 202, P2 30) over unchanged computed styles, plus 6,041
 continuous-gradient exemptions. This PR does not claim Floodlight contrast is clean;
 it claims—and proves—that Floodlight did not change.
 
 ## Tests
 
+- corrected WCAG large-text thresholds: 24 CSS px normal and 18.667 CSS px bold,
+  with exact just-below/at-boundary tests;
+- corrected-threshold RED audit: 12 EPL relegation-rank failures at 3.134–3.373:1;
+  final GREEN audit: zero measured failures;
+- focused coverage proves every shared error-state label and every standings rank
+  tone on its actual glass/tinted-row surface;
 - `npm run typecheck` — pass
 - `npm run lint` — pass with the documented baseline warning
-- `npm test -- --runInBand` — 145/145 suites, 943/943 tests passed
+- `npm test -- --runInBand` — 146/146 suites, 946/946 tests passed
 - production build: 35/35 static pages
 - Daylight production audit: 70/70 checks, zero measured failures
 - forced states: 8/8 checks
 - Floodlight style comparison: zero changed properties
+
+Final evidence SHA-256: `dark-before.json`
+`23ea923813770a21ecb72643a92618bd973034c5644132d6ee225231f6787d37`;
+`light-final.json` `a44871ca39fe27e76f69ae1c393cae76ad3e1cbf7005b1181e0c1143ca7df536`;
+`dark-final.json` `4cb0d386926a3adfbb096958c42c398667f9d2ede444ea4820bd30806569fa02`;
+`state-results-final.json` `125cb92698d68cbe86ddd8e2c3f21ba126f50e9d2f9345fe1668368c6589be20`.
 
 Known non-failing baseline output remains: one existing hook-dependency warning in
 `LiveMatchProvider.tsx:106`, Next lint/multiple-lockfile notices, and existing React

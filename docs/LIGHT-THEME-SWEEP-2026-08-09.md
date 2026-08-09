@@ -6,7 +6,7 @@ Final audit date: 2026-08-10 (Australia/Sydney)
 
 Branch: `codex/light-theme-sweep`
 
-Verified implementation commit: `e1229e9e7458044b735990df9068b58062962275`
+Verified implementation commit: `57902a555ef3e1cdc69d74ff4c45020278bb9ec5`
 
 ## Result
 
@@ -17,8 +17,8 @@ failures. Loading, empty, error, and disabled FeatureHero states were safely for
 at both widths: 8/8 checks, with no declared-stop contrast failures.
 
 This is not a claim that every continuously interpolated gradient pixel was
-mathematically measured. The sound audit policy records 6,214 deduplicated Daylight
-exemptions: 6,213 text records over continuous gradients whose declared stops pass
+mathematically measured. The sound audit policy records 6,209 deduplicated Daylight
+exemptions: 6,208 text records over continuous gradients whose declared stops pass
 but whose intermediate Oklab colours require rendered-pixel evidence, and one mobile
 navigation label intersecting an image. All 70 route-viewport screenshots and all
 eight state screenshots were reviewed; no visual legibility or layout defect was
@@ -47,12 +47,13 @@ The final evidence files are intentionally untracked under
 | Artifact | SHA-256 |
 |---|---|
 | `dark-before.json` | `23ea923813770a21ecb72643a92618bd973034c5644132d6ee225231f6787d37` |
-| `light-after-fix2.json` | `738502713d3413d3b728601e0afc3673cfc71782f3ec48e16c9442ebac2bb23e` |
-| `dark-after-fix2.json` | `36e9f6f5ac32160de9e5bba560070c8e93e570497c1a130b9497b6765f81d5a3` |
-| `state-results-fix2.json` | `125cb92698d68cbe86ddd8e2c3f21ba126f50e9d2f9345fe1668368c6589be20` |
-| P0 screenshot manifest (18 files) | `ca121ffe8809ee50ab38cd39ac65caadc793371d99ad108c70478839fcbb8af2` |
-| P1/P2 screenshot manifest (52 files) | `6274b99189205a2959ee5e19d8fe6ec3bd30aa4c71a3b39829a06cacb8d99830` |
-| State screenshot manifest (8 files) | `7d7fda1175194cec137302386d115c227e4ad8a2a2d18b913216d6a645643356` |
+| `light-final-wave-diagnostic.json` (RED) | `4459a1e96b2dbd44e74e2ee753f7d2c1f245e4f44ff914243bd172857b9f4cfa` |
+| `light-final.json` (GREEN) | `a44871ca39fe27e76f69ae1c393cae76ad3e1cbf7005b1181e0c1143ca7df536` |
+| `dark-final.json` | `4cb0d386926a3adfbb096958c42c398667f9d2ede444ea4820bd30806569fa02` |
+| `state-results-final.json` | `125cb92698d68cbe86ddd8e2c3f21ba126f50e9d2f9345fe1668368c6589be20` |
+| P0 screenshot manifest (18 files) | `e168ca2bc584626397994e885293e1299686e446c149d14c0d85dcddff3feca6` |
+| P1/P2 screenshot manifest (52 files) | `548a213d2cd8192c5df2120a6823bfce0bfa938409784d412ac099c4c40b3c0e` |
+| State screenshot manifest (8 files) | `4d01a1c633470f1f05417e76993da1ce45eaafa00ddd456812e88a882f02e0a1` |
 
 ## Route inventory
 
@@ -147,10 +148,10 @@ top-level ledger deduplicates canonical aliases.
 | P2 | `/verify-email` | `/verify-email` | 375×844 | manual review | 0 | 4 |
 | P2 | `/verify-email` | `/verify-email` | 1280×800 | manual review | 0 | 4 |
 
-The deduplicated exemption totals are P0 1,061, P1 2,954, and P2 2,199. The
+The deduplicated exemption totals are P0 1,056, P1 2,954, and P2 2,199. The
 single media exemption is the `Home` mobile-nav label on `/nrl/tips` at 375×844,
 whose midpoint intersects `/clubs/nrl/warriors.svg`; its evidence is
-`manual/375x844/nrl-tips.png`. The other 6,213 records are continuous-gradient
+`manual/375x844/nrl-tips.png`. The other 6,208 records are continuous-gradient
 interpolation exemptions.
 
 ## State coverage
@@ -194,6 +195,8 @@ style diff is the browser proof rather than an assertion by eye.
 | `--action-ink` | `156 33% 6%` | background ink `96 23% 96%` → `150 38% 9%` | 1.639 → 9.623 on win |
 | `--draw-ink` | `38 94% 58%` | draw `41 78% 51%` → `43 82% 29%` | 1.998 → 5.042 on canvas |
 | `--loss-ink` | `351 90% 64%` | loss `350 84% 62%` → `350 84% 45%` | 3.278 → 4.979 on canvas |
+| `--loss-ink` on relegation rank rows | `351 90% 64%` | loss `350 84% 62%` → `350 84% 45%` | 3.120–3.368 → 4.740–5.117 on the actual 4% loss row wash |
+| `--hint-ink` | `129 10% 62% / 0.8` | muted/80 → opaque `140 8% 38%` | 1.931–2.047 → 5.401–5.841 on glass stops |
 | `--lime-deep-ink` | `0 0% 0%` | black → `96 23% 96%` | 3.254 → 5.983 on deep lime |
 | `--origin-disclaimer` | `0 0% 100% / 0.4` | white/40 → `140 8% 38%` | 1.031 → 5.415 on canvas |
 | `--disabled-opacity` | `0.6` | `0.6` → `1` | primary ~3.20–3.25 → 9.571; secondary ~4.39 → 15.740–16.968 |
@@ -266,9 +269,18 @@ The upgraded audit exits non-zero in Floodlight because it now sees 310 unchange
 pre-existing declared-stop failures: P0 78, P1 202, P2 30. They occur on `/nrl`
 (46), `/nrl/matches` (32), `/play` (80), `/tips` (80), football team (2), NRL match
 (28), NRL team (12), `/nrl/origin` (2), and `/nrl/run-home` (28). It also records
-6,042 endpoint-safe continuous-gradient exemptions. These findings are a separate
+6,041 endpoint-safe continuous-gradient exemptions. These findings are a separate
 Floodlight remediation concern; this Daylight corrective sweep intentionally did
 not redesign them.
+
+The audit applies 4.5:1 below the WCAG large-text boundaries of 24 CSS px for
+normal text and 18.667 CSS px for bold text; exact just-below/at-boundary tests
+prevent a regression to the former incorrect 18 px / 14 px interpretation. The
+corrected RED audit found 12 failures, all the EPL ranks 18–20 at both widths and
+both resolved glass stops (3.134–3.373:1). Routing the relegation tone through the
+existing dark-exact `loss-ink` token cleared all 12. Focused tests also verify every
+shared `ErrorState` text variant (title, message, optional hint, retry) and every
+standings rank tone (win, gold, loss, none) on its actual tinted row surface.
 
 The final frontend gate retains only known non-failing baseline notices: one
 `react-hooks/exhaustive-deps` warning in `LiveMatchProvider.tsx:106`, Next lint and
@@ -280,8 +292,8 @@ tests. No warning originates from a changed file.
 | Criterion | Status | Evidence |
 |---|---|---|
 | 1. All in-scope routes legible at both widths | Met with documented manual review | 70/70 production checks and 70/70 screenshots reviewed; 8/8 forced-state checks and screenshots reviewed; no visual defect found. |
-| 2. Body text at least 4.5:1 or exempt | Met with explicit exemptions | Zero measurable declared-stop failures. The 6,214 exact exemptions are retained in JSON: 6,213 continuous-gradient records and one URL-image record, all visually reviewed. |
+| 2. Body text at least 4.5:1 or exempt | Met with explicit exemptions | Zero measurable declared-stop failures using the corrected 24 px normal / 18.667 px bold boundaries. The 6,209 exact exemptions are retained in JSON: 6,208 continuous-gradient records and one URL-image record, all visually reviewed. |
 | 3. Floodlight unchanged | Met | Preserved baseline SHA above; `darkDiffs: []`, `darkStyleDiffs: 0`. The 310 pre-existing Floodlight failures are reported separately and are not described as clean. |
 | 4. New-token tests, including revert failure | Met | Focused tests assert exact Floodlight originals and tested Daylight surfaces. A targeted mutation of Daylight `--disabled-opacity-40` from `1` to `0.4` failed on the exact value assertion; restoring `1` passed all eight semantic tests, including the compact-control 4.5:1 checks. Earlier task reports retain the other RED/GREEN evidence. |
 | 5. No new raw hex in themed paths | Met | Lexer-based guard passes with the fixed-palette allowlist above. |
-| 6. Frontend gate | Met | Fresh fix-round run: typecheck exit 0; lint exit 0 with the documented baseline warning; Jest 145/145 suites and 943/943 tests passed in 45.567 s. |
+| 6. Frontend gate | Met | Fresh final-wave run: production build 35/35 pages; typecheck exit 0; lint exit 0 with the documented baseline warning; Jest 146/146 suites and 946/946 tests passed in 16.592 s. |
