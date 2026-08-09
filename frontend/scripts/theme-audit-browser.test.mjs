@@ -127,3 +127,66 @@ test("collects the layers needed to composite an opacity group in the browser", 
     background: [101.2, 149.6, 39.4, 1],
   });
 });
+
+test("resolves computed glass, transparent radial, and nested solid gradient surfaces", async () => {
+  await page.setContent(`
+    <style>
+      body { background: rgb(244, 247, 242); color: rgb(14, 32, 23); }
+      .glass { background: linear-gradient(rgb(255, 255, 255), rgb(246, 248, 243)); }
+      .radial {
+        background-image: radial-gradient(circle, rgba(149, 213, 52, 0.18), transparent 65%);
+      }
+      .solid { background: rgb(20, 40, 30); }
+      .nested { background: linear-gradient(rgba(255, 255, 255, 0.4), transparent); }
+    </style>
+    <section class="glass"><span>Glass target</span></section>
+    <section class="glass"><div class="radial"><span>Radial target</span></div></section>
+    <section class="solid"><div class="nested"><span>Nested target</span></div></section>
+  `);
+
+  const collected = await collectVisibleText(page);
+  const surfaces = (text) => {
+    const target = collected.find((entry) => entry.text === text);
+    assert.ok(target);
+    const rendered = renderedContrastColours(parseCssColor(target.color), target.ancestors);
+    assert.equal(rendered.manualReview, undefined);
+    return rendered.pairs
+      .map((pair) => pair.background.map((channel) => Number(channel.toFixed(2))))
+      .sort((left, right) => left.join(",").localeCompare(right.join(",")));
+  };
+
+  assert.deepEqual(surfaces("Glass target"), [
+    [246, 248, 243, 1],
+    [255, 255, 255, 1],
+  ]);
+  assert.deepEqual(surfaces("Radial target"), [
+    [228.54, 241.7, 208.62, 1],
+    [235.92, 247.44, 218.46, 1],
+    [246, 248, 243, 1],
+    [255, 255, 255, 1],
+  ]);
+  assert.deepEqual(surfaces("Nested target"), [
+    [114, 126, 120, 1],
+    [20, 40, 30, 1],
+  ]);
+});
+
+test("identifies the exact media surface behind text for explicit exemption", async () => {
+  await page.setContent(`
+    <section style="position: relative; width: 240px; height: 80px">
+      <canvas id="probability-chart" width="240" height="80"
+        style="position: absolute; inset: 0"></canvas>
+      <span style="position: absolute; left: 70px; top: 30px">Canvas target</span>
+    </section>
+  `);
+
+  const collected = await collectVisibleText(page);
+  const target = collected.find((entry) => entry.text === "Canvas target");
+  assert.ok(target);
+  assert.deepEqual(target.mediaBehind, {
+    tag: "canvas",
+    selector: "canvas#probability-chart",
+    source: "canvas 240x80",
+    computedBackground: "none",
+  });
+});

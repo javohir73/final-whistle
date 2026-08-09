@@ -7,7 +7,11 @@ const {
   renderedContrastColours,
   isReadOnlyMethod,
   isAuditGuardBlock,
+  deduplicateManualExemptions,
 } = require("./theme-audit-lib.cjs");
+
+type Rgba = [number, number, number, number];
+type RenderedPair = { foreground: Rgba; background: Rgba };
 
 it("parses browser rgb and rgba colours", () => {
   expect(parseCssColor("rgb(15, 33, 23)")).toEqual([15, 33, 23, 1]);
@@ -67,6 +71,111 @@ it("composites an opacity group's text and background against its parent surface
     foreground: [12.4, 23.6, 18.4, 1],
     background: [101.2, 149.6, 39.4, 1],
   });
+});
+
+it("resolves every opaque stop in a computed glass gradient", () => {
+  const rendered = renderedContrastColours(
+    [14, 32, 23, 1],
+    [
+      {
+        tag: "span",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: "none",
+        opacity: 1,
+      },
+      {
+        tag: "section",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: "linear-gradient(rgb(255, 255, 255), rgb(246, 248, 243))",
+        opacity: 1,
+      },
+      {
+        tag: "body",
+        backgroundColor: "rgb(244, 247, 242)",
+        backgroundImage: "none",
+        opacity: 1,
+      },
+    ],
+  );
+
+  expect(rendered.manualReview).toBeUndefined();
+  expect((rendered.pairs as RenderedPair[]).map((pair) => pair.background)).toEqual([
+    [255, 255, 255, 1],
+    [246, 248, 243, 1],
+  ]);
+});
+
+it("composites transparent radial stops over every lower gradient stop", () => {
+  const rendered = renderedContrastColours(
+    [14, 32, 23, 1],
+    [
+      {
+        tag: "div",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage:
+          "radial-gradient(circle, rgba(149, 213, 52, 0.18), rgba(0, 0, 0, 0) 65%), " +
+          "linear-gradient(rgb(255, 255, 255), rgb(246, 248, 243))",
+        opacity: 1,
+      },
+      {
+        tag: "body",
+        backgroundColor: "rgb(244, 247, 242)",
+        backgroundImage: "none",
+        opacity: 1,
+      },
+    ],
+  );
+
+  expect(rendered.manualReview).toBeUndefined();
+  const backgrounds = (rendered.pairs as RenderedPair[])
+    .map((pair) => pair.background.map((channel) => Number(channel.toFixed(2))))
+    .sort((left, right) => left.join(",").localeCompare(right.join(",")));
+  expect(backgrounds).toEqual([
+    [228.54, 241.7, 208.62, 1],
+    [235.92, 247.44, 218.46, 1],
+    [246, 248, 243, 1],
+    [255, 255, 255, 1],
+  ]);
+});
+
+it("keeps an unresolvable URL layer as an explicit computed-background exemption", () => {
+  const computedBackground = 'url("/hero.webp"), linear-gradient(rgb(255, 255, 255), rgb(246, 248, 243))';
+  expect(renderedContrastColours(
+    [14, 32, 23, 1],
+    [{
+      tag: "section",
+      backgroundColor: "rgb(255, 255, 255)",
+      backgroundImage: computedBackground,
+      opacity: 1,
+    }],
+  )).toEqual({
+    manualReview: "unresolvable URL image layer on section",
+    computedBackground,
+  });
+});
+
+it("deduplicates exemptions by target route, viewport, selector, and computed background", () => {
+  const manual = {
+    target: "/football/wc26/bracket",
+    viewport: "375x844",
+    selector: "nav a",
+    text: "Home",
+    reason: "pixel colours vary",
+    computedBackground: "source=/flags/us.png",
+    evidence: "manual/bracket.png",
+  };
+  const routes = ["/brackets", "/football/[comp]/bracket"].map((pattern) => ({
+    tier: "P1",
+    pattern,
+    viewports: { mobile: { manualReview: [{ ...manual, route: pattern }] } },
+  }));
+
+  expect(deduplicateManualExemptions(routes)).toEqual([{
+    ...manual,
+    route: "/football/wc26/bracket",
+    tier: "P1",
+    patterns: ["/brackets", "/football/[comp]/bracket"],
+  }]);
 });
 
 it("allows only read-only browser request methods during an audit", () => {

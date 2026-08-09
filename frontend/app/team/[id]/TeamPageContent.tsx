@@ -169,7 +169,7 @@ export async function renderTeamPage(
             </ul>
           </div>
           <div>
-            <p className="mb-2 text-xs font-bold text-loss">↓ Weak points</p>
+            <p className="mb-2 text-xs font-bold text-loss-ink">↓ Weak points</p>
             <ul className="space-y-1.5 text-sm">
               {weaknesses.map((w, i) => (
                 <li key={i} className="flex gap-2 text-foreground/90">

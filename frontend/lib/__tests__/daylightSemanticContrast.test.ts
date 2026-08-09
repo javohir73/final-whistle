@@ -57,6 +57,10 @@ function ratio(a: Rgba, b: Rgba): number {
   return (high + 0.05) / (low + 0.05);
 }
 
+function withGroupOpacity(pixel: Rgba, opacity: number): Rgba {
+  return [pixel[0], pixel[1], pixel[2], pixel[3] * opacity];
+}
+
 it("gives Daylight action, outcome, host, and Origin copy semantic inks above 4.5:1", () => {
   const canvas = hsl(token(daylight, "background"));
   const surface = hsl(token(daylight, "surface"));
@@ -87,10 +91,111 @@ it("routes every measured failing consumer through its semantic ink", () => {
     "components/DisclaimerBanner.tsx": ["text-draw-ink"],
     "components/Scorebug.tsx": ["text-draw-ink", "text-loss-ink"],
     "app/nrl/origin/page.tsx": ["text-lime-deep-ink", "text-origin-disclaimer"],
+    "components/ProbabilityBar.tsx": ["text-draw-ink", "text-loss-ink"],
+    "components/MatchCard.tsx": ["text-loss-wash-ink", "text-muted-solid"],
+    "components/FormStrip.tsx": ["text-loss-wash-ink", "text-gold-wash-ink"],
+    "components/StandingsTable.tsx": ["text-gold-ink"],
+    "components/OfficialBracket.tsx": ["text-pitch-accent-ink", "text-pitch-foreground-ink", "text-pitch-muted-ink"],
+    "components/MoversPanel.tsx": ["text-pitch-subtle-ink", 'surface="pitch"'],
+    "components/leagueTips/LeagueTipsPicker.tsx": ["disabled:opacity-disabled-40"],
+    "components/nrl/RunHomePredictor.tsx": ["disabled:opacity-disabled-40", "disabled:opacity-disabled"],
   };
 
   for (const [relativePath, classes] of Object.entries(sources)) {
     const source = fs.readFileSync(path.join(root, relativePath), "utf8");
     for (const className of classes) expect(source).toContain(className);
   }
+});
+
+it("keeps both disabled FeatureHero labels AA-safe on every Daylight glass stop", () => {
+  const darkOpacity = Number(token(floodlight, "disabled-opacity"));
+  const daylightOpacity = Number(token(daylight, "disabled-opacity"));
+  const actionInk = hsl(token(daylight, "action-ink"));
+  const foreground = hsl(token(daylight, "foreground"));
+  const win = hsl(token(daylight, "win"));
+  const glassStops = [
+    hsl(token(daylight, "surface")),
+    hsl(token(daylight, "surface-grad-end")),
+  ];
+
+  expect(darkOpacity).toBe(0.6);
+  expect(daylightOpacity).toBe(1);
+  for (const stop of glassStops) {
+    const primaryForeground = composite(withGroupOpacity(composite(actionInk, win), daylightOpacity), stop);
+    const primaryBackground = composite(withGroupOpacity(win, daylightOpacity), stop);
+    const secondaryForeground = composite(withGroupOpacity(foreground, daylightOpacity), stop);
+
+    expect(ratio(primaryForeground, primaryBackground)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(secondaryForeground, stop)).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+it("keeps measured Daylight state inks safe on every surface stop", () => {
+  const glassStops = [
+    hsl(token(daylight, "surface")),
+    hsl(token(daylight, "surface-grad-end")),
+  ];
+  const lossWashStops = glassStops.map((stop) =>
+    composite([...hsl(token(daylight, "loss")).slice(0, 3), 0.15] as Rgba, stop),
+  );
+  const nestedLossWashStops = glassStops.map((stop) => {
+    const inset = composite(
+      [...hsl(token(daylight, "surface-2")).slice(0, 3), 0.7] as Rgba,
+      stop,
+    );
+    return composite([...hsl(token(daylight, "loss")).slice(0, 3), 0.15] as Rgba, inset);
+  });
+  const goldWashStops = glassStops.map((stop) =>
+    composite([...hsl(token(daylight, "gold")).slice(0, 3), 0.15] as Rgba, stop),
+  );
+  const nrlWashStops = glassStops.map((stop) =>
+    composite([...hsl(token(floodlight, "accent-nrl")).slice(0, 3), 0.12] as Rgba, stop),
+  );
+
+  for (const stop of glassStops) {
+    expect(ratio(hsl(token(daylight, "gold-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(hsl(token(daylight, "muted-solid")), stop)).toBeGreaterThanOrEqual(4.5);
+  }
+  for (const stop of [...lossWashStops, ...nestedLossWashStops]) {
+    expect(ratio(hsl(token(daylight, "loss-wash-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+  }
+  for (const stop of goldWashStops) {
+    expect(ratio(hsl(token(daylight, "gold-wash-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+  }
+  for (const stop of nrlWashStops) {
+    expect(ratio(hsl(token(daylight, "accent-nrl-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+it("keeps invariant pitch-panel inks safe on every solid gradient stop", () => {
+  const pitchStops = [hsl("147 44% 13%"), hsl(token(daylight, "pitch")), hsl("147 45% 7%")];
+  const pitchChip = hsl(token(daylight, "pitch-chip"));
+
+  for (const stop of pitchStops) {
+    expect(ratio(hsl(token(daylight, "pitch-accent-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(hsl(token(daylight, "pitch-loss-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(hsl(token(daylight, "pitch-foreground-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(hsl(token(daylight, "pitch-muted-ink")), stop)).toBeGreaterThanOrEqual(4.5);
+    expect(
+      ratio(composite(hsl(token(daylight, "pitch-subtle-ink")), stop), stop),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      ratio(hsl(token(daylight, "pitch-muted-ink")), composite(pitchChip, stop)),
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+it("preserves every new state ink's exact Floodlight literal", () => {
+  expect(token(floodlight, "disabled-opacity-40")).toBe("0.4");
+  expect(token(floodlight, "gold-ink")).toBe("42 62% 48%");
+  expect(token(floodlight, "muted-solid")).toBe("129 10% 62% / 0.7");
+  expect(token(floodlight, "loss-wash-ink")).toBe("351 90% 64%");
+  expect(token(floodlight, "gold-wash-ink")).toBe("38 94% 58%");
+  expect(token(floodlight, "accent-nrl-ink")).toBe("174 60% 40%");
+  expect(token(floodlight, "pitch-accent-ink")).toBe("84 78% 55%");
+  expect(token(floodlight, "pitch-loss-ink")).toBe("351 90% 64%");
+  expect(token(floodlight, "pitch-foreground-ink")).toBe("120 14% 96%");
+  expect(token(floodlight, "pitch-muted-ink")).toBe("129 10% 62%");
+  expect(token(floodlight, "pitch-subtle-ink")).toBe("0 0% 100% / 0.45");
+  expect(token(floodlight, "pitch-chip")).toBe("144 19% 10% / 0.7");
 });

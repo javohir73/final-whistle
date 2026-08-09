@@ -40,7 +40,7 @@ export function RecordView({ record }: { record: ModelRecord }) {
         />
       </section>
       {n < SMALL_SAMPLE && (
-        <p className="text-center text-xs text-gold">
+        <p className="text-center text-xs text-gold-ink">
           Small sample ({n} matches) — treat these with caution while the sample is small.
         </p>
       )}
@@ -132,7 +132,7 @@ function CallList({ title, entries, tone }: { title: string; entries: ModelRecor
           {entries.map((e) => (
             <li key={e.match_id} className="flex items-baseline justify-between gap-3">
               <span className="text-foreground/90">{e.label}</span>
-              <span className={cn("shrink-0 tabular-nums", tone === "win" ? "text-lime-deep" : "text-gold")}>
+              <span className={cn("shrink-0 tabular-nums", tone === "win" ? "text-lime-deep" : "text-gold-ink")}>
                 {e.prob_assigned != null ? pct(e.prob_assigned) : "—"} {e.winner_correct ? "✓" : "✗"}
               </span>
             </li>

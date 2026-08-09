@@ -8,6 +8,7 @@ const {
   contrastRatio,
   wcagThreshold,
   diffDarkStyles,
+  deduplicateManualExemptions,
   isReadOnlyMethod,
   isAuditGuardBlock,
   renderedContrastColours,
@@ -119,7 +120,16 @@ function analyseText(rawElements) {
         selector: element.selector,
         text: element.text,
         foreground: element.color,
-        reason: "text is rendered over an image or canvas",
+        reason:
+          `text midpoint intersects ${element.mediaBehind.tag} ${element.mediaBehind.selector}; ` +
+          "pixel colours vary and cannot be resolved from computed CSS",
+        computedBackground:
+          `source=${element.mediaBehind.source}; ` +
+          `media-background=${element.mediaBehind.computedBackground}; ` +
+          `ancestor-backgrounds=${element.ancestors
+            .filter((ancestor) => ancestor.backgroundImage !== "none")
+            .map((ancestor) => `${ancestor.tag}: ${ancestor.backgroundImage}`)
+            .join(" | ") || "none"}`,
       });
       continue;
     }
@@ -128,25 +138,38 @@ function analyseText(rawElements) {
     const rendered = foreground
       ? renderedContrastColours(foreground, element.ancestors)
       : { manualReview: `unparseable foreground: ${element.color}` };
-    if (!rendered.foreground || !rendered.background) {
+    const pairs = rendered.pairs ?? (
+      rendered.foreground && rendered.background
+        ? [{ foreground: rendered.foreground, background: rendered.background, source: "solid ancestors" }]
+        : []
+    );
+    if (pairs.length === 0) {
       manualReview.push({
         selector: element.selector,
         text: element.text,
         foreground: element.color,
         reason: rendered.manualReview,
+        computedBackground: rendered.computedBackground ?? (
+          element.ancestors
+            .filter((ancestor) => ancestor.backgroundImage !== "none")
+            .map((ancestor) => `${ancestor.tag}: ${ancestor.backgroundImage}`)
+            .join(" | ") || "none"
+        ),
       });
       continue;
     }
 
-    const ratio = contrastRatio(rendered.foreground, rendered.background);
     const threshold = wcagThreshold(element.fontSizePx, element.fontWeight);
-    if (ratio + Number.EPSILON < threshold) {
+    for (const pair of pairs) {
+      const ratio = contrastRatio(pair.foreground, pair.background);
+      if (ratio + Number.EPSILON >= threshold) continue;
       failures.push({
         selector: element.selector,
         text: element.text,
         foreground: element.color,
-        effectiveForeground: colourString(rendered.foreground),
-        background: colourString(rendered.background),
+        effectiveForeground: colourString(pair.foreground),
+        background: colourString(pair.background),
+        surface: pair.source,
         fontSizePx: element.fontSizePx,
         fontWeight: element.fontWeight,
         opacity: element.opacity,
@@ -157,7 +180,16 @@ function analyseText(rawElements) {
     }
   }
 
-  return { failures, manualReview };
+  return {
+    failures: [...new Map(failures.map((failure) => [
+      `${failure.selector}\u0000${failure.background}\u0000${failure.ratio}`,
+      failure,
+    ])).values()],
+    manualReview: [...new Map(manualReview.map((entry) => [
+      `${entry.selector}\u0000${entry.reason}\u0000${entry.computedBackground}`,
+      entry,
+    ])).values()],
+  };
 }
 
 async function linksFrom(page, baseUrl, path) {
@@ -434,6 +466,12 @@ async function auditRoute(context, options, viewport, route) {
     );
     const rawElements = await collectVisibleText(page);
     const measured = analyseText(rawElements);
+    measured.manualReview = measured.manualReview.map((entry) => ({
+      route: route.pattern,
+      target: route.target,
+      viewport: viewport.name,
+      ...entry,
+    }));
 
     let screenshot = null;
     if (options.screenshotsP0 && route.tier === "P0") {
@@ -442,6 +480,26 @@ async function auditRoute(context, options, viewport, route) {
       mkdirSync(dirname(absolutePath), { recursive: true });
       await page.screenshot({ path: absolutePath, fullPage: true });
       screenshot = relativePath;
+    }
+
+    let exemptionEvidence = null;
+    if (options.screenshotsP0 && route.tier !== "P0" && measured.manualReview.length > 0) {
+      const relativePath =
+        `output/playwright/light-theme-sweep/manual/${viewport.name}/${screenshotSlug(route.pattern)}.png`;
+      const absolutePath = resolve(relativePath);
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      await page.screenshot({ path: absolutePath, fullPage: true });
+      exemptionEvidence = relativePath;
+      measured.manualReview = measured.manualReview.map((entry) => ({
+        ...entry,
+        evidence: relativePath,
+      }));
+    } else if (screenshot && measured.manualReview.length > 0) {
+      exemptionEvidence = screenshot;
+      measured.manualReview = measured.manualReview.map((entry) => ({
+        ...entry,
+        evidence: screenshot,
+      }));
     }
 
     return {
@@ -454,6 +512,7 @@ async function auditRoute(context, options, viewport, route) {
       manualReview: measured.manualReview,
       networkFailures: uniqueSorted(networkFailures),
       screenshot,
+      exemptionEvidence,
     };
   } catch (error) {
     return {
@@ -565,7 +624,7 @@ async function captureDarkStyles(browser, options, discovery) {
   return { styles, routes: routeResults };
 }
 
-function summarise(routes, redirects, darkStyleRoutes, darkDiffs) {
+function summarise(routes, redirects, darkStyleRoutes, darkDiffs, manualExemptions) {
   const viewportResults = routes.flatMap((route) => Object.values(route.viewports));
   return {
     routePatterns: routes.length,
@@ -577,7 +636,7 @@ function summarise(routes, redirects, darkStyleRoutes, darkDiffs) {
       darkStyleRoutes.filter((result) => result.status === "navigation-failed").length,
     errorBoundaries: viewportResults.filter((result) => result.status === "error-boundary").length,
     contrastFailures: viewportResults.reduce((sum, result) => sum + result.failures.length, 0),
-    manualReview: viewportResults.reduce((sum, result) => sum + result.manualReview.length, 0),
+    manualReview: manualExemptions.length,
     redirectFailures: redirects.filter((result) => result.status === "failed").length,
     darkStyleDiffs: darkDiffs.length,
   };
@@ -603,7 +662,8 @@ try {
     darkDiffs = diffDarkStyles(baselineStyles, darkCapture.styles);
   }
 
-  const summary = summarise(routes, redirects, darkCapture.routes, darkDiffs);
+  const manualExemptions = deduplicateManualExemptions(routes);
+  const summary = summarise(routes, redirects, darkCapture.routes, darkDiffs, manualExemptions);
   report = {
     schemaVersion: 1,
     theme: options.theme,
@@ -612,6 +672,7 @@ try {
     discovery,
     redirects,
     routes,
+    manualExemptions,
     darkStyleRoutes: darkCapture.routes,
     darkStyles: darkCapture.styles,
     darkDiffs,

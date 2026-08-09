@@ -219,7 +219,7 @@ export function PlatformHome() {
 
       <section className="panel-pitch rounded-2xl px-6 py-8 sm:flex sm:items-center sm:justify-between sm:px-8">
         <div className="relative z-10">
-          <p className="text-label font-bold uppercase tracking-[0.14em] text-lime-deep">
+          <p className="text-label font-bold uppercase tracking-[0.14em] text-pitch-accent-ink">
             Play
           </p>
           <h2 className="mt-1 max-w-xl font-display text-2xl font-extrabold tracking-tight sm:text-3xl">

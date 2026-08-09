@@ -176,7 +176,7 @@ export function RunHomePredictor({
               type="button"
               onClick={reset}
               disabled={picksApplied === 0}
-              className="rounded-lg border border-border px-2.5 py-1 font-semibold text-foreground transition disabled:opacity-40"
+              className="rounded-lg border border-border px-2.5 py-1 font-semibold text-foreground transition disabled:opacity-disabled-40"
             >
               Reset
             </button>
@@ -295,7 +295,7 @@ function FixtureRow({
               disabled={locked}
               onClick={() => onPick(side)}
               className={cn(
-                "truncate rounded-lg border px-2 py-2 text-xs font-semibold transition disabled:opacity-60",
+                "truncate rounded-lg border px-2 py-2 text-xs font-semibold transition disabled:opacity-disabled",
                 active
                   ? "border-win/60 bg-win/15 text-foreground"
                   : "border-border bg-surface-2/50 text-muted hover:border-win/40 hover:text-foreground",

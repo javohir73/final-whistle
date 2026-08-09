@@ -33,7 +33,7 @@ export function TryTimeline({
                 <span
                   className={cn(
                     "rounded-lg px-2 py-1 text-xs font-bold",
-                    isHome ? "bg-win/15 text-lime-deep" : "bg-loss/15 text-loss",
+                    isHome ? "bg-win/15 text-lime-deep" : "bg-loss/15 text-loss-wash-ink",
                   )}
                 >
                   {e.team}

@@ -27,6 +27,19 @@
   --loss-ink: 351 90% 64%;    /* original loss text literal, split from fill */
   --lime-deep-ink: 0 0% 0%;   /* original black ink on deep-lime fills */
   --origin-disclaimer: 0 0% 100% / 0.4; /* legacy Origin disclaimer ink */
+  --disabled-opacity: 0.6; /* original disabled group opacity */
+  --disabled-opacity-40: 0.4; /* original compact-control disabled opacity */
+  --gold-ink: 42 62% 48%; /* original gold text literal */
+  --muted-solid: 129 10% 62% / 0.7; /* original text-muted/70 literal */
+  --loss-wash-ink: 351 90% 64%; /* original loss ink on loss-tinted chips */
+  --gold-wash-ink: 38 94% 58%; /* original amber ink on warm-tinted chips */
+  --accent-nrl-ink: 174 60% 40%; /* original NRL eyebrow ink */
+  --pitch-accent-ink: 84 78% 55%; /* original lime ink on invariant pitch panels */
+  --pitch-loss-ink: 351 90% 64%; /* original loss ink on invariant pitch panels */
+  --pitch-foreground-ink: 120 14% 96%; /* original foreground ink on pitch panels */
+  --pitch-muted-ink: 129 10% 62%; /* original muted ink on pitch panels */
+  --pitch-subtle-ink: 0 0% 100% / 0.45; /* original text-white/45 pitch ink */
+  --pitch-chip: 144 19% 10% / 0.7; /* original surface-2/70 pitch chip */
   --pitch: 143 33% 8%;        /* #0d1a12  hero/accent panels */
   --pitch-copy: #a9c7b4;      /* supporting copy on invariant dark pitch panels */
   --feature-chart-ink: #8b95a7; /* Recharts axis + value-label ink */
@@ -75,6 +88,14 @@
   --lime-deep: 108 56% 27%; --amber-ink: 43 82% 29%; --pitch: 151 51% 14%;
   --action-ink: 150 38% 9%; --draw-ink: 43 82% 29%; --loss-ink: 350 84% 45%;
   --lime-deep-ink: 96 23% 96%; --origin-disclaimer: 140 8% 38%;
+  --disabled-opacity: 1; --disabled-opacity-40: 1;
+  --gold-ink: 42 72% 27%; --muted-solid: 140 8% 38%;
+  --loss-wash-ink: 350 84% 41%; --gold-wash-ink: 43 82% 27%;
+  --accent-nrl-ink: 174 60% 28%;
+  --pitch-accent-ink: 84 78% 55%; --pitch-loss-ink: 351 90% 69%;
+  --pitch-foreground-ink: 120 14% 96%;
+  --pitch-muted-ink: 129 10% 62%; --pitch-subtle-ink: 0 0% 100% / 0.7;
+  --pitch-chip: 144 19% 10% / 0.7;
   /* .panel-pitch stays dark in Daylight, so its supporting ink is invariant. */
   --pitch-copy: #a9c7b4; --feature-chart-ink: #657185;
   /* Cards read white->faint-sage here, mirroring the dark theme's

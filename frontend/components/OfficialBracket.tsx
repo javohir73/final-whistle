@@ -53,13 +53,17 @@ function tieAria(v: TieView, roundLabel: string): string {
   return `${roundLabel}: ${a} vs ${b}, ${v.state}${winner}`;
 }
 
-function SideRow({ s }: { s: SideView }) {
+function SideRow({ s, accent }: { s: SideView; accent?: boolean }) {
   return (
     <div
       data-side
       className={cn(
         "flex items-center justify-between gap-1.5 py-0.5",
-        s.isWinner ? "font-bold text-lime-deep" : s.team ? "text-foreground" : "text-muted",
+        s.isWinner
+          ? cn("font-bold", accent ? "text-pitch-accent-ink" : "text-lime-deep")
+          : s.team
+            ? accent ? "text-pitch-foreground-ink" : "text-foreground"
+            : accent ? "text-pitch-muted-ink" : "text-muted",
       )}
     >
       <span className="flex min-w-0 items-center gap-1">
@@ -84,25 +88,28 @@ function TieCard({ v, roundLabel, accent }: { v: TieView; roundLabel: string; ac
       )}
     >
       <div className="flex items-center justify-between leading-none">
-        <span className="text-micro font-bold uppercase tracking-wide text-muted">#{v.matchNo}</span>
+        <span className={cn("text-micro font-bold uppercase tracking-wide", accent ? "text-pitch-muted-ink" : "text-muted")}>#{v.matchNo}</span>
         {live ? (
           <span
-            className="inline-flex items-center gap-1 rounded-full bg-loss/15 px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide text-loss"
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full bg-loss/15 px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide",
+              accent ? "text-pitch-loss-ink" : "text-loss-wash-ink",
+            )}
             aria-label={`Live, ${v.liveLabel}`}
           >
             <span className="h-1 w-1 motion-safe:animate-pulse rounded-full bg-loss" aria-hidden />
             {v.liveLabel}
           </span>
         ) : v.state === "finished" ? (
-          <span className="rounded-full bg-surface-2/70 px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide text-muted">
+          <span className={cn("rounded-full px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide", accent ? "bg-pitch-chip text-pitch-muted-ink" : "bg-surface-2/70 text-muted")}>
             FT
           </span>
         ) : null}
       </div>
-      <SideRow s={v.a} />
-      <SideRow s={v.b} />
+      <SideRow s={v.a} accent={accent} />
+      <SideRow s={v.b} accent={accent} />
       {v.penaltyText ? (
-        <div className="mt-0.5 text-mini font-semibold text-muted">{v.penaltyText}</div>
+        <div className={cn("mt-0.5 text-mini font-semibold", accent ? "text-pitch-muted-ink" : "text-muted")}>{v.penaltyText}</div>
       ) : null}
     </div>
   );

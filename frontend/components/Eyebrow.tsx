@@ -34,7 +34,7 @@ export function CompEyebrowChip({ comp }: { comp: CompetitionId }) {
       className="inline-flex min-h-[28px] items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2 text-label font-bold uppercase tracking-wide"
       style={{
         backgroundColor: `hsl(var(${competition.accentVar}) / 0.12)`,
-        color: `hsl(var(${competition.accentVar}))`,
+        color: `hsl(var(${comp === "nrl" ? "--accent-nrl-ink" : competition.accentVar}))`,
       }}
     >
       <CompetitionLogo competition={comp} size={20} />

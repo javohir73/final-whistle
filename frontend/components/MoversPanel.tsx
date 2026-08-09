@@ -71,7 +71,7 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
                   <span className="font-display text-lead font-semibold text-white">
                     {m.name}
                   </span>
-                  <span className="block text-label font-medium text-white/45">
+                  <span className="block text-label font-medium text-pitch-subtle-ink">
                     {marketLabel(m.market)}
                   </span>
                 </span>
@@ -80,6 +80,7 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
                   prob={m.prob}
                   deltaText={formatDelta(m.delta)}
                   tone={m.delta === null ? "muted" : up ? "up" : "down"}
+                  surface="pitch"
                 />
               </>
             );

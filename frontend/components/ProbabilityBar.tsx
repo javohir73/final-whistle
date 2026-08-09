@@ -44,8 +44,8 @@ export function ProbabilityBar({
       {showLabels && (
         <div className="mt-2 flex justify-between text-label font-semibold tabular-nums">
           <span className="text-lime-deep">{pct(home_win)}</span>
-          <span className="text-draw">{pct(draw)} draw</span>
-          <span className="text-loss">{pct(away_win)}</span>
+          <span className="text-draw-ink">{pct(draw)} draw</span>
+          <span className="text-loss-ink">{pct(away_win)}</span>
         </div>
       )}
     </div>

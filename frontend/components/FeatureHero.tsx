@@ -193,13 +193,13 @@ export function FeatureHero({
             <>
               <span
                 aria-disabled
-                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink opacity-60"
+                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink opacity-disabled"
               >
                 Make your pick
               </span>
               <span
                 aria-disabled
-                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground opacity-60"
+                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground opacity-disabled"
               >
                 {heroPct != null ? `Why ${heroPct}%?` : "See the prediction"}
               </span>

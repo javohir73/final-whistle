@@ -69,7 +69,7 @@ export default function AboutPage() {
       </section>
 
       <section className="glass rounded-2xl border-gold/20 bg-gold/[0.04] p-6">
-        <h2 className="font-display text-lg font-bold text-gold">Disclaimer</h2>
+        <h2 className="font-display text-lg font-bold text-gold-ink">Disclaimer</h2>
         <p className="mt-2 text-sm leading-relaxed text-foreground/90">
           This platform is for analytics, research, and entertainment only. It is{" "}
           <strong>not betting advice</strong> and does not guarantee outcomes.

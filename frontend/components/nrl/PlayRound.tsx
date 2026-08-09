@@ -238,7 +238,7 @@ function PlayRow({
           {locked ? "Locked" : kickoffLabel(match.kickoff_utc)}
         </span>
         {match.is_featured ? (
-          <span className="rounded-full bg-gold/15 px-2 py-0.5 text-note font-bold uppercase tracking-wide text-amber-ink">
+          <span className="rounded-full bg-gold/15 px-2 py-0.5 text-note font-bold uppercase tracking-wide text-gold-wash-ink">
             Featured match — margin for tiebreaks
           </span>
         ) : null}
@@ -258,7 +258,7 @@ function PlayRow({
             <>
               You picked <strong>{pickLabel(tip.pick, match)}</strong>
               {tip.points != null ? (
-                <span className={tip.points > 0 ? "text-lime-deep" : "text-loss"}>
+                <span className={tip.points > 0 ? "text-lime-deep" : "text-loss-ink"}>
                   {" "}
                   — {tip.points > 0 ? "scored" : "missed"}
                 </span>
@@ -288,7 +288,7 @@ function PlayRow({
                   disabled={pending}
                   onClick={() => onPick(side)}
                   className={cn(
-                    "truncate rounded-lg border px-2 py-2 text-xs font-semibold transition disabled:opacity-60",
+                    "truncate rounded-lg border px-2 py-2 text-xs font-semibold transition disabled:opacity-disabled",
                     active
                       ? "border-win/60 bg-win/15 text-foreground"
                       : "border-border bg-surface-2/50 text-muted hover:border-win/40 hover:text-foreground",
@@ -342,7 +342,7 @@ function PlayRow({
         </div>
       ) : null}
 
-      {error ? <p className="mt-2 text-center text-xs font-medium text-loss">{error}</p> : null}
+      {error ? <p className="mt-2 text-center text-xs font-medium text-loss-ink">{error}</p> : null}
     </div>
   );
 }

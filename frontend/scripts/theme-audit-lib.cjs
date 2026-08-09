@@ -49,6 +49,40 @@ function diffDarkStyles(before, after) {
   return diffs;
 }
 
+function deduplicateManualExemptions(routes) {
+  const exemptions = new Map();
+  for (const route of routes) {
+    for (const viewport of Object.values(route.viewports ?? {})) {
+      for (const review of viewport.manualReview ?? []) {
+        const target = review.target ?? route.target ?? review.route;
+        const key = [
+          target,
+          review.viewport,
+          review.selector,
+          review.reason,
+          review.computedBackground,
+        ].join("\u0000");
+        const existing = exemptions.get(key);
+        if (existing) {
+          existing.patterns = [...new Set([...existing.patterns, route.pattern])].sort();
+          continue;
+        }
+        exemptions.set(key, {
+          ...review,
+          route: target,
+          tier: route.tier,
+          patterns: [route.pattern],
+        });
+      }
+    }
+  }
+  return [...exemptions.values()].sort((left, right) =>
+    [left.tier, left.route, left.viewport, left.selector]
+      .join("\u0000")
+      .localeCompare([right.tier, right.route, right.viewport, right.selector].join("\u0000")),
+  );
+}
+
 function isReadOnlyMethod(method) {
   return method === "GET" || method === "HEAD";
 }
@@ -57,41 +91,142 @@ function isAuditGuardBlock(errorText) {
   return errorText.startsWith("net::ERR_BLOCKED_BY_CLIENT");
 }
 
+function splitTopLevel(value) {
+  const parts = [];
+  let start = 0;
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote && value[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+    } else if (character === "," && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function parseGradientStops(layer) {
+  const match = layer.match(
+    /^(?:repeating-)?(?:linear|radial|conic)-gradient\((.*)\)$/i,
+  );
+  if (!match) return null;
+
+  const stops = [];
+  for (const part of splitTopLevel(match[1])) {
+    const colour = part.match(/^(rgba?\([^)]*\)|transparent)(?:\s|$)/i)?.[1];
+    if (!colour) continue;
+    const parsed = parseCssColor(colour.toLowerCase());
+    if (!parsed) return null;
+    stops.push({ colour: parsed, source: `${layer} stop ${colour}` });
+  }
+  return stops.length >= 2 ? stops : null;
+}
+
+function uniquePairs(pairs) {
+  const seen = new Set();
+  return pairs.filter((pair) => {
+    const key = [...pair.foreground, ...pair.background]
+      .map((value) => Number(value.toFixed(6)))
+      .join(",");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function ancestorBackgrounds(ancestor) {
+  const backgroundColour = parseCssColor(ancestor.backgroundColor);
+  if (!backgroundColour) {
+    return {
+      manualReview: `unparseable background on ${ancestor.tag}: ${ancestor.backgroundColor}`,
+      computedBackground: ancestor.backgroundImage,
+    };
+  }
+  if (ancestor.backgroundImage === "none") {
+    return [{ colour: backgroundColour, source: `${ancestor.tag} background-color` }];
+  }
+  if (/url\(/i.test(ancestor.backgroundImage)) {
+    return {
+      manualReview: `unresolvable URL image layer on ${ancestor.tag}`,
+      computedBackground: ancestor.backgroundImage,
+    };
+  }
+
+  const layers = splitTopLevel(ancestor.backgroundImage);
+  const parsedLayers = layers.map(parseGradientStops);
+  if (parsedLayers.some((layer) => layer === null)) {
+    return {
+      manualReview: `unresolvable computed background on ${ancestor.tag}`,
+      computedBackground: ancestor.backgroundImage,
+    };
+  }
+
+  let candidates = [{ colour: backgroundColour, source: `${ancestor.tag} background-color` }];
+  for (const stops of parsedLayers.reverse()) {
+    candidates = candidates.flatMap((lower) =>
+      stops.map((stop) => ({
+        colour: composite(stop.colour, lower.colour),
+        source: `${stop.source} over ${lower.source}`,
+      })),
+    );
+  }
+  return candidates;
+}
+
 function renderedContrastColours(foreground, ancestors) {
-  let foregroundPixel = foreground;
-  let backgroundPixel = [0, 0, 0, 0];
+  let pairs = [{
+    foreground,
+    background: [0, 0, 0, 0],
+    source: "transparent initial surface",
+  }];
 
   for (const ancestor of ancestors) {
-    if (ancestor.backgroundImage !== "none" && backgroundPixel[3] < 1) {
-      return { manualReview: `background image or gradient on ${ancestor.tag}` };
-    }
-
-    const layer = parseCssColor(ancestor.backgroundColor);
-    if (!layer) {
-      return { manualReview: `unparseable background on ${ancestor.tag}: ${ancestor.backgroundColor}` };
-    }
-    foregroundPixel = composite(foregroundPixel, layer);
-    backgroundPixel = composite(backgroundPixel, layer);
+    const backgrounds = ancestorBackgrounds(ancestor);
+    if (!Array.isArray(backgrounds)) return backgrounds;
 
     const opacity = Number.isFinite(ancestor.opacity) ? ancestor.opacity : 1;
-    foregroundPixel = [
-      foregroundPixel[0],
-      foregroundPixel[1],
-      foregroundPixel[2],
-      foregroundPixel[3] * opacity,
-    ];
-    backgroundPixel = [
-      backgroundPixel[0],
-      backgroundPixel[1],
-      backgroundPixel[2],
-      backgroundPixel[3] * opacity,
-    ];
+    pairs = uniquePairs(pairs.flatMap((pair) => backgrounds.map((background) => {
+      const foregroundPixel = composite(pair.foreground, background.colour);
+      const backgroundPixel = composite(pair.background, background.colour);
+      return {
+        foreground: [
+          foregroundPixel[0], foregroundPixel[1], foregroundPixel[2],
+          foregroundPixel[3] * opacity,
+        ],
+        background: [
+          backgroundPixel[0], backgroundPixel[1], backgroundPixel[2],
+          backgroundPixel[3] * opacity,
+        ],
+        source: `${pair.source}; ${background.source}`,
+      };
+    })));
+    if (pairs.length > 256) {
+      return {
+        manualReview: `more than 256 computed gradient combinations on ${ancestor.tag}`,
+        computedBackground: ancestor.backgroundImage,
+      };
+    }
   }
 
-  if (foregroundPixel[3] < 1 || backgroundPixel[3] < 1) {
+  if (pairs.some((pair) => pair.foreground[3] < 1 || pair.background[3] < 1)) {
     return { manualReview: "no resolvable solid ancestor background" };
   }
-  return { foreground: foregroundPixel, background: backgroundPixel };
+  if (pairs.length === 1) {
+    return { foreground: pairs[0].foreground, background: pairs[0].background };
+  }
+  return { pairs };
 }
 
 async function settlePage(page, url, { timeout = 45_000 } = {}) {
@@ -286,9 +421,24 @@ async function collectVisibleText(page) {
         pointX >= 0 && pointY >= 0 && pointX < window.innerWidth && pointY < window.innerHeight
           ? document.elementsFromPoint(pointX, pointY)
           : [];
-      const mediaBehind = atPoint.some((candidate) =>
+      const mediaElement = atPoint.find((candidate) =>
         ["IMG", "VIDEO", "CANVAS"].includes(candidate.tagName),
       );
+      let mediaBehind = null;
+      if (mediaElement) {
+        let source = "unknown media source";
+        if (mediaElement.tagName === "CANVAS") {
+          source = `canvas ${mediaElement.width}x${mediaElement.height}`;
+        } else {
+          source = mediaElement.currentSrc || mediaElement.getAttribute("src") || source;
+        }
+        mediaBehind = {
+          tag: mediaElement.tagName.toLowerCase(),
+          selector: selectorFor(mediaElement),
+          source,
+          computedBackground: getComputedStyle(mediaElement).backgroundImage,
+        };
+      }
 
       const weight = Number.parseInt(style.fontWeight, 10);
       results.push({
@@ -313,6 +463,7 @@ module.exports = {
   contrastRatio,
   wcagThreshold,
   diffDarkStyles,
+  deduplicateManualExemptions,
   isReadOnlyMethod,
   isAuditGuardBlock,
   renderedContrastColours,
