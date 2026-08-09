@@ -73,7 +73,7 @@ it("composites an opacity group's text and background against its parent surface
   });
 });
 
-it("resolves every opaque stop in a computed glass gradient", () => {
+it("retains resolved opaque stops while deferring interpolation between them", () => {
   const rendered = renderedContrastColours(
     [14, 32, 23, 1],
     [
@@ -98,14 +98,65 @@ it("resolves every opaque stop in a computed glass gradient", () => {
     ],
   );
 
-  expect(rendered.manualReview).toBeUndefined();
-  expect((rendered.pairs as RenderedPair[]).map((pair) => pair.background)).toEqual([
+  expect(rendered.manualReview).toBe(
+    "continuous gradient interpolation between safe declared stops requires rendered-pixel evidence on section",
+  );
+  expect((rendered.declaredPairs as RenderedPair[]).map((pair) => pair.background)).toEqual([
     [255, 255, 255, 1],
     [246, 248, 243, 1],
   ]);
 });
 
-it("composites transparent radial stops over every lower gradient stop", () => {
+it("does not pass a continuous gradient when safe endpoints can interpolate through unsafe contrast", () => {
+  const foreground: Rgba = [117, 117, 117, 1];
+  const black: Rgba = [0, 0, 0, 1];
+  const white: Rgba = [255, 255, 255, 1];
+  const computedBackground = "linear-gradient(rgb(0, 0, 0), rgb(255, 255, 255))";
+
+  expect(contrastRatio(foreground, black)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(foreground, white)).toBeGreaterThanOrEqual(4.5);
+  const rendered = renderedContrastColours(foreground, [{
+    tag: "section",
+    backgroundColor: "rgb(0, 0, 0)",
+    backgroundImage: computedBackground,
+    opacity: 1,
+  }]);
+  expect(rendered).toMatchObject({
+    manualReview:
+      "continuous gradient interpolation between safe declared stops requires rendered-pixel evidence on section",
+    computedBackground,
+  });
+  expect((rendered.declaredPairs as RenderedPair[]).map((pair) => pair.background)).toEqual([
+    black,
+    white,
+  ]);
+});
+
+it("does not apply an sRGB endpoint-channel bound to default coloured interpolation", () => {
+  const foreground: Rgba = [255, 255, 255, 1];
+  const red: Rgba = [255, 0, 0, 1];
+  const blue: Rgba = [0, 0, 255, 1];
+  // The CSS Images 4 default Oklab midpoint for red→blue is approximately this
+  // colour: its green channel lies outside both endpoints' sRGB channel envelope.
+  const oklabMidpoint: Rgba = [140, 83, 162, 1];
+  const computedBackground = "linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))";
+
+  expect(oklabMidpoint[1]).toBeGreaterThan(Math.max(red[1], blue[1]));
+  expect(contrastRatio(foreground, red)).toBeGreaterThanOrEqual(3);
+  expect(contrastRatio(foreground, blue)).toBeGreaterThanOrEqual(3);
+  expect(renderedContrastColours(foreground, [{
+    tag: "section",
+    backgroundColor: "rgb(0, 0, 0)",
+    backgroundImage: computedBackground,
+    opacity: 1,
+  }], 3)).toMatchObject({
+    manualReview:
+      "continuous gradient interpolation between safe declared stops requires rendered-pixel evidence on section",
+    computedBackground,
+  });
+});
+
+it("retains composited transparent radial stops while deferring interpolation", () => {
   const rendered = renderedContrastColours(
     [14, 32, 23, 1],
     [
@@ -126,8 +177,10 @@ it("composites transparent radial stops over every lower gradient stop", () => {
     ],
   );
 
-  expect(rendered.manualReview).toBeUndefined();
-  const backgrounds = (rendered.pairs as RenderedPair[])
+  expect(rendered.manualReview).toBe(
+    "continuous gradient interpolation between safe declared stops requires rendered-pixel evidence on div",
+  );
+  const backgrounds = (rendered.declaredPairs as RenderedPair[])
     .map((pair) => pair.background.map((channel) => Number(channel.toFixed(2))))
     .sort((left, right) => left.join(",").localeCompare(right.join(",")));
   expect(backgrounds).toEqual([

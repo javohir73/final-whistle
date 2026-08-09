@@ -139,7 +139,9 @@ function uniquePairs(pairs) {
   return pairs.filter((pair) => {
     const key = [...pair.foreground, ...pair.background]
       .map((value) => Number(value.toFixed(6)))
-      .join(",");
+      .join(",") + `:${(pair.continuousGradients ?? [])
+        .map((gradient) => `${gradient.tag}:${gradient.computedBackground}`)
+        .join("|")}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -165,6 +167,12 @@ function ancestorBackgrounds(ancestor) {
   }
 
   const layers = splitTopLevel(ancestor.backgroundImage);
+  if (layers.some((layer) => /(?:^|[,\s])in\s+[a-z]/i.test(layer))) {
+    return {
+      manualReview: `unsupported explicit gradient interpolation on ${ancestor.tag}`,
+      computedBackground: ancestor.backgroundImage,
+    };
+  }
   const parsedLayers = layers.map(parseGradientStops);
   if (parsedLayers.some((layer) => layer === null)) {
     return {
@@ -174,22 +182,71 @@ function ancestorBackgrounds(ancestor) {
   }
 
   let candidates = [{ colour: backgroundColour, source: `${ancestor.tag} background-color` }];
+  const continuousGradient = {
+    tag: ancestor.tag,
+    computedBackground: ancestor.backgroundImage,
+  };
   for (const stops of parsedLayers.reverse()) {
     candidates = candidates.flatMap((lower) =>
       stops.map((stop) => ({
         colour: composite(stop.colour, lower.colour),
         source: `${stop.source} over ${lower.source}`,
+        continuousGradients: [
+          ...new Map([
+            ...(lower.continuousGradients ?? []),
+            continuousGradient,
+          ].map((gradient) => [
+            `${gradient.tag}\u0000${gradient.computedBackground}`,
+            gradient,
+          ])).values(),
+        ],
       })),
     );
   }
   return candidates;
 }
 
-function renderedContrastColours(foreground, ancestors) {
+function continuousGradientReview(pairs, threshold) {
+  const gradientPairs = pairs.filter((pair) => pair.continuousGradients?.length > 0);
+  if (gradientPairs.length === 0) return null;
+
+  // A declared stop that already fails is concrete evidence. Preserve all endpoint
+  // pairs so the caller reports that failure instead of downgrading it to manual.
+  if (gradientPairs.some((pair) => contrastRatio(pair.foreground, pair.background) < threshold)) {
+    return null;
+  }
+
+  const gradients = [...new Map(gradientPairs.flatMap((pair) =>
+    pair.continuousGradients.map((gradient) => [
+      `${gradient.tag}\u0000${gradient.computedBackground}`,
+      gradient,
+    ]),
+  )).values()];
+  const computedBackground = gradients.length === 1
+    ? gradients[0].computedBackground
+    : gradients.map((gradient) => `${gradient.tag}: ${gradient.computedBackground}`).join(" | ");
+  const tags = [...new Set(gradients.map((gradient) => gradient.tag))].join(", ");
+
+  // CSS Images 4 does not make declared endpoint colours a proof of the
+  // continuous rendered path: the default interpolation space and multi-layer
+  // alpha composition can produce intermediate colours not represented by those
+  // endpoints. Keep the resolved stops as diagnostic evidence, but do not pass an
+  // endpoint-safe gradient without rendered-pixel evidence for the text footprint.
+  return {
+    manualReview:
+      `continuous gradient interpolation between safe declared stops ` +
+      `requires rendered-pixel evidence on ${tags}`,
+    computedBackground,
+    declaredPairs: pairs.map(({ continuousGradients, ...pair }) => pair),
+  };
+}
+
+function renderedContrastColours(foreground, ancestors, threshold = 4.5) {
   let pairs = [{
     foreground,
     background: [0, 0, 0, 0],
     source: "transparent initial surface",
+    continuousGradients: [],
   }];
 
   for (const ancestor of ancestors) {
@@ -210,6 +267,15 @@ function renderedContrastColours(foreground, ancestors) {
           backgroundPixel[3] * opacity,
         ],
         source: `${pair.source}; ${background.source}`,
+        continuousGradients: [
+          ...new Map([
+            ...(pair.continuousGradients ?? []),
+            ...(background.continuousGradients ?? []),
+          ].map((gradient) => [
+            `${gradient.tag}\u0000${gradient.computedBackground}`,
+            gradient,
+          ])).values(),
+        ],
       };
     })));
     if (pairs.length > 256) {
@@ -223,10 +289,13 @@ function renderedContrastColours(foreground, ancestors) {
   if (pairs.some((pair) => pair.foreground[3] < 1 || pair.background[3] < 1)) {
     return { manualReview: "no resolvable solid ancestor background" };
   }
+  const gradientReview = continuousGradientReview(pairs, threshold);
+  if (gradientReview) return gradientReview;
+  const publicPairs = pairs.map(({ continuousGradients, ...pair }) => pair);
   if (pairs.length === 1) {
-    return { foreground: pairs[0].foreground, background: pairs[0].background };
+    return { foreground: publicPairs[0].foreground, background: publicPairs[0].background };
   }
-  return { pairs };
+  return { pairs: publicPairs };
 }
 
 async function settlePage(page, url, { timeout = 45_000 } = {}) {

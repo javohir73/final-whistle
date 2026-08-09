@@ -135,8 +135,9 @@ function analyseText(rawElements) {
     }
 
     const foreground = parseCssColor(element.color);
+    const threshold = wcagThreshold(element.fontSizePx, element.fontWeight);
     const rendered = foreground
-      ? renderedContrastColours(foreground, element.ancestors)
+      ? renderedContrastColours(foreground, element.ancestors, threshold)
       : { manualReview: `unparseable foreground: ${element.color}` };
     const pairs = rendered.pairs ?? (
       rendered.foreground && rendered.background
@@ -159,7 +160,6 @@ function analyseText(rawElements) {
       continue;
     }
 
-    const threshold = wcagThreshold(element.fontSizePx, element.fontWeight);
     for (const pair of pairs) {
       const ratio = contrastRatio(pair.foreground, pair.background);
       if (ratio + Number.EPSILON >= threshold) continue;

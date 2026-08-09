@@ -128,7 +128,7 @@ test("collects the layers needed to composite an opacity group in the browser", 
   });
 });
 
-test("resolves computed glass, transparent radial, and nested solid gradient surfaces", async () => {
+test("retains declared gradient surfaces and defers safe continuous interpolation", async () => {
   await page.setContent(`
     <style>
       body { background: rgb(244, 247, 242); color: rgb(14, 32, 23); }
@@ -145,30 +145,55 @@ test("resolves computed glass, transparent radial, and nested solid gradient sur
   `);
 
   const collected = await collectVisibleText(page);
-  const surfaces = (text) => {
+  const renderedFor = (text) => {
     const target = collected.find((entry) => entry.text === text);
     assert.ok(target);
-    const rendered = renderedContrastColours(parseCssColor(target.color), target.ancestors);
-    assert.equal(rendered.manualReview, undefined);
-    return rendered.pairs
+    return renderedContrastColours(parseCssColor(target.color), target.ancestors);
+  };
+  const surfaces = (rendered, pairKey) =>
+    rendered[pairKey]
       .map((pair) => pair.background.map((channel) => Number(channel.toFixed(2))))
       .sort((left, right) => left.join(",").localeCompare(right.join(",")));
-  };
 
-  assert.deepEqual(surfaces("Glass target"), [
+  const glass = renderedFor("Glass target");
+  assert.match(glass.manualReview, /continuous gradient interpolation.*requires rendered-pixel evidence/);
+  assert.deepEqual(surfaces(glass, "declaredPairs"), [
     [246, 248, 243, 1],
     [255, 255, 255, 1],
   ]);
-  assert.deepEqual(surfaces("Radial target"), [
+  const radial = renderedFor("Radial target");
+  assert.match(radial.manualReview, /continuous gradient interpolation.*requires rendered-pixel evidence/);
+  assert.deepEqual(surfaces(radial, "declaredPairs"), [
     [228.54, 241.7, 208.62, 1],
     [235.92, 247.44, 218.46, 1],
     [246, 248, 243, 1],
     [255, 255, 255, 1],
   ]);
-  assert.deepEqual(surfaces("Nested target"), [
+  const nested = renderedFor("Nested target");
+  assert.equal(nested.manualReview, undefined);
+  assert.deepEqual(surfaces(nested, "pairs"), [
     [114, 126, 120, 1],
     [20, 40, 30, 1],
   ]);
+});
+
+test("keeps an endpoint-safe gradient as manual review when browser interpolation can fail", async () => {
+  await page.setContent(`
+    <section style="color: rgb(117, 117, 117); background: linear-gradient(to right, black, white)">
+      <span>Interpolation target</span>
+    </section>
+  `);
+
+  const collected = await collectVisibleText(page);
+  const target = collected.find((entry) => entry.text === "Interpolation target");
+  assert.ok(target);
+  const computedBackground = target.ancestors.find(
+    (ancestor) => ancestor.backgroundImage !== "none",
+  ).backgroundImage;
+  const rendered = renderedContrastColours(parseCssColor(target.color), target.ancestors);
+
+  assert.match(rendered.manualReview, /continuous gradient interpolation.*requires rendered-pixel evidence/);
+  assert.equal(rendered.computedBackground, computedBackground);
 });
 
 test("identifies the exact media surface behind text for explicit exemption", async () => {
