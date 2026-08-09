@@ -37,7 +37,7 @@ export default function GlobalError({
         }}
       >
         <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Something went wrong</h1>
-        <p style={{ fontSize: "0.875rem", color: "#6b7c71", maxWidth: "28rem" }}>
+        <p style={{ fontSize: "0.875rem", color: "#59685f", maxWidth: "28rem" }}>
           The app hit an unexpected error. Please try again.
         </p>
         <button

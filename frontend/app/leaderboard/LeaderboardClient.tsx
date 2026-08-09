@@ -113,7 +113,7 @@ export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRo
           <h2 className="font-display text-lg font-extrabold text-white">
             Save across devices
           </h2>
-          <p className="mt-1.5 text-sm leading-relaxed text-[#a9c7b4]">
+          <p className="mt-1.5 text-sm leading-relaxed text-white/70">
             Free account — sync your bracket and join the leaderboard. Your picks stay yours.
           </p>
           <button
