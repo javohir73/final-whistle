@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "audit:theme": "node scripts/theme-audit.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",
