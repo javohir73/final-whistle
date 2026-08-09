@@ -133,8 +133,8 @@ export function Scorebug({
         </div>
         <div className="mt-[5px] flex justify-between text-label font-semibold tabular-nums">
           <span className="text-lime-deep">{home} {pct(home_win)}</span>
-          <span className="text-draw">Draw {pct(draw)}</span>
-          <span className="text-loss">{away} {pct(away_win)}</span>
+          <span className="text-draw-ink">Draw {pct(draw)}</span>
+          <span className="text-loss-ink">{away} {pct(away_win)}</span>
         </div>
       </div>
     </section>

@@ -99,7 +99,7 @@ export function PlatformHome() {
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
                 href="#competitions"
-                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-win px-5 font-display text-sm font-bold text-background transition hover:brightness-105"
+                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-win px-5 font-display text-sm font-bold text-action-ink transition hover:brightness-105"
               >
                 Choose a competition
                 <ArrowIcon />
@@ -232,7 +232,7 @@ export function PlatformHome() {
         </div>
         <Link
           href="/play"
-          className="relative z-10 mt-6 inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-win px-5 font-display text-sm font-bold text-background transition hover:brightness-105 sm:mt-0"
+          className="relative z-10 mt-6 inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-win px-5 font-display text-sm font-bold text-action-ink transition hover:brightness-105 sm:mt-0"
         >
           Go to Play
           <ArrowIcon />

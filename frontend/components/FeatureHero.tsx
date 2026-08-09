@@ -178,7 +178,7 @@ export function FeatureHero({
             <>
               <Link
                 href={target}
-                className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-background transition hover:brightness-[1.06]"
+                className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink transition hover:brightness-[1.06]"
               >
                 Make your pick
               </Link>
@@ -193,7 +193,7 @@ export function FeatureHero({
             <>
               <span
                 aria-disabled
-                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-background opacity-60"
+                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink opacity-60"
               >
                 Make your pick
               </span>
