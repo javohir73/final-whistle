@@ -130,6 +130,29 @@ it("keeps both disabled FeatureHero labels AA-safe on every Daylight glass stop"
   }
 });
 
+it("keeps compact disabled controls AA-safe without changing Floodlight opacity", () => {
+  const floodlightOpacity = Number(token(floodlight, "disabled-opacity-40"));
+  const daylightOpacity = Number(token(daylight, "disabled-opacity-40"));
+  const foreground = hsl(token(daylight, "foreground"));
+  const muted = hsl(token(daylight, "muted"));
+  const compactFill = [...hsl(token(daylight, "surface-2")).slice(0, 3), 0.5] as Rgba;
+  const glassStops = [
+    hsl(token(daylight, "surface")),
+    hsl(token(daylight, "surface-grad-end")),
+  ];
+
+  expect(floodlightOpacity).toBe(0.4);
+  expect(daylightOpacity).toBe(1);
+  for (const stop of glassStops) {
+    const pickerForeground = composite(withGroupOpacity(muted, daylightOpacity), stop);
+    const pickerBackground = composite(withGroupOpacity(compactFill, daylightOpacity), stop);
+    const resetForeground = composite(withGroupOpacity(foreground, daylightOpacity), stop);
+
+    expect(ratio(pickerForeground, pickerBackground)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(resetForeground, stop)).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
 it("keeps measured Daylight state inks safe on every surface stop", () => {
   const glassStops = [
     hsl(token(daylight, "surface")),

@@ -197,7 +197,7 @@ style diff is the browser proof rather than an assertion by eye.
 | `--lime-deep-ink` | `0 0% 0%` | black → `96 23% 96%` | 3.254 → 5.983 on deep lime |
 | `--origin-disclaimer` | `0 0% 100% / 0.4` | white/40 → `140 8% 38%` | 1.031 → 5.415 on canvas |
 | `--disabled-opacity` | `0.6` | `0.6` → `1` | primary ~3.20–3.25 → 9.571; secondary ~4.39 → 15.740–16.968 |
-| `--disabled-opacity-40` | `0.4` | `0.4` → `1` | failing compact-control group → zero final declared-stop failures |
+| `--disabled-opacity-40` | `0.4` | `0.4` → `1` | picker 1.738–1.747 → 5.242–5.455; reset 2.461–2.494 → 15.732–17.012 |
 | `--gold-ink` | `42 62% 48%` | `42 62% 48%` → `42 72% 27%` | 2.431–2.628 → 6.061–6.554 on card stops |
 | `--muted-solid` | `129 10% 62% / 0.7` | muted/70 → opaque `140 8% 38%` | 2.941–3.072 → 5.401–5.841 on card stops |
 | `--loss-wash-ink` | `351 90% 64%` | loss `350 84% 62%` → `350 84% 41%` | 2.633–2.939 → 4.643–5.182 on direct/nested washes |
@@ -282,6 +282,6 @@ tests. No warning originates from a changed file.
 | 1. All in-scope routes legible at both widths | Met with documented manual review | 70/70 production checks and 70/70 screenshots reviewed; 8/8 forced-state checks and screenshots reviewed; no visual defect found. |
 | 2. Body text at least 4.5:1 or exempt | Met with explicit exemptions | Zero measurable declared-stop failures. The 6,214 exact exemptions are retained in JSON: 6,213 continuous-gradient records and one URL-image record, all visually reviewed. |
 | 3. Floodlight unchanged | Met | Preserved baseline SHA above; `darkDiffs: []`, `darkStyleDiffs: 0`. The 310 pre-existing Floodlight failures are reported separately and are not described as clean. |
-| 4. New-token tests, including revert failure | Met | Focused tests assert exact Floodlight originals and tested Daylight surfaces. Task reports retain RED failures when tokens/classes were absent or reverted and GREEN results after restoration. |
+| 4. New-token tests, including revert failure | Met | Focused tests assert exact Floodlight originals and tested Daylight surfaces. A targeted mutation of Daylight `--disabled-opacity-40` from `1` to `0.4` failed on the exact value assertion; restoring `1` passed all eight semantic tests, including the compact-control 4.5:1 checks. Earlier task reports retain the other RED/GREEN evidence. |
 | 5. No new raw hex in themed paths | Met | Lexer-based guard passes with the fixed-palette allowlist above. |
-| 6. Frontend gate | Met | Fresh Task 4 run: typecheck exit 0; lint exit 0 with the documented baseline warning; Jest 145/145 suites and 942/942 tests passed in 46.767 s. |
+| 6. Frontend gate | Met | Fresh fix-round run: typecheck exit 0; lint exit 0 with the documented baseline warning; Jest 145/145 suites and 943/943 tests passed in 45.567 s. |

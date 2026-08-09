@@ -42,7 +42,7 @@ or invariant pitch stops, not an assumed page background.
 | `--lime-deep-ink` | `0 0% 0%` | black → `96 23% 96%` | 3.254 → 5.983 on deep lime |
 | `--origin-disclaimer` | `0 0% 100% / 0.4` | white/40 → `140 8% 38%` | 1.031 → 5.415 on canvas |
 | `--disabled-opacity` | `0.6` | `0.6` → `1` | primary ~3.20–3.25 → 9.571; secondary ~4.39 → 15.740–16.968 |
-| `--disabled-opacity-40` | `0.4` | `0.4` → `1` | failing compact-control group → zero final declared-stop failures |
+| `--disabled-opacity-40` | `0.4` | `0.4` → `1` | picker 1.738–1.747 → 5.242–5.455; reset 2.461–2.494 → 15.732–17.012 |
 | `--gold-ink` | `42 62% 48%` | `42 62% 48%` → `42 72% 27%` | 2.431–2.628 → 6.061–6.554 on card stops |
 | `--muted-solid` | `129 10% 62% / 0.7` | muted/70 → opaque `140 8% 38%` | 2.941–3.072 → 5.401–5.841 on card stops |
 | `--loss-wash-ink` | `351 90% 64%` | loss `350 84% 62%` → `350 84% 41%` | 2.633–2.939 → 4.643–5.182 on direct/nested washes |
@@ -84,7 +84,7 @@ it claims—and proves—that Floodlight did not change.
 
 - `npm run typecheck` — pass
 - `npm run lint` — pass with the documented baseline warning
-- `npm test -- --runInBand` — 145/145 suites, 942/942 tests passed
+- `npm test -- --runInBand` — 145/145 suites, 943/943 tests passed
 - production build: 35/35 static pages
 - Daylight production audit: 70/70 checks, zero measured failures
 - forced states: 8/8 checks
