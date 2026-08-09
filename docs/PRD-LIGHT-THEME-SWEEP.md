@@ -62,14 +62,14 @@ Contrast of each hardcoded colour against the Daylight canvas (`#f4f7f2`):
 
 | Colour | Where | On dark | On light | Verdict |
 |---|---|---:|---:|---|
-| `#f6f8f3` | `global-error.tsx` body text | 17.53 | **1.01** | **Invisible** — the crash page is white-on-white in light mode |
+| `#f6f8f3` | `global-error.tsx` background | — | — | The crash canvas, not text. Primary `#0f2117` is 15.71:1; muted ink moves from `#6b7c71` at 4.14:1 to `#59685f` at 5.50:1 in Daylight; the button pair is 7.41:1. |
 | `#a9c7b4` | `leaderboard/LeaderboardClient.tsx` | 10.28 | **1.69** | **Fails** |
 | `#8b95a7` | `FeatureImportanceChart.tsx` axis | 6.21 | **2.79** | **Fails** |
 | `#6b7c71` | `global-error.tsx` muted | 4.24 | **4.09** | Marginal — under AA for body text |
 | `#1a251d`, `#243028` | `TimelineSpine.tsx` rails | 1.18 / 1.36 | 14.65 / 12.71 | Passes, but visually heavy — review weight, not legibility |
 | `#d6f5a8` | `AccountMenu.tsx` initials | 15.61 | **11.09** | **Fine** — sits on `bg-pitch`, which stays dark in both themes. Measuring it against the canvas would have been the wrong test. |
 
-The crash page is the sharpest of these: it renders precisely when something has already gone wrong, and in light mode it would show nothing at all.
+The crash page remains the highest-priority surface because it renders precisely when something has already gone wrong. Its canvas and primary ink were already legible; the measured defect was the muted copy falling below AA in Daylight.
 
 ### 5.3 Deliberately excluded, with reasons
 
