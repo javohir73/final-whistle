@@ -22,7 +22,7 @@ export function zoneToneClasses(
     case "europa":
       return { stripe: "border-l-gold", bg: "bg-gold/[0.04]", rankText: "text-gold" };
     case "releg":
-      return { stripe: "border-l-loss", bg: "bg-loss/[0.04]", rankText: "text-loss" };
+      return { stripe: "border-l-loss", bg: "bg-loss/[0.04]", rankText: "text-loss-ink" };
     case "none":
       return { stripe: "", bg: "", rankText: "" };
   }

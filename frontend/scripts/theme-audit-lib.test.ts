@@ -32,10 +32,14 @@ it("composites translucent text before measuring it", () => {
 });
 
 it("uses WCAG large-text thresholds only at the defined boundary", () => {
-  expect(wcagThreshold(17, 400)).toBe(4.5);
-  expect(wcagThreshold(18, 400)).toBe(3);
-  expect(wcagThreshold(14, 700)).toBe(3);
-  expect(wcagThreshold(13, 700)).toBe(4.5);
+  const boldBoundaryPx = 14 * (96 / 72);
+  const normalBoundaryPx = 18 * (96 / 72);
+
+  expect(wcagThreshold(18, 700)).toBe(4.5);
+  expect(wcagThreshold(boldBoundaryPx - 0.001, 700)).toBe(4.5);
+  expect(wcagThreshold(boldBoundaryPx, 700)).toBe(3);
+  expect(wcagThreshold(normalBoundaryPx - 0.001, 400)).toBe(4.5);
+  expect(wcagThreshold(normalBoundaryPx, 400)).toBe(3);
 });
 
 it("reports only changed computed dark properties", () => {

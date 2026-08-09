@@ -40,6 +40,13 @@ describe("league table with zones", () => {
     expect(rowFor("Team 19")).toHaveClass("border-l-loss");
   });
 
+  it("uses actual-surface-safe semantic inks for every zone rank tone", () => {
+    expect(rowFor("Team 1")?.querySelector(".text-rank")).toHaveClass("text-lime-deep");
+    expect(rowFor("Team 5")?.querySelector(".text-rank")).toHaveClass("text-gold-ink");
+    expect(rowFor("Team 10")?.querySelector(".text-rank")).toHaveClass("text-muted");
+    expect(rowFor("Team 19")?.querySelector(".text-rank")).toHaveClass("text-loss-ink");
+  });
+
   it("renders a legend labelling every zone", () => {
     expect(screen.getByText("Champions League")).toBeInTheDocument();
     expect(screen.getByText("Europa League")).toBeInTheDocument();

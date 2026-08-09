@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import ts from "typescript";
 
@@ -19,7 +20,7 @@ function productionFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return productionFiles(fullPath);
-    if (!/\.tsx?$/.test(entry.name) || /\.test\.[^.]+$/.test(entry.name)) return [];
+    if (!/\.tsx?$/.test(entry.name) || /\.test\./.test(entry.name)) return [];
     return [fullPath];
   });
 }
@@ -74,6 +75,24 @@ it("does not mistake comment markers inside strings for real comments", () => {
   expect(rawHexViolations("components/Icon.tsx", source)).toEqual([
     "components/Icon.tsx:1 #fff",
   ]);
+});
+
+it("excludes any TypeScript basename containing .test. from the production scan", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "theme-color-guard-"));
+  try {
+    fs.writeFileSync(path.join(directory, "palette.ts"), "export const production = true;\n");
+    fs.writeFileSync(path.join(directory, "palette.test.ts"), "export const directTest = true;\n");
+    fs.writeFileSync(
+      path.join(directory, "palette.test.fixtures.ts"),
+      "export const nestedTestFixture = true;\n",
+    );
+
+    expect(productionFiles(directory).map((file) => path.basename(file))).toEqual([
+      "palette.ts",
+    ]);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 it("allows raw hex colours only in documented fixed-palette files", () => {

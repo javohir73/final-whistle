@@ -31,6 +31,7 @@
   --disabled-opacity-40: 0.4; /* original compact-control disabled opacity */
   --gold-ink: 42 62% 48%; /* original gold text literal */
   --muted-solid: 129 10% 62% / 0.7; /* original text-muted/70 literal */
+  --hint-ink: 129 10% 62% / 0.8; /* original shared error hint text-muted/80 */
   --loss-wash-ink: 351 90% 64%; /* original loss ink on loss-tinted chips */
   --gold-wash-ink: 38 94% 58%; /* original amber ink on warm-tinted chips */
   --accent-nrl-ink: 174 60% 40%; /* original NRL eyebrow ink */
@@ -89,7 +90,7 @@
   --action-ink: 150 38% 9%; --draw-ink: 43 82% 29%; --loss-ink: 350 84% 45%;
   --lime-deep-ink: 96 23% 96%; --origin-disclaimer: 140 8% 38%;
   --disabled-opacity: 1; --disabled-opacity-40: 1;
-  --gold-ink: 42 72% 27%; --muted-solid: 140 8% 38%;
+  --gold-ink: 42 72% 27%; --muted-solid: 140 8% 38%; --hint-ink: 140 8% 38%;
   --loss-wash-ink: 350 84% 41%; --gold-wash-ink: 43 82% 27%;
   --accent-nrl-ink: 174 60% 28%;
   --pitch-accent-ink: 84 78% 55%; --pitch-loss-ink: 351 90% 69%;

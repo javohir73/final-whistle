@@ -31,6 +31,7 @@ const config: Config = {
         "origin-disclaimer": "hsl(var(--origin-disclaimer))",
         "gold-ink": "hsl(var(--gold-ink))",
         "muted-solid": "hsl(var(--muted-solid))",
+        "hint-ink": "hsl(var(--hint-ink))",
         "loss-wash-ink": "hsl(var(--loss-wash-ink))",
         "gold-wash-ink": "hsl(var(--gold-wash-ink))",
         "accent-nrl-ink": "hsl(var(--accent-nrl-ink))",

@@ -25,9 +25,9 @@ export function ErrorState({
       role="alert"
       className="glass rounded-2xl border-loss/30 p-6 text-center"
     >
-      <p className="font-display text-lg font-bold text-loss">Something went wrong</p>
+      <p className="font-display text-lg font-bold text-loss-ink">Something went wrong</p>
       <p className="mt-1 text-sm text-muted">{message}</p>
-      {hint && <p className="mt-3 text-sm text-muted/80">{hint}</p>}
+      {hint && <p className="mt-3 text-sm text-hint-ink">{hint}</p>}
       {onRetry && (
         <button
           type="button"

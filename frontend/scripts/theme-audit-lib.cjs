@@ -33,7 +33,12 @@ function contrastRatio(foreground, background) {
 }
 
 function wcagThreshold(fontSizePx, fontWeight) {
-  return fontSizePx >= 18 || (fontSizePx >= 14 && fontWeight >= 700) ? 3 : 4.5;
+  const normalLargeTextPx = 18 * (96 / 72);
+  const boldLargeTextPx = 14 * (96 / 72);
+  return fontSizePx >= normalLargeTextPx ||
+    (fontSizePx >= boldLargeTextPx && fontWeight >= 700)
+    ? 3
+    : 4.5;
 }
 
 function diffDarkStyles(before, after) {
