@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import ts from "typescript";
 
 const FIXED_PALETTE_PATHS: Record<string, string> = {
   "app/global-error.tsx": "self-contained root crash boundary; global CSS is unavailable",
@@ -24,10 +25,56 @@ function productionFiles(directory: string): string[] {
 }
 
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ""))
-    .replace(/\/\/[^\n]*/g, "");
+  const characters = source.split("");
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.JSX,
+    source,
+  );
+  const templateBraceDepths: number[] = [];
+
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (
+      token === ts.SyntaxKind.SingleLineCommentTrivia ||
+      token === ts.SyntaxKind.MultiLineCommentTrivia
+    ) {
+      for (let index = scanner.getTokenPos(); index < scanner.getTextPos(); index += 1) {
+        if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
+      }
+    } else if (token === ts.SyntaxKind.TemplateHead) {
+      templateBraceDepths.push(0);
+    } else if (templateBraceDepths.length && token === ts.SyntaxKind.OpenBraceToken) {
+      templateBraceDepths[templateBraceDepths.length - 1] += 1;
+    } else if (templateBraceDepths.length && token === ts.SyntaxKind.CloseBraceToken) {
+      const currentTemplate = templateBraceDepths.length - 1;
+      if (templateBraceDepths[currentTemplate] > 0) {
+        templateBraceDepths[currentTemplate] -= 1;
+      } else if (scanner.reScanTemplateToken(false) === ts.SyntaxKind.TemplateTail) {
+        templateBraceDepths.pop();
+      }
+    }
+  }
+
+  return characters.join("");
 }
+
+function rawHexViolations(relativePath: string, source: string): string[] {
+  const uncommented = stripComments(source);
+  return Array.from(uncommented.matchAll(/#[\da-fA-F]{3,8}\b/g), (match) => {
+    const line = uncommented.slice(0, match.index).split("\n").length;
+    return `${relativePath}:${line} ${match[0]}`;
+  });
+}
+
+it("does not mistake comment markers inside strings for real comments", () => {
+  const source =
+    'const icon = \'<svg xmlns="http://www.w3.org/2000/svg"><path fill="#fff"/></svg>\';';
+
+  expect(rawHexViolations("components/Icon.tsx", source)).toEqual([
+    "components/Icon.tsx:1 #fff",
+  ]);
+});
 
 it("allows raw hex colours only in documented fixed-palette files", () => {
   const frontendRoot = path.resolve(__dirname, "../..");
@@ -36,11 +83,7 @@ it("allows raw hex colours only in documented fixed-palette files", () => {
       const relativePath = path.relative(frontendRoot, file).split(path.sep).join("/");
       if (FIXED_PALETTE_PATHS[relativePath]) return [];
 
-      const source = stripComments(fs.readFileSync(file, "utf8"));
-      return Array.from(source.matchAll(/#[\da-fA-F]{3,8}\b/g), (match) => {
-        const line = source.slice(0, match.index).split("\n").length;
-        return `${relativePath}:${line} ${match[0]}`;
-      });
+      return rawHexViolations(relativePath, fs.readFileSync(file, "utf8"));
     }),
   );
 

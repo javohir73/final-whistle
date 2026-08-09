@@ -25,6 +25,8 @@ const config: Config = {
         "lime-deep": "hsl(var(--lime-deep))",
         "amber-ink": "hsl(var(--amber-ink))",
         pitch: "hsl(var(--pitch))",
+        "pitch-copy": "var(--pitch-copy)",
+        "feature-chart-ink": "var(--feature-chart-ink)",
       },
       fontFamily: {
         display: ["var(--font-display)", "system-ui", "sans-serif"],

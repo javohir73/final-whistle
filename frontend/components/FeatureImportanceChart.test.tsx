@@ -51,11 +51,19 @@ jest.mock("recharts", () => {
     },
     Bar: ({ children }: any) => React.createElement(React.Fragment, null, children),
     Cell: () => null,
-    LabelList: ({ style }: any) =>
-      React.createElement("i", { "data-testid": "chart-value-ink", "data-fill": style.fill }),
+    LabelList: ({ className, style }: any) =>
+      React.createElement("i", {
+        "data-testid": "chart-value-ink",
+        "data-class": className,
+        "data-fill": style?.fill,
+      }),
     XAxis: () => null,
-    YAxis: ({ tick }: any) =>
-      React.createElement("i", { "data-testid": "chart-axis-ink", "data-fill": tick.fill }),
+    YAxis: ({ className, tick }: any) =>
+      React.createElement("i", {
+        "data-testid": "chart-axis-ink",
+        "data-class": className,
+        "data-fill": tick.fill,
+      }),
   };
 });
 
@@ -80,13 +88,15 @@ describe("FeatureImportanceChart", () => {
     expect(screen.getByText("66%")).toBeInTheDocument();
     expect(screen.getByText("20%")).toBeInTheDocument();
     expect(screen.getByTestId("chart-axis-ink")).toHaveAttribute(
-      "data-fill",
-      "hsl(var(--muted))",
+      "data-class",
+      "feature-chart-axis",
     );
     expect(screen.getByTestId("chart-value-ink")).toHaveAttribute(
-      "data-fill",
-      "hsl(var(--muted))",
+      "data-class",
+      "fill-feature-chart-ink",
     );
+    expect(screen.getByTestId("chart-axis-ink")).not.toHaveAttribute("data-fill");
+    expect(screen.getByTestId("chart-value-ink")).not.toHaveAttribute("data-fill");
 
     // The fix: the wrapper carries an explicit, non-zero inline height so
     // recharts has a real box to draw into (height 0 was the empty section).

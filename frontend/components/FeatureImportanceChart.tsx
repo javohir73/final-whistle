@@ -37,7 +37,8 @@ export function FeatureImportanceChart({ features }: { features: FeatureWeight[]
             type="category"
             dataKey="name"
             width={104}
-            tick={{ fontSize: 12, fill: "hsl(var(--muted))" }}
+            className="feature-chart-axis"
+            tick={{ fontSize: 12 }}
             axisLine={false}
             tickLine={false}
           />
@@ -51,7 +52,8 @@ export function FeatureImportanceChart({ features }: { features: FeatureWeight[]
               dataKey="weight"
               position="right"
               formatter={(v: number) => `${v}%`}
-              style={{ fill: "hsl(var(--muted))", fontSize: 11, fontWeight: 600 }}
+              className="fill-feature-chart-ink"
+              style={{ fontSize: 11, fontWeight: 600 }}
             />
           </Bar>
         </BarChart>
