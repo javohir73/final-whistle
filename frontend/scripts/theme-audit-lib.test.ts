@@ -4,6 +4,9 @@ const {
   contrastRatio,
   wcagThreshold,
   diffDarkStyles,
+  renderedContrastColours,
+  isReadOnlyMethod,
+  isAuditGuardBlock,
 } = require("./theme-audit-lib.cjs");
 
 it("parses browser rgb and rgba colours", () => {
@@ -41,4 +44,39 @@ it("reports only changed computed dark properties", () => {
     before: "rgb(10, 20, 16)",
     after: "rgb(11, 20, 16)",
   }]);
+});
+
+it("composites an opacity group's text and background against its parent surface", () => {
+  expect(renderedContrastColours(
+    [10, 20, 16, 1],
+    [
+      {
+        tag: "button",
+        backgroundColor: "rgb(158, 230, 51)",
+        backgroundImage: "none",
+        opacity: 0.6,
+      },
+      {
+        tag: "div",
+        backgroundColor: "rgb(16, 29, 22)",
+        backgroundImage: "none",
+        opacity: 1,
+      },
+    ],
+  )).toEqual({
+    foreground: [12.4, 23.6, 18.4, 1],
+    background: [101.2, 149.6, 39.4, 1],
+  });
+});
+
+it("allows only read-only browser request methods during an audit", () => {
+  expect(isReadOnlyMethod("GET")).toBe(true);
+  expect(isReadOnlyMethod("HEAD")).toBe(true);
+  expect(isReadOnlyMethod("POST")).toBe(false);
+});
+
+it("recognises browser-specific suffixes on intentionally blocked requests", () => {
+  expect(isAuditGuardBlock("net::ERR_BLOCKED_BY_CLIENT")).toBe(true);
+  expect(isAuditGuardBlock("net::ERR_BLOCKED_BY_CLIENT.Inspector")).toBe(true);
+  expect(isAuditGuardBlock("net::ERR_NAME_NOT_RESOLVED")).toBe(false);
 });

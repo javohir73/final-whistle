@@ -3,7 +3,18 @@ import { dirname, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import auditHelpers from "./theme-audit-lib.cjs";
 
-const { parseCssColor, composite, contrastRatio, wcagThreshold, diffDarkStyles } = auditHelpers;
+const {
+  parseCssColor,
+  contrastRatio,
+  wcagThreshold,
+  diffDarkStyles,
+  isReadOnlyMethod,
+  isAuditGuardBlock,
+  renderedContrastColours,
+  settlePage,
+  revealScrollContent,
+  collectVisibleText,
+} = auditHelpers;
 
 const VIEWPORTS = [
   { name: "375x844", width: 375, height: 844, isMobile: true },
@@ -94,29 +105,6 @@ function shortError(error) {
   return String(error instanceof Error ? error.message : error).replace(/\s+/g, " ").slice(0, 300);
 }
 
-function resolveBackground(ancestors) {
-  const translucentLayers = [];
-  for (const ancestor of ancestors) {
-    if (ancestor.backgroundImage !== "none") {
-      return { manualReview: `background image or gradient on ${ancestor.tag}` };
-    }
-
-    const colour = parseCssColor(ancestor.backgroundColor);
-    if (!colour || colour[3] === 0) continue;
-    if (colour[3] < 1) {
-      translucentLayers.push(colour);
-      continue;
-    }
-
-    let resolved = colour;
-    for (let index = translucentLayers.length - 1; index >= 0; index -= 1) {
-      resolved = composite(translucentLayers[index], resolved);
-    }
-    return { background: resolved };
-  }
-  return { manualReview: "no resolvable solid ancestor background" };
-}
-
 function colourString([red, green, blue, alpha]) {
   return `rgba(${red.toFixed(3)}, ${green.toFixed(3)}, ${blue.toFixed(3)}, ${alpha.toFixed(3)})`;
 }
@@ -137,36 +125,28 @@ function analyseText(rawElements) {
     }
 
     const foreground = parseCssColor(element.color);
-    const resolved = resolveBackground(element.ancestors);
-    if (!foreground || !resolved.background) {
+    const rendered = foreground
+      ? renderedContrastColours(foreground, element.ancestors)
+      : { manualReview: `unparseable foreground: ${element.color}` };
+    if (!rendered.foreground || !rendered.background) {
       manualReview.push({
         selector: element.selector,
         text: element.text,
         foreground: element.color,
-        reason: foreground ? resolved.manualReview : `unparseable foreground: ${element.color}`,
+        reason: rendered.manualReview,
       });
       continue;
     }
 
-    const effectiveForeground = [
-      foreground[0],
-      foreground[1],
-      foreground[2],
-      foreground[3] * element.ancestorOpacity,
-    ];
-    const measuredForeground =
-      effectiveForeground[3] < 1
-        ? composite(effectiveForeground, resolved.background)
-        : effectiveForeground;
-    const ratio = contrastRatio(measuredForeground, resolved.background);
+    const ratio = contrastRatio(rendered.foreground, rendered.background);
     const threshold = wcagThreshold(element.fontSizePx, element.fontWeight);
     if (ratio + Number.EPSILON < threshold) {
       failures.push({
         selector: element.selector,
         text: element.text,
         foreground: element.color,
-        effectiveForeground: colourString(measuredForeground),
-        background: colourString(resolved.background),
+        effectiveForeground: colourString(rendered.foreground),
+        background: colourString(rendered.background),
         fontSizePx: element.fontSizePx,
         fontWeight: element.fontWeight,
         opacity: element.opacity,
@@ -180,112 +160,11 @@ function analyseText(rawElements) {
   return { failures, manualReview };
 }
 
-async function collectVisibleText(page) {
-  return page.evaluate(() => {
-    function selectorFor(element) {
-      const parts = [];
-      let current = element;
-      while (current && current !== document.documentElement && parts.length < 7) {
-        let part = current.tagName.toLowerCase();
-        if (current.id) {
-          part += `#${CSS.escape(current.id)}`;
-          parts.unshift(part);
-          break;
-        }
-        const parent = current.parentElement;
-        if (parent) {
-          const siblings = [...parent.children].filter((sibling) => sibling.tagName === current.tagName);
-          if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
-        }
-        parts.unshift(part);
-        current = parent;
-      }
-      return parts.join(" > ");
-    }
-
-    function isVisible(element) {
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return (
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        style.visibility !== "collapse" &&
-        rect.width > 0 &&
-        rect.height > 0
-      );
-    }
-
-    const ignored = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG"]);
-    const results = [];
-    for (const element of document.querySelectorAll("body *")) {
-      if (ignored.has(element.tagName) || !isVisible(element)) continue;
-      const text = [...element.childNodes]
-        .filter((node) => node.nodeType === Node.TEXT_NODE)
-        .map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "")
-        .filter(Boolean)
-        .join(" ")
-        .slice(0, 180);
-      if (!text) continue;
-
-      const style = getComputedStyle(element);
-      const ancestors = [];
-      let ancestorOpacity = 1;
-      let current = element;
-      while (current) {
-        const currentStyle = getComputedStyle(current);
-        const parsedOpacity = Number.parseFloat(currentStyle.opacity);
-        ancestorOpacity *= Number.isFinite(parsedOpacity) ? parsedOpacity : 1;
-        ancestors.push({
-          tag: current.tagName.toLowerCase(),
-          backgroundColor: currentStyle.backgroundColor,
-          backgroundImage: currentStyle.backgroundImage,
-        });
-        current = current.parentElement;
-      }
-
-      const rect = element.getBoundingClientRect();
-      const pointX = rect.left + rect.width / 2;
-      const pointY = rect.top + rect.height / 2;
-      const atPoint =
-        pointX >= 0 && pointY >= 0 && pointX < window.innerWidth && pointY < window.innerHeight
-          ? document.elementsFromPoint(pointX, pointY)
-          : [];
-      const mediaBehind = atPoint.some((candidate) =>
-        ["IMG", "VIDEO", "CANVAS"].includes(candidate.tagName),
-      );
-
-      const weight = Number.parseInt(style.fontWeight, 10);
-      results.push({
-        selector: selectorFor(element),
-        text,
-        color: style.color,
-        fontSizePx: Number.parseFloat(style.fontSize),
-        fontWeight: Number.isFinite(weight) ? weight : style.fontWeight === "bold" ? 700 : 400,
-        opacity: Number.parseFloat(style.opacity),
-        ancestorOpacity,
-        ancestors,
-        mediaBehind,
-      });
-    }
-    return results;
-  });
-}
-
-async function settlePage(page, url) {
-  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-  await page.waitForTimeout(500);
-  return response;
-}
-
 async function linksFrom(page, baseUrl, path) {
-  try {
-    const response = await settlePage(page, `${baseUrl}${path}`);
-    if (!response || response.status() >= 400) return [];
-    return page.$$eval("a[href]", (anchors) => anchors.map((anchor) => anchor.href));
-  } catch {
-    return [];
-  }
+  const response = await settlePage(page, `${baseUrl}${path}`);
+  if (!response || response.status() >= 400) return [];
+  await revealScrollContent(page);
+  return page.$$eval("a[href]", (anchors) => anchors.map((anchor) => anchor.href));
 }
 
 async function discoverPath(page, baseUrl, sources, pattern, normalise = (path) => path) {
@@ -439,7 +318,6 @@ function legacyRedirects(discovery) {
 }
 
 async function installContextGuards(context, options) {
-  const baseOrigin = new URL(options.baseUrl).origin;
   await context.addInitScript((selectedTheme) => {
     try {
       localStorage.setItem("fw_theme", selectedTheme);
@@ -449,13 +327,7 @@ async function installContextGuards(context, options) {
   }, options.theme);
   await context.route("**/*", async (route) => {
     const request = route.request();
-    let isExternal = false;
-    try {
-      isExternal = new URL(request.url()).origin !== baseOrigin;
-    } catch {
-      isExternal = true;
-    }
-    if (isExternal && !["GET", "HEAD"].includes(request.method())) {
+    if (!isReadOnlyMethod(request.method())) {
       await route.abort("blockedbyclient");
       return;
     }
@@ -535,7 +407,7 @@ async function auditRoute(context, options, viewport, route) {
   });
   page.on("requestfailed", (request) => {
     const failure = request.failure()?.errorText ?? "request failed";
-    if (failure !== "net::ERR_BLOCKED_BY_CLIENT") {
+    if (!isAuditGuardBlock(failure)) {
       networkFailures.push(`${request.method()} ${request.url().replace(options.baseUrl, "")} ${failure}`);
     }
   });
@@ -554,6 +426,7 @@ async function auditRoute(context, options, viewport, route) {
       };
     }
 
+    await revealScrollContent(page);
     const errorBoundary = await page.evaluate(() =>
       [...document.querySelectorAll("h1")].some(
         (heading) => heading.textContent?.trim() === "Something went wrong",
