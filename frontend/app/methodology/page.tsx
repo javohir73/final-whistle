@@ -340,10 +340,12 @@ export default async function MethodologyPage() {
         <ul className="mt-3 space-y-1.5 text-sm text-muted">
           <li>
             <span className="text-foreground/80">Premier League, La Liga, Bundesliga</span>{" "}
-            (poisson-elo-club-v0.2) — each goal rate fitted on that league&apos;s
+            (poisson-elo-club-v0.3) — each goal rate fitted on that league&apos;s
             own ten seasons. La Liga&apos;s refit came back <em>worse</em> than the
             value it already had, so it kept the original: a fit that changes
-            nothing is still a result.
+            nothing is still a result. v0.3 is those same fits on the current
+            engine, which reads betting odds, injuries and suspensions; v0.2 was
+            the same fits before those were switched on.
           </li>
           <li>
             <span className="text-foreground/80">Champions League</span>{" "}
