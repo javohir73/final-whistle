@@ -8,6 +8,7 @@ const {
   isReadOnlyMethod,
   isAuditGuardBlock,
   deduplicateManualExemptions,
+  isUnstyledSample,
 } = require("./theme-audit-lib.cjs");
 
 type Rgba = [number, number, number, number];
@@ -245,4 +246,51 @@ it("recognises browser-specific suffixes on intentionally blocked requests", () 
   expect(isAuditGuardBlock("net::ERR_BLOCKED_BY_CLIENT")).toBe(true);
   expect(isAuditGuardBlock("net::ERR_BLOCKED_BY_CLIENT.Inspector")).toBe(true);
   expect(isAuditGuardBlock("net::ERR_NAME_NOT_RESOLVED")).toBe(false);
+});
+
+// --- Instrument faults vs contrast results ----------------------------------
+// A run once reported 310 "pre-existing Floodlight contrast failures". Every one
+// carried an rgb(0,0,0) foreground or rgb(255,255,255) background — the browser's
+// unstyled defaults. Live measurement of the same pages found ZERO elements with
+// either, and the footer that was reported as failing measured 7.41:1. Acting on
+// that report would have meant rewriting ~310 colour declarations in a theme
+// independently measured as AAA-grade. These pin the distinction.
+
+describe("isUnstyledSample", () => {
+  const FLOODLIGHT_CANVAS = [10, 20, 16, 1];
+
+  it("flags the unstyled black ink that produced the phantom failures", () => {
+    expect(
+      isUnstyledSample([0, 0, 0, 1], [16, 30, 23, 1], FLOODLIGHT_CANVAS),
+    ).toMatch(/unstyled default ink/);
+  });
+
+  it("flags an unstyled white canvas under a dark theme", () => {
+    expect(
+      isUnstyledSample([148, 168, 151, 1], [255, 255, 255, 1], FLOODLIGHT_CANVAS),
+    ).toMatch(/unstyled default canvas/);
+  });
+
+  it("passes the REAL footer pair that was wrongly reported as failing", () => {
+    // rgb(148,168,151) on rgb(10,20,16) measures 7.41:1 in the browser.
+    expect(
+      isUnstyledSample([148, 168, 151, 1], [10, 20, 16, 1], FLOODLIGHT_CANVAS),
+    ).toBeNull();
+  });
+
+  it("does NOT mask a real white surface when the theme genuinely paints white", () => {
+    // Daylight cards are #ffffff. A dark-on-white pair there is a real result,
+    // so the guard must not swallow it — otherwise it hides genuine findings.
+    const DAYLIGHT_CARD = [255, 255, 255, 1];
+    expect(
+      isUnstyledSample([200, 200, 200, 1], [255, 255, 255, 1], DAYLIGHT_CARD),
+    ).toBeNull();
+  });
+
+  it("still flags black ink even on a legitimately white canvas", () => {
+    // Nothing in either theme paints pure black text; it is always the default.
+    expect(
+      isUnstyledSample([0, 0, 0, 1], [255, 255, 255, 1], [255, 255, 255, 1]),
+    ).toMatch(/unstyled default ink/);
+  });
 });
