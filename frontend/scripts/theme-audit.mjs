@@ -15,6 +15,7 @@ const {
   settlePage,
   revealScrollContent,
   collectVisibleText,
+  isUnstyledSample,
 } = auditHelpers;
 
 const VIEWPORTS = [
@@ -110,9 +111,12 @@ function colourString([red, green, blue, alpha]) {
   return `rgba(${red.toFixed(3)}, ${green.toFixed(3)}, ${blue.toFixed(3)}, ${alpha.toFixed(3)})`;
 }
 
-function analyseText(rawElements) {
+function analyseText(rawElements, themedCanvas = null) {
   const failures = [];
   const manualReview = [];
+  // Samples taken before the stylesheet applied: reported as an instrument
+  // fault, NEVER as a contrast result. See isUnstyledSample().
+  const unstyledSamples = [];
 
   for (const element of rawElements) {
     if (element.mediaBehind) {
@@ -163,6 +167,13 @@ function analyseText(rawElements) {
     for (const pair of pairs) {
       const ratio = contrastRatio(pair.foreground, pair.background);
       if (ratio + Number.EPSILON >= threshold) continue;
+      const unstyled = isUnstyledSample(pair.foreground, pair.background, themedCanvas);
+      if (unstyled) {
+        unstyledSamples.push({ selector: element.selector, text: element.text,
+          reason: unstyled, foreground: colourString(pair.foreground),
+          background: colourString(pair.background) });
+        continue;
+      }
       failures.push({
         selector: element.selector,
         text: element.text,
@@ -181,6 +192,7 @@ function analyseText(rawElements) {
   }
 
   return {
+    unstyledSamples,
     failures: [...new Map(failures.map((failure) => [
       `${failure.selector}\u0000${failure.background}\u0000${failure.ratio}`,
       failure,
@@ -419,6 +431,73 @@ function screenshotSlug(pattern) {
     .replace(/^-|-$/g, "");
 }
 
+
+/** Block until the author stylesheet has actually applied.
+ *
+ *  settlePage() waits for network idle and loading affordances, neither of
+ *  which implies CSS has landed — in Next dev the styles are injected by the
+ *  client bundle, so a page can be network-idle while still painting browser
+ *  defaults. Measuring then yields black-on-white pairs that look exactly like
+ *  catastrophic contrast failures and are nothing of the kind.
+ *
+ *  Resolves to the theme's real body background, which analyseText needs to
+ *  tell a genuine white surface from an unstyled one. Throws rather than
+ *  returning a guess: a run that cannot prove the page is styled must fail
+ *  loudly, not emit fiction. */
+/** Is this our application, or Next's not-found wearing our URL?
+ *
+ *  Next's not-found renders INSIDE the root layout — our header, our <title> —
+ *  and is served with HTTP 200 in this configuration, so neither the status
+ *  code, the page title, nor the presence of app chrome distinguishes it. What
+ *  does: Next stamps `next-error-h1` on its heading, and the page carries its
+ *  own inline white/black styling that ignores the theme entirely.
+ *
+ *  Audited as a themed surface it yields spectacular fiction — this is the
+ *  origin of the "310 pre-existing Floodlight contrast failures" report. Every
+ *  one of those came from routes whose data was unavailable in that
+ *  environment, measuring Next's chrome instead of ours. */
+async function detectNonAppPage(page) {
+  return page.evaluate(() => {
+    // Selector only. A body-text match on "This page could not be found" is
+    // NOT usable: Next ships that string invisibly into every dev page, so it
+    // flags healthy routes too (measured: it matched /methodology, which is
+    // fine and renders on the Floodlight canvas).
+    const heading = document.querySelector(".next-error-h1, #__next_error__");
+    if (!heading) return null;
+    const rect = heading.getBoundingClientRect();
+    const style = getComputedStyle(heading);
+    const shown = rect.width > 0 && rect.height > 0
+      && style.display !== "none" && style.visibility !== "hidden";
+    return shown ? "Next not-found/error page (served under an app URL)" : null;
+  });
+}
+
+async function waitForStylesApplied(page, { timeout = 15_000 } = {}) {
+  const deadline = Date.now() + timeout;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      return {
+        tokensLoaded: root.getPropertyValue("--background").trim() !== "",
+        canvas: body.backgroundColor,
+        sheets: document.styleSheets.length,
+      };
+    });
+    // Tokens present AND the canvas is no longer the browser default.
+    if (last.tokensLoaded && last.sheets > 0 && last.canvas !== "rgba(0, 0, 0, 0)"
+        && last.canvas !== "rgb(255, 255, 255)") {
+      return last.canvas;
+    }
+    await page.waitForTimeout(150);
+  }
+  throw new Error(
+    `stylesheet never applied within ${timeout}ms (tokens=${last?.tokensLoaded} ` +
+    `sheets=${last?.sheets} canvas=${last?.canvas}) — refusing to measure defaults`,
+  );
+}
+
 async function auditRoute(context, options, viewport, route) {
   if (!route.target) {
     return {
@@ -464,8 +543,21 @@ async function auditRoute(context, options, viewport, route) {
         (heading) => heading.textContent?.trim() === "Something went wrong",
       ),
     );
+    const nonApp = await detectNonAppPage(page);
+    if (nonApp) {
+      return {
+        status: "unavailable",
+        reason: `${nonApp} — not a themed surface in this environment`,
+        finalUrl: page.url(),
+        failures: [],
+        unstyledSamples: [],
+        manualReview: [],
+        networkFailures: uniqueSorted(networkFailures),
+      };
+    }
+    const themedCanvas = parseCssColor(await waitForStylesApplied(page));
     const rawElements = await collectVisibleText(page);
-    const measured = analyseText(rawElements);
+    const measured = analyseText(rawElements, themedCanvas);
     measured.manualReview = measured.manualReview.map((entry) => ({
       route: route.pattern,
       target: route.target,
@@ -509,6 +601,7 @@ async function auditRoute(context, options, viewport, route) {
       title: await page.title(),
       textElements: rawElements.length,
       failures: measured.failures,
+      unstyledSamples: measured.unstyledSamples ?? [],
       manualReview: measured.manualReview,
       networkFailures: uniqueSorted(networkFailures),
       screenshot,
@@ -636,6 +729,8 @@ function summarise(routes, redirects, darkStyleRoutes, darkDiffs, manualExemptio
       darkStyleRoutes.filter((result) => result.status === "navigation-failed").length,
     errorBoundaries: viewportResults.filter((result) => result.status === "error-boundary").length,
     contrastFailures: viewportResults.reduce((sum, result) => sum + result.failures.length, 0),
+    unstyledSamples: viewportResults.reduce(
+      (sum, result) => sum + (result.unstyledSamples?.length ?? 0), 0),
     manualReview: manualExemptions.length,
     redirectFailures: redirects.filter((result) => result.status === "failed").length,
     darkStyleDiffs: darkDiffs.length,

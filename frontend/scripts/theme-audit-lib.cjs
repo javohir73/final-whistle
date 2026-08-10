@@ -531,6 +531,43 @@ async function collectVisibleText(page) {
   });
 }
 
+
+/** Colours the browser paints when NO author stylesheet has applied yet:
+ *  black ink on a white canvas. Real Floodlight/Daylight surfaces are neither,
+ *  so seeing them in a measured pair means the sample was taken before CSS
+ *  landed — not that the theme fails contrast.
+ *
+ *  This mattered: a run once reported 310 "pre-existing Floodlight contrast
+ *  failures". Every one carried an impossible rgb(0,0,0) foreground or
+ *  rgb(255,255,255) background. Live measurement of the same pages found ZERO
+ *  elements with either. Acting on that report would have meant rewriting ~310
+ *  colour declarations in a theme independently measured as AAA-grade.
+ *
+ *  Treated as an instrument fault, never as a contrast result. */
+const UNSTYLED_INK = [0, 0, 0];
+const UNSTYLED_CANVAS = [255, 255, 255];
+
+function sameRgb(colour, rgb) {
+  return Array.isArray(colour)
+    && Math.round(colour[0]) === rgb[0]
+    && Math.round(colour[1]) === rgb[1]
+    && Math.round(colour[2]) === rgb[2]
+    && (colour[3] === undefined || colour[3] === 1);
+}
+
+/** True when a measured pair carries a browser default that the themed page
+ *  cannot legitimately produce. ``themedCanvas`` is the theme's real body
+ *  background; a theme that genuinely paints white (none here) is exempted so
+ *  this can never mask a real finding. */
+function isUnstyledSample(foreground, background, themedCanvas) {
+  const canvasIsWhite = sameRgb(themedCanvas, UNSTYLED_CANVAS);
+  if (sameRgb(foreground, UNSTYLED_INK)) return "unstyled default ink rgb(0,0,0)";
+  if (!canvasIsWhite && sameRgb(background, UNSTYLED_CANVAS)) {
+    return "unstyled default canvas rgb(255,255,255)";
+  }
+  return null;
+}
+
 module.exports = {
   parseCssColor,
   composite,
@@ -544,4 +581,5 @@ module.exports = {
   settlePage,
   revealScrollContent,
   collectVisibleText,
+  isUnstyledSample,
 };
