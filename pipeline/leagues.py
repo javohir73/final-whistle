@@ -284,15 +284,34 @@ PHASE_2_ACTIVATION_CHECKLIST: tuple[str, ...] = (
 # walk-forward selection clustered by season, one confirmation run on a
 # quarantined season).
 #
-# All three domestic leagues carry the v0.2 tag even though La Liga's fitted result was
-# "no change from the global values" -- v0.2 names the PROCESS (per-league
+# All three domestic leagues carry one tag even though La Liga's fitted result was
+# "no change from the global values" -- the version names the PROCESS (per-league
 # fitting) rather than a specific delta, and a single version across the three
 # keeps one ledger on the record page. Safe to renumber wholesale because no
 # league match has been played yet: first kickoff is 2026-08-15.
-CLUB_MODEL_VERSION = "poisson-elo-club-v0.2"
+#
+# v0.3 = v0.2's per-league goal-rate fits, now on the v0.6 engine. The club path
+# builds its params from ml/models/model_params.json (club_params_for below only
+# replaces the version and the league's own overrides), so #235's promotion of
+# odds anchoring, availability and suspensions on 2026-08-04 changed what every
+# league served -- while the tag stayed "v0.2", which had been serving since
+# 2026-07-28. One string named two different models for eleven days. The rows
+# are all for unplayed fixtures so nothing scored is affected, but the ledger is
+# append-only evidence and a name that means two things is a defect in it.
+# Renumbered before the openers because after 2026-08-15 it cannot be done
+# cleanly. See test_engine_switch_fingerprint_matches_the_served_version.
+CLUB_MODEL_VERSION = "poisson-elo-club-v0.3"
 
 # The previous version, retained as the shadow twin so the promotion is
 # measurable in live conditions rather than only offline.
+#
+# Documentary only: this string names WHICH params the twin represents, but the
+# rows it writes are tagged off the served version ("...v0.3+baseline", via
+# generate_predictions.baseline_model_version_for). It stays "v0.1" because the
+# twin is still what it always was -- the global params with no league overrides
+# -- and that is the contrast the +baseline comparison isolates. Both sides of
+# that comparison move together when the engine is promoted, so the promotion
+# above does not confound it.
 CLUB_SHADOW_BASELINE_VERSION = "poisson-elo-club-v0.1"
 
 

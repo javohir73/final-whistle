@@ -259,3 +259,51 @@ def test_a_variant_overrides_the_calibrator_alone():
     assert variant.base == served.base == 1.44
     for field in ("beta", "rho", "home_adv", "temperature", "version"):
         assert getattr(variant, field) == getattr(served, field), field
+
+
+# The engine switches that decide WHAT the club leagues serve. Flipping any of
+# these is a promotion -- a different model, and so a different ledger. The
+# fitted scalars are here for the same reason. `calibrator` is deliberately
+# NOT: it is a refit artifact with its own per-league provenance
+# (CALIBRATOR_ARTIFACTS), recalibrated on schedule under the same model family,
+# and pinning it here would fragment the ledger on every routine refit.
+_ENGINE_SWITCHES = (
+    "base", "beta", "home_adv", "rho", "temperature",
+    "w_odds", "use_availability", "use_odds",
+    "team_offsets", "form_channels", "suspensions", "rest_days",
+)
+
+# Fingerprint of the above under poisson-elo-club-v0.3 (the v0.6 engine:
+# odds anchoring at 0.35, availability on, suspensions on -- promoted in #235).
+_V03_ENGINE_FINGERPRINT = (
+    "base=1.2|beta=0.0021|home_adv=60.0|rho=-0.06|temperature=1.0|"
+    "w_odds=0.35|use_availability=True|use_odds=True|"
+    "team_offsets=None|form_channels=None|suspensions={'enabled': True}|rest_days=None"
+)
+
+
+def _engine_fingerprint(params) -> str:
+    return "|".join(f"{f}={getattr(params, f)!r}" if isinstance(getattr(params, f), dict)
+                    else f"{f}={getattr(params, f)}" for f in _ENGINE_SWITCHES)
+
+
+def test_engine_switch_fingerprint_matches_the_served_version():
+    """A params-only promotion must bump CLUB_MODEL_VERSION.
+
+    #235 promoted odds anchoring, availability and suspensions on 2026-08-04
+    while the served tag stayed "poisson-elo-club-v0.2", which had been writing
+    since 2026-07-28 -- one string naming two different models for eleven days.
+    The predictions ledger is append-only evidence and a paired benchmark keys
+    on that string, so the collision would have silently pooled two engines
+    into one comparison had any of those fixtures been played.
+
+    If this fails you changed the engine. That is fine -- bump
+    CLUB_MODEL_VERSION and update the fingerprint below IN THE SAME COMMIT, so
+    the ledger keeps one name per model.
+    """
+    from ml.models.params import load_params
+
+    assert _engine_fingerprint(load_params()) == _V03_ENGINE_FINGERPRINT, (
+        "engine params moved without a CLUB_MODEL_VERSION bump — see docstring"
+    )
+    assert leagues_mod.CLUB_MODEL_VERSION == "poisson-elo-club-v0.3"
