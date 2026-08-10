@@ -21,6 +21,13 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 
+# Playwright scratch from `npm run audit:theme` (frontend/scripts/theme-audit.mjs):
+# accessibility-tree JSON, full-page screenshots, console logs — tens of MB per
+# sweep, regenerate by re-running the audit. The screenshot path is hardcoded
+# relative to the frontend/ cwd; --output reports land here too by convention.
+# Anchored to frontend/ so an `output/` directory elsewhere stays trackable.
+/frontend/output/
+
 # ---- Environment & secrets ----
 .env
 .env.*
@@ -61,6 +68,10 @@ Thumbs.db
 .claude/
 .context/
 .gstack/
+# Dated design-audit artifacts from the /design-is skill (scope, evidence,
+# scorecard, verdict, handoff). No DESIGN-IS-* directory has ever been
+# committed — the findings that matter get written up under docs/ instead.
+DESIGN-IS-*/
 
 # Operator-generated research artifacts: served locally by the research API,
 # never committed. Regenerate with pipeline.run_market_benchmark_report.
