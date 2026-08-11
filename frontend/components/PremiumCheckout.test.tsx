@@ -240,6 +240,20 @@ describe("PremiumCheckout", () => {
     expect(screen.queryByTestId("payment-element")).not.toBeInTheDocument();
   });
 
+  it("re-checks the session when the backend says the account already subscribes", async () => {
+    // 409 means /me is behind the backend: the account IS premium. Sitting on
+    // an error would leave a subscriber staring at a signup form they can't
+    // use; refreshing flips the page to its managed state.
+    mockCreateSetupIntent.mockRejectedValue(
+      new ApiError(409, "already_subscribed", "You already have FinalWhistle Premium."),
+    );
+
+    render(<PremiumCheckout plan="monthly" />);
+
+    expect(await screen.findByText(/already have finalwhistle premium/i)).toBeInTheDocument();
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+  });
+
   it("renders nothing without a publishable key, so the page can fall back", async () => {
     mockPublishableKey = "";
 

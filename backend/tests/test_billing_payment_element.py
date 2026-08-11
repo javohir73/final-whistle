@@ -436,6 +436,14 @@ def test_subscribe_applies_row_eagerly_matching_the_webhook(client, billing_on,
     before = (eager.status, eager.plan, eager.stripe_subscription_id,
               eager.stripe_customer_id, eager.current_period_end)
 
+    # Knock the row off the expected values first: comparing after == before on
+    # an untouched row can't tell "the webhook re-applied the same object" from
+    # "the webhook ignored it entirely", which is the half of the parity claim
+    # that carries the risk.
+    db = client.sessionmaker()
+    db.query(Subscription).filter_by(user_id=user["id"]).one().status = "past_due"
+    db.commit(); db.close()
+
     monkeypatch.setattr(stripe.Webhook, "construct_event", staticmethod(
         lambda payload, sig, secret: {
             "id": "evt_1", "type": "customer.subscription.created",

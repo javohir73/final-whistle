@@ -6,7 +6,7 @@ import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-
 import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
 import { useAuth } from "@/components/AuthProvider";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
-import { createSetupIntent, friendlyAuthError, subscribe } from "@/lib/session";
+import { ApiError, createSetupIntent, friendlyAuthError, subscribe } from "@/lib/session";
 import { LIGHT_CLASS } from "@/lib/theme";
 
 type Plan = "monthly" | "annual";
@@ -154,6 +154,10 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
         setStage("form");
       } catch (e) {
         if (cancelled) return;
+        // 409 means /me is behind the backend: this account already subscribes.
+        // Re-check it so the page swaps to its managed state, rather than
+        // leaving a subscriber looking at a signup form they can't use.
+        if (e instanceof ApiError && e.code === "already_subscribed") void refresh();
         setError(friendlyAuthError(e));
         setStage("unavailable");
       }
@@ -161,7 +165,7 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
     return () => {
       cancelled = true;
     };
-  }, [returnedIntentId]);
+  }, [returnedIntentId, refresh]);
 
   if (stage === "done")
     return (
