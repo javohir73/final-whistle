@@ -85,6 +85,40 @@ def apply_subscription_object(db, obj: dict, deleted: bool = False) -> None:
     sub.plan = _plan_for_price(price, sub.plan)
 
 
+RECONCILE_MIN_INTERVAL = timedelta(hours=1)
+
+
+def reconcile_if_stale(db, sub: Subscription | None) -> None:
+    """Self-heal for missed webhooks (spec: bounded, cached, never on the hot
+    path). Only fires when the row claims an entitled-ish status whose period
+    already ended, at most once per hour, and NEVER raises — /me must succeed
+    with the stored row when Stripe is unreachable."""
+    import stripe
+
+    from app.config import settings
+
+    if sub is None or not settings.billing_enabled:
+        return
+    if sub.status not in ("trialing", "active", "past_due"):
+        return
+    if not sub.stripe_subscription_id or sub.current_period_end is None:
+        return
+    now = datetime.now(timezone.utc)
+    if to_aware_utc(sub.current_period_end) >= now:
+        return  # not stale — the common case, zero Stripe calls
+    if sub.updated_at is not None and \
+            now - to_aware_utc(sub.updated_at) < RECONCILE_MIN_INTERVAL:
+        return  # recently refreshed — throttle
+    try:
+        remote = stripe.Subscription.retrieve(
+            sub.stripe_subscription_id, api_key=settings.stripe_secret_key)
+        apply_subscription_object(db, dict(remote))
+        sub.updated_at = now  # explicit: throttle even when nothing changed
+        db.commit()
+    except Exception:
+        db.rollback()  # keep the stored row authoritative; never break /me
+
+
 def apply_event(db, event: dict) -> None:
     """Route one verified webhook event to the subscription row. Unknown types
     are deliberately ignored (acknowledged) — additive by design."""

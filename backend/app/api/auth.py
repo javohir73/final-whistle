@@ -235,6 +235,8 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=schemas.UserOut)
 def me(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    sub = db.query(Subscription).filter_by(user_id=user.id).one_or_none()
+    billing.reconcile_if_stale(db, sub)
     return _user_out(db, user)
 
 
