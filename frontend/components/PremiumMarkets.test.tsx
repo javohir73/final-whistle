@@ -64,7 +64,6 @@ describe("PremiumMarkets", () => {
     await waitFor(() => expect(mockGet).toHaveBeenCalled());
     expect(container.querySelector("table")).toBeNull(); // no half-rendered card
   });
-
 });
 
 // BILLING_ENABLED is read at import time, and the file-level jest.mock above
