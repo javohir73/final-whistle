@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/Logo";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
+import { PremiumPromo } from "@/components/PremiumPromo";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 const FOOTBALL_COMPETITIONS: Array<{
@@ -238,6 +239,11 @@ export function PlatformHome() {
           <ArrowIcon />
         </Link>
       </section>
+
+      {/* Explore -> Play -> Premium -> closing note. Renders nothing at all for
+          a subscriber, or when billing is off (it owns its own top margin, so
+          the page keeps its rhythm either way). */}
+      <PremiumPromo />
 
       <div className="mt-8 flex flex-col gap-3 border-t border-border pt-6 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
         <p>Probabilities are published with their uncertainty—not as promises.</p>

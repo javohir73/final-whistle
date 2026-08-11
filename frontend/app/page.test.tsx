@@ -1,5 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import HomePage, { metadata } from "./page";
+import { AuthProvider } from "@/components/AuthProvider";
+import * as session from "@/lib/session";
+
+// The home page carries the PremiumPromo section, which reads useAuth() — in
+// the app that context always exists (app/layout.tsx wraps every page in
+// AuthProvider), so the test supplies it here too. Signed out: the promo's
+// visibility is covered by components/PremiumPromo.test.tsx, not this file.
+jest.mock("@/lib/session");
+beforeEach(() => {
+  (session.getMe as jest.MockedFunction<typeof session.getMe>).mockResolvedValue(null);
+});
 
 it("describes the platform rather than one competition", () => {
   expect(metadata.title).toBe("FinalWhistle — Sports predictions, clearly explained");
@@ -7,7 +18,11 @@ it("describes the platform rather than one competition", () => {
 });
 
 it("renders one clear route into every supported competition", () => {
-  render(<HomePage />);
+  render(
+    <AuthProvider>
+      <HomePage />
+    </AuthProvider>,
+  );
 
   expect(
     screen.getByRole("heading", { name: "Your matchday, all in one place." }),

@@ -8,15 +8,9 @@ import {
   createPortalSession,
   friendlyAuthError,
 } from "@/lib/session";
+import { PREMIUM_FEATURES } from "@/lib/premium";
 
 type Plan = "monthly" | "annual";
-
-const FEATURES = [
-  "Full correct-score probability grid for every match",
-  "Over/under lines, BTTS and Asian handicap probabilities",
-  "Supporter badge on the leaderboard",
-  "Early access to new competitions and features",
-];
 
 /** /premium — pricing, checkout and portal entry points. Amounts below are
  *  copy only: the backend derives the price from the `plan` string via
@@ -116,7 +110,7 @@ export function PremiumClient() {
       )}
 
       <ul className="grid gap-2.5 sm:grid-cols-2">
-        {FEATURES.map((f) => (
+        {PREMIUM_FEATURES.map((f) => (
           <li key={f} className="flex items-start gap-2 text-sm">
             <span aria-hidden className="mt-0.5 font-bold text-lime-deep">✓</span>
             {f}
