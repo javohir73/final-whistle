@@ -60,22 +60,22 @@ no-ops. The matches board shows a LIVE badge + running score and minute.
 | `STRIPE_PRICE_MONTHLY` | Render (backend) | Price ID for the $4.99/month plan. Required. |
 | `STRIPE_PRICE_ANNUAL` | Render (backend) | Price ID for the $39.99/year plan. Required. |
 | `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` to render premium surfaces. Keep in lockstep with the backend gate. |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Vercel (frontend) | The `pk_…` key that mounts the in-page Payment Element. Public by design (unlike the secret key). Unset ⇒ `/premium` falls back to the hosted-Checkout redirect instead of rendering a form that cannot mount. |
 
 Billing is OFF unless **all four** backend vars above are set — any one missing
 (including the webhook secret) disables checkout/portal/webhook and the site
 behaves exactly as it did before Premium existed.
 
-All five stay unset until the stop-gated production rollout (spec:
+All six stay unset until the stop-gated production rollout (spec:
 docs/superpowers/specs/2026-08-11-premium-subscriptions-design.md). The
 webhook endpoint to register in the Stripe dashboard is
 `<backend origin>/api/billing/webhook` with events: checkout.session.completed,
 customer.subscription.created, customer.subscription.updated,
 customer.subscription.deleted, invoice.payment_failed.
 
-`NEXT_PUBLIC_BILLING_ENABLED` is a Next.js `NEXT_PUBLIC_*` variable, so it is
-inlined into the JS bundle at build time — flipping it on Vercel requires a
-rebuild/redeploy of the frontend, not just an env var change; setting it and
-waiting is not enough.
+Both `NEXT_PUBLIC_*` variables are inlined into the JS bundle at build time, so
+flipping either on Vercel requires a rebuild/redeploy of the frontend, not just
+an env var change; setting one and waiting is not enough.
 
 ---
 

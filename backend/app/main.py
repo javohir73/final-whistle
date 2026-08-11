@@ -93,6 +93,11 @@ async def cache_control(request: Request, call_next):
         or path.startswith("/api/research")
         or path.startswith("/api/brackets")
         or path.startswith("/api/match-picks")
+        # Billing: per-user by construction, and /setup-intent's body is a Stripe
+        # client secret. Every route here is a POST, which a shared cache won't
+        # store uninvited — but the responses travel through Vercel's
+        # /backend-api/* rewrite, so state it rather than lean on the default.
+        or path.startswith("/api/billing")
         # Premium markets (Task 7): entitlement-gated per-user content (401/403/200
         # all vary by the caller's subscription). A shared cache keyed on this
         # user-less URL could replay one caller's premium 200 to a free or

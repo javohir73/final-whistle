@@ -33,6 +33,19 @@ def is_premium(sub: Subscription | None, now: datetime | None = None) -> bool:
     return False
 
 
+def trial_eligible(sub: Subscription | None) -> bool:
+    """The 7-day trial is first-subscription only — a returning subscriber pays
+    from day one rather than farming repeat trials.
+
+    The guard is "has never held a Stripe subscription", NOT "has no row": the
+    setup-intent endpoint writes a row purely to hold stripe_customer_id before
+    any subscription exists, and a row-based guard would silently deny every
+    trial. Both checkout paths call this so they can't diverge."""
+    if sub is None:
+        return True
+    return not sub.had_subscription and not sub.stripe_subscription_id
+
+
 def record_event_once(db, event_id: str) -> bool:
     """Record a webhook event id; False when already processed. The read-then-
     insert is enough under our single web worker; the UNIQUE constraint is the
@@ -93,6 +106,12 @@ def apply_subscription_object(db, obj: dict, deleted: bool = False) -> None:
             # the dead id, so sub_NEW's created/updated events land here too.
             return
         sub.stripe_subscription_id = obj.get("id")
+    # Whatever path got us here, the row is now bound to a Stripe subscription —
+    # record it durably for trial_eligible(), which can't read the id itself
+    # because that gets rebound each time the user resubscribes. Setting it on
+    # the id-matched path too backfills rows written before the column existed.
+    if sub.stripe_subscription_id:
+        sub.had_subscription = True
     if obj.get("customer"):
         sub.stripe_customer_id = obj["customer"]
     sub.status = "canceled" if deleted else obj.get("status", sub.status)
@@ -176,6 +195,7 @@ def apply_event(db, event: dict) -> None:
             sub.stripe_customer_id = obj["customer"]
         if obj.get("subscription"):
             sub.stripe_subscription_id = obj["subscription"]
+            sub.had_subscription = True  # same binding rule as above
     elif etype in ("customer.subscription.created", "customer.subscription.updated",
                    "customer.subscription.deleted"):
         apply_subscription_object(db, obj, deleted=etype.endswith("deleted"))

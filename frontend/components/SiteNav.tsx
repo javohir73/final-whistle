@@ -7,6 +7,8 @@ import { NavIcon } from "@/components/NavIcon";
 import { AuthButton } from "@/components/AuthButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CompetitionOverlay } from "@/components/CompetitionOverlay";
+import { useAuth } from "@/components/AuthProvider";
+import { BILLING_ENABLED } from "@/lib/constants";
 import {
   COMPETITIONS,
   competitionFromPathname,
@@ -39,6 +41,28 @@ function matches(pathname: string, prefixes: string[], href: string): boolean {
 
 const hit = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(prefix + "/");
+
+/** The one persistent route to /premium. Deliberately outside both link
+ *  registries: the row below is PLATFORM_LINKS on platform routes and
+ *  COMPETITIONS[id].navLinks on competition routes, so an entry in either one
+ *  disappears on the other half of the site — a "Premium" item in
+ *  PLATFORM_LINKS would vanish the moment a visitor opens /football/epl.
+ *  Rendered on mobile too (no `hidden sm:*`): BottomNav's five tabs are capped
+ *  by design, so the header is what covers small screens. Nothing renders for
+ *  a subscriber, mid session-check, or when billing is off. */
+function PremiumNavLink() {
+  const { user, loading } = useAuth();
+  if (!BILLING_ENABLED || loading || user?.premium) return null;
+
+  return (
+    <Link
+      href="/premium"
+      className="ml-auto mr-1 inline-flex min-h-[44px] shrink-0 items-center rounded-lg px-2.5 text-sm font-semibold text-lime-deep transition hover:bg-win/10 sm:ml-0 sm:px-3"
+    >
+      Premium
+    </Link>
+  );
+}
 
 /** Top bar (Daylight): brand lockup on the left, a desktop-only primary link
  *  row in the middle/right, and the account / sign-in control on the right.
@@ -101,6 +125,7 @@ export function SiteNav() {
           })}
         </div>
 
+        <PremiumNavLink />
         <ThemeToggle />
         <AuthButton />
       </nav>

@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { buildCsp } from "./lib/csp.mjs";
+
 /** @type {import('next').NextConfig} */
 const IS_PROD = process.env.NODE_ENV === "production";
 const API_ORIGIN =
@@ -32,32 +34,6 @@ function readModelVersion() {
 }
 const MODEL_VERSION = readModelVersion();
 
-// Content-Security-Policy. 'unsafe-inline' is needed for Next's inline bootstrap
-// + styled JSX; flagcdn is the flag image host. The backend is reached through the
-// same-origin /backend-api proxy, so connect-src only needs 'self' (+ Sentry).
-// Applied in production only so dev HMR (eval + websockets) keeps working.
-//
-// `frame-ancestors` differs between the two CSPs below: everywhere except
-// /embed it's 'none' (nothing may iframe us); on /embed it's '*' (see
-// buildCsp / the /embed headers rule further down) since /embed/[matchId] is
-// the partner-embeddable prediction card and must be iframeable anywhere.
-function buildCsp(frameAncestors) {
-  return [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    `frame-ancestors ${frameAncestors}`,
-    "form-action 'self'",
-    "img-src 'self' data: https://flagcdn.com",
-    "script-src 'self' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' data:",
-    "connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io",
-    "frame-src 'self'",
-    "manifest-src 'self'",
-    "worker-src 'self' blob:",
-  ].join("; ");
-}
 const csp = buildCsp("'none'");
 const embedCsp = buildCsp("*");
 

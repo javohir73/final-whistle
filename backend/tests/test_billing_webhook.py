@@ -85,6 +85,10 @@ def test_checkout_completed_binds_ids(client, monkeypatch):
     sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
     assert sub.stripe_customer_id == "cus_1"
     assert sub.stripe_subscription_id == "sub_1"
+    # The durable first-timer flag, set wherever a subscription id gets bound.
+    # trial_eligible() also reads the id this branch just set, which masks a
+    # missing flag today — pin it before anyone simplifies that guard.
+    assert sub.had_subscription is True
     db.close()
 
 
