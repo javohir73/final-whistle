@@ -1,0 +1,240 @@
+/** In-page Payment Element signup: the happy path, a decline, the 3DS return,
+ *  the card-saved-but-subscribe-failed recovery, the missing-key fallback, and
+ *  the theme-aware appearance object. Stripe is mocked throughout — nothing
+ *  here touches the network or mounts a real iframe. */
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+const mockRefresh = jest.fn();
+jest.mock("@/components/AuthProvider", () => ({
+  useAuth: () => ({ refresh: mockRefresh }),
+}));
+
+// Mutable so a test can opt into the 3DS return query string.
+let mockParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({ useSearchParams: () => mockParams }));
+
+// Mutable so the "half-configured deploy" test can drop the publishable key.
+// A getter (not a plain value) because the component reads the binding on every
+// render — a snapshot taken at mock time would never see the change.
+let mockPublishableKey = "pk_test_x";
+jest.mock("@/lib/constants", () => ({
+  ...jest.requireActual("@/lib/constants"),
+  get STRIPE_PUBLISHABLE_KEY() {
+    return mockPublishableKey;
+  },
+}));
+
+const mockCreateSetupIntent = jest.fn();
+const mockSubscribe = jest.fn();
+jest.mock("@/lib/session", () => ({
+  ...jest.requireActual("@/lib/session"),
+  createSetupIntent: (...a: unknown[]) => mockCreateSetupIntent(...a),
+  subscribe: (...a: unknown[]) => mockSubscribe(...a),
+}));
+
+const mockConfirmSetup = jest.fn();
+// Every options object <Elements> was rendered with, in order — the appearance
+// test reads the last one to see what the form would actually be styled with.
+const mockElementsOptions: { appearance?: Appearance; clientSecret?: string }[] = [];
+
+jest.mock("@stripe/stripe-js", () => ({ loadStripe: jest.fn(async () => ({})) }));
+jest.mock("@stripe/react-stripe-js", () => {
+  const react = jest.requireActual("react");
+  return {
+    Elements: ({ options, children }: { options: unknown; children: unknown }) => {
+      mockElementsOptions.push(options as { appearance?: Appearance });
+      return react.createElement("div", { "data-testid": "stripe-elements" }, children);
+    },
+    PaymentElement: () => react.createElement("div", { "data-testid": "payment-element" }),
+    useStripe: () => ({ confirmSetup: (...a: unknown[]) => mockConfirmSetup(...a) }),
+    useElements: () => ({}),
+  };
+});
+
+import type { Appearance } from "@stripe/stripe-js";
+import { ApiError } from "@/lib/session";
+import { PremiumCheckout } from "./PremiumCheckout";
+
+/** The real token sets from globals.css, trimmed to what the form borrows.
+ *  jsdom resolves custom properties through the cascade, so toggling the
+ *  Daylight class really does change what getComputedStyle returns. */
+const TOKEN_CSS = `
+  :root {
+    --win: 84 78% 55%; --surface: 148 29% 9%; --foreground: 120 14% 96%;
+    --muted: 129 10% 62%; --loss: 351 90% 64%; --border: 140 14% 17%;
+  }
+  .theme-daylight {
+    --win: 84 66% 52%; --surface: 0 0% 100%; --foreground: 150 38% 9%;
+    --muted: 140 8% 38%; --loss: 350 84% 62%; --border: 84 20% 90%;
+  }`;
+
+function installTokens() {
+  const style = document.createElement("style");
+  style.setAttribute("data-test-tokens", "");
+  style.textContent = TOKEN_CSS;
+  document.head.appendChild(style);
+}
+
+const submitButton = () => screen.getByRole("button", { name: /start free trial/i });
+
+describe("PremiumCheckout", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockParams = new URLSearchParams();
+    mockPublishableKey = "pk_test_x";
+    mockElementsOptions.length = 0;
+    document.documentElement.classList.remove("theme-daylight");
+    document.head.querySelectorAll("[data-test-tokens]").forEach((n) => n.remove());
+    mockCreateSetupIntent.mockResolvedValue({ client_secret: "seti_1_secret_abc" });
+  });
+
+  it("confirms the card, then subscribes with the chosen plan", async () => {
+    mockConfirmSetup.mockResolvedValue({ setupIntent: { id: "seti_1", status: "succeeded" } });
+    mockSubscribe.mockResolvedValue({ status: "trialing", premium: true });
+
+    render(<PremiumCheckout plan="annual" />);
+
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(mockConfirmSetup).toHaveBeenCalled());
+    const confirmArgs = mockConfirmSetup.mock.calls[0][0];
+    // "if_required" keeps a no-challenge card inline; the return_url only
+    // matters when the issuer does redirect — and it must carry the plan,
+    // because component state does not survive that round trip.
+    expect(confirmArgs.redirect).toBe("if_required");
+    expect(confirmArgs.confirmParams.return_url).toContain("/premium?plan=annual");
+
+    await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith("annual", "seti_1"));
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+    expect(await screen.findByText(/premium is active/i)).toBeInTheDocument();
+  });
+
+  it("tells the page it can confirm, once the subscription actually entitles", async () => {
+    mockConfirmSetup.mockResolvedValue({ setupIntent: { id: "seti_1" } });
+    mockSubscribe.mockResolvedValue({ status: "trialing", premium: true });
+    const onActivated = jest.fn();
+
+    render(<PremiumCheckout plan="monthly" onActivated={onActivated} />);
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(onActivated).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not claim Premium when the subscription did not activate", async () => {
+    mockConfirmSetup.mockResolvedValue({ setupIntent: { id: "seti_1" } });
+    // A returning subscriber gets no trial, so the first invoice is charged
+    // immediately — and can fail, leaving an `incomplete` subscription.
+    mockSubscribe.mockResolvedValue({ status: "incomplete", premium: false });
+    const onActivated = jest.fn();
+
+    render(<PremiumCheckout plan="monthly" onActivated={onActivated} />);
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText(/hasn’t activated/i)).toBeInTheDocument();
+    expect(screen.queryByText(/premium is active/i)).not.toBeInTheDocument();
+    expect(onActivated).not.toHaveBeenCalled();
+    // A subscription DOES exist now, so the backend's is_premium-keyed
+    // idempotency no longer holds — retrying would buy a second one.
+    expect(screen.queryByRole("button", { name: /finish/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a decline inline and leaves the form usable", async () => {
+    mockConfirmSetup.mockResolvedValue({ error: { message: "Your card was declined." } });
+
+    render(<PremiumCheckout plan="monthly" />);
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText(/your card was declined/i)).toBeInTheDocument();
+    // Still mounted, still resubmittable — a decline is a retry, not a dead end.
+    expect(screen.getByTestId("payment-element")).toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+    expect(mockSubscribe).not.toHaveBeenCalled();
+  });
+
+  it("resumes at the subscribe step when it comes back from a 3DS challenge", async () => {
+    mockParams = new URLSearchParams(
+      "setup_intent=seti_3ds&setup_intent_client_secret=seti_3ds_secret&redirect_status=succeeded",
+    );
+    mockSubscribe.mockResolvedValue({ status: "active", premium: true });
+
+    render(<PremiumCheckout plan="annual" />);
+
+    await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith("annual", "seti_3ds"));
+    // The card is already confirmed: no second intent, no second confirmation.
+    expect(mockCreateSetupIntent).not.toHaveBeenCalled();
+    expect(mockConfirmSetup).not.toHaveBeenCalled();
+    expect(await screen.findByText(/premium is active/i)).toBeInTheDocument();
+  });
+
+  it("offers to finish when the card was saved but subscribe failed", async () => {
+    mockConfirmSetup.mockResolvedValue({ setupIntent: { id: "seti_1", status: "succeeded" } });
+    mockSubscribe.mockRejectedValueOnce(
+      new ApiError(503, "billing_unavailable", "Billing is temporarily unavailable."),
+    );
+
+    render(<PremiumCheckout plan="monthly" />);
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText(/card was saved/i)).toBeInTheDocument();
+
+    mockSubscribe.mockResolvedValue({ status: "active", premium: true });
+    fireEvent.click(screen.getByRole("button", { name: /finish/i }));
+
+    await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(2));
+    expect(mockSubscribe).toHaveBeenLastCalledWith("monthly", "seti_1");
+    // Retrying must not ask for the card again — that is the whole point of
+    // the recovery state, and re-confirming risks a second payment method.
+    expect(mockConfirmSetup).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/premium is active/i)).toBeInTheDocument();
+  });
+
+  it("surfaces a 503 from setup-intent through friendlyAuthError", async () => {
+    mockCreateSetupIntent.mockRejectedValue(
+      new ApiError(503, "billing_unavailable", "Billing is temporarily unavailable."),
+    );
+
+    render(<PremiumCheckout plan="monthly" />);
+
+    expect(await screen.findByText(/waking up/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("payment-element")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing without a publishable key, so the page can fall back", async () => {
+    mockPublishableKey = "";
+
+    const { container } = render(<PremiumCheckout plan="monthly" />);
+
+    expect(container).toBeEmptyDOMElement();
+    await waitFor(() => expect(mockCreateSetupIntent).not.toHaveBeenCalled());
+  });
+
+  it("rebuilds the appearance object when the theme changes", async () => {
+    installTokens();
+    mockConfirmSetup.mockResolvedValue({ setupIntent: { id: "seti_1" } });
+
+    render(<PremiumCheckout plan="monthly" />);
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+
+    const floodlight = mockElementsOptions[mockElementsOptions.length - 1].appearance;
+    expect(floodlight?.theme).toBe("night");
+    // The bare triple wrapped into a colour the Appearance API can take.
+    expect(floodlight?.variables?.colorPrimary).toBe("hsl(84 78% 55%)");
+    expect(floodlight?.variables?.colorBackground).toBe("hsl(148 29% 9%)");
+
+    act(() => {
+      document.documentElement.classList.add("theme-daylight");
+    });
+
+    await waitFor(() => {
+      const daylight = mockElementsOptions[mockElementsOptions.length - 1].appearance;
+      expect(daylight?.theme).toBe("stripe");
+      expect(daylight?.variables?.colorPrimary).toBe("hsl(84 66% 52%)");
+      expect(daylight?.variables?.colorBackground).toBe("hsl(0 0% 100%)");
+    });
+  });
+});

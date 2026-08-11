@@ -279,10 +279,28 @@ export interface PremiumMarkets {
   disclaimer: string;
 }
 
+/** DEPRECATED — the hosted-Checkout redirect. Still the fallback when
+ *  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is unset, so a half-configured deploy
+ *  degrades to a redirect instead of showing a form that cannot mount. */
 export const createCheckoutSession = (plan: "monthly" | "annual") =>
   request<{ url: string }>("/api/billing/checkout-session", {
     method: "POST",
     body: JSON.stringify({ plan }),
+  });
+
+/** Step 1 of in-page signup: the client secret that mounts Payment Element.
+ *  Entitles nothing on its own — no subscription exists until subscribe() runs. */
+export const createSetupIntent = () =>
+  request<{ client_secret: string }>("/api/billing/setup-intent", { method: "POST" });
+
+/** Step 2: turn a confirmed SetupIntent into the subscription. The id comes
+ *  from Stripe's SDK, never from us, and the backend re-checks that it belongs
+ *  to this user. Idempotent server-side, so retrying after a dropped connection
+ *  describes the existing subscription rather than buying a second one. */
+export const subscribe = (plan: "monthly" | "annual", setupIntentId: string) =>
+  request<{ status: string; premium: boolean }>("/api/billing/subscribe", {
+    method: "POST",
+    body: JSON.stringify({ plan, setup_intent_id: setupIntentId }),
   });
 
 export const createPortalSession = () =>

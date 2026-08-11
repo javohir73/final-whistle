@@ -34,13 +34,26 @@ const MODEL_VERSION = readModelVersion();
 
 // Content-Security-Policy. 'unsafe-inline' is needed for Next's inline bootstrap
 // + styled JSX; flagcdn is the flag image host. The backend is reached through the
-// same-origin /backend-api proxy, so connect-src only needs 'self' (+ Sentry).
+// same-origin /backend-api proxy, so connect-src needs 'self' plus only the
+// third parties that talk to the browser directly (Sentry, Stripe — below).
 // Applied in production only so dev HMR (eval + websockets) keeps working.
 //
 // `frame-ancestors` differs between the two CSPs below: everywhere except
 // /embed it's 'none' (nothing may iframe us); on /embed it's '*' (see
 // buildCsp / the /embed headers rule further down) since /embed/[matchId] is
 // the partner-embeddable prediction card and must be iframeable anywhere.
+
+// Stripe hosts the in-page Payment Element needs (docs.stripe.com/security/guide
+// #content-security-policy). Without these the element cannot mount at all: the
+// card fields live in js.stripe.com iframes, a 3D Secure challenge opens in
+// hooks.stripe.com, and confirmation calls api.stripe.com directly from the
+// browser. Listed unconditionally because headers() has no per-request view of
+// the billing gate; they permit nothing until Stripe.js is actually loaded,
+// which only happens when NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is set.
+const STRIPE_SCRIPT = "https://js.stripe.com";
+const STRIPE_FRAME = "https://js.stripe.com https://hooks.stripe.com https://m.stripe.network";
+const STRIPE_CONNECT = "https://api.stripe.com https://m.stripe.network https://q.stripe.com";
+
 function buildCsp(frameAncestors) {
   return [
     "default-src 'self'",
@@ -48,12 +61,12 @@ function buildCsp(frameAncestors) {
     "object-src 'none'",
     `frame-ancestors ${frameAncestors}`,
     "form-action 'self'",
-    "img-src 'self' data: https://flagcdn.com",
-    "script-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https://flagcdn.com https://*.stripe.com",
+    `script-src 'self' 'unsafe-inline' ${STRIPE_SCRIPT}`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io",
-    "frame-src 'self'",
+    `connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io ${STRIPE_CONNECT}`,
+    `frame-src 'self' ${STRIPE_FRAME}`,
     "manifest-src 'self'",
     "worker-src 'self' blob:",
   ].join("; ");

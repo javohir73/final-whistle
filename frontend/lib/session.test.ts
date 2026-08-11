@@ -9,6 +9,8 @@ import {
   pingDailyActivity,
   createCheckoutSession,
   createPortalSession,
+  createSetupIntent,
+  subscribe,
   getPremiumMarkets,
 } from "./session";
 
@@ -205,5 +207,55 @@ describe("billing client", () => {
     expect(out.match_id).toBe(42);
     const [url] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toBe("/backend-api/api/matches/42/markets");
+  });
+
+  it("posts to /api/billing/setup-intent and returns the client secret", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ client_secret: "seti_123_secret_abc" }),
+    }) as unknown as typeof fetch;
+
+    const out = await createSetupIntent();
+
+    expect(out.client_secret).toBe("seti_123_secret_abc");
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("/backend-api/api/billing/setup-intent");
+    expect(init.method).toBe("POST");
+  });
+
+  it("posts the plan and the confirmed intent id to /api/billing/subscribe", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "trialing", premium: true }),
+    }) as unknown as typeof fetch;
+
+    const out = await subscribe("annual", "seti_123");
+
+    expect(out).toEqual({ status: "trialing", premium: true });
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("/backend-api/api/billing/subscribe");
+    expect(init.method).toBe("POST");
+    // Snake_case key — the backend's SubscribeIn schema, not camelCase.
+    expect(JSON.parse(init.body as string)).toEqual({
+      plan: "annual",
+      setup_intent_id: "seti_123",
+    });
+  });
+
+  it("surfaces the backend's {code,message} when subscribe fails", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        error: { code: "setup_intent_invalid", message: "That payment setup can't be used." },
+      }),
+    }) as unknown as typeof fetch;
+
+    await expect(subscribe("monthly", "seti_someone_elses")).rejects.toMatchObject({
+      status: 403,
+      code: "setup_intent_invalid",
+    });
   });
 });

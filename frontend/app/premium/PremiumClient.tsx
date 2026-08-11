@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { PremiumCheckout } from "@/components/PremiumCheckout";
+import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
 import {
   createCheckoutSession,
   createPortalSession,
@@ -17,11 +19,21 @@ type Plan = "monthly" | "annual";
  *  Stripe Price IDs, never from a number sent by the client. */
 export function PremiumClient() {
   const { user, loading, openSignIn, refresh } = useAuth();
-  const [plan, setPlan] = useState<Plan>("monthly");
+  const params = useSearchParams();
+  // Payment Element needs a publishable key; without one the page keeps the
+  // hosted-Checkout redirect, so a half-configured deploy degrades quietly.
+  const inPage = Boolean(STRIPE_PUBLISHABLE_KEY);
+  // Both survive a 3D Secure round trip only because they are in the URL:
+  // Stripe appends setup_intent/redirect_status, and the plan rides along in
+  // the return_url PremiumCheckout builds.
+  const [plan, setPlan] = useState<Plan>(params.get("plan") === "annual" ? "annual" : "monthly");
+  const [payOpen, setPayOpen] = useState(inPage && Boolean(params.get("setup_intent")));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const params = useSearchParams();
-  const justPaid = params.get("checkout") === "success";
+  // The in-page form unmounts the instant /me reports premium, so its success
+  // message has to be the page's — hence the same banner the redirect uses.
+  const [subscribed, setSubscribed] = useState(false);
+  const justPaid = params.get("checkout") === "success" || subscribed;
 
   // After the Stripe redirect the webhook may land a beat later than the user:
   // poll /me a few times until the premium flag flips.
@@ -48,12 +60,18 @@ export function PremiumClient() {
     }
   }, []);
 
+  // In-page: reveal the form beneath the plan cards. Otherwise: redirect out.
+  const start = useCallback(() => {
+    if (inPage) setPayOpen(true);
+    else void startCheckout(plan);
+  }, [inPage, plan, startCheckout]);
+
   const onBuy = () => {
     if (!user) {
-      openSignIn({ mode: "signup", onSuccess: () => startCheckout(plan) });
+      openSignIn({ mode: "signup", onSuccess: start });
       return;
     }
-    void startCheckout(plan);
+    start();
   };
 
   const onManage = async () => {
@@ -167,6 +185,8 @@ export function PremiumClient() {
           >
             {busy ? "Please wait…" : "Manage subscription"}
           </button>
+        ) : payOpen ? (
+          <PremiumCheckout plan={plan} onActivated={() => setSubscribed(true)} />
         ) : (
           <button
             type="button"
