@@ -117,6 +117,15 @@ def reconcile_if_stale(db, sub: Subscription | None) -> None:
         db.commit()
     except Exception:
         db.rollback()  # keep the stored row authoritative; never break /me
+        try:
+            # A failed attempt must still consume the hourly throttle budget —
+            # otherwise a Stripe outage turns every /me into a retry storm.
+            # Wrapped separately so the never-raises guarantee holds even if
+            # this stamp-commit itself fails.
+            sub.updated_at = now
+            db.commit()
+        except Exception:
+            db.rollback()
 
 
 def apply_event(db, event: dict) -> None:
