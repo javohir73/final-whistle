@@ -15,9 +15,6 @@ from app.security import to_aware_utc
 PREMIUM_STATUSES = ("trialing", "active")
 # A failed renewal keeps premium for 7 days past period end (spec: grace).
 PAST_DUE_GRACE = timedelta(days=7)
-# End-of-life statuses: a subscription reporting one of these is never the user's
-# current one (see the stale-event guard in apply_subscription_object).
-TERMINAL_STATUSES = ("canceled", "incomplete_expired")
 
 
 def is_premium(sub: Subscription | None, now: datetime | None = None) -> bool:
@@ -83,13 +80,15 @@ def apply_subscription_object(db, obj: dict, deleted: bool = False) -> None:
             db.add(sub)
         elif (sub.stripe_subscription_id
               and sub.stripe_subscription_id != obj.get("id")
-              and (deleted or obj.get("status") in TERMINAL_STATUSES)):
+              and (deleted or obj.get("status") not in PREMIUM_STATUSES)):
             # The row is bound to a DIFFERENT subscription, so the id lookup above
-            # missed for a reason: this is a terminal event for a subscription the
-            # user already replaced (classically a `deleted` for sub_OLD that Stripe
-            # redelivered from a backlog after the user resubscribed). Rebinding
-            # backwards would revoke someone who just paid, and nothing would fix it
-            # until the next event for the live subscription. Ignore it.
+            # missed for a reason: this event belongs to a subscription the user
+            # already replaced. Only an ENTITLING status may take the binding away
+            # from another id — a `deleted`/`canceled` redelivered from a backlog,
+            # or the weeks of past_due/unpaid dunning Stripe keeps firing on an
+            # abandoned subscription, would otherwise rebind backwards and revoke
+            # someone who just paid, with no self-correction until the next event
+            # for the live subscription. Ignore them.
             # A LIVE object still rebinds: a resubscriber's row is always bound to
             # the dead id, so sub_NEW's created/updated events land here too.
             return

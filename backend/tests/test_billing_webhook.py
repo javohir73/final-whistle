@@ -13,6 +13,7 @@ from app.config import settings
 from app.db import Base, get_db
 from app.main import app
 from app.models import BillingEvent, Subscription
+from app.security import to_aware_utc
 
 ALLOWED_ORIGIN = "http://localhost:3000"
 
@@ -221,7 +222,7 @@ def test_stale_deleted_event_cannot_revoke_a_resubscribed_user(client, monkeypat
 
 def test_live_event_for_a_new_subscription_still_rebinds_a_lapsed_row(
         client, monkeypatch):
-    """The flip side of that guard, and why it keys on the event being terminal
+    """The flip side of that guard, and why it keys on the event being entitling
     rather than on the row simply being bound: a resubscriber's row is ALWAYS
     still bound to the dead sub_OLD, so sub_NEW's created/updated events miss the
     id lookup and land in the metadata fallback. A live subscription object is
@@ -241,6 +242,34 @@ def test_live_event_for_a_new_subscription_still_rebinds_a_lapsed_row(
     sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
     assert sub.stripe_subscription_id == "sub_NEW"
     assert sub.status == "active"
+    db.close()
+
+
+def test_dunning_event_for_a_dead_subscription_cannot_revoke_a_resubscriber(
+        client, monkeypatch):
+    """The same guard, exercised by routine Stripe behaviour rather than a
+    redelivery backlog. A lapsed user resubscribes instead of fixing their card,
+    so the row is bound to sub_NEW/active — but Smart Retries keep grinding on
+    the abandoned sub_OLD for weeks, each failure firing a `past_due` (later
+    `unpaid`) update carrying the same checkout-stamped metadata.user_id. Those
+    are not terminal, so a terminal-only guard would let every one of them
+    rebind the row backwards to the dead id with an expired period end and
+    revoke a customer who paid yesterday. Only an ENTITLING status may move the
+    binding."""
+    user = _register(client)
+    assert _post_event(client, monkeypatch, _sub_event(
+        "evt_new_active", "customer.subscription.updated", user["id"],
+        status="active", sub_id="sub_NEW")).status_code == 200
+    dunning = _sub_event("evt_old_past_due", "customer.subscription.updated",
+                         user["id"], status="past_due", sub_id="sub_OLD",
+                         period_end=1700000000)  # long expired
+    assert _post_event(client, monkeypatch, dunning).status_code == 200
+    db = client.sessionmaker()
+    sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
+    assert sub.stripe_subscription_id == "sub_NEW"  # not rebound backwards
+    assert sub.status == "active"  # still entitled
+    # untouched — not overwritten with sub_OLD's long-expired period end
+    assert to_aware_utc(sub.current_period_end).timestamp() == 1789999999
     db.close()
 
 
