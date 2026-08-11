@@ -7,7 +7,7 @@ an unconfigured deploy behaves exactly like today's site.
 from __future__ import annotations
 
 import stripe
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app import billing, schemas
@@ -78,3 +78,25 @@ def create_portal_session(user: AppUser = Depends(get_current_user),
         return_url=f"{settings.public_base_url}/premium",
     )
     return schemas.BillingUrlOut(url=session.url)
+
+
+@router.post("/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Stripe server-to-server delivery. Auth is the signature (no session, no
+    Origin check). 2xx only after the row change is committed — anything else
+    makes Stripe retry, which the billing_events ledger makes safe."""
+    _require_billing_enabled()
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig, settings.stripe_webhook_secret)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        raise HTTPException(status_code=400, detail={
+            "code": "invalid_signature",
+            "message": "Webhook signature verification failed."})
+    if not billing.record_event_once(db, event["id"]):
+        return {"ok": True, "duplicate": True}
+    billing.apply_event(db, event)
+    db.commit()
+    return {"ok": True}
