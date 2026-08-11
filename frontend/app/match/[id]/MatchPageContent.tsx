@@ -23,6 +23,7 @@ import { LocalKickoff } from "@/components/LocalKickoff";
 import { ShareButton } from "@/components/ShareButton";
 import { TeamBadge } from "@/components/TeamBadge";
 import { GoalMarkets } from "@/components/GoalMarkets";
+import { PremiumMarkets } from "@/components/PremiumMarkets";
 import { LikelyScorers } from "@/components/LikelyScorers";
 import { AvailabilityNote } from "@/components/AvailabilityNote";
 import { MatchWriteup } from "@/components/MatchWriteup";
@@ -193,6 +194,11 @@ export async function renderMatchDetailPage(
             {p.goal_markets && (
               <GoalMarkets home={home} away={away} markets={p.goal_markets} />
             )}
+
+            {/* FinalWhistle Premium — correct-score grid, totals, BTTS and Asian
+                handicap. Free/anon see a blurred teaser; billing off renders
+                nothing (PremiumGate handles both). */}
+            <PremiumMarkets matchId={p.match_id} home={home} away={away} />
 
             {/* Likely scorers — top players per team (hidden until player data). */}
             {goalscorers && (

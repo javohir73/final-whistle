@@ -17,6 +17,9 @@ sentry-sdk[fastapi]==2.20.0
 # Auth — first-party email+password accounts with opaque session cookies.
 argon2-cffi==23.1.0
 
+# Billing — Stripe hosted Checkout + Customer Portal (env-gated; off by default)
+stripe==12.4.0
+
 # Data / ML (used by the ml/ and pipeline/ packages)
 pandas==2.2.3
 numpy==2.2.1

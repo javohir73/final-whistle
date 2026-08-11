@@ -17,7 +17,7 @@ from app.cache import cache
 from app.config import settings
 from app.db import Base, get_db
 from app.main import app
-from app.models import AppUser, Bracket, BracketGroupPick, Match
+from app.models import AppUser, Bracket, BracketGroupPick, Match, Subscription
 from app.scoring import recompute_scores
 from pipeline.ingest.wc26_structure import load_structure
 
@@ -272,3 +272,23 @@ def test_join_assigns_rank_immediately(env):
     (row,) = client.get("/api/leaderboard").json()
     assert row["rank"] == 1
     assert row["total_points"] == 3
+
+
+def test_leaderboard_marks_premium_supporters(env):
+    """A public bracket owned by a subscribed (active) user gets premium=True;
+    everyone else on the board defaults to False."""
+    client, SessionF = env
+    db = SessionF()
+    _add_player(db, "leader@example.com", "Leader")
+    _add_player(db, "free@example.com", "Free Player")
+    db.commit()
+    recompute_scores(db)
+
+    user_id = db.query(AppUser).filter_by(email="leader@example.com").one().id
+    db.add(Subscription(user_id=user_id, status="active", plan="monthly"))
+    db.commit()
+    db.close()
+
+    rows = {r["display_name"]: r for r in client.get("/api/leaderboard").json()}
+    assert rows["Leader"]["premium"] is True
+    assert rows["Free Player"]["premium"] is False

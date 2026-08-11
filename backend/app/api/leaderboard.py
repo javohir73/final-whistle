@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app import schemas
+from app import billing, schemas
 from app.auth import get_current_user
 from app.cache import cache
 from app.db import get_db
-from app.models import AppUser, Bracket, BracketScore, Team
+from app.models import AppUser, Bracket, BracketScore, Subscription, Team
 from app.security import require_same_origin
 
 router = APIRouter(prefix="/api/leaderboard", tags=["leaderboard"])
@@ -47,6 +47,10 @@ def leaderboard(
         .limit(limit)
         .all()
     )
+    user_ids = [bracket.user_id for bracket, _, _ in rows]
+    subs = {s.user_id: s for s in
+            db.query(Subscription).filter(Subscription.user_id.in_(user_ids)).all()
+            } if user_ids else {}
     out = []
     for bracket, score, team in rows:
         rank = score.rank if score else None
@@ -66,6 +70,7 @@ def leaderboard(
                 total_points=score.total_points if score else 0,
                 percentile=pct,
                 updated_at=bracket.updated_at.isoformat() if bracket.updated_at else None,
+                premium=billing.is_premium(subs.get(bracket.user_id)),
             )
         )
     return out

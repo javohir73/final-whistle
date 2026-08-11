@@ -613,6 +613,48 @@ class EmailVerificationToken(Base):
     user: Mapped[AppUser] = relationship()
 
 
+class Subscription(Base):
+    """FinalWhistle Premium subscription state — one row per user, written by
+    Stripe webhooks (plus a bounded /me self-heal). `status` uses Stripe's own
+    vocabulary (trialing/active/past_due/canceled/incomplete/...); entitlement
+    is derived in app.billing.is_premium, never stored."""
+
+    __tablename__ = "subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_users.id"), unique=True, index=True
+    )
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(
+        String(255), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(40))
+    plan: Mapped[str] = mapped_column(String(10))  # "monthly" | "annual"
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[AppUser] = relationship()
+
+
+class BillingEvent(Base):
+    """Processed Stripe webhook event ids — the idempotency ledger. A replayed
+    delivery finds its id here and is acknowledged without being re-applied."""
+
+    __tablename__ = "billing_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class Bracket(Base):
     """A user's saved bracket (one per user in the MVP)."""
 

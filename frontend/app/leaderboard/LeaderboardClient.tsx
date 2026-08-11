@@ -177,6 +177,15 @@ export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRo
                         </td>
                         <td className={`px-2 py-2.5 ${isMe ? "font-bold" : "font-medium"}`}>
                           {row.display_name}
+                          {row.premium && (
+                            <span
+                              aria-label="Premium supporter"
+                              title="Premium supporter"
+                              className="ml-1.5 inline-block align-middle text-accent"
+                            >
+                              ★
+                            </span>
+                          )}
                         </td>
                         <td className="px-2 py-2.5">
                           {row.champion ? (

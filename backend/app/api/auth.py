@@ -16,7 +16,7 @@ from urllib.parse import unquote
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
-from app import schemas
+from app import billing, schemas
 from app.auth import get_current_user, get_current_user_optional
 from app.config import settings
 from app.db import get_db
@@ -29,6 +29,7 @@ from app.models import (
     LoginAttempt,
     MatchPick,
     PasswordResetToken,
+    Subscription,
     UserSession,
 )
 from app.security import (
@@ -124,10 +125,13 @@ def _signup_geo(request: Request) -> tuple[str | None, str | None]:
     return country or None, city or None
 
 
-def _user_out(u: AppUser) -> schemas.UserOut:
+def _user_out(db: Session, u: AppUser) -> schemas.UserOut:
+    sub = db.query(Subscription).filter_by(user_id=u.id).one_or_none()
     return schemas.UserOut(id=u.id, email=u.email, display_name=u.display_name,
                            avatar_url=u.avatar_url,
-                           email_verified=u.email_verified_at is not None)
+                           email_verified=u.email_verified_at is not None,
+                           premium=billing.is_premium(sub),
+                           premium_status=sub.status if sub else None)
 
 
 def _mint_and_send_verification(db: Session, user: AppUser, ip_hash: str | None) -> None:
@@ -178,7 +182,7 @@ def register(payload: schemas.RegisterIn, request: Request, response: Response,
     set_session_cookie(response, raw)
     # Best-effort verification email (non-blocking: signup already succeeded).
     _mint_and_send_verification(db, user, ip_h)
-    return _user_out(user)
+    return _user_out(db, user)
 
 
 @router.post("/login", response_model=schemas.UserOut, dependencies=[Depends(require_same_origin)])
@@ -214,7 +218,7 @@ def login(payload: schemas.LoginIn, request: Request, response: Response,
     db.commit()
     db.refresh(user)
     set_session_cookie(response, raw)
-    return _user_out(user)
+    return _user_out(db, user)
 
 
 @router.post("/logout", dependencies=[Depends(require_same_origin)])
@@ -230,8 +234,10 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=schemas.UserOut)
-def me(user: AppUser = Depends(get_current_user)):
-    return _user_out(user)
+def me(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    sub = db.query(Subscription).filter_by(user_id=user.id).one_or_none()
+    billing.reconcile_if_stale(db, sub)
+    return _user_out(db, user)
 
 
 @router.post("/delete-account", dependencies=[Depends(require_same_origin)])

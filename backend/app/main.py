@@ -17,8 +17,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 logger = logging.getLogger(__name__)
 
 from app.api import (
-    activity, auth, brackets, bridge, groups, intel, internal, knockout, leaderboard, league_score_predictions,
+    activity, auth, billing as billing_api, brackets, bridge, groups, intel, internal, knockout, leaderboard,
+    league_score_predictions,
     markets, market_record, match_picks, matches, model_record, movers, nrl_intel, nrl_live, nrl_players, nrl_tips,
+    premium_markets,
     nrl_user_tips, predictions, prob_history, retention, sports, teams, tournaments,
     research,
 )
@@ -91,6 +93,13 @@ async def cache_control(request: Request, call_next):
         or path.startswith("/api/research")
         or path.startswith("/api/brackets")
         or path.startswith("/api/match-picks")
+        # Premium markets (Task 7): entitlement-gated per-user content (401/403/200
+        # all vary by the caller's subscription). A shared cache keyed on this
+        # user-less URL could replay one caller's premium 200 to a free or
+        # anonymous caller for the TTL — the exact bypass the endpoint exists
+        # to prevent. NOT /v1/markets, which stays shared-cacheable below (its
+        # gate is a per-request API key, not per-session entitlement).
+        or (path.startswith("/api/matches/") and path.endswith("/markets"))
         # Beat-the-AI loop (Slice 2): device-keyed, per-caller like the routes
         # above -- /submit and /claim change state, /mine and /summary read
         # back one device's own tips. NOT /api/nrl/tips or /leaderboard, which
@@ -273,6 +282,7 @@ def provider_sample() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(billing_api.router)
 app.include_router(matches.router)
 app.include_router(predictions.router)
 app.include_router(teams.router)
@@ -287,6 +297,7 @@ app.include_router(market_record.router)
 app.include_router(research.router)
 app.include_router(internal.router)
 app.include_router(markets.router)
+app.include_router(premium_markets.router)
 app.include_router(sports.router)
 app.include_router(nrl_live.router)
 app.include_router(nrl_players.router)

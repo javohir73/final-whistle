@@ -15,3 +15,7 @@ settings.cookie_secure = False
 settings.recompute_token = ""  # tests assert fail-closed 503 when unset
 settings.environment = "production"  # tests exercise the strict Origin rules
 settings.cors_origins = "http://localhost:3000"
+settings.stripe_secret_key = ""  # billing OFF by default in tests
+settings.stripe_webhook_secret = ""
+settings.stripe_price_monthly = ""
+settings.stripe_price_annual = ""

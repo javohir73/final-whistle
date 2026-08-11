@@ -1,7 +1,16 @@
 /** STEP 1 auth hardening: friendlyAuthError never leaks the raw origin-guard
  *  text and maps cold-start/offline/timeout to clear copy; request() aborts a
  *  hung request (Render cold start) instead of spinning forever. */
-import { friendlyAuthError, ApiError, login, getOrCreateDeviceId, pingDailyActivity } from "./session";
+import {
+  friendlyAuthError,
+  ApiError,
+  login,
+  getOrCreateDeviceId,
+  pingDailyActivity,
+  createCheckoutSession,
+  createPortalSession,
+  getPremiumMarkets,
+} from "./session";
 
 describe("friendlyAuthError", () => {
   it("never surfaces the raw origin-guard text to users", () => {
@@ -132,5 +141,69 @@ describe("pingDailyActivity", () => {
     await expect(pingDailyActivity()).resolves.toBeUndefined();
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem("fw_last_ping")).toBeNull();
+  });
+});
+
+describe("billing client", () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+    jest.resetAllMocks();
+  });
+
+  it("posts the plan to /api/billing/checkout-session", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: "https://checkout.stripe.test/x" }),
+    }) as unknown as typeof fetch;
+
+    const out = await createCheckoutSession("annual");
+
+    expect(out.url).toBe("https://checkout.stripe.test/x");
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("/backend-api/api/billing/checkout-session");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ plan: "annual" });
+  });
+
+  it("posts to /api/billing/portal-session", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: "https://billing.stripe.test/portal" }),
+    }) as unknown as typeof fetch;
+
+    const out = await createPortalSession();
+
+    expect(out.url).toBeDefined();
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("/backend-api/api/billing/portal-session");
+    expect(init.method).toBe("POST");
+  });
+
+  it("fetches premium markets for a match", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        match_id: 42,
+        model_version: "poisson-elo-v0.6",
+        markets: {
+          one_x_two: { home_win: 0.4, draw: 0.3, away_win: 0.3 },
+          totals: [{ line: 2.5, over: 0.5, under: 0.5 }],
+          btts: { yes: 0.5, no: 0.5 },
+          correct_score: [{ home: 1, away: 0, prob: 0.1 }],
+          asian_handicap: [{ line: -0.5, home: 0.5, push: 0, away: 0.5 }],
+        },
+        disclaimer: "test",
+      }),
+    }) as unknown as typeof fetch;
+
+    const out = await getPremiumMarkets(42);
+
+    expect(out.match_id).toBe(42);
+    const [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("/backend-api/api/matches/42/markets");
   });
 });

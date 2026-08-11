@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { SessionUser } from "@/lib/session";
+import { createPortalSession, type SessionUser } from "@/lib/session";
+import { BILLING_ENABLED } from "@/lib/constants";
 import { recordEngagement } from "@/lib/engagement";
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
 
@@ -29,6 +30,15 @@ export function AccountMenu({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const label = user.display_name || user.email;
+
+  const onManageSubscription = async () => {
+    try {
+      const { url } = await createPortalSession();
+      window.location.assign(url);
+    } catch {
+      /* menu stays open; nothing to break */
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -74,6 +84,16 @@ export function AccountMenu({
             <div className="truncate text-xs text-muted">{user.email}</div>
           </div>
           <div className="my-1 border-t border-border" />
+          {BILLING_ENABLED && user.premium && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onManageSubscription}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+            >
+              Manage subscription
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
