@@ -83,6 +83,31 @@ def test_checkout_creates_session_with_selected_price(client, billing_on, monkey
     assert captured["client_reference_id"]  # binds the session to our user id
 
 
+def test_checkout_reuses_customer_and_skips_trial_for_lapsed_subscriber(
+        client, billing_on, monkeypatch):
+    """A lapsed (not currently premium) subscriber re-checking out must not get a
+    second free trial, and must reuse their existing Stripe customer rather than
+    creating a duplicate one."""
+    user = _register(client)
+    db = client.sessionmaker()
+    db.add(Subscription(user_id=user["id"], status="canceled", plan="monthly",
+                        stripe_customer_id="cus_9",
+                        current_period_end=datetime.now(timezone.utc) - timedelta(days=30)))
+    db.commit(); db.close()
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return type("S", (), {"url": "https://checkout.stripe.test/sess_456"})()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
+    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
+    assert r.status_code == 200
+    assert "trial_period_days" not in captured["subscription_data"]
+    assert captured["customer"] == "cus_9"
+    assert "customer_email" not in captured
+
+
 def test_checkout_409_when_already_premium(client, billing_on):
     user = _register(client)
     db = client.sessionmaker()
