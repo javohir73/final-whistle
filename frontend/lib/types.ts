@@ -281,6 +281,7 @@ export interface LeaderboardRow {
   total_points: number;
   percentile: number | null;
   updated_at: string | null;
+  premium?: boolean;
 }
 
 export interface SavedBracketScore {

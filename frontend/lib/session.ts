@@ -21,6 +21,12 @@ export interface SessionUser {
   // Optional: a cached hint from before this field existed won't have it, so
   // `undefined` means "unknown" (don't show the verify banner until /me confirms).
   email_verified?: boolean;
+  // FinalWhistle Premium entitlement. Optional: a cached hint from before this
+  // field existed won't have it (undefined = unknown, treat as not premium).
+  premium?: boolean;
+  // Raw Stripe subscription status (null when no subscription) — drives the
+  // past-due "payment issue" banner on /premium.
+  premium_status?: string | null;
 }
 
 /** Error carrying the backend's {code,message} so callers can show friendly copy. */
@@ -258,6 +264,32 @@ export function clearUserHint(): void {
     /* non-fatal */
   }
 }
+
+// ---- Billing (FinalWhistle Premium) ----
+export interface PremiumMarkets {
+  match_id: number;
+  model_version: string;
+  markets: {
+    one_x_two: { home_win: number; draw: number; away_win: number };
+    totals: { line: number; over: number; under: number }[];
+    btts: { yes: number; no: number };
+    correct_score: { home: number; away: number; prob: number }[];
+    asian_handicap: { line: number; home: number; push: number; away: number }[];
+  };
+  disclaimer: string;
+}
+
+export const createCheckoutSession = (plan: "monthly" | "annual") =>
+  request<{ url: string }>("/api/billing/checkout-session", {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
+
+export const createPortalSession = () =>
+  request<{ url: string }>("/api/billing/portal-session", { method: "POST" });
+
+export const getPremiumMarkets = (matchId: number | string) =>
+  request<PremiumMarkets>(`/api/matches/${matchId}/markets`);
 
 // ---- Anonymous device activity ping (D7/D14 retention cohorts) ----
 // A device id is NOT auth — it identifies a browser/install, not a person,
