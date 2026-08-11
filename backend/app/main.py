@@ -93,6 +93,13 @@ async def cache_control(request: Request, call_next):
         or path.startswith("/api/research")
         or path.startswith("/api/brackets")
         or path.startswith("/api/match-picks")
+        # Premium markets (Task 7): entitlement-gated per-user content (401/403/200
+        # all vary by the caller's subscription). A shared cache keyed on this
+        # user-less URL could replay one caller's premium 200 to a free or
+        # anonymous caller for the TTL — the exact bypass the endpoint exists
+        # to prevent. NOT /v1/markets, which stays shared-cacheable below (its
+        # gate is a per-request API key, not per-session entitlement).
+        or (path.startswith("/api/matches/") and path.endswith("/markets"))
         # Beat-the-AI loop (Slice 2): device-keyed, per-caller like the routes
         # above -- /submit and /claim change state, /mine and /summary read
         # back one device's own tips. NOT /api/nrl/tips or /leaderboard, which

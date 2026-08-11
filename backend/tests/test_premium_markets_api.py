@@ -56,7 +56,9 @@ def _register(client, email="fan@example.com"):
 
 def test_anonymous_gets_401(client):
     db = client.sessionmaker(); match_id = _seed_match(db); db.close()
-    assert client.get(f"/api/matches/{match_id}/markets").status_code == 401
+    r = client.get(f"/api/matches/{match_id}/markets")
+    assert r.status_code == 401
+    assert r.headers.get("cache-control") == "no-store"
 
 
 def test_free_user_gets_403(client):
@@ -67,6 +69,7 @@ def test_free_user_gets_403(client):
     # The global exception handler wraps HTTPException details as
     # {"error": {code, message}} on the wire (see test_billing_api.py).
     assert r.json()["error"]["code"] == "premium_required"
+    assert r.headers.get("cache-control") == "no-store"
 
 
 def test_premium_user_gets_full_markets(client):
@@ -83,6 +86,11 @@ def test_premium_user_gets_full_markets(client):
                                     "correct_score", "asian_handicap"}
     assert body["markets"]["correct_score"]  # non-empty grid
     assert "disclaimer" in body
+    # Entitlement-gated per-user content: a shared cache keyed on this
+    # user-less URL must never replay a premium 200 to a free/anonymous
+    # caller. See test_auth_responses_are_not_shared_cached in
+    # test_auth_api.py for the same pattern on other per-user surfaces.
+    assert r.headers.get("cache-control") == "no-store"
 
 
 def test_404_when_no_prediction(client):
