@@ -20,6 +20,7 @@ from app.api import (
     activity, auth, billing as billing_api, brackets, bridge, groups, intel, internal, knockout, leaderboard,
     league_score_predictions,
     markets, market_record, match_picks, matches, model_record, movers, nrl_intel, nrl_live, nrl_players, nrl_tips,
+    premium_markets,
     nrl_user_tips, predictions, prob_history, retention, sports, teams, tournaments,
     research,
 )
@@ -289,6 +290,7 @@ app.include_router(market_record.router)
 app.include_router(research.router)
 app.include_router(internal.router)
 app.include_router(markets.router)
+app.include_router(premium_markets.router)
 app.include_router(sports.router)
 app.include_router(nrl_live.router)
 app.include_router(nrl_players.router)
