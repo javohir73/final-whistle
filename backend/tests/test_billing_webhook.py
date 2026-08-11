@@ -102,6 +102,58 @@ def test_subscription_updated_sets_status_plan_period(client, monkeypatch):
     assert me.json()["premium"] is True
 
 
+def test_subscription_updated_monthly_plan(client, monkeypatch):
+    user = _register(client)
+    ev = _sub_event("evt_u1m", "customer.subscription.updated", user["id"],
+                    price="price_m")
+    assert _post_event(client, monkeypatch, ev).status_code == 200
+    db = client.sessionmaker()
+    sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
+    assert sub.plan == "monthly"
+    db.close()
+
+
+def test_period_end_falls_back_to_item_when_top_level_missing(client, monkeypatch):
+    """Stripe's 2025-03 'basil' API reports current_period_end only on the
+    subscription item, not the top-level object — apply_subscription_object
+    must still populate it from items.data[0]."""
+    user = _register(client)
+    ev = {"id": "evt_basil1", "type": "customer.subscription.updated", "data": {
+        "object": {
+            "id": "sub_1", "customer": "cus_1", "status": "active",
+            # no top-level current_period_end
+            "metadata": {"user_id": str(user["id"])},
+            "items": {"data": [{"price": {"id": "price_a"},
+                                "current_period_end": 1789999999}]},
+        }}}
+    assert _post_event(client, monkeypatch, ev).status_code == 200
+    db = client.sessionmaker()
+    sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
+    assert sub.current_period_end is not None
+    db.close()
+
+
+def test_missing_price_keeps_current_plan(client, monkeypatch):
+    """A subsequent update with no item price (e.g. a status-only nudge) must
+    not clobber the plan a prior event already established."""
+    user = _register(client)
+    first = _sub_event("evt_p1", "customer.subscription.updated", user["id"],
+                       price="price_a")
+    assert _post_event(client, monkeypatch, first).status_code == 200
+    second = {"id": "evt_p2", "type": "customer.subscription.updated", "data": {
+        "object": {
+            "id": "sub_1", "customer": "cus_1", "status": "active",
+            "current_period_end": 1789999999,
+            "metadata": {"user_id": str(user["id"])},
+            "items": {"data": []},  # no price on this delivery
+        }}}
+    assert _post_event(client, monkeypatch, second).status_code == 200
+    db = client.sessionmaker()
+    sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
+    assert sub.plan == "annual"  # unchanged from the first event
+    db.close()
+
+
 def test_subscription_deleted_marks_canceled(client, monkeypatch):
     user = _register(client)
     _post_event(client, monkeypatch,
