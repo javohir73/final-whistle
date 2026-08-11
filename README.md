@@ -220,6 +220,7 @@ Next up:
 - **Goalscorer predictions** (per-match scorer likelihoods)
 - **Gradient-boosted W/D/L challenger** (gated — ships only if it beats the current model on the backtest)
 - **Live Elo adjustments** during matches
+- **FinalWhistle Premium** (fan subscription: advanced markets panel; simulators and model intel to follow)
 
 ---
 

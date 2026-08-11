@@ -51,6 +51,28 @@ no-ops. The matches board shows a LIVE badge + running score and minute.
 |---|---|---|---|
 | `NEXT_PUBLIC_API_URL` | ✅ | `https://pitchprophet-api.onrender.com` | Backend base URL. Must be set for all environments (Production/Preview). |
 
+### Billing (FinalWhistle Premium — optional, OFF by default)
+
+| Variable | Where | Meaning |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. Unset ⇒ billing fully disabled. |
+| `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for the `/api/billing/webhook` endpoint. |
+| `STRIPE_PRICE_MONTHLY` | Render (backend) | Price ID for the $4.99/month plan. |
+| `STRIPE_PRICE_ANNUAL` | Render (backend) | Price ID for the $39.99/year plan. |
+| `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` to render premium surfaces. Keep in lockstep with the backend gate. |
+
+All five stay unset until the stop-gated production rollout (spec:
+docs/superpowers/specs/2026-08-11-premium-subscriptions-design.md). The
+webhook endpoint to register in the Stripe dashboard is
+`<backend origin>/api/billing/webhook` with events: checkout.session.completed,
+customer.subscription.created, customer.subscription.updated,
+customer.subscription.deleted, invoice.payment_failed.
+
+`NEXT_PUBLIC_BILLING_ENABLED` is a Next.js `NEXT_PUBLIC_*` variable, so it is
+inlined into the JS bundle at build time — flipping it on Vercel requires a
+rebuild/redeploy of the frontend, not just an env var change; setting it and
+waiting is not enough.
+
 ---
 
 ## 2. Database migration / deploy notes (free tier)
