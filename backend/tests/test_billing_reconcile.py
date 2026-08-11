@@ -14,6 +14,7 @@ from app.models import AppUser, Subscription
 @pytest.fixture
 def billing_on(monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_x")
     monkeypatch.setattr(settings, "stripe_price_monthly", "price_m")
     monkeypatch.setattr(settings, "stripe_price_annual", "price_a")
 

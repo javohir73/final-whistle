@@ -142,8 +142,12 @@ class Settings(BaseSettings):
 
     @property
     def billing_enabled(self) -> bool:
-        """Billing needs the secret key AND both prices; anything less is OFF."""
-        return bool(self.stripe_secret_key
+        """Billing needs the secret key, the webhook signing secret AND both
+        prices; anything less is OFF. The signing secret is not optional: without
+        it checkout still charges the card but every webhook fails verification
+        (400), so no Subscription row is ever written and the user gets nothing.
+        A 503 on checkout is the safe failure mode for a partial config."""
+        return bool(self.stripe_secret_key and self.stripe_webhook_secret
                     and self.stripe_price_monthly and self.stripe_price_annual)
 
     @property
