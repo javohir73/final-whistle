@@ -17,7 +17,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 logger = logging.getLogger(__name__)
 
 from app.api import (
-    activity, auth, brackets, bridge, groups, intel, internal, knockout, leaderboard, league_score_predictions,
+    activity, auth, billing as billing_api, brackets, bridge, groups, intel, internal, knockout, leaderboard,
+    league_score_predictions,
     markets, market_record, match_picks, matches, model_record, movers, nrl_intel, nrl_live, nrl_players, nrl_tips,
     nrl_user_tips, predictions, prob_history, retention, sports, teams, tournaments,
     research,
@@ -273,6 +274,7 @@ def provider_sample() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(billing_api.router)
 app.include_router(matches.router)
 app.include_router(predictions.router)
 app.include_router(teams.router)

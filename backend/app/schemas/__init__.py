@@ -3,6 +3,7 @@ that the frontend consumes."""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -559,3 +560,12 @@ class MarketsOut(BaseModel):
     # a usable clock; otherwise the payload is the frozen pre-match markets.
     is_live: bool = False
     live: LiveMarketsStateOut | None = None
+
+
+# ---- Billing (FinalWhistle Premium) ----
+class CheckoutSessionIn(BaseModel):
+    plan: Literal["monthly", "annual"]
+
+
+class BillingUrlOut(BaseModel):
+    url: str
