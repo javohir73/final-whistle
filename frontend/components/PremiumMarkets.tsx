@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { PremiumGate } from "@/components/PremiumGate";
+import { BILLING_ENABLED } from "@/lib/constants";
 import { getPremiumMarkets, type PremiumMarkets as Payload } from "@/lib/session";
 import { pct, formatScore } from "@/lib/format";
 
@@ -126,7 +127,11 @@ export function PremiumMarkets({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!user?.premium) return;
+    // Billing off must behave exactly as if Premium never existed — even for
+    // a session with a server-set premium:true (e.g. the flag gets flipped
+    // off after subscriptions already exist). Never fire the entitled fetch
+    // in that case.
+    if (!BILLING_ENABLED || !user?.premium) return;
     let alive = true;
     getPremiumMarkets(matchId)
       .then((d) => {
@@ -139,6 +144,12 @@ export function PremiumMarkets({
       alive = false;
     };
   }, [matchId, user?.premium]);
+
+  // Billing off ⇒ nothing, full stop — even for an existing premium session.
+  // PremiumGate enforces this same rule for the free/anon teaser path below,
+  // but the premium branch returns before ever reaching PremiumGate, so it
+  // needs its own check here too.
+  if (!BILLING_ENABLED) return null;
 
   if (user?.premium) {
     if (failed || !data) return null; // loading or unavailable: collapse quietly

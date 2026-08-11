@@ -64,4 +64,64 @@ describe("PremiumMarkets", () => {
     await waitFor(() => expect(mockGet).toHaveBeenCalled());
     expect(container.querySelector("table")).toBeNull(); // no half-rendered card
   });
+
+});
+
+// BILLING_ENABLED is read at import time, and the file-level jest.mock above
+// fixes it to `true` for every test in the block above — so proving the
+// "billing off" behavior needs a fresh, isolated require of the module graph
+// with a different mocked value (same technique as
+// components/PremiumGate.test.tsx and app/premium/page.test.tsx's
+// "PremiumPage (billing gate)" block). `jest.resetModules()` is required
+// before `doMock`, or the isolated require silently resolves the *outer*
+// BILLING_ENABLED:true mock instead (confirmed by removing it and
+// reproducing the stale-mock failure — same quirk documented in Task 11's
+// report).
+//
+// Unlike those two precedents, PremiumMarkets uses real useState/useEffect
+// (not just a mocked useAuth, or a hook-free server component called as a
+// plain function). Requiring only the component fresh while rendering it
+// with this file's outer `render` would pair an isolated-registry React
+// (inside the component's own hooks) with the outer registry's react-dom —
+// the same "second, disconnected copy of React" hook-dispatcher mismatch
+// the PremiumGate.test.tsx comment warns about for next/link, but hitting
+// our own hooks instead. So `render` itself is required fresh from the SAME
+// isolated registry too, keeping every piece (react, react-dom, the
+// component's hooks) consistent.
+//
+// That isolated `require("@testing-library/react")` runs `jest.isolateModules`
+// at `describe`-collection time (not inside an `it`) because importing it a
+// second time re-registers its auto-cleanup `afterEach` — and jest-circus
+// rejects hooks registered from inside a running test ("Hooks cannot be
+// defined inside tests").
+describe("PremiumMarkets billing off", () => {
+  const isolatedMockGet = jest.fn();
+  let isolatedRender: typeof render = render;
+  let IsolatedPremiumMarkets: typeof PremiumMarkets = PremiumMarkets;
+
+  jest.isolateModules(() => {
+    jest.resetModules();
+    jest.doMock("@/lib/constants", () => ({
+      ...jest.requireActual("@/lib/constants"),
+      BILLING_ENABLED: false,
+    }));
+    jest.doMock("@/components/AuthProvider", () => ({
+      useAuth: () => ({ user: { id: 1, premium: true }, loading: false,
+                        openSignIn: jest.fn() }),
+    }));
+    jest.doMock("@/lib/session", () => ({
+      ...jest.requireActual("@/lib/session"),
+      getPremiumMarkets: (...a: unknown[]) => isolatedMockGet(...a),
+    }));
+    ({ render: isolatedRender } = require("@testing-library/react"));
+    ({ PremiumMarkets: IsolatedPremiumMarkets } = require("./PremiumMarkets"));
+  });
+
+  it("renders nothing and never fetches, even for a premium user", () => {
+    const { container } = isolatedRender(
+      <IsolatedPremiumMarkets matchId={7} home="A" away="B" />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(isolatedMockGet).not.toHaveBeenCalled();
+  });
 });
