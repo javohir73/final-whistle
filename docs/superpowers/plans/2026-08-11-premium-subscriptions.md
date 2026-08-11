@@ -131,7 +131,7 @@ git commit -m "feat: stripe dependency + env-gated billing settings"
 
 **Files:**
 - Modify: `backend/app/models/__init__.py` (append after `EmailVerificationToken`, before `Bracket`)
-- Create: `backend/alembic/versions/a1b2c3d4e5f6_premium_subscriptions.py`
+- Create: `backend/alembic/versions/e0fe02d971ed_premium_subscriptions.py`
 - Test: `backend/tests/test_billing_models.py`
 
 **Interfaces:**
@@ -250,7 +250,7 @@ First confirm the head is still `e2f3a4b5c6d7`:
 
 `cd backend && PYTHONPATH=. "/Users/macbookpro/Projects/FIFA WC26 Prediction/.venv/bin/alembic" heads`
 
-If it moved, use the printed head as `down_revision` instead. Create `backend/alembic/versions/a1b2c3d4e5f6_premium_subscriptions.py`:
+If it moved, use the printed head as `down_revision` instead. Create `backend/alembic/versions/e0fe02d971ed_premium_subscriptions.py`:
 
 ```python
 """Premium subscriptions: subscriptions + billing_events.
@@ -258,7 +258,7 @@ If it moved, use the printed head as `down_revision` instead. Create `backend/al
 One subscription row per user (FinalWhistle Premium), written by Stripe
 webhooks; billing_events is the processed-webhook idempotency ledger.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: e0fe02d971ed
 Revises: e2f3a4b5c6d7
 Create Date: 2026-08-11
 """
@@ -267,7 +267,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "e0fe02d971ed"
 down_revision: Union[str, None] = "e2f3a4b5c6d7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -308,12 +308,12 @@ def downgrade() -> None:
 - [ ] **Step 6: Verify the migration against local Postgres**
 
 Run: `docker compose up -d && cd backend && PYTHONPATH=. "/Users/macbookpro/Projects/FIFA WC26 Prediction/.venv/bin/alembic" upgrade head && PYTHONPATH=. "/Users/macbookpro/Projects/FIFA WC26 Prediction/.venv/bin/alembic" current`
-Expected: `a1b2c3d4e5f6 (head)`. (If Docker isn't available locally, note it in the task report — CI/prod apply is stop-gated anyway — but do not skip silently.)
+Expected: `e0fe02d971ed (head)`. (If Docker isn't available locally, note it in the task report — CI/prod apply is stop-gated anyway — but do not skip silently.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/app/models/__init__.py backend/alembic/versions/a1b2c3d4e5f6_premium_subscriptions.py backend/tests/test_billing_models.py
+git add backend/app/models/__init__.py backend/alembic/versions/e0fe02d971ed_premium_subscriptions.py backend/tests/test_billing_models.py
 git commit -m "feat: subscription + billing-event models and migration"
 ```
 
