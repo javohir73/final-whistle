@@ -5,6 +5,13 @@ import { getMatchServer, getMatchSummary, getMatchSummaryServer, getMatchLineups
 import type { Prediction } from "@/lib/types";
 
 jest.mock("@/lib/api");
+// PremiumMarkets (rendered after Goals) reads useAuth() unconditionally.
+// BILLING_ENABLED stays false (unmocked) here, so PremiumGate always renders
+// nothing — this mock exists only so that call doesn't throw for lack of a
+// real <AuthProvider> wrapper (this suite renders the page tree directly).
+jest.mock("@/components/AuthProvider", () => ({
+  useAuth: () => ({ user: null, loading: false, openSignIn: jest.fn() }),
+}));
 const mockGet = getMatchServer as jest.MockedFunction<typeof getMatchServer>;
 const mockSummaryServer = getMatchSummaryServer as jest.MockedFunction<typeof getMatchSummaryServer>;
 const mockSummary = getMatchSummary as jest.MockedFunction<typeof getMatchSummary>;
