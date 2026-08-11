@@ -196,3 +196,30 @@ def test_replayed_event_is_acknowledged_not_reapplied(client, monkeypatch):
 def test_unknown_event_type_acknowledged(client, monkeypatch):
     ev = {"id": "evt_x1", "type": "customer.created", "data": {"object": {}}}
     assert _post_event(client, monkeypatch, ev).status_code == 200
+
+
+def test_non_numeric_client_reference_id_is_acknowledged(client, monkeypatch):
+    """checkout.session.completed fires for EVERY Checkout Session on the whole
+    Stripe account, and a Payment Link lets any visitor set an arbitrary
+    client_reference_id. A ValueError here would escape before the endpoint's
+    db.commit(), discarding the BillingEvent row too — so Stripe would redeliver
+    the same event into the same crash for up to 3 days."""
+    ev = {"id": "evt_bad1", "type": "checkout.session.completed",
+          "data": {"object": {"client_reference_id": "not-a-user-id",
+                              "customer": "cus_x", "subscription": "sub_x"}}}
+    assert _post_event(client, monkeypatch, ev).status_code == 200
+    db = client.sessionmaker()
+    assert db.query(Subscription).count() == 0
+    db.close()
+
+
+def test_non_numeric_metadata_user_id_is_acknowledged(client, monkeypatch):
+    """Same unbreakable-retry hazard on the subscription metadata fallback: an
+    unmatched stripe_subscription_id plus a junk metadata.user_id must be
+    acknowledged, not crash the webhook."""
+    ev = _sub_event("evt_bad2", "customer.subscription.updated", "not-a-user-id",
+                    sub_id="sub_unknown")
+    assert _post_event(client, monkeypatch, ev).status_code == 200
+    db = client.sessionmaker()
+    assert db.query(Subscription).count() == 0
+    db.close()

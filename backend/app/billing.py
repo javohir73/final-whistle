@@ -65,9 +65,17 @@ def apply_subscription_object(db, obj: dict, deleted: bool = False) -> None:
         meta_user = (obj.get("metadata") or {}).get("user_id")
         if not meta_user:
             return  # not one of ours — acknowledge and move on
-        sub = db.query(Subscription).filter_by(user_id=int(meta_user)).one_or_none()
+        try:
+            user_id = int(meta_user)
+        except (TypeError, ValueError):
+            return  # metadata we didn't stamp — acknowledge and move on
+        # NOTE: a numeric-but-unknown user_id still violates the app_users FK on
+        # commit (IntegrityError => 500 => Stripe redelivers for days). SQLite
+        # doesn't enforce FKs by default so it isn't unit-testable here; the
+        # metadata is ours (stamped at checkout) so it stays an accepted risk.
+        sub = db.query(Subscription).filter_by(user_id=user_id).one_or_none()
         if sub is None:
-            sub = Subscription(user_id=int(meta_user), status="incomplete",
+            sub = Subscription(user_id=user_id, status="incomplete",
                                plan="monthly")
             db.add(sub)
         sub.stripe_subscription_id = obj.get("id")
@@ -137,9 +145,18 @@ def apply_event(db, event: dict) -> None:
         ref = obj.get("client_reference_id")
         if not ref:
             return
-        sub = db.query(Subscription).filter_by(user_id=int(ref)).one_or_none()
+        # This type fires for EVERY Checkout Session on the account and a Payment
+        # Link lets anyone set client_reference_id, so the value is untrusted. A
+        # raise here would escape before the endpoint's commit, discarding the
+        # BillingEvent row too — Stripe would then redeliver into the same crash
+        # for up to 3 days. Acknowledge and move on instead.
+        try:
+            user_id = int(ref)
+        except (TypeError, ValueError):
+            return
+        sub = db.query(Subscription).filter_by(user_id=user_id).one_or_none()
         if sub is None:
-            sub = Subscription(user_id=int(ref), status="incomplete", plan="monthly")
+            sub = Subscription(user_id=user_id, status="incomplete", plan="monthly")
             db.add(sub)
         if obj.get("customer"):
             sub.stripe_customer_id = obj["customer"]
