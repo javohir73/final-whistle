@@ -198,6 +198,52 @@ def test_unknown_event_type_acknowledged(client, monkeypatch):
     assert _post_event(client, monkeypatch, ev).status_code == 200
 
 
+def test_stale_deleted_event_cannot_revoke_a_resubscribed_user(client, monkeypatch):
+    """User cancels, resubscribes (row rebound to sub_NEW, active), then Stripe
+    redelivers a backlogged `deleted` for the dead sub_OLD. The id lookup misses
+    (the row points at sub_NEW), so the metadata fallback used to find the row by
+    user_id and rebind it BACKWARDS to sub_OLD + canceled — instantly revoking
+    someone who just paid, with no self-correction until the next sub_NEW event.
+    A terminal event for a superseded subscription must not touch the row."""
+    user = _register(client)
+    assert _post_event(client, monkeypatch, _sub_event(
+        "evt_new_active", "customer.subscription.updated", user["id"],
+        status="active", sub_id="sub_NEW")).status_code == 200
+    stale = _sub_event("evt_old_deleted", "customer.subscription.deleted",
+                       user["id"], sub_id="sub_OLD")
+    assert _post_event(client, monkeypatch, stale).status_code == 200
+    db = client.sessionmaker()
+    sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
+    assert sub.stripe_subscription_id == "sub_NEW"  # not rebound backwards
+    assert sub.status == "active"  # still entitled
+    db.close()
+
+
+def test_live_event_for_a_new_subscription_still_rebinds_a_lapsed_row(
+        client, monkeypatch):
+    """The flip side of that guard, and why it keys on the event being terminal
+    rather than on the row simply being bound: a resubscriber's row is ALWAYS
+    still bound to the dead sub_OLD, so sub_NEW's created/updated events miss the
+    id lookup and land in the metadata fallback. A live subscription object is
+    the newer one and must take the binding over — dropping it would strand a
+    paying customer at `canceled` until Stripe's next event (up to a month)."""
+    user = _register(client)
+    _post_event(client, monkeypatch,
+                _sub_event("evt_old_active", "customer.subscription.updated",
+                           user["id"], status="active", sub_id="sub_OLD"))
+    _post_event(client, monkeypatch,
+                _sub_event("evt_old_gone", "customer.subscription.deleted",
+                           user["id"], sub_id="sub_OLD"))
+    fresh = _sub_event("evt_new_created", "customer.subscription.created",
+                       user["id"], status="active", sub_id="sub_NEW")
+    assert _post_event(client, monkeypatch, fresh).status_code == 200
+    db = client.sessionmaker()
+    sub = db.query(Subscription).filter_by(user_id=user["id"]).one()
+    assert sub.stripe_subscription_id == "sub_NEW"
+    assert sub.status == "active"
+    db.close()
+
+
 def test_non_numeric_client_reference_id_is_acknowledged(client, monkeypatch):
     """checkout.session.completed fires for EVERY Checkout Session on the whole
     Stripe account, and a Payment Link lets any visitor set an arbitrary
