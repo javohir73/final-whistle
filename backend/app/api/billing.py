@@ -115,10 +115,14 @@ def create_subscription(payload: schemas.SubscribeIn,
         raise _billing_unavailable()
     # SECURITY: the id arrives from the client, so it may be anyone's. Without
     # both halves of this check a caller could pass a stranger's SetupIntent and
-    # attach that person's card to their own subscription.
+    # attach that person's card to their own subscription. The payment_method
+    # arm is the "no subscription without a confirmed card" rule made explicit:
+    # stripe-python drops None params, so passing a null one below would create a
+    # trialing subscription with nothing to charge when the trial ends.
     customer_id = sub.stripe_customer_id if sub is not None else None
     if (not customer_id or intent.get("customer") != customer_id
-            or intent.get("status") != "succeeded"):
+            or intent.get("status") != "succeeded"
+            or not intent.get("payment_method")):
         raise HTTPException(status_code=403, detail={
             "code": "setup_intent_invalid",
             "message": "That payment setup can't be used. Please try again."})
@@ -130,6 +134,16 @@ def create_subscription(payload: schemas.SubscribeIn,
         items=[{"price": price}],
         default_payment_method=intent.get("payment_method"),
         metadata={"user_id": str(user.id)},
+        # The is_premium() guard above only covers retries once the subscription
+        # entitles. A created-but-not-entitling one (`incomplete` after a soft
+        # decline, or past_due beyond the grace window) falls through it, so a
+        # lost response, a page reload or "Finish activation" would buy a second
+        # subscription on the same customer — and apply_subscription_object keeps
+        # the first binding, so we'd never see the second one to cancel it. Keyed
+        # on the SetupIntent (NOT the plan: a key that varied per plan would let
+        # exactly that duplicate through), which Stripe honours for 24h — longer
+        # than the ~23h after which it auto-cancels an incomplete subscription.
+        idempotency_key=f"sub:{user.id}:{payload.setup_intent_id}",
     )
     if billing.trial_eligible(sub):
         kwargs["trial_period_days"] = 7

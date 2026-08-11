@@ -128,12 +128,20 @@ def test_setup_intent_requires_auth(client, billing_on):
     assert r.status_code == 401
 
 
-def test_setup_intent_409_when_already_premium(client, billing_on):
+def test_setup_intent_409_when_already_premium(client, billing_on, monkeypatch):
     user = _register(client)
     db = client.sessionmaker()
     db.add(Subscription(user_id=user["id"], status="active", plan="monthly",
                         current_period_end=datetime.now(timezone.utc) + timedelta(days=20)))
     db.commit(); db.close()
+
+    def boom(**kwargs):
+        # Armed so moving the guard below the Stripe call fails here, rather
+        # than by reaching api.stripe.com for real from an otherwise hermetic
+        # suite (slow, and flaky in CI).
+        raise AssertionError("must not reach Stripe")
+
+    monkeypatch.setattr(stripe.Customer, "create", staticmethod(boom))
     r = client.post("/api/billing/setup-intent")
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "already_subscribed"
@@ -156,6 +164,19 @@ def test_setup_intent_creates_and_persists_customer(client, billing_on, monkeypa
     assert row is not None and row.stripe_customer_id == "cus_new"
     assert row.status == "incomplete"  # holds the customer id, entitles nothing
     assert row.had_subscription is False
+
+
+def test_setup_intent_response_is_never_shared_cached(client, billing_on, monkeypatch):
+    """The body is a Stripe client secret and it reaches the browser through
+    Vercel's /backend-api/* rewrite. A shared cache wouldn't store a POST
+    response uninvited, but every other per-user surface in main.py says
+    `no-store` explicitly rather than relying on that."""
+    _register(client)
+    _mock_customer(monkeypatch)
+    _mock_setup_intent(monkeypatch)
+    r = client.post("/api/billing/setup-intent")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
 
 
 def test_setup_intent_reuses_existing_customer(client, billing_on, monkeypatch):
@@ -243,6 +264,52 @@ def test_subscribe_rejects_when_user_has_no_customer(client, billing_on, monkeyp
     assert r.json()["error"]["code"] == "setup_intent_invalid"
 
 
+def test_subscribe_rejects_a_setup_intent_with_no_payment_method(client, billing_on,
+                                                                 monkeypatch):
+    """stripe-python drops None params, so a null payment_method would quietly
+    turn the create call into "subscribe with no card" — 7 days of Premium with
+    nothing to charge afterwards. The design rule is: no subscription without a
+    confirmed card."""
+    user = _register(client)
+    db = client.sessionmaker()
+    db.add(Subscription(user_id=user["id"], status="incomplete", plan="monthly",
+                        stripe_customer_id="cus_mine"))
+    db.commit(); db.close()
+    _mock_retrieve_intent(monkeypatch, customer="cus_mine", status="succeeded",
+                          payment_method=None)
+
+    def boom(**kwargs):
+        raise AssertionError("must not create a subscription")
+
+    monkeypatch.setattr(stripe.Subscription, "create", staticmethod(boom))
+    r = client.post("/api/billing/subscribe",
+                    json={"plan": "monthly", "setup_intent_id": "seti_1"})
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "setup_intent_invalid"
+
+
+def test_subscribe_rejects_a_foreign_origin(client, billing_on):
+    """CSRF guard, asserted at the route rather than on the function: a
+    cookie-authenticated POST that buys a subscription must not be drivable from
+    another site, so the Depends(require_same_origin) wiring has to be pinned."""
+    _register(client)
+    r = client.post("/api/billing/subscribe",
+                    json={"plan": "monthly", "setup_intent_id": "seti_1"},
+                    headers={"Origin": "https://evil.example.com"})
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "forbidden_origin"
+
+
+def test_setup_intent_rejects_a_foreign_origin(client, billing_on):
+    """Same wiring check for step 1 — it creates a Stripe customer and returns a
+    client secret."""
+    _register(client)
+    r = client.post("/api/billing/setup-intent",
+                    headers={"Origin": "https://evil.example.com"})
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "forbidden_origin"
+
+
 # ---- subscribe: the happy paths ----
 
 def test_subscribe_grants_trial_to_customer_only_row(client, billing_on, monkeypatch):
@@ -287,6 +354,63 @@ def test_subscribe_withholds_trial_from_returning_subscriber(client, billing_on,
     assert r.status_code == 200
     assert "trial_period_days" not in captured
     assert captured["items"] == [{"price": "price_a"}]
+
+
+def test_subscribe_withholds_trial_when_only_the_subscription_id_says_returning(
+        client, billing_on, monkeypatch):
+    """The other half of the trial guard. A row can hold a subscription id with
+    had_subscription still false — the migration's backfill runs from refresh.yml
+    *after* the code deploys, so there is a real window for it. Reading only the
+    flag would hand that subscriber a second free trial."""
+    user = _register(client)
+    db = client.sessionmaker()
+    db.add(Subscription(user_id=user["id"], status="canceled", plan="monthly",
+                        stripe_customer_id="cus_new", stripe_subscription_id="sub_old",
+                        had_subscription=False,
+                        current_period_end=datetime.now(timezone.utc) - timedelta(days=30)))
+    db.commit(); db.close()
+    _mock_retrieve_intent(monkeypatch)
+    captured = {}
+    _mock_subscription_create(
+        monkeypatch,
+        _stripe_subscription(user["id"], sub_id="sub_2", status="active"), captured)
+    r = client.post("/api/billing/subscribe",
+                    json={"plan": "monthly", "setup_intent_id": "seti_1"})
+    assert r.status_code == 200
+    assert "trial_period_days" not in captured
+
+
+def test_subscribe_keys_creation_to_the_setup_intent(client, billing_on, monkeypatch):
+    """A created subscription does not always entitle: a returning subscriber is
+    charged on day one, and a card that needs a bank challenge leaves it
+    `incomplete`. is_premium() is false for that, so the guard above lets a retry
+    (lost response, page reload, "Finish activation") straight through to a
+    SECOND Subscription.create on the same customer — billed monthly, invisible
+    to us because apply_subscription_object keeps the first binding. Stripe's
+    idempotency key, derived from the SetupIntent, is what collapses those
+    retries into one subscription; it also makes the succeeded intent
+    non-replayable for the 24h Stripe honours the key."""
+    user = _register(client)
+    db = client.sessionmaker()
+    db.add(Subscription(user_id=user["id"], status="incomplete", plan="monthly",
+                        stripe_customer_id="cus_new", had_subscription=True))
+    db.commit(); db.close()
+    _mock_retrieve_intent(monkeypatch)
+    keys = []
+
+    def fake_create(**kwargs):
+        keys.append(kwargs.get("idempotency_key"))
+        return _stripe_subscription(user["id"], status="incomplete")
+
+    monkeypatch.setattr(stripe.Subscription, "create", staticmethod(fake_create))
+    for _ in range(2):
+        r = client.post("/api/billing/subscribe",
+                        json={"plan": "monthly", "setup_intent_id": "seti_1"})
+        assert r.status_code == 200
+        assert r.json() == {"status": "incomplete", "premium": False}
+    assert keys[0], "Subscription.create must carry an idempotency_key"
+    assert keys[0] == keys[1]  # same intent, same key => Stripe replays the first
+    assert "seti_1" in keys[0] and str(user["id"]) in keys[0]
 
 
 def test_subscribe_applies_row_eagerly_matching_the_webhook(client, billing_on,
@@ -338,7 +462,13 @@ def test_subscribe_idempotent_when_already_premium(client, billing_on, monkeypat
     def boom(**kwargs):
         raise AssertionError("must not create a second subscription")
 
+    def no_retrieve(*args, **kwargs):
+        # Same reason as the sentinel above: the guard must return before any
+        # Stripe call, and this pins that without a live network round trip.
+        raise AssertionError("must not retrieve the SetupIntent")
+
     monkeypatch.setattr(stripe.Subscription, "create", staticmethod(boom))
+    monkeypatch.setattr(stripe.SetupIntent, "retrieve", staticmethod(no_retrieve))
     r = client.post("/api/billing/subscribe",
                     json={"plan": "monthly", "setup_intent_id": "seti_1"})
     assert r.status_code == 200
