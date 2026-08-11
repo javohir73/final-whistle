@@ -10,7 +10,28 @@ import {
   isWiredFootballCompetition,
   competitionsForSport,
   isCompetitionId,
+  normalizePathname,
 } from "@/lib/sports";
+
+describe("normalizePathname", () => {
+  it("collapses the root route's internal aliases to the public pathname", () => {
+    // During ISR revalidation on Vercel the root route renders under its
+    // filesystem name — usePathname() reports "/index", the client computes
+    // "/", and every pathname-derived nav branch mismatches (React #418).
+    expect(normalizePathname("/index")).toBe("/");
+    expect(normalizePathname("")).toBe("/");
+    expect(normalizePathname(null)).toBe("/");
+  });
+
+  it("leaves every real route untouched", () => {
+    expect(normalizePathname("/")).toBe("/");
+    expect(normalizePathname("/nrl")).toBe("/nrl");
+    expect(normalizePathname("/football/epl")).toBe("/football/epl");
+    expect(normalizePathname("/leaderboard")).toBe("/leaderboard");
+    // A genuine page named index under a real prefix is not the alias.
+    expect(normalizePathname("/docs/index")).toBe("/docs/index");
+  });
+});
 
 describe("sport config", () => {
   it("detects the active sport from the pathname prefix", () => {

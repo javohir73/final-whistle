@@ -52,6 +52,20 @@ it("shows platform-level destinations on the general home", () => {
   expect(screen.queryByRole("link", { name: "Tips" })).not.toBeInTheDocument();
 });
 
+it("treats the root route's ISR alias (/index) as the platform home, not WC26", () => {
+  // On Vercel, ISR revalidation of "/" renders with usePathname() === "/index"
+  // (the route's internal name). The server must produce the same platform nav
+  // the client renders for "/", or hydration fails site-wide (React #418).
+  mockPath = "/index";
+  renderNav();
+  expect(screen.getByRole("link", { name: "Football" })).toHaveAttribute(
+    "href",
+    "/football/epl",
+  );
+  expect(screen.getByRole("link", { name: "NRL" })).toHaveAttribute("href", "/nrl");
+  expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
+});
+
 it("keeps shared Play navigation platform-level instead of implying WC26", () => {
   mockPath = "/play";
   renderNav();
