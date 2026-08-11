@@ -441,6 +441,8 @@ class LeaderboardRowOut(BaseModel):
     total_points: int
     percentile: int | None = None
     updated_at: str | None = None
+    # FinalWhistle Premium supporter badge (defaults False for older clients).
+    premium: bool = False
 
 
 # ---- Match lineups (display-only; never feeds the prediction model) ----
