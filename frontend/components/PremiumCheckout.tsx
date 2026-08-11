@@ -124,8 +124,11 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
         await refresh();
         setStage(premium ? "done" : "pending");
       } catch (e) {
-        // The card is saved and no subscription exists, so nothing has been
-        // charged; subscribe() is idempotent, so retrying is safe.
+        // The card is saved; whether the subscription got as far as Stripe is
+        // exactly what we don't know here, which is why the copy below promises
+        // a safe retry rather than "nothing has been charged" — the backend keys
+        // the create call to this SetupIntent, so finishing again can only ever
+        // resolve to the one subscription.
         setError(friendlyAuthError(e));
         setStage("recover");
       }
@@ -181,8 +184,9 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
           Your subscription <span className="font-semibold">hasn&rsquo;t activated</span> yet —
           the first payment didn&rsquo;t go through.
         </p>
-        {/* Deliberately no retry: a subscription now exists, so the backend's
-            is_premium-keyed idempotency no longer covers a second attempt. */}
+        {/* Deliberately no retry: this SetupIntent is now the backend's
+            idempotency key, so a second attempt replays the very same
+            subscription and could only report the same failed invoice. */}
         <p className="mt-1 text-muted">
           Check with your bank, then reload this page — or use a different card.
         </p>
@@ -194,7 +198,8 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
       <div className="glass rounded-2xl p-4 text-sm">
         <p>
           <span className="font-semibold">Your card was saved</span>, but we couldn&rsquo;t
-          finish setting up the subscription — so nothing has been charged.
+          finish setting up the subscription — you won&rsquo;t be charged twice for
+          trying again.
         </p>
         {error && <p className="mt-1 text-muted">{error}</p>}
         <button

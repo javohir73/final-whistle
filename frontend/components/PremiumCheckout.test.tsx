@@ -37,7 +37,17 @@ const mockConfirmSetup = jest.fn();
 // test reads the last one to see what the form would actually be styled with.
 const mockElementsOptions: { appearance?: Appearance; clientSecret?: string }[] = [];
 
-jest.mock("@stripe/stripe-js", () => ({ loadStripe: jest.fn(async () => ({})) }));
+// Every argument list loadStripe was called with. A plain jest.fn() can't carry
+// this: getStripe() memoizes the promise at module scope, so the call happens in
+// whichever test renders first and clearAllMocks() wipes the record before any
+// later test can read it.
+const mockLoadStripeCalls: unknown[][] = [];
+jest.mock("@stripe/stripe-js", () => ({
+  loadStripe: (...args: unknown[]) => {
+    mockLoadStripeCalls.push(args);
+    return Promise.resolve({});
+  },
+}));
 jest.mock("@stripe/react-stripe-js", () => {
   const react = jest.requireActual("react");
   return {
@@ -95,6 +105,14 @@ describe("PremiumCheckout", () => {
     render(<PremiumCheckout plan="annual" />);
 
     expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    // The form mounts against the client secret the backend just issued, with
+    // the publishable key behind it. Both are invisible in the DOM: pass the
+    // intent id instead of its secret, or the wrong key, and the element looks
+    // perfectly mounted here while it can never confirm in a browser.
+    expect(mockElementsOptions[mockElementsOptions.length - 1].clientSecret).toBe(
+      "seti_1_secret_abc",
+    );
+    expect(mockLoadStripeCalls).toContainEqual(["pk_test_x"]);
     fireEvent.click(submitButton());
 
     await waitFor(() => expect(mockConfirmSetup).toHaveBeenCalled());
@@ -168,6 +186,24 @@ describe("PremiumCheckout", () => {
     expect(mockCreateSetupIntent).not.toHaveBeenCalled();
     expect(mockConfirmSetup).not.toHaveBeenCalled();
     expect(await screen.findByText(/premium is active/i)).toBeInTheDocument();
+  });
+
+  it("starts over when the 3DS challenge did not succeed", async () => {
+    // Stripe sends the browser back with the same setup_intent whether the bank
+    // approved or not. Resuming on the id alone would POST /subscribe with an
+    // unconfirmed intent, take the backend's 403, and land the user in the
+    // recovery state — which tells them their card was saved when it wasn't,
+    // behind a "Finish activation" button that can only 403 forever.
+    mockParams = new URLSearchParams(
+      "setup_intent=seti_3ds&setup_intent_client_secret=seti_3ds_secret&redirect_status=failed",
+    );
+
+    render(<PremiumCheckout plan="monthly" />);
+
+    expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
+    expect(mockCreateSetupIntent).toHaveBeenCalled();
+    expect(mockSubscribe).not.toHaveBeenCalled();
+    expect(screen.queryByText(/card was saved/i)).not.toBeInTheDocument();
   });
 
   it("offers to finish when the card was saved but subscribe failed", async () => {
