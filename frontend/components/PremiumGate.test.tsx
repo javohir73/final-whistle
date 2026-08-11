@@ -1,6 +1,6 @@
 /** PremiumGate: premium sees children; free/anon see the teaser + CTA;
  *  billing off renders nothing at all. */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({
@@ -67,6 +67,8 @@ describe("PremiumGate", () => {
     mockUseAuth.mockReturnValue({ user: null, loading: false, openSignIn });
     renderGate(true);
     expect(screen.getByText("teaser here")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /create a free account/i }));
+    expect(openSignIn).toHaveBeenCalledWith({ mode: "signup" });
   });
 
   it("renders nothing when billing is disabled", () => {
