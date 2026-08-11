@@ -456,6 +456,19 @@ export function isPlatformPathname(pathname: string): boolean {
   );
 }
 
+/** Collapse the root route's internal aliases to its public pathname.
+ *
+ *  While a statically-regenerated page is rendered server-side, usePathname()
+ *  can surface the route's filesystem name instead of its URL — on Vercel the
+ *  root route revalidates as "/index" (empty string is the same family). The
+ *  client always computes "/", so any nav branch fed the raw value renders a
+ *  different tree server-side and hydration fails site-wide (React #418).
+ *  Every layout component that branches on usePathname() must read it through
+ *  this. Only the root route has an alias; real routes pass through untouched. */
+export function normalizePathname(pathname: string | null): string {
+  return !pathname || pathname === "/index" ? "/" : pathname;
+}
+
 /** True iff `comp` is both a known CompetitionId and enabled. Used by the
  *  route wrappers to reject unknown or deliberately hidden competitions. */
 export function isWiredCompetition(comp: string): comp is CompetitionId {

@@ -12,6 +12,7 @@ import {
   competitionFromPathname,
   isCompetitionHomeHref,
   isPlatformPathname,
+  normalizePathname,
 } from "@/lib/sports";
 import { useTournament } from "@/components/TournamentProvider";
 import { cn } from "@/lib/utils";
@@ -44,7 +45,10 @@ const hit = (pathname: string, prefix: string) =>
  *  The link row is hidden on mobile (`hidden sm:flex`) — there the bottom tab
  *  bar handles navigation. */
 export function SiteNav() {
-  const pathname = usePathname();
+  // Through normalizePathname: the raw value is "/index" during the root
+  // route's ISR revalidation, which would flip the whole bar into WC26
+  // competition mode server-side and break hydration.
+  const pathname = normalizePathname(usePathname());
   const { has_brackets } = useTournament();
   // /embed/[matchId] is a standalone, partner-iframeable widget — it must not
   // carry the full site chrome.

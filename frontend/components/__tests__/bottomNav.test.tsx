@@ -45,6 +45,16 @@ it("exposes exactly five platform destinations on the general home", () => {
   expect(screen.queryByRole("button", { name: /More/ })).not.toBeInTheDocument();
 });
 
+it("renders the platform tabs with Home active under the root's /index ISR alias", () => {
+  // Same hydration contract as SiteNav: the server-side "/index" render must
+  // match what the client produces for "/".
+  renderAt("/index");
+  for (const label of ["Home", "Football", "NRL", "Play", "You"]) {
+    expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument();
+  }
+  expect(current()).toEqual(["Home"]);
+});
+
 it("keeps shared routes in the platform navigation", () => {
   renderAt("/play");
   expect(screen.getByRole("link", { name: /Football/ })).toHaveAttribute(

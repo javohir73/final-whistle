@@ -8,6 +8,7 @@ import {
   competitionFromPathname,
   isCompetitionHomeHref,
   isPlatformPathname,
+  normalizePathname,
 } from "@/lib/sports";
 import { useTournament } from "@/components/TournamentProvider";
 import { cn } from "@/lib/utils";
@@ -39,7 +40,10 @@ const hit = (pathname: string, prefix: string) =>
 /** Mobile-only sticky bottom tab bar. Exactly five destinations — Home,
  *  Matches, Groups, Play and You — each one tap away, no overflow sheet. */
 export function BottomNav() {
-  const pathname = usePathname();
+  // Through normalizePathname — same hydration contract as SiteNav: the root
+  // route revalidates under its "/index" alias and must still render the
+  // platform tabs the client computes for "/".
+  const pathname = normalizePathname(usePathname());
   const { has_brackets } = useTournament();
   // /embed/[matchId] is a standalone, partner-iframeable widget — it must not
   // carry the full site chrome.
