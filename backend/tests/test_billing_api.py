@@ -88,11 +88,14 @@ def test_checkout_reuses_customer_and_skips_trial_for_lapsed_subscriber(
         client, billing_on, monkeypatch):
     """A lapsed (not currently premium) subscriber re-checking out must not get a
     second free trial, and must reuse their existing Stripe customer rather than
-    creating a duplicate one."""
+    creating a duplicate one. `had_subscription` is what marks them as returning
+    — the mere existence of the row no longer does, since setup-intent writes one
+    for first-timers too."""
     user = _register(client)
     db = client.sessionmaker()
     db.add(Subscription(user_id=user["id"], status="canceled", plan="monthly",
-                        stripe_customer_id="cus_9",
+                        stripe_customer_id="cus_9", stripe_subscription_id="sub_old",
+                        had_subscription=True,
                         current_period_end=datetime.now(timezone.utc) - timedelta(days=30)))
     db.commit(); db.close()
     captured = {}
