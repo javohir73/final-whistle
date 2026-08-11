@@ -127,6 +127,37 @@ def test_portal_404_without_customer(client, billing_on):
     assert r.json()["error"]["code"] == "no_subscription"
 
 
+def test_checkout_503_when_stripe_errors(client, billing_on, monkeypatch):
+    """A bad price ID, an expired key or a Stripe outage must stay inside this
+    app's {"error":{code,message}} contract — main.py has no catch-all handler,
+    so an unguarded StripeError would surface as a bare Starlette 500."""
+    _register(client)
+
+    def boom(**kwargs):
+        raise stripe.StripeError("boom")
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(boom))
+    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "billing_unavailable"
+
+
+def test_portal_503_when_stripe_errors(client, billing_on, monkeypatch):
+    user = _register(client)
+    db = client.sessionmaker()
+    db.add(Subscription(user_id=user["id"], status="active", plan="monthly",
+                        stripe_customer_id="cus_9"))
+    db.commit(); db.close()
+
+    def boom(**kwargs):
+        raise stripe.StripeError("boom")
+
+    monkeypatch.setattr(stripe.billing_portal.Session, "create", staticmethod(boom))
+    r = client.post("/api/billing/portal-session")
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "billing_unavailable"
+
+
 def test_portal_returns_url(client, billing_on, monkeypatch):
     user = _register(client)
     db = client.sessionmaker()

@@ -27,6 +27,15 @@ def _require_billing_enabled() -> None:
             "message": "Subscriptions aren't available right now."})
 
 
+def _billing_unavailable() -> HTTPException:
+    """Stripe said no (bad price id, expired key, outage). main.py registers no
+    catch-all handler, so an escaping StripeError would be a bare Starlette 500
+    outside the {"error":{code,message}} contract."""
+    return HTTPException(status_code=503, detail={
+        "code": "billing_unavailable",
+        "message": "Billing is temporarily unavailable — please try again shortly."})
+
+
 @router.post("/checkout-session", response_model=schemas.BillingUrlOut,
              dependencies=[Depends(require_same_origin)])
 def create_checkout_session(payload: schemas.CheckoutSessionIn,
@@ -58,7 +67,10 @@ def create_checkout_session(payload: schemas.CheckoutSessionIn,
         kwargs["customer"] = sub.stripe_customer_id
     else:
         kwargs["customer_email"] = user.email
-    session = stripe.checkout.Session.create(**kwargs)
+    try:
+        session = stripe.checkout.Session.create(**kwargs)
+    except stripe.StripeError:
+        raise _billing_unavailable()
     return schemas.BillingUrlOut(url=session.url)
 
 
@@ -72,11 +84,14 @@ def create_portal_session(user: AppUser = Depends(get_current_user),
         raise HTTPException(status_code=404, detail={
             "code": "no_subscription",
             "message": "No subscription to manage yet."})
-    session = stripe.billing_portal.Session.create(
-        api_key=settings.stripe_secret_key,
-        customer=sub.stripe_customer_id,
-        return_url=f"{settings.public_base_url}/premium",
-    )
+    try:
+        session = stripe.billing_portal.Session.create(
+            api_key=settings.stripe_secret_key,
+            customer=sub.stripe_customer_id,
+            return_url=f"{settings.public_base_url}/premium",
+        )
+    except stripe.StripeError:
+        raise _billing_unavailable()
     return schemas.BillingUrlOut(url=session.url)
 
 
