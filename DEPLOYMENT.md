@@ -55,11 +55,15 @@ no-ops. The matches board shows a LIVE badge + running score and minute.
 
 | Variable | Where | Meaning |
 |---|---|---|
-| `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. Unset ⇒ billing fully disabled. |
-| `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for the `/api/billing/webhook` endpoint. |
-| `STRIPE_PRICE_MONTHLY` | Render (backend) | Price ID for the $4.99/month plan. |
-| `STRIPE_PRICE_ANNUAL` | Render (backend) | Price ID for the $39.99/year plan. |
+| `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. Required for billing to activate. |
+| `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for the `/api/billing/webhook` endpoint. Also required — without it, checkout would take payment with no way to record the subscription, so `billing_enabled` treats it the same as a missing secret key. |
+| `STRIPE_PRICE_MONTHLY` | Render (backend) | Price ID for the $4.99/month plan. Required. |
+| `STRIPE_PRICE_ANNUAL` | Render (backend) | Price ID for the $39.99/year plan. Required. |
 | `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` to render premium surfaces. Keep in lockstep with the backend gate. |
+
+Billing is OFF unless **all four** backend vars above are set — any one missing
+(including the webhook secret) disables checkout/portal/webhook and the site
+behaves exactly as it did before Premium existed.
 
 All five stay unset until the stop-gated production rollout (spec:
 docs/superpowers/specs/2026-08-11-premium-subscriptions-design.md). The
