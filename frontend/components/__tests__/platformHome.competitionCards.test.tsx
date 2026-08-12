@@ -36,14 +36,21 @@ function classParts(className: string): string[] {
   return parts;
 }
 
+function normalizedUtility(className: string): string {
+  return classParts(className).at(-1)!.replace(/^!|!$/g, "");
+}
+
 function isTextColorUtility(className: string): boolean {
-  const name = classParts(className).at(-1)!;
-  return name.startsWith("text-") && !nonColorTextUtility.test(name);
+  const name = normalizedUtility(className);
+  return (
+    (name.startsWith("text-") && !nonColorTextUtility.test(name)) ||
+    /^\[color:.+\]$/.test(name)
+  );
 }
 
 function isHoverTransformUtility(className: string): boolean {
   const parts = classParts(className);
-  const name = parts.at(-1)!;
+  const name = normalizedUtility(className);
   const hasHoverVariant = parts.slice(0, -1).some((variant) => variant.includes("hover"));
   const changesTransform =
     /^(?:-?(?:translate-[xy]|rotate|skew-[xy])-.+|scale(?:-[xy])?-.+|transform(?:-.+)?|origin-.+)$/.test(
@@ -77,10 +84,11 @@ describe("PlatformHome competition cards", () => {
 
   it("keeps Tailwind text colours off every authoritative competition card surface", () => {
     const { container } = render(<PlatformHome />);
+    const violations = Array.from(container.querySelectorAll(authoritativeCardSurfaces)).flatMap(
+      (element) => Array.from(element.classList).filter(isTextColorUtility),
+    );
 
-    for (const element of container.querySelectorAll(authoritativeCardSurfaces)) {
-      expect(Array.from(element.classList).filter(isTextColorUtility)).toEqual([]);
-    }
+    expect(violations).toEqual([]);
   });
 
   it("keeps Tailwind hover transforms off every authoritative competition card surface", () => {

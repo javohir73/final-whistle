@@ -3,6 +3,7 @@ import path from "path";
 
 type Hsl = [number, number, number];
 type Rgb = [number, number, number];
+type StyleRule = { selectors: string[]; declarations: string };
 
 const rootPath = path.resolve(__dirname, "../..");
 const css = fs.readFileSync(path.join(rootPath, "app/globals.css"), "utf8");
@@ -33,17 +34,36 @@ function rule(selector: string, source = css): string {
   return compact(block(source, selector));
 }
 
-function declarationsForSelector(source: string, selector: string): string[] {
+function styleRules(source: string): StyleRule[] {
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
   return Array.from(withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g))
-    .filter((match) => match[1].split(",").map((item) => item.trim()).includes(selector))
-    .map((match) => match[2]);
+    .map((match) => ({
+      selectors: match[1].split(",").map((item) => item.trim()),
+      declarations: match[2],
+    }));
 }
 
-function colorToken(selector: string): string {
-  const match = rule(selector).match(/color:\s*hsl\(var\(--([\w-]+)\)\)/);
-  if (!match) throw new Error(`Missing token-backed color in ${selector}`);
-  return match[1];
+function winningColorToken(selector: string): string {
+  const colors = styleRules(css)
+    .filter((item) => item.selectors.includes(selector))
+    .flatMap((item) =>
+      Array.from(
+        item.declarations.matchAll(/(?:^|;)\s*color:\s*([^;]+)/g),
+        (match) => ({
+          value: match[1].replace(/\s*!important\s*$/, "").trim(),
+          important: /\s!important\s*$/.test(match[1]),
+        }),
+      ),
+    );
+  if (colors.length === 0) throw new Error(`Missing color declaration in ${selector}`);
+  if (colors.some((color) => color.important)) {
+    throw new Error(`Unexpected !important color declaration in ${selector}`);
+  }
+
+  const winner = colors.at(-1)!;
+  const tokenMatch = winner.value.match(/^hsl\(var\(--([\w-]+)\)\)$/);
+  if (!tokenMatch) throw new Error(`Winning ${selector} color is not token-backed`);
+  return tokenMatch[1];
 }
 
 function token(scope: string, name: string): string {
@@ -162,25 +182,20 @@ it("keeps all positive hover motion inside the precise-pointer query", () => {
 it("has no positive hover transforms outside the precise-pointer query", () => {
   const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
   const outsidePrecisePointer = css.replace(precisePointer, "");
-
-  for (const selector of [
-    ".competition-card:hover",
-    ".competition-card:hover::before",
-    ".competition-card:hover [data-competition-logo]",
-    ".competition-card:hover .competition-card__arrow",
-  ]) {
-    const declarations = declarationsForSelector(outsidePrecisePointer, selector);
-    const transformValues = declarations.flatMap((value) =>
-      Array.from(value.matchAll(/(?:^|;)\s*transform:\s*([^;]+)/g), (match) =>
-        match[1].trim(),
+  const violations = styleRules(outsidePrecisePointer).flatMap((item) =>
+    item.selectors
+      .filter((selector) => selector.includes(".competition-card:hover"))
+      .flatMap((selector) =>
+        Array.from(
+          item.declarations.matchAll(
+            /(?:^|;)\s*(transform|translate|scale|rotate):\s*([^;]+)/g,
+          ),
+          (match) => ({ selector, property: match[1], value: match[2].trim() }),
+        ).filter(({ value }) => !/^none(?:\s*!important)?$/.test(value)),
       ),
-    );
+  );
 
-    expect(declarations).not.toHaveLength(0);
-    expect(transformValues.filter((value) => !/^none(?:\s*!important)?$/.test(value))).toEqual(
-      [],
-    );
-  }
+  expect(violations).toEqual([]);
 });
 
 it("neutralizes every card transition and interaction transform for reduced motion", () => {
@@ -232,9 +247,9 @@ it("keeps the wide accent field within the logo at every card padding", () => {
 it("keeps effective card copy and arrow ink AA-safe across every accent surface", () => {
   const baseHsl = hslChannels(token(root, "competition-card-base"));
   const base = hslToRgb(baseHsl);
-  const cardInkToken = colorToken(".competition-card {");
-  const copyToken = colorToken(".competition-card__copy {");
-  const arrowInkToken = colorToken(".competition-card__arrow {");
+  const cardInkToken = winningColorToken(".competition-card");
+  const copyToken = winningColorToken(".competition-card__copy");
+  const arrowInkToken = winningColorToken(".competition-card__arrow");
   const cardInk = hsl(token(root, cardInkToken));
   const copy = hsl(token(root, copyToken));
   const arrowInk = hsl(token(root, arrowInkToken));
