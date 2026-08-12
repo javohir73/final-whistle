@@ -484,15 +484,30 @@ def group_to_out(db: Session, group) -> schemas.GroupOut:
         group.tournament.home_advantage_mode == "home"
         and all(tally(r)["played"] == 0 for r in rows)
     )
+    def _name(r: Standing) -> str:
+        return (teams[r.team_id].name if teams[r.team_id] else "TBD").casefold()
+
     if is_unplayed_club_league:
-        rows.sort(key=lambda r: (teams[r.team_id].name if teams[r.team_id] else "TBD").casefold())
+        rows.sort(key=_name)
     else:
+        # Name first, ascending, so the stable sort below leaves alphabetical
+        # order as the final tiebreak rather than whatever order the query
+        # returned.
+        rows.sort(key=_name)
+        # A club league is ranked on REAL table metrics only. The model's
+        # qualification forecast is a separate column and must never order a
+        # live league table — two clubs level on points, GD and GF are level,
+        # and the table should say so rather than quietly promoting whichever
+        # one the model prefers. Tournament groups keep the forecast as their
+        # last tiebreak: it is the genuinely useful signal there, and WC26
+        # behaviour is unchanged.
+        is_club_league = group.tournament.home_advantage_mode == "home"
         rows.sort(
             key=lambda r: (
                 tally(r)["points"],
                 tally(r)["gf"] - tally(r)["ga"],
                 tally(r)["gf"],
-                r.qualification_prob or 0.0,
+                0.0 if is_club_league else (r.qualification_prob or 0.0),
             ),
             reverse=True,
         )
