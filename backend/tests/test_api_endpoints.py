@@ -211,6 +211,22 @@ def test_groups(client):
     assert client.get("/api/groups/999999").status_code == 404
 
 
+def test_standings_row_carries_the_full_league_table(client):
+    """P/W/D/L/GF/GA/GD/Pts. live_group_table computed every one of these in a
+    single pass over finished results, and five were then dropped at the schema
+    boundary — so a league standings page could show points and goal difference
+    and nothing else. Same source, no new query, no migration."""
+    gid = client.get("/api/groups").json()[0]["id"]
+    row = client.get(f"/api/groups/{gid}").json()["standings"][0]
+
+    for field in ("played", "won", "drawn", "lost", "goals_against"):
+        assert field in row, f"{field} missing from the standings row"
+
+    # Internally consistent: W+D+L must equal P, and GF-GA must equal GD.
+    assert row["won"] + row["drawn"] + row["lost"] == row["played"]
+    assert row["projected_goals_for"] - row["goals_against"] == row["projected_goal_diff"]
+
+
 def test_competition_scoping_never_mixes_tournaments(client):
     """Every public football collection/detail honors the same competition
     boundary once multiple tournaments coexist."""

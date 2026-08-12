@@ -32,7 +32,33 @@ const QUAL_COL = "w-[5.5rem] sm:w-36";
  *  qualification column. Football uses the GD/Pts default (`columns` omitted);
  *  the NRL ladder passes W-L / Diff / Pts / Top-8% (design/Floodlight
  *  Prototype.dc.html, the NRL ladder surface). */
-export type StandingsColumn = "gd" | "pts" | "wl" | "diff" | "played" | "top8";
+export type StandingsColumn =
+  | "gd"
+  | "pts"
+  | "wl"
+  | "diff"
+  | "played"
+  | "top8"
+  | "won"
+  | "drawn"
+  | "lost"
+  | "gf"
+  | "ga";
+
+/** The conventional football league table, in the order every reader expects.
+ *  The backend computed all of these in one pass and then dropped five of them
+ *  at the schema boundary, so a standings page could show points and goal
+ *  difference but not played, won, drawn, lost or goals against. */
+export const FULL_LEAGUE_COLUMNS: StandingsColumn[] = [
+  "played",
+  "won",
+  "drawn",
+  "lost",
+  "gf",
+  "ga",
+  "gd",
+  "pts",
+];
 
 /** Header label + width for each numeric column. All right-aligned; the widths
  *  keep the header row and the body cells in the same grid. `gloss` expands a
@@ -47,6 +73,11 @@ const NUMERIC_HEADERS: Record<
   wl: { label: "W–L", width: "w-12", gloss: "Wins–losses" },
   diff: { label: "Diff", width: "w-10", gloss: "Points difference" },
   played: { label: "P", width: "w-10", gloss: "Games played" },
+  won: { label: "W", width: "w-8", gloss: "Won" },
+  drawn: { label: "D", width: "w-8", gloss: "Drawn" },
+  lost: { label: "L", width: "w-8", gloss: "Lost" },
+  gf: { label: "GF", width: "w-10", gloss: "Goals for" },
+  ga: { label: "GA", width: "w-10", gloss: "Goals against" },
   top8: {
     label: "Top 8%",
     width: "w-14",
@@ -77,9 +108,17 @@ export interface StandingsTableRow {
   projected_goal_diff?: number;
   qualification_prob?: number | null;
   played?: number;
+  // Two spellings on purpose. The football API returns won/drawn/lost (mirroring
+  // the Standing model's columns); the NRL ladder rows carry wins/losses. Rather
+  // than rename either side, the W/D/L cells below read whichever is present.
   wins?: number;
   draws?: number;
   losses?: number;
+  won?: number;
+  drawn?: number;
+  lost?: number;
+  /** Football league tables only; the NRL ladder carries `diff` instead. */
+  goals_against?: number;
   points?: number;
   diff?: number;
   projection_pct?: number | null;
@@ -126,6 +165,38 @@ function renderCell(key: StandingsColumn, row: StandingsTableRow) {
       return (
         <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
           {row.played}
+        </span>
+      );
+    // A blank cell, never a 0, when the value is absent: a response from a
+    // backend that predates these fields must not read as "played nothing".
+    case "won":
+      return (
+        <span key={key} role="cell" className={cn("w-8", VALUE_CELL)}>
+          {row.won ?? row.wins ?? ""}
+        </span>
+      );
+    case "drawn":
+      return (
+        <span key={key} role="cell" className={cn("w-8", VALUE_CELL)}>
+          {row.drawn ?? row.draws ?? ""}
+        </span>
+      );
+    case "lost":
+      return (
+        <span key={key} role="cell" className={cn("w-8", VALUE_CELL)}>
+          {row.lost ?? row.losses ?? ""}
+        </span>
+      );
+    case "gf":
+      return (
+        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+          {row.projected_goals_for ?? ""}
+        </span>
+      );
+    case "ga":
+      return (
+        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+          {row.goals_against ?? ""}
         </span>
       );
     case "top8": {

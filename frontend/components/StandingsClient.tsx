@@ -3,7 +3,7 @@
 import { getGroups } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
-import { StandingsTable } from "@/components/StandingsTable";
+import { FULL_LEAGUE_COLUMNS, StandingsTable } from "@/components/StandingsTable";
 import { Eyebrow } from "@/components/Eyebrow";
 import { ErrorState, Empty } from "@/components/States";
 import type { ActiveTournament, Group } from "@/lib/types";
@@ -69,6 +69,10 @@ export function StandingsClient({
               zones={competition.zones}
               badge="club"
               teamBasePath={`${competition.basePath}/team`}
+              // P/W/D/L/GF/GA/GD/Pts — the table a football reader expects.
+              // The backend already computed every one of these in the same
+              // pass; five were being dropped at the schema boundary.
+              columns={FULL_LEAGUE_COLUMNS}
             />
           </div>
         ) : leagueMode ? (

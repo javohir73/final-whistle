@@ -224,6 +224,15 @@ export interface StandingRow {
   projected_goals_for: number;
   projected_goal_diff: number;
   qualification_prob: number | null;
+  /** The rest of a conventional league table. Optional so a response from a
+   *  backend that predates these fields still parses (they default to 0
+   *  server-side). Despite the `projected_*` names above, every one of these
+   *  is a real tally from finished results. */
+  played?: number;
+  won?: number;
+  drawn?: number;
+  lost?: number;
+  goals_against?: number;
 }
 
 export interface Group {

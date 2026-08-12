@@ -499,6 +499,11 @@ def group_to_out(db: Session, group) -> schemas.GroupOut:
                 projected_goals_for=t["gf"],
                 projected_goal_diff=t["gf"] - t["ga"],
                 qualification_prob=r.qualification_prob,
+                played=t["played"],
+                won=t["won"],
+                drawn=t["drawn"],
+                lost=t["lost"],
+                goals_against=t["ga"],
             )
         )
     return schemas.GroupOut(id=group.id, name=group.name, standings=standings)
