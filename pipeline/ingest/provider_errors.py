@@ -110,19 +110,46 @@ def classify(errors: Any) -> type[ProviderError] | None:
     return ProviderError
 
 
+#: HTTP statuses that are SYSTEMIC — they do not resolve by retrying, and they
+#: apply to every subsequent call with the same key. Each must become a typed
+#: ProviderError *before* raise_for_status, because a best-effort caller
+#: swallows a generic HTTPError without recording a blocking incident, and the
+#: run exits 0. That is the same false green as the HTTP-200 errors payload,
+#: reached by a different route: a revoked or expired key returns 401/403, not
+#: an errors object.
+#:
+#: Deliberately NOT included: 5xx and other 4xx. A 500/502/504 is transient and
+#: failing the nightly refresh on one flaky response is how alert fatigue
+#: starts; a 404 is a bad fixture id, i.e. a bug in the caller, not a provider
+#: fault. Those keep flowing through raise_for_status as before.
+_SYSTEMIC_HTTP: dict[int, tuple[type[ProviderError], str]] = {
+    401: (ProviderAuthError, "key rejected"),
+    # api-sports/RapidAPI return 403 both for a wrong key and for an endpoint
+    # the plan does not cover. Either way it is an entitlement problem.
+    403: (ProviderAuthError, "forbidden — key or plan does not cover this endpoint"),
+    # Payment Required: the account is out of credit. Systemic by definition.
+    402: (ProviderAuthError, "payment required — provider account is not in good standing"),
+    429: (ProviderQuotaError, "rate limit / quota exhausted"),
+}
+
+
 def read_payload(resp, *, endpoint: str) -> dict:
     """Parse an api-sports response, raising ProviderError on any failure.
 
-    Handles the three ways this provider says no:
-      * HTTP 429 — rate limited, before ``raise_for_status`` turns it into a
-        generic HTTPError that the caller can't tell apart from a 500.
-      * HTTP 4xx/5xx — via ``raise_for_status``.
+    Handles the ways this provider says no:
+      * A systemic HTTP status (401/402/403/429) — typed, before
+        ``raise_for_status`` flattens it into an HTTPError the caller cannot
+        tell apart from a transient 500.
+      * Any other HTTP 4xx/5xx — via ``raise_for_status``, still an exception
+        but a non-blocking one.
       * HTTP 200 with a non-empty ``errors`` payload — the false-green case.
     """
-    if resp.status_code == 429:
-        raise ProviderQuotaError(
-            f"{endpoint}: provider rate limit (HTTP 429)", endpoint=endpoint,
-            detail={"http_status": 429},
+    systemic = _SYSTEMIC_HTTP.get(resp.status_code)
+    if systemic is not None:
+        error_cls, reason = systemic
+        raise error_cls(
+            f"{endpoint}: {reason} (HTTP {resp.status_code})",
+            endpoint=endpoint, detail={"http_status": resp.status_code},
         )
     resp.raise_for_status()
     data = resp.json()

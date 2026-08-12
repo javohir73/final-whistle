@@ -15,6 +15,7 @@ import pytest
 
 from app.config import settings
 from pipeline import leagues as leagues_mod
+from pipeline.ingest import api_football as api_football_mod
 from pipeline.ingest import injuries as injuries_mod
 from pipeline.ingest import league_structure as ls_mod
 from pipeline.ingest import provider_errors
@@ -98,6 +99,73 @@ def test_quota_swallowed_by_best_effort_injuries_still_fails_the_run(db_session,
         run_pipeline(db_session, n_sims=10)
     assert "quota" in str(excinfo.value)
     assert "/injuries" in str(excinfo.value)
+
+
+class _HttpResp:
+    """requests.Response stand-in for the raw-HTTP path through _get."""
+
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self._payload = payload if payload is not None else {"errors": [], "response": []}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_http_auth_failure_in_best_effort_injuries_fails_the_run(db_session, monkeypatch, status):
+    """The whole chain, from a real HTTP status.
+
+    An expired or revoked key answers 401/403 rather than an HTTP-200 errors
+    payload. That used to reach raise_for_status as a plain HTTPError, which
+    refresh_injuries swallows by contract WITHOUT recording an incident — so a
+    dead key produced a green refresh-data run every night. Exercised through
+    requests.get (not a pre-raised ProviderAuthError) so the test covers
+    read_payload's classification, the best-effort swallow, the incident
+    ledger, and _finalize together.
+    """
+    monkeypatch.setattr(ls_mod, "fetch_fixtures", _healthy_fixtures)
+    monkeypatch.setattr(settings, "api_football_api_key", "expired-key")
+    monkeypatch.setattr(
+        api_football_mod.requests, "get", lambda *a, **k: _HttpResp(status)
+    )
+
+    with pytest.raises(ProviderDegraded) as excinfo:
+        run_pipeline(db_session, n_sims=10)
+    assert "auth" in str(excinfo.value)
+
+
+def test_http_auth_failure_in_odds_records_a_blocking_incident(db_session, monkeypatch):
+    """refresh_odds is not called by the league branch (the hourly phased pass
+    owns it), so its contract is asserted directly: NEVER raises, but a 401 must
+    still leave an incident that fails whatever run invoked it."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import Match, Tournament
+    from pipeline.ingest.odds import refresh_odds
+
+    t = Tournament(name="Premier League 2026-27", year=2026)
+    db_session.add(t)
+    db_session.commit()
+    db_session.add(Match(
+        tournament_id=t.id, stage="group", status="scheduled",
+        team_home_id=1, team_away_id=2, provider_fixture_id=99,
+        kickoff_utc=datetime.now(timezone.utc) + timedelta(hours=6),
+    ))
+    db_session.commit()
+
+    monkeypatch.setattr(
+        api_football_mod.requests, "get", lambda *a, **k: _HttpResp(401)
+    )
+
+    out = refresh_odds(db_session, "expired-key")
+
+    assert out["provider_error"] == "auth"        # never raised...
+    assert [i["kind"] for i in provider_errors.blocking()] == ["auth"]  # ...but fatal
 
 
 def test_a_single_transient_provider_blip_does_not_fail_the_run(db_session, monkeypatch):
