@@ -282,6 +282,41 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
     log.info("league pipeline complete")
 
 
+class ProviderDegraded(RuntimeError):
+    """Raised at the end of a run that completed only because best-effort steps
+    swallowed a systemic provider failure.
+
+    Without this the refresh is a false green: odds and injuries never raise by
+    contract, so an exhausted api-sports allowance let every step report done
+    and the job exit 0 while nothing was actually ingested. The steps still get
+    to finish (partial data is better than none, and the rows they did write
+    are real) — but the RUN fails, which is what the scheduler and the on-call
+    human actually read."""
+
+
+def _finalize(summary: dict) -> dict:
+    """Attach provider accounting to the summary and fail the run if a
+    best-effort step swallowed a quota/auth failure."""
+    from pipeline.ingest.api_football import request_counts
+    from pipeline.ingest.provider_errors import blocking, snapshot
+
+    incidents = snapshot()
+    summary["provider"] = {
+        "requests": request_counts(),
+        "incidents": incidents,
+    }
+    fatal = blocking()
+    if fatal:
+        kinds = ", ".join(sorted({i["kind"] for i in fatal}))
+        endpoints = ", ".join(sorted({i["endpoint"] for i in fatal}))
+        raise ProviderDegraded(
+            f"provider {kinds} failure on {endpoints} — refresh completed with "
+            f"degraded data; failing the run so this is not reported as success. "
+            f"Incidents: {fatal}"
+        )
+    return summary
+
+
 def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
     """Execute the full refresh. Pass results_df to skip the network download
     (used by tests). Returns a summary of every step."""
@@ -298,6 +333,15 @@ def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
     from pipeline.learning_loop import run_learning_loop
     from pipeline.prune_auth import prune_auth_rows
     from pipeline.team_stats import compute_team_stats
+
+    from pipeline.ingest.api_football import reset_request_counts
+    from pipeline.ingest.provider_errors import reset as reset_provider_incidents
+
+    # Fresh ledgers per run: module state, same precedent as
+    # api_football._last_events_fetch. Matters for the in-process test suite,
+    # where a leaked incident from an earlier run would fail the next one.
+    reset_provider_incidents()
+    reset_request_counts()
 
     summary: dict = {}
 
@@ -318,7 +362,7 @@ def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
     # so it stays byte-identical whenever pipeline_target is left at "wc26".
     if settings.pipeline_target == "league":
         _run_league_pipeline(db, step, n_sims)
-        return summary
+        return _finalize(summary)
 
     step("structure", lambda: load_structure(db))
     # KO venues are static (keyed by match_no) — load_structure fills group-stage
@@ -400,7 +444,7 @@ def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
     step("chain_status", lambda: record_success(db, covered, trigger="pipeline"))
     step("prune_auth", lambda: prune_auth_rows(db))
     log.info("pipeline complete")
-    return summary
+    return _finalize(summary)
 
 
 def main() -> int:

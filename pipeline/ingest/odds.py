@@ -30,7 +30,9 @@ from sqlalchemy.orm import Session
 
 from app.models import Match, Odds
 from ml.models.odds_blend import remove_margin
+from pipeline.ingest.api_football import _get
 from pipeline.ingest.odds_phases import due_phase
+from pipeline.ingest.provider_errors import ProviderError, record
 
 log = logging.getLogger(__name__)
 
@@ -55,19 +57,12 @@ MAX_FETCHES_PER_PASS = 40
 
 
 def fetch_odds(api_key: str, fixture_id: int, timeout: float = 15.0) -> list[dict]:
-    """Return the raw odds list for one fixture from api-sports.io."""
-    resp = requests.get(
-        f"{BASE_URL}/odds",
-        headers={"x-apisports-key": api_key},
-        params={"fixture": fixture_id},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        # api-sports answers 200 with an `errors` object on auth/quota/param issues.
-        log.warning("api-football odds errors: %s", data["errors"])
-    return data.get("response") or []
+    """Return the raw odds list for one fixture from api-sports.io.
+
+    Shares api_football._get so quota/auth failures raise here exactly as they
+    do for every other endpoint, instead of this module keeping its own copy of
+    the swallow-into-[] behaviour."""
+    return _get(api_key, "/odds", {"fixture": fixture_id}, timeout)
 
 
 def _collect(entry: dict, prices: dict[str, list[float]]) -> None:
@@ -140,6 +135,13 @@ def _snapshot_match(db: Session, m: Match, api_key: str, now: datetime,
         if fid is None:
             return False
         med = median_prices(fetch_odds(api_key, fid))
+    except ProviderError:
+        # NOT a per-match miss. Quota exhaustion and a rejected key apply to
+        # every remaining match in the pass, so swallowing this one would spend
+        # the rest of the loop re-confirming the same failure — dozens of
+        # requests against an allowance that is already the reason we're here.
+        # Let the caller abort the pass.
+        raise
     except Exception as exc:  # noqa: BLE001 - best-effort per match
         log.warning("odds fetch failed for match %s: %s", m.id, exc)
         return False
@@ -198,6 +200,16 @@ def refresh_odds(db: Session, api_key: str, window_hours: float = WINDOW_HOURS) 
             else:
                 summary["matches_skipped"] += 1
         db.commit()
+    except ProviderError as exc:
+        # Still "never raises" for the caller's purposes, but the run now
+        # learns about it: record() makes the incident block the pipeline at
+        # the end (provider_errors.blocking), so an allowance that ran out
+        # three weeks ago stops passing as a healthy refresh. Rows priced
+        # before the failure are kept — they are real.
+        record(exc)
+        db.commit()
+        log.error("odds refresh aborted by provider (%s): %s", exc.kind, exc)
+        return {**summary, "provider_error": exc.kind}
     except Exception as exc:  # noqa: BLE001 - the pass itself must never raise
         db.rollback()
         log.warning("odds refresh aborted: %s", exc)
@@ -287,6 +299,11 @@ def snapshot_phased_odds(db: Session, api_key: str, budget: int = MAX_FETCHES_PE
             else:
                 summary["matches_skipped"] += 1
         db.commit()
+    except ProviderError as exc:  # see refresh_odds' handler
+        record(exc)
+        db.commit()
+        log.error("odds phased snapshot aborted by provider (%s): %s", exc.kind, exc)
+        return {**summary, "provider_error": exc.kind}
     except Exception as exc:  # noqa: BLE001 - the pass itself must never raise
         db.rollback()
         log.warning("odds phased snapshot aborted: %s", exc)
@@ -334,6 +351,11 @@ def backfill_finished_odds(db: Session, api_key: str,
             else:
                 summary["matches_skipped"] += 1
         db.commit()
+    except ProviderError as exc:  # see refresh_odds' handler
+        record(exc)
+        db.commit()
+        log.error("odds backfill aborted by provider (%s): %s", exc.kind, exc)
+        return {**summary, "provider_error": exc.kind}
     except Exception as exc:  # noqa: BLE001 - the pass itself must never raise
         db.rollback()
         log.warning("odds backfill aborted: %s", exc)

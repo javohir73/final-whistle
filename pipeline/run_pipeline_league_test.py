@@ -315,7 +315,11 @@ def test_league_pipeline_no_op_when_every_configured_league_is_unresolvable(db_s
 
     summary = run_pipeline(db_session, n_sims=50)
 
-    assert summary == {}  # nothing ran -- no crash, no partial state
+    # Nothing ran -- no crash, no partial state. "provider" is run-level
+    # accounting rather than a step (every run carries it, see
+    # run_pipeline._finalize), so the no-op assertion is over the steps.
+    assert {k: v for k, v in summary.items() if k != "provider"} == {}
+    assert summary["provider"] == {"requests": {}, "incidents": []}
     assert db_session.query(Tournament).count() == 0
 
 

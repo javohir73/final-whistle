@@ -90,6 +90,16 @@ jobs:
           check "$API/api/health" "application/json" '"status":"ok"'
           check "$API/api/health" "application/json" '"missing":0'
 
+          # Freshness + finality (app/data_freshness.py). `status` is liveness
+          # and stays "ok" while the API answers, so it CANNOT see a dead feed
+          # — the pre-season incident ran for weeks with every probe green
+          # because nothing errored, there was just no new data. data_status
+          # goes "degraded" when a match is still in_play (or still scheduled)
+          # more than 4h after kickoff, which is impossible unless ingestion
+          # stopped reaching us. This one needle covers every competition at
+          # once, and unlike a club-name needle it cannot rot.
+          check "$API/api/health" "application/json" '"data_status":"ok"'
+
           # Non-empty payload assertions: each needle is a per-row field, so an
           # empty array (200 []) no longer passes as healthy.
           check "$API/api/tournaments/ucl" "application/json" '"UEFA Champions League'
@@ -125,6 +135,29 @@ jobs:
           # already fail on a backend outage, which is what these pages render.
           check "$SITE/football/ucl"
           check "$SITE/football/ucl/fixtures"
+
+          # ---- Domestic leagues (EPL / La Liga / Bundesliga) -------------------
+          # These three plus UCL are the competitions whose daily refresh was
+          # burning the provider allowance while the Action stayed green, and
+          # nothing here watched them at all.
+          #
+          # The per-row API needles below are the outage detector: "elo_rating"
+          # and "match_id" are per-row fields, so an empty array (200 []) —
+          # which is exactly what an exhausted quota produced — fails instead
+          # of passing as healthy.
+          #
+          # The page checks are status-only, for the same reason the UCL block
+          # above is: any club name is a needle that rots the moment that club
+          # is relegated, and #223 already had to clean up one round of those
+          # false failures. The API assertions above them already fail on the
+          # outage these pages would render.
+          for comp in epl laliga bundesliga; do
+            check "$API/api/teams?competition=$comp" "application/json" '"elo_rating"'
+            check "$API/api/matches/upcoming?competition=$comp" "application/json" '"match_id"'
+            check "$SITE/football/$comp"
+            check "$SITE/football/$comp/fixtures"
+            check "$SITE/football/$comp/standings"
+          done
 
           # ---- NRL -------------------------------------------------------------
           # Foundation clubs — stable across seasons.
