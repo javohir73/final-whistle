@@ -15,6 +15,43 @@ const competitionIds: CompetitionId[] = [
   "nrl",
 ];
 
+const authoritativeCardSurfaces =
+  "[data-competition-card], .competition-card__copy, .competition-card__arrow, [data-competition-logo]";
+const nonColorTextUtility = /^text-(?:xs|sm|base|lg|xl|[2-9]xl|micro|mini|note|label|meta|body|lead|sub|numeral|headline|score(?:-sm)?|left|center|right|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip|\[(?:[\d.]+(?:px|rem|em|%|vw|vh)|clamp\(.+\))\])$/;
+
+function classParts(className: string): string[] {
+  const parts: string[] = [];
+  let bracketDepth = 0;
+  let start = 0;
+
+  for (let index = 0; index < className.length; index += 1) {
+    if (className[index] === "[") bracketDepth += 1;
+    if (className[index] === "]") bracketDepth -= 1;
+    if (className[index] === ":" && bracketDepth === 0) {
+      parts.push(className.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(className.slice(start));
+  return parts;
+}
+
+function isTextColorUtility(className: string): boolean {
+  const name = classParts(className).at(-1)!;
+  return name.startsWith("text-") && !nonColorTextUtility.test(name);
+}
+
+function isHoverTransformUtility(className: string): boolean {
+  const parts = classParts(className);
+  const name = parts.at(-1)!;
+  const hasHoverVariant = parts.slice(0, -1).some((variant) => variant.includes("hover"));
+  const changesTransform =
+    /^(?:-?(?:translate-[xy]|rotate|skew-[xy])-.+|scale(?:-[xy])?-.+|transform(?:-.+)?|origin-.+)$/.test(
+      name,
+    ) || /^\[(?:transform|translate|rotate|scale|skew):.+\]$/.test(name);
+  return hasHoverVariant && changesTransform;
+}
+
 describe("PlatformHome competition cards", () => {
   it("gives every competition the shared branded treatment and registry accent", () => {
     const { container } = render(<PlatformHome />);
@@ -38,24 +75,19 @@ describe("PlatformHome competition cards", () => {
     );
   });
 
-  it("leaves competition card copy colour to the authoritative component layer", () => {
+  it("keeps Tailwind text colours off every authoritative competition card surface", () => {
     const { container } = render(<PlatformHome />);
 
-    for (const copy of container.querySelectorAll(".competition-card__copy")) {
-      expect(copy).not.toHaveClass("text-muted");
+    for (const element of container.querySelectorAll(authoritativeCardSurfaces)) {
+      expect(Array.from(element.classList).filter(isTextColorUtility)).toEqual([]);
     }
   });
 
-  it("leaves competition card arrow colour and motion to the authoritative component layer", () => {
+  it("keeps Tailwind hover transforms off every authoritative competition card surface", () => {
     const { container } = render(<PlatformHome />);
 
-    for (const arrow of container.querySelectorAll(".competition-card__arrow")) {
-      for (const className of ["text-muted", "text-lime-deep", "transition"]) {
-        expect(arrow).not.toHaveClass(className);
-      }
-      expect(Array.from(arrow.classList).some((name) => name.startsWith("group-hover:"))).toBe(
-        false,
-      );
+    for (const element of container.querySelectorAll(authoritativeCardSurfaces)) {
+      expect(Array.from(element.classList).filter(isHoverTransformUtility)).toEqual([]);
     }
   });
 });

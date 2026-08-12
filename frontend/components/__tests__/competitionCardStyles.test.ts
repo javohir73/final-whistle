@@ -33,6 +33,19 @@ function rule(selector: string, source = css): string {
   return compact(block(source, selector));
 }
 
+function declarationsForSelector(source: string, selector: string): string[] {
+  const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  return Array.from(withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+    .filter((match) => match[1].split(",").map((item) => item.trim()).includes(selector))
+    .map((match) => match[2]);
+}
+
+function colorToken(selector: string): string {
+  const match = rule(selector).match(/color:\s*hsl\(var\(--([\w-]+)\)\)/);
+  if (!match) throw new Error(`Missing token-backed color in ${selector}`);
+  return match[1];
+}
+
 function token(scope: string, name: string): string {
   const match = scope.match(new RegExp(`--${name}:\\s*([^;]+);`));
   if (!match) throw new Error(`Missing --${name}`);
@@ -146,6 +159,30 @@ it("keeps all positive hover motion inside the precise-pointer query", () => {
   }
 });
 
+it("has no positive hover transforms outside the precise-pointer query", () => {
+  const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
+  const outsidePrecisePointer = css.replace(precisePointer, "");
+
+  for (const selector of [
+    ".competition-card:hover",
+    ".competition-card:hover::before",
+    ".competition-card:hover [data-competition-logo]",
+    ".competition-card:hover .competition-card__arrow",
+  ]) {
+    const declarations = declarationsForSelector(outsidePrecisePointer, selector);
+    const transformValues = declarations.flatMap((value) =>
+      Array.from(value.matchAll(/(?:^|;)\s*transform:\s*([^;]+)/g), (match) =>
+        match[1].trim(),
+      ),
+    );
+
+    expect(declarations).not.toHaveLength(0);
+    expect(transformValues.filter((value) => !/^none(?:\s*!important)?$/.test(value))).toEqual(
+      [],
+    );
+  }
+});
+
 it("neutralizes every card transition and interaction transform for reduced motion", () => {
   const reducedMotion = block(css, "@media (prefers-reduced-motion: reduce) {");
   const transitionReset = rule(".competition-card,", reducedMotion);
@@ -195,8 +232,16 @@ it("keeps the wide accent field within the logo at every card padding", () => {
 it("keeps effective card copy and arrow ink AA-safe across every accent surface", () => {
   const baseHsl = hslChannels(token(root, "competition-card-base"));
   const base = hslToRgb(baseHsl);
-  const ink = hsl(token(root, "competition-card-ink"));
-  const copy = hsl(token(root, "competition-card-copy"));
+  const cardInkToken = colorToken(".competition-card {");
+  const copyToken = colorToken(".competition-card__copy {");
+  const arrowInkToken = colorToken(".competition-card__arrow {");
+  const cardInk = hsl(token(root, cardInkToken));
+  const copy = hsl(token(root, copyToken));
+  const arrowInk = hsl(token(root, arrowInkToken));
+
+  expect(cardInkToken).toBe("competition-card-ink");
+  expect(copyToken).toBe("competition-card-copy");
+  expect(arrowInkToken).toBe("competition-card-ink");
 
   expect(rule(".competition-card__arrow {")).toContain(
     "background: hsl(var(--competition-card-base) / 0.58)",
@@ -213,13 +258,15 @@ it("keeps effective card copy and arrow ink AA-safe across every accent surface"
     const accent = hslToRgb(accentHsl);
     const mixedSurface = hslToRgb(mixHsl(accentHsl, baseHsl, 0.18));
 
-    expect(ratio(ink, mixedSurface)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(cardInk, mixedSurface)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(copy, mixedSurface)).toBeGreaterThanOrEqual(4.5);
     for (const arrowOpacity of [0.58, 0.74]) {
-      expect(ratio(ink, composite(base, accent, arrowOpacity))).toBeGreaterThanOrEqual(4.5);
-      expect(ratio(ink, composite(base, mixedSurface, arrowOpacity))).toBeGreaterThanOrEqual(
+      expect(ratio(arrowInk, composite(base, accent, arrowOpacity))).toBeGreaterThanOrEqual(
         4.5,
       );
+      expect(
+        ratio(arrowInk, composite(base, mixedSurface, arrowOpacity)),
+      ).toBeGreaterThanOrEqual(4.5);
     }
   }
 });
