@@ -104,6 +104,53 @@ def score_matrix(
     return matrix
 
 
+#: Probability display resolution. Every market — public Goals section and the
+#: premium panel alike — rounds here so the two surfaces cannot print different
+#: numbers for the same quantity on the same page. See normalized_score_matrix.
+MARKET_DP = 4
+
+
+def normalized_score_matrix(
+    lam_home: float, lam_away: float, rho: float = 0.0, max_goals: int = MAX_GOALS
+) -> list[list[float]]:
+    """THE normalized scoreline grid: cell[h][a] = P(home=h, away=a).
+
+    Single authority on purpose. The public Goals section (goal_markets, below)
+    and the premium markets panel (ml.models.markets.derive_scoreline_markets)
+    both price Over 2.5 and BTTS, and they used to do it from separately-built
+    grids with different cleaning and different rounding. The two disagreed by
+    ~5e-5, which is invisible at whole-percent display but is exactly the kind
+    of drift that becomes visible the moment either side changes — and a page
+    that shows a user two different Over 2.5 numbers has no defence.
+
+    NaN/negative cells are clamped to 0 before normalizing. Raises ValueError on
+    a degenerate (non-positive mass) grid, mirroring score_cdf."""
+    matrix = score_matrix(lam_home, lam_away, max_goals=max_goals, rho=rho or 0.0)
+    cleaned = [
+        [c if (isinstance(c, (int, float)) and math.isfinite(c) and c > 0.0) else 0.0 for c in row]
+        for row in matrix
+    ]
+    total = sum(sum(row) for row in cleaned)
+    if total <= 0.0:
+        raise ValueError("degenerate score grid: non-positive total mass")
+    return [[c / total for c in row] for row in cleaned]
+
+
+def total_over(grid: list[list[float]], line: float) -> float:
+    """P(total goals > line) off a normalized grid, rounded to MARKET_DP.
+
+    Lines are half/whole points, so no scoreline lands exactly on one and
+    "> line" is unambiguous. Shared by both market surfaces."""
+    n = len(grid)
+    return round(sum(grid[h][a] for h in range(n) for a in range(n) if (h + a) > line), MARKET_DP)
+
+
+def btts_yes(grid: list[list[float]]) -> float:
+    """P(both teams score) off a normalized grid, rounded to MARKET_DP."""
+    n = len(grid)
+    return round(sum(grid[h][a] for h in range(1, n) for a in range(1, n)), MARKET_DP)
+
+
 def goal_markets(
     lam_home: float | None,
     lam_away: float | None,
@@ -113,36 +160,32 @@ def goal_markets(
     """Per-team goal bands, match totals and both-teams-to-score, marginalized
     from the NORMALIZED Dixon-Coles score grid. Same distribution that yields the
     predicted score, so the numbers stay consistent. Returns None when a rate is
-    missing (legacy predictions). All probabilities rounded to 4 dp."""
+    missing (legacy predictions). All probabilities rounded to MARKET_DP.
+
+    Totals and BTTS go through the shared total_over/btts_yes helpers, which the
+    premium panel also uses — that is what keeps the public "Over 2.5" and the
+    premium "2.5 goals / Over" identical rather than merely close."""
     if lam_home is None or lam_away is None:
         return None
-    matrix = score_matrix(lam_home, lam_away, max_goals=max_goals, rho=rho or 0.0)
-    total = sum(sum(row) for row in matrix)
-    if total <= 0.0:
+    try:
+        p = normalized_score_matrix(lam_home, lam_away, rho or 0.0, max_goals)
+    except ValueError:
         return None
-    p = [[matrix[h][a] / total for a in range(max_goals + 1)] for h in range(max_goals + 1)]
     home_goals = [sum(p[h]) for h in range(max_goals + 1)]
     away_goals = [sum(p[h][a] for h in range(max_goals + 1)) for a in range(max_goals + 1)]
 
     def at_least(dist: list[float], n: int) -> float:
-        return round(sum(dist[n:]), 4)
+        return round(sum(dist[n:]), MARKET_DP)
 
-    def total_ge(m: int) -> float:
-        return round(
-            sum(p[h][a] for h in range(max_goals + 1) for a in range(max_goals + 1) if h + a >= m),
-            4,
-        )
-
-    btts = round(
-        sum(p[h][a] for h in range(1, max_goals + 1) for a in range(1, max_goals + 1)), 4
-    )
     return {
         "home": {"to_score": at_least(home_goals, 1), "p2": at_least(home_goals, 2),
                  "p3": at_least(home_goals, 3), "p4": at_least(home_goals, 4)},
         "away": {"to_score": at_least(away_goals, 1), "p2": at_least(away_goals, 2),
                  "p3": at_least(away_goals, 3), "p4": at_least(away_goals, 4)},
-        "total": {"over_1_5": total_ge(2), "over_2_5": total_ge(3), "over_3_5": total_ge(4)},
-        "btts": btts,
+        # over_N_5 == P(total > N.5); the same call the premium totals ladder makes.
+        "total": {"over_1_5": total_over(p, 1.5), "over_2_5": total_over(p, 2.5),
+                  "over_3_5": total_over(p, 3.5)},
+        "btts": btts_yes(p),
     }
 
 

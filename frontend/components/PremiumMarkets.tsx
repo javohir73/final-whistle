@@ -13,22 +13,110 @@ import { PremiumGate } from "@/components/PremiumGate";
 import { BILLING_ENABLED } from "@/lib/constants";
 import { getPremiumMarkets, type PremiumMarkets as Payload } from "@/lib/session";
 import { pct, formatScore } from "@/lib/format";
+import type { CompetitionId } from "@/lib/sports";
 
 const TEASER_DISCLAIMER = "Not betting advice.";
 
-// Static sample numbers for the blurred teaser — never fetched, so a free/anon
-// visitor never hits the entitled endpoint.
-const TEASER: Payload["markets"] = {
-  one_x_two: { home_win: 0.52, draw: 0.26, away_win: 0.22 },
-  totals: [{ line: 2.5, over: 0.57, under: 0.43 }],
-  btts: { yes: 0.48, no: 0.52 },
-  correct_score: [
-    { home: 2, away: 1, prob: 0.11 },
-    { home: 1, away: 1, prob: 0.1 },
-    { home: 1, away: 0, prob: 0.1 },
-  ],
-  asian_handicap: [{ line: -0.5, home: 0.52, push: 0, away: 0.48 }],
-};
+/** A redacted bar standing in for a withheld number. Deliberately not a digit:
+ *  see MarketsTeaser. */
+function Redacted({ w = "3rem" }: { w?: string }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-[0.7em] rounded-full bg-current align-middle opacity-30"
+      style={{ width: w }}
+    />
+  );
+}
+
+/** The free/anon placeholder: the SHAPE of the premium panel with no values in
+ *  it.
+ *
+ *  This used to render a hardcoded sample (Over 2.5 = 57%, BTTS = 48%, a 2-1
+ *  scoreline at 11%) behind a blur. Two problems, both real:
+ *
+ *  1. Those digits were serialized into the DOM of every anonymous match page.
+ *     A blur is a visual effect — "view source", a screen reader that ignores
+ *     aria-hidden, a scraper, or Reader Mode all get the numbers regardless. A
+ *     gate you can defeat with devtools is not a gate.
+ *  2. They contradicted the page. The public Goals section, a few hundred
+ *     pixels above, showed the REAL Over 2.5 and BTTS for that fixture. A
+ *     visitor comparing the two saw 53% and 57% for the same quantity — which
+ *     reads as the model being unreliable rather than as a marketing panel.
+ *
+ *  Withholding the numbers entirely fixes both: nothing gated ships to an
+ *  unauthorized client, and there is nothing left that can disagree with the
+ *  public section. The layout still communicates what the tier buys. */
+function MarketsTeaser({ home, away }: { home: string; away: string }) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+          Correct score
+        </p>
+        <ul className="grid grid-cols-3 gap-2">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <li key={i} className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center">
+              <p className="font-display text-lg font-extrabold text-lime-deep">
+                <Redacted w="2.2rem" />
+              </p>
+              <p className="mt-0.5 text-label font-semibold text-muted">
+                <Redacted w="1.6rem" />
+              </p>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+          Over/under
+        </p>
+        <ul className="space-y-1.5">
+          {["0.5", "1.5", "2.5", "3.5", "4.5"].map((line) => (
+            <li key={line} className="flex items-center justify-between text-sm">
+              {/* The LINES are the product description, not the prediction —
+                  every match is priced at the same ladder. Only the
+                  probabilities are withheld. */}
+              <span className="text-muted">{line} goals</span>
+              <span className="text-lime-deep">
+                <Redacted w="5.5rem" />
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+          Both teams to score
+        </p>
+        <p className="text-sm text-lime-deep">
+          <Redacted w="7rem" />
+        </p>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+          Asian handicap
+        </p>
+        <ul className="space-y-1.5">
+          {["-1.0", "-0.5", "0.0", "+0.5", "+1.0"].map((line) => (
+            <li key={line} className="flex items-center justify-between text-sm">
+              <span className="text-muted">
+                {home} {line}
+              </span>
+              <span className="text-lime-deep">
+                <Redacted w="6rem" />
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="text-xs leading-relaxed text-muted">
+        Probabilities for {home} v {away} are available to members.{" "}
+        {TEASER_DISCLAIMER}
+      </p>
+    </div>
+  );
+}
 
 function MarketsBody({
   home,
@@ -117,16 +205,25 @@ export function PremiumMarkets({
   matchId,
   home,
   away,
+  competition,
+  returnTo,
 }: {
   matchId: number;
   home: string;
   away: string;
+  competition?: CompetitionId;
+  returnTo?: string;
 }) {
   const { user } = useAuth();
   const [data, setData] = useState<Payload | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // State belongs to one fixture only. Clear a previous success/failure as
+    // soon as the route reuses this component for another match so stale
+    // numbers never flash while the new request is in flight.
+    setData(null);
+    setFailed(false);
     // Billing off must behave exactly as if Premium never existed — even for
     // a session with a server-set premium:true (e.g. the flag gets flipped
     // off after subscriptions already exist). Never fire the entitled fetch
@@ -170,9 +267,9 @@ export function PremiumMarkets({
 
   return (
     <PremiumGate
-      teaser={
-        <MarketsBody home={home} away={away} markets={TEASER} disclaimer={TEASER_DISCLAIMER} />
-      }
+      teaser={<MarketsTeaser home={home} away={away} />}
+      competition={competition}
+      returnTo={returnTo}
     >
       {null}
     </PremiumGate>

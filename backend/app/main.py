@@ -171,7 +171,14 @@ def health(db: Session = Depends(get_db)) -> dict:
     Also surfaces the post-results chain heartbeat: chain failures are
     swallowed at the trigger sites by design, so this is where a silently
     dying chain (crash / instance kill mid-simulation) becomes visible to
-    monitors. Guarded — liveness never depends on the DB being reachable."""
+    monitors. Guarded — liveness never depends on the DB being reachable.
+
+    ``status`` is LIVENESS and stays "ok" whenever this process can answer —
+    the frontend homepage probes it for connectivity. Staleness lives in the
+    separate ``data_status`` field: a dead feed is not an API outage, and
+    collapsing the two would either make stale data look like a down API to
+    the browser, or make a down API unreportable here. Monitors assert on
+    ``data_status``; see app/data_freshness.py."""
     out = {
         "status": "ok",
         "app": settings.app_name,
@@ -179,6 +186,19 @@ def health(db: Session = Depends(get_db)) -> dict:
         "live_updates": "ready" if settings.live_updates_active else "inactive",
         "email": settings.email_status,
     }
+    try:
+        from app.data_freshness import data_status
+
+        freshness = data_status(db)
+        out["data_status"] = freshness["status"]
+        out["degradations"] = freshness["degradations"]
+        out["coverage"] = freshness["coverage"]
+    except Exception:  # noqa: BLE001 — health must answer even without a DB
+        # "unknown", never "ok": an unreadable DB is precisely when a monitor
+        # must not be told the data is fine.
+        out["data_status"] = "unknown"
+        out["degradations"] = []
+        out["coverage"] = {"status": "unavailable"}
     try:
         from app.chain_status import chain_pending, get_chain_status
 

@@ -145,10 +145,17 @@ export function CompetitionOverlay() {
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="ml-4 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-surface-2 px-2.5 py-1.5 text-body font-semibold text-foreground transition hover:bg-surface"
+        className="ml-2 inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full bg-surface-2 px-2 py-1.5 text-body font-semibold text-foreground transition hover:bg-surface sm:ml-4 sm:gap-2 sm:px-2.5"
       >
         <CompetitionLogo competition={active} size={24} />
-        {COMPETITIONS[active].shortLabel}
+        {/* Below sm the logo carries the identity on its own. The header has
+            to fit the brand mark, this trigger, Premium, the theme toggle and
+            Sign in inside 320px; the short label is ~40px of that budget and
+            the only element here that is genuinely redundant.
+            sr-only/not-sr-only rather than hidden/inline plus a second sr-only
+            copy: one node means the button's accessible name is "EPL" at every
+            width instead of "EPL EPL" wherever CSS hasn't resolved. */}
+        <span className="sr-only sm:not-sr-only">{COMPETITIONS[active].shortLabel}</span>
         <ChevronIcon />
       </button>
 

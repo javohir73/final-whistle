@@ -14,8 +14,10 @@ jest.mock("@/lib/session");
 const mockGetMe = session.getMe as jest.MockedFunction<typeof session.getMe>;
 
 let mockPath = "/";
+let mockParams = new URLSearchParams();
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPath,
+  useSearchParams: () => mockParams,
 }));
 
 beforeEach(() => {
@@ -23,6 +25,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   mockPath = "/";
+  mockParams = new URLSearchParams();
   jest.resetAllMocks();
 });
 
@@ -80,10 +83,40 @@ it("keeps shared Play navigation platform-level instead of implying WC26", () =>
   expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
 });
 
+it("keeps the selected competition between shared Play and You routes", () => {
+  mockPath = "/play";
+  mockParams = new URLSearchParams("competition=nrl");
+  renderNav();
+
+  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
+    "href", "/play?competition=nrl",
+  );
+  expect(screen.getByRole("link", { name: "You" })).toHaveAttribute(
+    "href", "/leaderboard?competition=nrl",
+  );
+});
+
+it("keeps Premium navigation platform-level instead of implying WC26", () => {
+  mockPath = "/premium";
+  renderNav();
+  expect(screen.getByRole("link", { name: "Football" })).toHaveAttribute(
+    "href",
+    "/football/epl",
+  );
+  expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
+});
+
 it("keeps the Play link (never Bracket/Tips) when the active tournament has no bracket", () => {
   mockPath = "/football/epl";
   renderNav(LEAGUE);
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/play");
+  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
+  expect(screen.getByRole("link", { name: "You" })).toHaveAttribute(
+    "href",
+    "/leaderboard?competition=epl",
+  );
   expect(screen.queryByRole("link", { name: "Bracket" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Tips" })).not.toBeInTheDocument();
   // Every other football link stays.
@@ -111,7 +144,7 @@ it("uses Champions League league-phase navigation without advertising a bracket"
 it("swaps the NRL fifth link for the shared Play hub -> /play (leaderboard alias dropped from nav, not the route)", () => {
   mockPath = "/nrl";
   renderNav();
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/play");
+  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/play?competition=nrl");
   expect(screen.queryByRole("link", { name: "You" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Tips" })).not.toBeInTheDocument();
 });

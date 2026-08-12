@@ -7,6 +7,7 @@ import { formatScore } from "@/lib/format";
 import { isLiveNow, liveLabel } from "@/lib/liveLabel";
 import { kickoffTime, tzAbbrev } from "@/lib/datetime";
 import type { MatchSummary } from "@/lib/types";
+import { stoppedLabel, willBePlayed } from "@/lib/matchStatus";
 
 /** Client island: the group's fixtures as compact light rows in the user's
  *  timezone (kickoff time is client-only; the rest of the group page is
@@ -31,6 +32,7 @@ function FixtureRow({ match, tz }: { match: MatchSummary; tz: string }) {
   const live = isLiveNow(match);
   const finished = match.status === "finished" || (match.status === "in_play" && !live);
   const hasScore = match.score_home != null && match.score_away != null;
+  const stopped = stoppedLabel(match.status);
 
   return (
     <Link
@@ -56,6 +58,8 @@ function FixtureRow({ match, tz }: { match: MatchSummary; tz: string }) {
             </span>
           ) : finished ? (
             <span className="font-semibold text-muted">Full time</span>
+          ) : stopped ? (
+            <span className="font-semibold text-muted">{stopped}</span>
           ) : match.kickoff_utc ? (
             <>
               {kickoffTime(match.kickoff_utc, tz)}{" "}
@@ -71,7 +75,7 @@ function FixtureRow({ match, tz }: { match: MatchSummary; tz: string }) {
         <span className="shrink-0 font-display text-base font-extrabold tabular-nums text-foreground">
           {formatScore(match.score_home, match.score_away)}
         </span>
-      ) : predicted_score ? (
+      ) : predicted_score && willBePlayed(match.status) ? (
         <span className="inline-flex shrink-0 items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-sm font-bold tabular-nums text-foreground">
           <span className="mr-1.5 text-note font-semibold uppercase tracking-wide text-muted">ML model</span>
           {formatScore(predicted_score.home, predicted_score.away)}

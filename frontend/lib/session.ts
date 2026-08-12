@@ -282,10 +282,23 @@ export interface PremiumMarkets {
 /** DEPRECATED — the hosted-Checkout redirect. Still the fallback when
  *  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is unset, so a half-configured deploy
  *  degrades to a redirect instead of showing a form that cannot mount. */
-export const createCheckoutSession = (plan: "monthly" | "annual") =>
+export interface CheckoutContext {
+  competition: string;
+  returnTo: string;
+}
+
+export const createCheckoutSession = (
+  plan: "monthly" | "annual",
+  context?: CheckoutContext,
+) =>
   request<{ url: string }>("/api/billing/checkout-session", {
     method: "POST",
-    body: JSON.stringify({ plan }),
+    body: JSON.stringify({
+      plan,
+      ...(context
+        ? { competition: context.competition, return_to: context.returnTo }
+        : {}),
+    }),
   });
 
 /** Step 1 of in-page signup: the client secret that mounts Payment Element.

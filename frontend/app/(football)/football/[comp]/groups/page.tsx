@@ -14,6 +14,7 @@ export async function generateMetadata({
   return {
     title: `${label} standings — ${APP_NAME}`,
     description: `${label} group standings and qualification outlook.`,
+    alternates: { canonical: `/football/${comp}/groups` },
   };
 }
 

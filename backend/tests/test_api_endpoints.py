@@ -11,7 +11,7 @@ from app.cache import cache
 from app.config import settings
 from app.db import Base, get_db
 from app.main import app
-from app.models import Group, GroupTeam, HistoricalMatch, Match, Prediction, Team, Tournament
+from app.models import Group, GroupTeam, HistoricalMatch, Match, Prediction, Standing, Team, Tournament
 from pipeline.generate_predictions import generate_predictions
 from pipeline.ingest.wc26_structure import load_structure
 
@@ -211,6 +211,22 @@ def test_groups(client):
     assert client.get("/api/groups/999999").status_code == 404
 
 
+def test_standings_row_carries_the_full_league_table(client):
+    """P/W/D/L/GF/GA/GD/Pts. live_group_table computed every one of these in a
+    single pass over finished results, and five were then dropped at the schema
+    boundary — so a league standings page could show points and goal difference
+    and nothing else. Same source, no new query, no migration."""
+    gid = client.get("/api/groups").json()[0]["id"]
+    row = client.get(f"/api/groups/{gid}").json()["standings"][0]
+
+    for field in ("played", "won", "drawn", "lost", "goals_against"):
+        assert field in row, f"{field} missing from the standings row"
+
+    # Internally consistent: W+D+L must equal P, and GF-GA must equal GD.
+    assert row["won"] + row["drawn"] + row["lost"] == row["played"]
+    assert row["projected_goals_for"] - row["goals_against"] == row["projected_goal_diff"]
+
+
 def test_competition_scoping_never_mixes_tournaments(client):
     """Every public football collection/detail honors the same competition
     boundary once multiple tournaments coexist."""
@@ -320,6 +336,44 @@ def test_group_standings_are_live_not_simulated(client):
     assert by_id[m2.team_away_id]["projected_points"] == 1
     # The real leader tops the table.
     assert rows[0]["team_id"] == m1.team_home_id
+
+
+def test_unplayed_league_table_is_alphabetical_not_forecast_ranked(client):
+    """Before kickoff a domestic table is neutral: hidden model probabilities
+    must not masquerade as official rank or qualification/relegation zones."""
+    gen = app.dependency_overrides[get_db]()
+    db = next(gen)
+    tournament = Tournament(
+        name="Premier League 2026-27",
+        year=2026,
+        host_countries="",
+        home_advantage_mode="home",
+    )
+    group = Group(tournament=tournament, name="Premier League")
+    arsenal = Team(name="Arsenal preseason", is_host=False)
+    chelsea = Team(name="Chelsea preseason", is_host=False)
+    db.add_all([tournament, group, arsenal, chelsea])
+    db.flush()
+    db.add_all([
+        GroupTeam(group_id=group.id, team_id=arsenal.id),
+        GroupTeam(group_id=group.id, team_id=chelsea.id),
+        Standing(group_id=group.id, team_id=arsenal.id, qualification_prob=0.05),
+        Standing(group_id=group.id, team_id=chelsea.id, qualification_prob=0.95),
+    ])
+    db.commit()
+    cache.clear()
+
+    rows = client.get(f"/api/groups/{group.id}?competition=epl").json()["standings"]
+    assert [row["team"] for row in rows] == ["Arsenal preseason", "Chelsea preseason"]
+    assert all(row["played"] == 0 for row in rows)
+
+
+def test_unplayed_world_cup_groups_keep_forecast_seeding(client):
+    """WC26 group projections remain useful before play; only league ladders
+    need the official-table neutral ordering."""
+    group = client.get("/api/groups?competition=wc26").json()[0]
+    probs = [row["qualification_prob"] or 0 for row in group["standings"]]
+    assert probs == sorted(probs, reverse=True)
 
 
 def test_reads_do_not_trigger_model_run(client):

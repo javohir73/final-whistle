@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { BILLING_ENABLED } from "@/lib/constants";
-import { PREMIUM_FEATURES } from "@/lib/premium";
+import { PREMIUM_FEATURES, PREMIUM_PRICING } from "@/lib/premium";
 
 export function PremiumPromo() {
   const { user, loading } = useAuth();
@@ -44,7 +44,8 @@ export function PremiumPromo() {
           See what&rsquo;s included
         </Link>
         <p className="text-sm text-muted">
-          $4.99/month or $39.99/year · 7-day free trial
+          ${PREMIUM_PRICING.monthly.toFixed(2)}/month or $
+          {PREMIUM_PRICING.annual.toFixed(2)}/year · 7-day free trial
         </p>
       </div>
     </section>

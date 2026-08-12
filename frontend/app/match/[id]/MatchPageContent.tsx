@@ -23,6 +23,7 @@ import { LocalKickoff } from "@/components/LocalKickoff";
 import { ShareButton } from "@/components/ShareButton";
 import { TeamBadge } from "@/components/TeamBadge";
 import { GoalMarkets } from "@/components/GoalMarkets";
+import { SportsEventJsonLd } from "@/components/SportsEventJsonLd";
 import { PremiumMarkets } from "@/components/PremiumMarkets";
 import { LikelyScorers } from "@/components/LikelyScorers";
 import { AvailabilityNote } from "@/components/AvailabilityNote";
@@ -98,7 +99,9 @@ export async function renderMatchDetailPage(
   const history = await getProbHistoryServer(id).catch(() => null);
 
   const { home, away } = p.teams;
-  const venue = [p.venue, p.venue_city, p.venue_country].filter(Boolean).join(", ");
+  const venue = [p.venue ?? "Venue TBC", p.venue_city, p.venue_country]
+    .filter(Boolean)
+    .join(", ");
   const call = prematchCall(p.probabilities, p.teams);
   // The model's favoured side (for the "Why {winner}?" heading and the AI's-call
   // headline); a draw lean has no single side, so fall back to the generic
@@ -107,9 +110,30 @@ export async function renderMatchDetailPage(
   const predictedWinner = topSide === "home" ? home : topSide === "away" ? away : null;
   // Headline probability for the ConfidenceRing: the leading W/D/L outcome's chance.
   const headline = Math.max(p.probabilities.home_win, p.probabilities.draw, p.probabilities.away_win);
+  const canonicalPath = `${COMPETITIONS[competition].basePath}/match/${p.match_id}`;
 
   return (
     <div className="fade-up mx-auto max-w-2xl space-y-6">
+      {/* The page had no h1 at all — only h2 section headings — so crawlers and
+          screen-reader users got no top-level title for the fixture. sr-only
+          because MatchScoreboard already presents the matchup graphically; a
+          visible heading above it would duplicate that and change the layout. */}
+      <h1 className="sr-only">
+        {home} vs {away} — {tournament.name} prediction
+      </h1>
+
+      <SportsEventJsonLd
+        home={home}
+        away={away}
+        competitionLabel={tournament.name}
+        kickoffUtc={p.kickoff_utc}
+        venue={p.venue}
+        venueCity={p.venue_city}
+        venueCountry={p.venue_country}
+        canonicalPath={canonicalPath}
+        status={summary?.status ?? null}
+      />
+
       <div className="flex items-center justify-between gap-3">
         <Link href={fixturesHref} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
           <span aria-hidden>←</span> All fixtures
@@ -131,7 +155,7 @@ export async function renderMatchDetailPage(
         homeTeamId={p.home_team_id}
         awayTeamId={p.away_team_id}
         kickoffUtc={p.kickoff_utc}
-        venue={venue || null}
+        venue={venue}
         probabilities={p.probabilities}
         predicted={p.predicted_score}
         initialSummary={summary}
@@ -198,7 +222,13 @@ export async function renderMatchDetailPage(
             {/* FinalWhistle Premium — correct-score grid, totals, BTTS and Asian
                 handicap. Free/anon see a blurred teaser; billing off renders
                 nothing (PremiumGate handles both). */}
-            <PremiumMarkets matchId={p.match_id} home={home} away={away} />
+            <PremiumMarkets
+              matchId={p.match_id}
+              home={home}
+              away={away}
+              competition={competition}
+              returnTo={canonicalPath}
+            />
 
             {/* Likely scorers — top players per team (hidden until player data). */}
             {goalscorers && (
@@ -266,7 +296,7 @@ function PredictionPending({
   fixturesHref: string;
 }) {
   const { home, away } = summary.teams;
-  const venue = [summary.venue, summary.venue_city, summary.venue_country]
+  const venue = [summary.venue ?? "Venue TBC", summary.venue_city, summary.venue_country]
     .filter(Boolean)
     .join(", ");
   const live = summary.status === "in_play";
@@ -286,7 +316,7 @@ function PredictionPending({
         <ShareButton title={`${home} vs ${away} — ${tournamentName}`} />
       </div>
 
-      <LocalKickoff iso={summary.kickoff_utc} venue={venue || null} />
+      <LocalKickoff iso={summary.kickoff_utc} venue={venue} />
 
       {/* Bare matchup + live/final score (the AI's-call card appears once predicted). */}
       <section className="glass rounded-2xl p-6">

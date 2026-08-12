@@ -139,7 +139,9 @@ class Match(Base):
     is_neutral: Mapped[bool] = mapped_column(default=True)
     # Set when a host nation plays in its own country -> drives the +60 Elo bonus (Decision #2).
     host_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
-    status: Mapped[str] = mapped_column(String(20), default="scheduled")  # scheduled/in_play/finished
+    # Lifecycle vocabulary is centralized in app/match_status.py, including
+    # postponed/cancelled/suspended provider stop states.
+    status: Mapped[str] = mapped_column(String(20), default="scheduled")
     score_home: Mapped[int | None] = mapped_column(Integer)
     score_away: Mapped[int | None] = mapped_column(Integer)
     # Regulation-time (90') score, frozen when a match first goes beyond
@@ -1003,8 +1005,9 @@ class UserTip(Base):
 
 class LeagueScorePrediction(Base):
     """One player's scoreline prediction for one football league match.
-    Upserted freely until the match's kickoff_utc (server clock; see
-    app/api/league_score_predictions.py's submit_prediction) -- keyed by
+    The first accepted scoreline is final because submission reveals the
+    model's score (see app/api/league_score_predictions.py's
+    submit_prediction) -- keyed by
     match_id, not matchweek, so a fixture rescheduled into a different
     matchweek keeps its prediction. `exact` flags a 5-point row for the
     streak/summary UI without re-deriving it from points.

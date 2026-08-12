@@ -18,21 +18,13 @@ import time
 
 import requests
 
+from pipeline.ingest.provider_errors import read_payload
+from pipeline.ingest.api_football_status import football_data_status
+
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://v3.football.api-sports.io"
 
-# api-sports status.short -> football-data v4 status (a key of live_scores._STATUS_MAP).
-_STATUS = {
-    "TBD": "TIMED", "NS": "TIMED",
-    "1H": "IN_PLAY", "2H": "IN_PLAY", "ET": "IN_PLAY", "P": "IN_PLAY", "LIVE": "IN_PLAY",
-    "HT": "PAUSED", "BT": "PAUSED",          # half-time / break before extra time
-    "FT": "FINISHED", "AET": "FINISHED", "PEN": "FINISHED",
-    "AWD": "AWARDED", "WO": "AWARDED",
-    "SUSP": "SUSPENDED", "INT": "SUSPENDED",
-    "PST": "POSTPONED",
-    "CANC": "CANCELLED", "ABD": "CANCELLED",
-}
 # Statuses signalling extra time / a shootout — surfaced via score.duration, the
 # same channel football-data uses (status stays IN_PLAY/FINISHED).
 _EXTRA_TIME = frozenset({"ET", "AET", "BT"})
@@ -47,35 +39,54 @@ _GOAL_DETAIL = {"Normal Goal": "goal", "Penalty": "penalty", "Own Goal": "own_go
 _CARD_DETAIL = {"Yellow Card": "yellow", "Red Card": "red"}
 
 
-def fetch_fixtures(api_key: str, league: int, season: int, timeout: float = 15.0) -> list[dict]:
-    """Return the raw fixture list for a league+season from api-sports.io."""
+#: Every provider call this module makes, counted per endpoint for the run
+#: summary. Cheap request accounting beats guessing which step burned the
+#: allowance — see reset_request_counts/request_counts.
+_request_counts: dict[str, int] = {}
+
+
+def request_counts() -> dict[str, int]:
+    """Provider requests issued this process, by endpoint path."""
+    return dict(_request_counts)
+
+
+def reset_request_counts() -> None:
+    _request_counts.clear()
+
+
+def _get(api_key: str, path: str, params: dict, timeout: float) -> list[dict]:
+    """One provider GET -> its ``response`` list.
+
+    Central because every caller needs the SAME failure semantics: a provider
+    error is an exception, never an empty list. api-sports signals quota and
+    plan failures with HTTP 200 plus an ``errors`` object, so returning
+    ``data["response"] or []`` (what every fetch_* used to do) made an
+    exhausted key indistinguishable from a genuinely empty fixture list — the
+    daily refresh then ingested nothing and exited 0. See
+    pipeline/ingest/provider_errors.py.
+    """
+    _request_counts[path] = _request_counts.get(path, 0) + 1
     resp = requests.get(
-        f"{BASE_URL}/fixtures",
+        f"{BASE_URL}{path}",
         headers={"x-apisports-key": api_key},
-        params={"league": league, "season": season},
+        params=params,
         timeout=timeout,
     )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        # api-sports answers 200 with an `errors` object on auth/quota/param issues.
-        log.warning("api-football returned errors: %s", data["errors"])
+    data = read_payload(resp, endpoint=path)
     return data.get("response") or []
+
+
+def fetch_fixtures(api_key: str, league: int, season: int, timeout: float = 15.0) -> list[dict]:
+    """Return the raw fixture list for a league+season from api-sports.io.
+
+    Raises ProviderError (quota/auth/other) rather than returning [] — this
+    feed is load-bearing: no fixtures means no matches and no predictions."""
+    return _get(api_key, "/fixtures", {"league": league, "season": season}, timeout)
 
 
 def fetch_events(api_key: str, fixture_id: int, timeout: float = 15.0) -> list[dict]:
     """Return the raw event list for one fixture from api-sports.io."""
-    resp = requests.get(
-        f"{BASE_URL}/fixtures/events",
-        headers={"x-apisports-key": api_key},
-        params={"fixture": fixture_id},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        log.warning("api-football events errors: %s", data["errors"])
-    return data.get("response") or []
+    return _get(api_key, "/fixtures/events", {"fixture": fixture_id}, timeout)
 
 
 def fetch_lineups(api_key: str, fixture_id: int, timeout: float = 15.0) -> list[dict]:
@@ -84,63 +95,23 @@ def fetch_lineups(api_key: str, fixture_id: int, timeout: float = 15.0) -> list[
     Display-only: the lineups feature never feeds the prediction model. Real
     lineups exist only ~40 min before kickoff, so this returns an empty list for
     fixtures the provider has no lineup for yet."""
-    resp = requests.get(
-        f"{BASE_URL}/fixtures/lineups",
-        headers={"x-apisports-key": api_key},
-        params={"fixture": fixture_id},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        log.warning("api-football lineups errors: %s", data["errors"])
-    return data.get("response") or []
+    return _get(api_key, "/fixtures/lineups", {"fixture": fixture_id}, timeout)
 
 
 def fetch_teams(api_key: str, league: int, season: int, timeout: float = 15.0) -> list[dict]:
     """Return the raw team list for a league+season from api-sports.io (used to
     map api-football team ids onto our Team rows)."""
-    resp = requests.get(
-        f"{BASE_URL}/teams",
-        headers={"x-apisports-key": api_key},
-        params={"league": league, "season": season},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        log.warning("api-football teams errors: %s", data["errors"])
-    return data.get("response") or []
+    return _get(api_key, "/teams", {"league": league, "season": season}, timeout)
 
 
 def fetch_squad(api_key: str, team_id: int, timeout: float = 15.0) -> list[dict]:
     """Return the raw squad list for a team from api-sports.io (/players/squads)."""
-    resp = requests.get(
-        f"{BASE_URL}/players/squads",
-        headers={"x-apisports-key": api_key},
-        params={"team": team_id},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        log.warning("api-football squads errors: %s", data["errors"])
-    return data.get("response") or []
+    return _get(api_key, "/players/squads", {"team": team_id}, timeout)
 
 
 def fetch_player_stats(api_key: str, player_id: int, season: int, timeout: float = 15.0) -> list[dict]:
     """Return one player's per-(team,league) statistics for a season (/players?id=&season=)."""
-    resp = requests.get(
-        f"{BASE_URL}/players",
-        headers={"x-apisports-key": api_key},
-        params={"id": player_id, "season": season},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        log.warning("api-football players errors: %s", data["errors"])
-    return data.get("response") or []
+    return _get(api_key, "/players", {"id": player_id, "season": season}, timeout)
 
 
 def probe_player_access(api_key: str, league: int, season: int, timeout: float = 15.0) -> dict:
@@ -295,17 +266,7 @@ def parse_lineups(response: list[dict]) -> list[dict]:
 
 def fetch_injuries(api_key: str, fixture_id: int, timeout: float = 15.0) -> list[dict]:
     """Return the raw injury list for one fixture from api-sports.io (/injuries)."""
-    resp = requests.get(
-        f"{BASE_URL}/injuries",
-        headers={"x-apisports-key": api_key},
-        params={"fixture": fixture_id},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("errors"):
-        log.warning("api-football injuries errors: %s", data["errors"])
-    return data.get("response") or []
+    return _get(api_key, "/injuries", {"fixture": fixture_id}, timeout)
 
 
 def parse_injuries(response: list[dict]) -> list[dict]:
@@ -346,9 +307,14 @@ def _to_item(fx: object) -> dict | None:
     if not isinstance(fx, dict):
         return None
     status = (fx.get("fixture") or {}).get("status") or {}
-    fd_status = _STATUS.get(status.get("short"))
+    short = status.get("short")
+    fd_status = football_data_status(short)
     if fd_status is None:
         return None
+    # Preserve the two provider break states inside the canonical in-play
+    # lifecycle; live_scores uses PAUSED to derive half-time / the ET break.
+    if short in {"HT", "BT"}:
+        fd_status = "PAUSED"
 
     teams = fx.get("teams") or {}
     home = (teams.get("home") or {}).get("name")
@@ -357,7 +323,6 @@ def _to_item(fx: object) -> dict | None:
         return None
 
     goals = fx.get("goals") or {}
-    short = status.get("short")
     score: dict = {
         "fullTime": {"home": goals.get("home"), "away": goals.get("away")},
         "duration": _duration(short),

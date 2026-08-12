@@ -13,8 +13,10 @@ import { TournamentProvider } from "@/components/TournamentProvider";
 import type { ActiveTournament } from "@/lib/types";
 
 let mockPath = "/";
+let mockParams = new URLSearchParams();
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPath,
+  useSearchParams: () => mockParams,
 }));
 
 const renderAt = (path: string) => {
@@ -30,6 +32,7 @@ const current = () =>
 
 afterEach(() => {
   mockPath = "/";
+  mockParams = new URLSearchParams();
 });
 
 it("exposes exactly five platform destinations on the general home", () => {
@@ -62,6 +65,19 @@ it("keeps shared routes in the platform navigation", () => {
     "/football/epl",
   );
   expect(current()).toEqual(["Play"]);
+});
+
+it("keeps the selected competition between shared Play and You routes", () => {
+  mockPath = "/play";
+  mockParams = new URLSearchParams("competition=nrl");
+  render(<BottomNav />);
+
+  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
+    "href", "/play?competition=nrl",
+  );
+  expect(screen.getByRole("link", { name: "You" })).toHaveAttribute(
+    "href", "/leaderboard?competition=nrl",
+  );
 });
 
 it.each([
@@ -112,7 +128,7 @@ it.each([
 
 it("swaps the NRL fifth tab for the shared Play hub (leaderboard alias dropped from the tab bar, not the route)", () => {
   renderAt("/nrl");
-  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play");
+  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play?competition=nrl");
   expect(screen.queryByRole("link", { name: "You" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: /Tips/ })).not.toBeInTheDocument();
   expect(screen.getAllByRole("link")).toHaveLength(5);
@@ -151,7 +167,14 @@ it("keeps the Play tab (never a separate Bracket/Tips) when the tournament has n
       <BottomNav />
     </TournamentProvider>,
   );
-  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play");
+  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
+  expect(screen.getByRole("link", { name: /You/ })).toHaveAttribute(
+    "href",
+    "/leaderboard?competition=epl",
+  );
   expect(screen.queryByRole("link", { name: /Bracket/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: /Tips/ })).not.toBeInTheDocument();
   // Still exactly five, never six.
@@ -160,7 +183,7 @@ it("keeps the Play tab (never a separate Bracket/Tips) when the tournament has n
 
 it("keeps the Play tab with no provider on a World Cup route", () => {
   renderAt("/football/wc26");
-  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play");
+  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play?competition=wc26");
   expect(screen.queryByRole("link", { name: /Bracket/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: /Tips/ })).not.toBeInTheDocument();
   expect(screen.getAllByRole("link")).toHaveLength(5);

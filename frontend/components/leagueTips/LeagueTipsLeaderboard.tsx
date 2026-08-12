@@ -30,14 +30,23 @@ type SeasonState =
  *  room, so this shows only a quiet participant count, never an empty table.
  *  Tiebreak is exact-count (replacing NRL's margin) -- the natural
  *  score-prediction tiebreak per the design doc. */
-export function LeagueTipsLeaderboard({ league, matchweek }: { league: string; matchweek: number }) {
-  const [tab, setTab] = useState<"weekly" | "season">("weekly");
+export function LeagueTipsLeaderboard({
+  league,
+  matchweek,
+  seasonOnly = false,
+}: {
+  league: string;
+  matchweek?: number;
+  seasonOnly?: boolean;
+}) {
+  const [tab, setTab] = useState<"weekly" | "season">(seasonOnly ? "season" : "weekly");
   const [weeklyState, setWeeklyState] = useState<WeeklyState>({ status: "loading" });
   const [weeklyAttempt, setWeeklyAttempt] = useState(0);
   const [seasonState, setSeasonState] = useState<SeasonState>({ status: "loading" });
   const [seasonAttempt, setSeasonAttempt] = useState(0);
 
   useEffect(() => {
+    if (seasonOnly || matchweek == null) return;
     let live = true;
     setWeeklyState({ status: "loading" });
     getLeagueTipsLeaderboard(league, matchweek)
@@ -53,7 +62,7 @@ export function LeagueTipsLeaderboard({ league, matchweek }: { league: string; m
     return () => {
       live = false;
     };
-  }, [league, matchweek, weeklyAttempt]);
+  }, [league, matchweek, seasonOnly, weeklyAttempt]);
 
   // Season tab is fetched lazily -- a visitor who never leaves the default
   // Weekly view never costs the season endpoint a request.
@@ -80,7 +89,7 @@ export function LeagueTipsLeaderboard({ league, matchweek }: { league: string; m
     <section>
       <div className="mb-2.5 flex items-center justify-between px-0.5">
         <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Leaderboard</h2>
-        <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5 text-label font-semibold">
+        {!seasonOnly && <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5 text-label font-semibold">
           <button
             type="button"
             onClick={() => setTab("weekly")}
@@ -97,7 +106,7 @@ export function LeagueTipsLeaderboard({ league, matchweek }: { league: string; m
           >
             Season
           </button>
-        </div>
+        </div>}
       </div>
 
       {tab === "weekly" ? (

@@ -67,6 +67,20 @@ it("renders an in_play tie with a live badge and label", () => {
   expect(screen.getByLabelText(/Live, 57'/)).toBeInTheDocument();
 });
 
+it("labels a postponed tie instead of presenting it as scheduled", () => {
+  const ties = buildTree({
+    ties: [tie({
+      match_no: 91,
+      match_id: 330,
+      status: "postponed",
+      home: { team_id: 44, team: "A", score: null, penalty: null },
+      away: { team_id: 51, team: "B", score: null, penalty: null },
+    })],
+  });
+  render(<OfficialBracket ties={ties} />);
+  expect(screen.getByText("Postponed")).toBeInTheDocument();
+});
+
 it("renders a mixed tie: real team on A, label on B", () => {
   const ties = buildTree({
     ties: [

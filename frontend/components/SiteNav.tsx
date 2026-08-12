@@ -1,7 +1,8 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { BrandMark, Wordmark } from "@/components/Logo";
 import { NavIcon } from "@/components/NavIcon";
 import { AuthButton } from "@/components/AuthButton";
@@ -47,17 +48,48 @@ const hit = (pathname: string, prefix: string) =>
  *  COMPETITIONS[id].navLinks on competition routes, so an entry in either one
  *  disappears on the other half of the site — a "Premium" item in
  *  PLATFORM_LINKS would vanish the moment a visitor opens /football/epl.
- *  Rendered on mobile too (no `hidden sm:*`): BottomNav's five tabs are capped
+ *  Rendered on mobile too (never `hidden`): BottomNav's five tabs are capped
  *  by design, so the header is what covers small screens. Nothing renders for
- *  a subscriber, mid session-check, or when billing is off. */
-function PremiumNavLink() {
+ *  a subscriber, mid session-check, or when billing is off — which is why the
+ *  overflow this element contributes only ever appeared on a configured
+ *  production deploy, and never locally with billing off. */
+function PremiumNavLink({
+  competition,
+  returnTo,
+}: {
+  competition?: string;
+  returnTo?: string;
+}) {
   const { user, loading } = useAuth();
-  if (!BILLING_ENABLED || loading || user?.premium) return null;
+  if (!BILLING_ENABLED || loading) return null;
+
+  // Subscribers get the link too, as a member badge rather than a pitch.
+  //
+  // This used to return null for them, which left /premium unreachable from
+  // navigation for the only people paying for it. Their sole route to
+  // cancelling or changing a card was one item inside the avatar dropdown —
+  // and, worse, /premium is where the past_due "there's a payment issue"
+  // banner renders, so a subscriber whose card had just failed was shown that
+  // warning on a page they could no longer navigate to.
+  const subscribed = Boolean(user?.premium);
+  const query = new URLSearchParams();
+  if (competition) query.set("competition", competition);
+  if (returnTo) query.set("returnTo", returnTo);
+  const premiumHref = query.toString() ? `/premium?${query}` : "/premium";
 
   return (
     <Link
-      href="/premium"
-      className="ml-auto mr-1 inline-flex min-h-[44px] shrink-0 items-center rounded-lg px-2.5 text-sm font-semibold text-lime-deep transition hover:bg-win/10 sm:ml-0 sm:px-3"
+      href={premiumHref}
+      // Accessible name stays "Premium" in both states — the destination is the
+      // same page and an aria-label that varies by entitlement would just make
+      // the control harder to refer to. Membership is marked visually (a ring)
+      // and exposed to tests via data-member.
+      data-member={subscribed ? "true" : "false"}
+      title={subscribed ? "Your Premium membership and billing" : "About FinalWhistle Premium"}
+      className={cn(
+        "ml-auto mr-0.5 inline-flex min-h-[44px] shrink-0 items-center rounded-lg px-2 text-sm font-semibold text-lime-deep transition hover:bg-win/10 lg:ml-0 lg:mr-1 lg:px-3",
+        subscribed && "ring-1 ring-win/30",
+      )}
     >
       Premium
     </Link>
@@ -69,6 +101,23 @@ function PremiumNavLink() {
  *  The link row is hidden on mobile (`hidden sm:flex`) — there the bottom tab
  *  bar handles navigation. */
 export function SiteNav() {
+  return (
+    <Suspense fallback={<SiteNavContent queryCompetition={null} />}>
+      <SiteNavWithCompetition />
+    </Suspense>
+  );
+}
+
+function SiteNavWithCompetition() {
+  const requested = useSearchParams().get("competition");
+  return (
+    <SiteNavContent
+      queryCompetition={requested && requested in COMPETITIONS ? requested : null}
+    />
+  );
+}
+
+function SiteNavContent({ queryCompetition }: { queryCompetition: string | null }) {
   // Through normalizePathname: the raw value is "/index" during the root
   // route's ISR revalidation, which would flip the whole bar into WC26
   // competition mode server-side and break hydration.
@@ -81,6 +130,9 @@ export function SiteNav() {
   // Tips (league-format only) takes the slot Bracket vacates -- see
   // requiresLeagueFormat's doc comment in lib/sports.ts.
   const isPlatformRoute = isPlatformPathname(pathname);
+  const competition = isPlatformRoute
+    ? queryCompetition
+    : competitionFromPathname(pathname);
   const links = isPlatformRoute
     ? PLATFORM_LINKS
     : COMPETITIONS[competitionFromPathname(pathname)].navLinks.filter(
@@ -91,25 +143,36 @@ export function SiteNav() {
 
   return (
     <header className="border-b border-border bg-background/80 backdrop-blur-xl">
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5 sm:px-5">
         <Link
           href="/"
           aria-label="FinalWhistle home"
           className="group flex shrink-0 items-center gap-2.5"
         >
           <BrandMark className="h-7 w-auto shrink-0 text-lime-deep transition group-hover:opacity-90" />
-          <Wordmark className="text-lg font-extrabold" />
+          {/* Below sm the hexagon mark stands alone. The wordmark is ~100px —
+              the single largest item in a header that also has to fit the
+              competition switcher, Premium, the theme toggle and Sign in
+              inside 320px. aria-label on the link keeps the accessible name,
+              so this costs nothing but pixels. */}
+          <Wordmark className="hidden text-lg font-extrabold sm:inline" />
         </Link>
 
         {!isPlatformRoute && <CompetitionOverlay />}
 
-        <div className="ml-auto mr-2 hidden items-center gap-1 sm:flex">
+        {/* lg, not sm. This row needs ~450px on its own; at the old sm (640px)
+            breakpoint it appeared while the header still had to fit the brand,
+            the switcher, Premium, the toggle and Sign in — so 768px rendered a
+            903px-wide nav and pushed Sign in 135px off screen. BottomNav's
+            matching lg:hidden means tablets keep a full tab bar instead of
+            losing navigation in the gap. */}
+        <div className="ml-auto mr-2 hidden items-center gap-1 lg:flex">
           {links.map((link) => {
             const active = matches(pathname, link.activePrefixes, link.href);
             return (
               <Link
                 key={link.href}
-                href={link.href}
+                href={contextualHref(link.href, competition)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition",
@@ -125,10 +188,18 @@ export function SiteNav() {
           })}
         </div>
 
-        <PremiumNavLink />
+        <PremiumNavLink
+          competition={competition ?? undefined}
+          returnTo={competition && !isPlatformRoute ? pathname : undefined}
+        />
         <ThemeToggle />
         <AuthButton />
       </nav>
     </header>
   );
+}
+
+function contextualHref(href: string, competition: string | null): string {
+  if (!competition || (href !== "/play" && href !== "/leaderboard")) return href;
+  return `${href}?competition=${competition}`;
 }

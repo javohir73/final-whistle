@@ -223,4 +223,32 @@ describe("buildTree", () => {
     expect(tree[91].state).toBe("in_play");
     expect(tree[91].liveLabel).toBe("ET 105'");
   });
+
+  it.each(["postponed", "cancelled", "suspended"] as const)(
+    "preserves a %s tie state instead of presenting it as scheduled",
+    (status) => {
+      const tree = buildTree({
+        ties: [tie({
+          match_no: 92,
+          match_id: 331,
+          status,
+          home: { team_id: 44, team: "A", score: null, penalty: null },
+          away: { team_id: 51, team: "B", score: null, penalty: null },
+        })],
+      });
+      expect(tree[92].state).toBe(status);
+    },
+  );
+
+  it.each(["postponed", "cancelled", "suspended"] as const)(
+    "preserves a %s tie state before either participant is known",
+    (status) => {
+      const tree = buildTree({
+        ties: [tie({ match_no: 92, match_id: 331, status })],
+      });
+      expect(tree[92].state).toBe(status);
+      expect(tree[92].a.team).toBeNull();
+      expect(tree[92].b.team).toBeNull();
+    },
+  );
 });

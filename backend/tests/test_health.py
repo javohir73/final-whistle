@@ -189,3 +189,40 @@ def test_live_ping_is_tiny_and_triggers_refresh(monkeypatch):
     # FastAPI runs the scheduled BackgroundTask after the response is sent;
     # TestClient executes it synchronously, so the refresh was triggered.
     assert calls == [1]
+
+
+def test_health_reports_data_status_ok_on_clean_data():
+    """`status` is liveness; `data_status` is whether what we serve is current.
+    Kept separate on purpose — see the health() docstring."""
+    c, _ = _client_with_db()
+    try:
+        body = c.get("/api/health").json()
+        assert body["status"] == "ok"
+        assert body["data_status"] == "ok"
+        assert body["degradations"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_health_goes_degraded_on_a_match_stuck_in_play():
+    """The pre-season incident in miniature: nothing errors, the API is up, and
+    the data is weeks stale. Liveness alone cannot see that; this is the field
+    monitoring can actually assert on."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import Match
+
+    c, session_factory = _client_with_db()
+    try:
+        s = session_factory()
+        s.add(Match(tournament_id=1, stage="group", status="in_play",
+                    kickoff_utc=datetime.now(timezone.utc) - timedelta(hours=9)))
+        s.commit()
+        s.close()
+
+        body = c.get("/api/health").json()
+        assert body["status"] == "ok"             # the process is fine...
+        assert body["data_status"] == "degraded"  # ...the data is not
+        assert body["degradations"][0]["kind"] == "stale_live_match"
+    finally:
+        app.dependency_overrides.clear()

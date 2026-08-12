@@ -1,7 +1,8 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { NavIcon } from "@/components/NavIcon";
 import {
   COMPETITIONS,
@@ -40,6 +41,23 @@ const hit = (pathname: string, prefix: string) =>
 /** Mobile-only sticky bottom tab bar. Exactly five destinations — Home,
  *  Matches, Groups, Play and You — each one tap away, no overflow sheet. */
 export function BottomNav() {
+  return (
+    <Suspense fallback={<BottomNavContent queryCompetition={null} />}>
+      <BottomNavWithCompetition />
+    </Suspense>
+  );
+}
+
+function BottomNavWithCompetition() {
+  const requested = useSearchParams().get("competition");
+  return (
+    <BottomNavContent
+      queryCompetition={requested && requested in COMPETITIONS ? requested : null}
+    />
+  );
+}
+
+function BottomNavContent({ queryCompetition }: { queryCompetition: string | null }) {
   // Through normalizePathname — same hydration contract as SiteNav: the root
   // route revalidates under its "/index" alias and must still render the
   // platform tabs the client computes for "/".
@@ -60,11 +78,19 @@ export function BottomNav() {
             (!tab.requiresBrackets || has_brackets) &&
             (!tab.requiresLeagueFormat || !has_brackets),
         );
+  const competition = isPlatformPathname(pathname)
+    ? queryCompetition
+    : competitionFromPathname(pathname);
 
+  // lg:hidden, not sm:hidden — paired with SiteNav's link row, which is
+  // lg:flex for the same reason. The two must swap at the SAME breakpoint or
+  // one width band gets both (clutter) or neither (no primary navigation).
+  // The old sm handoff put the header row on screen at 640px, where it did
+  // not fit; 640-1023px now keeps this tab bar instead.
   return (
     <nav
       aria-label="Primary"
-      className="safe-x safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-border bg-surface/90 backdrop-blur-xl sm:hidden"
+      className="safe-x safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-border bg-surface/90 backdrop-blur-xl lg:hidden"
     >
       <div className="mx-auto flex max-w-md items-stretch justify-around">
         {tabs.map((tab) => {
@@ -72,7 +98,7 @@ export function BottomNav() {
           return (
             <Link
               key={tab.href}
-              href={tab.href}
+              href={contextualHref(tab.href, competition)}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex min-h-[44px] flex-1 flex-col items-center gap-1 py-2.5 text-label font-medium transition",
@@ -87,4 +113,9 @@ export function BottomNav() {
       </div>
     </nav>
   );
+}
+
+function contextualHref(href: string, competition: string | null): string {
+  if (!competition || (href !== "/play" && href !== "/leaderboard")) return href;
+  return `${href}?competition=${competition}`;
 }

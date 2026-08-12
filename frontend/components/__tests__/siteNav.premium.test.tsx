@@ -17,6 +17,7 @@ jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }))
 let mockPath = "/";
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPath,
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 import { SiteNav } from "@/components/SiteNav";
@@ -59,7 +60,7 @@ describe("SiteNav — Premium link (billing on)", () => {
     render(<SiteNav />);
     expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute(
       "href",
-      "/premium",
+      "/premium?competition=epl&returnTo=%2Ffootball%2Fepl",
     );
     // The competition registry still owns the link row itself.
     expect(screen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();
@@ -71,10 +72,25 @@ describe("SiteNav — Premium link (billing on)", () => {
     expect(screen.getByRole("link", { name: "Premium" })).toBeInTheDocument();
   });
 
-  it("hides the link from an existing subscriber", () => {
+  it("keeps the link for a subscriber, as the route to managing their billing", () => {
+    // It used to return null here, which left /premium — the page carrying the
+    // "Manage subscription" button AND the past_due payment-issue banner —
+    // unreachable from navigation for the only people paying for it. Their one
+    // remaining path was an item inside the avatar dropdown.
     mockUseAuth.mockReturnValue(auth({ ...freeUser, premium: true }));
     render(<SiteNav />);
-    expect(screen.queryByRole("link", { name: "Premium" })).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Premium" });
+    expect(link).toHaveAttribute("href", "/premium");
+    expect(link).toHaveAttribute("data-member", "true");
+  });
+
+  it("marks the same link as a pitch, not a membership, for a free user", () => {
+    mockUseAuth.mockReturnValue(auth(freeUser));
+    render(<SiteNav />);
+    expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute(
+      "data-member",
+      "false",
+    );
   });
 
   it("hides the link while the session check is still pending", () => {

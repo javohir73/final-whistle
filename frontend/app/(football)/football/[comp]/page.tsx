@@ -25,6 +25,10 @@ export async function generateMetadata({
   return {
     title: `${label} predictions — ${APP_NAME}`,
     description: `Fixtures, standings, and explainable predictions for ${label}.`,
+    // Explicit: next.config.mjs 301s several legacy paths into this one, and a
+    // competition home is otherwise reachable via the pinned-competition
+    // redirect too. Without a canonical those all look like separate pages.
+    alternates: { canonical: `/football/${comp}` },
   };
 }
 

@@ -4,6 +4,7 @@ import { getCompetitionTournament } from "@/lib/tournament";
 import type { TournamentOdds } from "@/lib/types";
 import type { BracketChampion } from "@/components/play/PlayBracketCard";
 import { PlayHub } from "./PlayHub";
+import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 // Same ISR posture as /nrl/tips and /tips -- the shell is evergreen (nothing
 // user-specific here; picks and leaderboards resolve inside the client
@@ -37,15 +38,31 @@ function topChampion(odds: TournamentOdds[]): BracketChampion | null {
  *  the predicted champion on the bracket card). Each degrades honestly to
  *  null/false so the hub always renders. League tips carry no public seed (they
  *  resolve client-side, exactly as /tips does today). */
-export default async function PlayPage() {
+type PlayPageProps = {
+  searchParams?: Promise<{ competition?: string | string[] }>;
+};
+
+export default async function PlayPage({ searchParams }: PlayPageProps) {
+  const raw = (await searchParams)?.competition;
+  const candidate = Array.isArray(raw) ? raw[0] : raw;
+  const selectedCompetition: CompetitionId =
+    candidate && candidate in COMPETITIONS ? (candidate as CompetitionId) : "epl";
+
   const [nrlTipsheet, tournament, odds] = await Promise.all([
-    getNrlTipsheetServer().catch(() => null),
-    getCompetitionTournament("wc26"),
-    getKnockoutOddsServer().catch(() => null),
+    selectedCompetition === "nrl" ? getNrlTipsheetServer().catch(() => null) : null,
+    selectedCompetition === "wc26" ? getCompetitionTournament("wc26") : null,
+    selectedCompetition === "wc26" ? getKnockoutOddsServer().catch(() => null) : null,
   ]);
 
-  const hasBrackets = tournament.has_brackets;
+  const hasBrackets = tournament?.has_brackets ?? false;
   const champion = hasBrackets && odds ? topChampion(odds) : null;
 
-  return <PlayHub nrlTipsheet={nrlTipsheet} hasBrackets={hasBrackets} champion={champion} />;
+  return (
+    <PlayHub
+      selectedCompetition={selectedCompetition}
+      nrlTipsheet={nrlTipsheet}
+      hasBrackets={hasBrackets}
+      champion={champion}
+    />
+  );
 }

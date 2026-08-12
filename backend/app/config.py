@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # safe no-op.
     live_mode_enabled: bool = False
 
+    # Rolling-deploy gate for the expanded football lifecycle vocabulary.
+    # Keep false for the first deploy so the already-live frontend continues
+    # receiving its three legacy states. Enable only after the tolerant
+    # frontend is verified in production; ingestion then persists postponed /
+    # cancelled / suspended instead of the legacy "scheduled" fallback.
+    preserve_match_stop_statuses: bool = False
+
     # Post-results chain (runs opportunistically inside the web process after a
     # final whistle): slimmer Monte-Carlo than the daily pipeline — freshness
     # beats the last decimal there, and a long chain risks being killed on a

@@ -224,6 +224,17 @@ class StandingRowOut(BaseModel):
     projected_goals_for: int
     projected_goal_diff: int
     qualification_prob: float | None
+    # The full league table. Despite the `projected_*` names above (kept for
+    # wire compatibility), those three are already REAL tallies from finished
+    # results — see group_to_out's docstring. The remaining columns were
+    # computed in the same pass and then dropped at this boundary, so a league
+    # standings page could show points and goal difference but not played, won,
+    # drawn, lost or goals against. Same source, no new query, no migration.
+    played: int = 0
+    won: int = 0
+    drawn: int = 0
+    lost: int = 0
+    goals_against: int = 0
 
 
 class GroupOut(BaseModel):
@@ -567,6 +578,8 @@ class MarketsOut(BaseModel):
 # ---- Billing (FinalWhistle Premium) ----
 class CheckoutSessionIn(BaseModel):
     plan: Literal["monthly", "annual"]
+    competition: Literal["epl", "laliga", "bundesliga", "ucl", "wc26", "nrl"] | None = None
+    return_to: str | None = None
 
 
 class BillingUrlOut(BaseModel):

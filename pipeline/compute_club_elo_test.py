@@ -119,14 +119,20 @@ def test_international_recompute_never_touches_club_ratings(db_session):
     assert argentina.elo_rating == intl_rating_after_intl_run
 
 
-def test_persists_fitted_home_advantage_onto_the_tournament_row(db_session):
+def test_persists_fitted_home_advantage_onto_the_tournament_row(db_session, monkeypatch):
     """Opus review of PR #171, item 3: without this, EPL's Tournament row
     keeps home_advantage_value NULL forever, so _host_adv silently falls back
     to the international engine's params.home_adv instead of the club-tuned
     magnitude."""
+    from pipeline.ingest import league_structure as ls_mod
     from pipeline.ingest.league_structure import load_league_structure
 
     _seed_club_matches(db_session)
+    # Stubbed like every other load_league_structure caller in this suite: the
+    # unstubbed version reached the real api-sports host, got back
+    # {"token": "Error/Missing application key"}, and only passed because
+    # fetch_fixtures used to swallow that into []. Provider errors raise now.
+    monkeypatch.setattr(ls_mod, "fetch_fixtures", lambda *a, **k: [])
     load_league_structure(db_session, api_key="x")  # creates the Tournament row
     tournament = db_session.query(Tournament).filter_by(name=TOURNAMENT_NAME).one()
     assert tournament.home_advantage_value is None  # nothing fitted yet

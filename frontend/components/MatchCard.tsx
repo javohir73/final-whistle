@@ -12,6 +12,7 @@ import { ProbabilityBar } from "./ProbabilityBar";
 import { ClubBadge } from "@/components/ClubBadge";
 import { TeamBadge } from "@/components/TeamBadge";
 import { FavoriteStar } from "./FavoriteStar";
+import { showsKickoffCountdown, stoppedLabel, willBePlayed } from "@/lib/matchStatus";
 
 /** The core dashboard card: matchup, predicted winner, W/D/L bar, score.
  *  The status pill (top-right) carries the time/state: an amber kickoff-time
@@ -54,11 +55,13 @@ export function MatchCard({
   // A match the feed left stuck `in_play` past the live window is treated as
   // over (show its last score as a result) rather than perpetually "live".
   const finished = match.status === "finished" || (match.status === "in_play" && !live);
+  const stopped = stoppedLabel(match.status);
+  const showPrediction = willBePlayed(match.status);
   const hasScore = match.score_home != null && match.score_away != null;
   const verdict = predictionVerdict(match);
   const call = prematchCall(probabilities, teams);
   const kickoffPill =
-    match.kickoff_utc && tz
+    showsKickoffCountdown(match.status) && match.kickoff_utc && tz
       ? showDate
         ? `${kickoffDate(match.kickoff_utc, tz)} · ${kickoffTime(match.kickoff_utc, tz)}`
         : kickoffTime(match.kickoff_utc, tz)
@@ -80,6 +83,8 @@ export function MatchCard({
         kickoffPill={kickoffPill}
         badge={badge}
         margin={margin}
+        stopped={stopped}
+        showPrediction={showPrediction}
       />
     ) : (
         <>
@@ -99,6 +104,10 @@ export function MatchCard({
               <span className="rounded-full bg-surface-2/70 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-muted">
                 Full time
               </span>
+            ) : stopped ? (
+              <span className="rounded-full bg-surface-2/70 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-muted">
+                {stopped}
+              </span>
             ) : (
               kickoffPill && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-draw/15 px-2 py-0.5 text-label font-bold tabular-nums text-amber-ink">
@@ -116,7 +125,7 @@ export function MatchCard({
             <TeamRow name={teams.away} score={hasScore ? match.score_away : null} live={live || finished} badge={badge} />
           </div>
 
-          {probabilities ? (
+          {showPrediction && probabilities ? (
             <ProbabilityBar
               probabilities={probabilities}
               homeLabel={teams.home}
@@ -141,7 +150,7 @@ export function MatchCard({
                     : "Called it"}
                 <BasisTag verdict={verdict} />
               </span>
-            ) : call ? (
+            ) : showPrediction && call ? (
               <span
                 className={`text-xs font-semibold ${
                   call.tone === "draw" ? "text-draw" : "text-lime-deep"
@@ -157,7 +166,7 @@ export function MatchCard({
                 </strong>
               </span>
             )}
-            {predicted_score ? (
+            {showPrediction && predicted_score ? (
               <span className="inline-flex items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-sm font-bold tabular-nums text-foreground">
                 <span className="mr-1.5 align-middle text-note font-semibold uppercase tracking-wide text-muted">
                   ML model
@@ -169,6 +178,7 @@ export function MatchCard({
               // stands in for the predicted-score slot on non-finished matches.
               // Read out as the favoured side ("Sharks by 4.0") — a signed
               // "margin -4.0" assumed the reader knows home-minus-away.
+              showPrediction &&
               margin != null &&
               !finished && (
                 <span className="rounded-lg bg-surface-2 px-2 py-0.5 font-bold tabular-nums text-foreground">
@@ -223,6 +233,8 @@ function CompactRow({
   kickoffPill,
   badge,
   margin,
+  stopped,
+  showPrediction,
 }: {
   match: MatchSummary;
   live: boolean;
@@ -230,11 +242,15 @@ function CompactRow({
   kickoffPill: string | null;
   badge: "flag" | "club";
   margin?: number | null;
+  stopped: string | null;
+  showPrediction: boolean;
 }) {
   const { teams } = match;
   // Once underway, promote the in-play win probabilities into the bar (same
   // idiom as FeatureHero) so a live row demoted here never shows stale odds.
-  const probs = (live && match.live_probabilities) || match.probabilities;
+  const probs = showPrediction
+    ? (live && match.live_probabilities) || match.probabilities
+    : null;
   const lead = probs
     ? Math.max(probs.home_win, probs.draw, probs.away_win)
     : null;
@@ -244,9 +260,16 @@ function CompactRow({
   const leadLabel =
     leadOutcome === "home" ? teams.home : leadOutcome === "away" ? teams.away : "Draw";
   const hasScore = match.score_home != null && match.score_away != null;
+  const venueLabel = [match.venue ?? "Venue TBC", match.venue_city, match.venue_country]
+    .filter(Boolean)
+    .join(", ");
   const showScore = hasScore && (live || finished);
   const verdict = finished ? predictionVerdict(match) : null;
-  const metaLabel = live ? liveLabel(match) : finished ? "Full time" : kickoffPill ?? "Kickoff TBC";
+  const metaLabel = live
+    ? liveLabel(match)
+    : finished
+      ? "Full time"
+      : stopped ?? kickoffPill ?? "Kickoff TBC";
 
   return (
     <>
@@ -262,7 +285,7 @@ function CompactRow({
           </div>
           <div className="mt-0.5 truncate text-note">
             <span className={live ? "font-semibold text-loss-ink" : "text-muted"}>{metaLabel}</span>
-            {match.venue && <span className="text-muted-solid"> · {match.venue}</span>}
+            <span className="text-muted-solid"> · {venueLabel}</span>
           </div>
         </div>
         {showScore ? (
@@ -299,7 +322,7 @@ function CompactRow({
       ) : (
         <p className="mt-2.5 text-note text-muted">Prediction pending…</p>
       )}
-      {margin != null && !finished && (
+      {showPrediction && margin != null && !finished && (
         // NRL's expected-margin chip, a new line under the bar for dense rows.
         // Same humane form as the full card: favoured side, not a signed number.
         <div className="mt-2">

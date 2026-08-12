@@ -23,14 +23,23 @@ type SeasonState =
  *  _LEADERBOARD_MIN_PARTICIPANTS an empty leaderboard advertises an empty
  *  room, so this shows only a quiet participant count, never an empty table.
  *  Mirrors LeaderboardClient's table look for the football leaderboard. */
-export function NrlTipsLeaderboard({ season, round }: { season: number; round: number }) {
-  const [tab, setTab] = useState<"weekly" | "season">("weekly");
+export function NrlTipsLeaderboard({
+  season,
+  round,
+  seasonOnly = false,
+}: {
+  season: number;
+  round?: number;
+  seasonOnly?: boolean;
+}) {
+  const [tab, setTab] = useState<"weekly" | "season">(seasonOnly ? "season" : "weekly");
   const [weeklyState, setWeeklyState] = useState<WeeklyState>({ status: "loading" });
   const [weeklyAttempt, setWeeklyAttempt] = useState(0);
   const [seasonState, setSeasonState] = useState<SeasonState>({ status: "loading" });
   const [seasonAttempt, setSeasonAttempt] = useState(0);
 
   useEffect(() => {
+    if (seasonOnly || round == null) return;
     let live = true;
     setWeeklyState({ status: "loading" });
     getNrlTipsLeaderboard(season, round)
@@ -46,7 +55,7 @@ export function NrlTipsLeaderboard({ season, round }: { season: number; round: n
     return () => {
       live = false;
     };
-  }, [season, round, weeklyAttempt]);
+  }, [season, round, seasonOnly, weeklyAttempt]);
 
   // Season tab is fetched lazily -- a visitor who never leaves the default
   // Weekly view never costs the season endpoint a request.
@@ -73,7 +82,7 @@ export function NrlTipsLeaderboard({ season, round }: { season: number; round: n
     <section>
       <div className="mb-2.5 flex items-center justify-between px-0.5">
         <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Leaderboard</h2>
-        <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5 text-label font-semibold">
+        {!seasonOnly && <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5 text-label font-semibold">
           <button
             type="button"
             onClick={() => setTab("weekly")}
@@ -90,7 +99,7 @@ export function NrlTipsLeaderboard({ season, round }: { season: number; round: n
           >
             Season
           </button>
-        </div>
+        </div>}
       </div>
 
       {tab === "weekly" ? (

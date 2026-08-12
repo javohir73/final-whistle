@@ -125,7 +125,7 @@ def test_registered_league_with_no_data_loaded_is_inactive_404(client, league):
 
 
 # ---------------------------------------------------------------------------
-# submit: kickoff lock + bounds + upsert-until-kickoff
+# submit: first-pick finality + kickoff lock + bounds
 # ---------------------------------------------------------------------------
 
 def test_submit_before_kickoff_ok(client):
@@ -174,6 +174,48 @@ def test_submit_at_or_after_kickoff_rejected(client):
     db2.close()
 
 
+def test_postponed_match_stays_open_after_its_original_kickoff(client):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    m = _match(
+        db, epl, ars, che, 1,
+        datetime.now(timezone.utc) - timedelta(days=1),
+        status="postponed",
+    )
+    db.commit()
+
+    r = c.post("/api/leagues/epl/tips/submit", json={
+        "device_id": DEVICE_A, "match_id": m.id,
+        "predicted_home": 1, "predicted_away": 0,
+    })
+
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("status", ["cancelled", "suspended", "in_play", "finished", "future_status"])
+def test_non_pickable_statuses_are_locked_even_before_kickoff(client, status):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    m = _match(
+        db, epl, ars, che, 1,
+        datetime.now(timezone.utc) + timedelta(days=1),
+        status=status,
+    )
+    db.commit()
+
+    r = c.post("/api/leagues/epl/tips/submit", json={
+        "device_id": DEVICE_A, "match_id": m.id,
+        "predicted_home": 1, "predicted_away": 0,
+    })
+
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "match_locked"
+
+
 def test_edit_after_kickoff_rejected(client):
     c, TestingSession = client
     db = TestingSession()
@@ -206,7 +248,7 @@ def test_edit_after_kickoff_rejected(client):
     db3.close()
 
 
-def test_submit_upserts_before_kickoff(client):
+def test_first_prediction_is_final_once_model_is_revealed(client):
     c, TestingSession = client
     db = TestingSession()
     epl = _epl(db)
@@ -221,12 +263,13 @@ def test_submit_upserts_before_kickoff(client):
     r = c.post("/api/leagues/epl/tips/submit", json={
         "device_id": DEVICE_A, "match_id": m.id, "predicted_home": 3, "predicted_away": 1,
     })
-    assert r.status_code == 200, r.text
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "prediction_finalized"
 
     db2 = TestingSession()
-    assert db2.query(LeagueScorePrediction).count() == 1  # same row, not a second insert
+    assert db2.query(LeagueScorePrediction).count() == 1
     pred = db2.query(LeagueScorePrediction).one()
-    assert (pred.predicted_home, pred.predicted_away) == (3, 1)
+    assert (pred.predicted_home, pred.predicted_away) == (2, 2)
     db2.close()
 
 
@@ -298,6 +341,57 @@ def test_submit_invalid_device_id_rejected(client):
 # GET mine
 # ---------------------------------------------------------------------------
 
+def test_mine_hides_model_scoreline_until_the_device_submits(client):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    kick = datetime.now(timezone.utc) + timedelta(days=1)
+    m = _match(db, epl, ars, che, 3, kick)
+    _prediction(db, m, 2, 0)
+    db.commit()
+
+    before = c.get(
+        "/api/leagues/epl/tips/mine",
+        params={"device_id": DEVICE_A, "matchweek": 3},
+    ).json()["matches"][0]
+    assert before["model"] is None
+
+    submitted = c.post("/api/leagues/epl/tips/submit", json={
+        "device_id": DEVICE_A, "match_id": m.id,
+        "predicted_home": 1, "predicted_away": 1,
+    })
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["model"] == {
+        "predicted_home": 2,
+        "predicted_away": 0,
+        "model_version": "poisson-elo-club-v0.1",
+    }
+
+    after = c.get(
+        "/api/leagues/epl/tips/mine",
+        params={"device_id": DEVICE_A, "matchweek": 3},
+    ).json()["matches"][0]
+    assert after["model"] == submitted.json()["model"]
+
+
+def test_mine_reveals_model_after_the_fixture_locks_without_a_pick(client):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    kick = datetime.now(timezone.utc) - timedelta(minutes=1)
+    m = _match(db, epl, ars, che, 3, kick)
+    _prediction(db, m, 2, 0, created_at=kick - timedelta(days=1))
+    db.commit()
+
+    row = c.get(
+        "/api/leagues/epl/tips/mine",
+        params={"device_id": DEVICE_A, "matchweek": 3},
+    ).json()["matches"][0]
+    assert row["your_prediction"] is None
+    assert row["model"]["predicted_home"] == 2
+
 def test_mine_shows_model_scoreline_and_your_prediction(client):
     c, TestingSession = client
     db = TestingSession()
@@ -343,6 +437,14 @@ def test_mine_ignores_shadow_prediction_twin(client):
                 model_version="poisson-elo-club-v0.1-shadow")  # written after -- higher id, same created_at
     db.commit()
 
+    # The scoreline is private before a device submits. Persist a real user
+    # prediction so this test can keep exercising which model twin is revealed.
+    submitted = c.post("/api/leagues/epl/tips/submit", json={
+        "device_id": DEVICE_A, "match_id": m.id,
+        "predicted_home": 1, "predicted_away": 1,
+    })
+    assert submitted.status_code == 200, submitted.text
+
     r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A, "matchweek": 3})
     assert r.status_code == 200, r.text
     row = r.json()["matches"][0]
@@ -360,6 +462,40 @@ def test_mine_defaults_to_current_matchweek(client):
     db.commit()
 
     r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A})
+    assert r.status_code == 200, r.text
+    assert r.json()["matchweek"] == 2
+    assert r.json()["matches"][0]["id"] == upcoming.id
+
+
+def test_cancelled_matchweek_does_not_pin_the_default_current_week(client):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    now = datetime.now(timezone.utc)
+    _match(db, epl, ars, che, 1, now - timedelta(days=2), status="cancelled")
+    upcoming = _match(db, epl, bha, whu, 2, now + timedelta(days=1))
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["matchweek"] == 2
+    assert r.json()["matches"][0]["id"] == upcoming.id
+
+
+def test_postponed_old_matchweek_does_not_pin_the_default_current_week(client):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    now = datetime.now(timezone.utc)
+    _match(db, epl, ars, che, 1, now - timedelta(days=2), status="postponed")
+    upcoming = _match(db, epl, bha, whu, 2, now + timedelta(days=1))
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A})
+
     assert r.status_code == 200, r.text
     assert r.json()["matchweek"] == 2
     assert r.json()["matches"][0]["id"] == upcoming.id

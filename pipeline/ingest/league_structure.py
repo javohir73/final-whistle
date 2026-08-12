@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Group, GroupTeam, Match, Team, Tournament
 from pipeline.ingest.api_football import fetch_fixtures
+from pipeline.ingest.api_football_status import internal_status
 from pipeline.team_mapping import normalize_team_name
 
 log = logging.getLogger(__name__)
@@ -65,22 +66,6 @@ GROUP_NAME = "Premier League"
 # live" switch used by odds/live-scores/injuries).
 LEAGUE_ID = 39
 SEASON = 2026
-
-# api-sports fixture.status.short -> our internal Match.status. Mirrors
-# pipeline/ingest/api_football._STATUS + live_scores._STATUS_MAP's combined
-# effect, restated here in our own vocabulary since this module writes Match
-# rows directly rather than going through update_live_scores.
-_STATUS = {
-    "TBD": "scheduled", "NS": "scheduled",
-    "1H": "in_play", "2H": "in_play", "ET": "in_play", "P": "in_play", "LIVE": "in_play",
-    "HT": "in_play", "BT": "in_play",
-    "FT": "finished", "AET": "finished", "PEN": "finished",
-    "AWD": "finished", "WO": "finished",
-    "SUSP": "scheduled", "INT": "scheduled",
-    "PST": "scheduled",
-    "CANC": "scheduled", "ABD": "scheduled",
-}
-
 
 def _load_teams_file(teams_file: str) -> list[dict]:
     return json.loads(Path(teams_file).read_text(encoding="utf-8"))["teams"]
@@ -280,11 +265,13 @@ def _fixture_fields(
     int | None,
     int | None,
     int | None,
+    str | None,
+    str | None,
 ] | None:
     """Extract (fixture_id, home_name, away_name, kickoff_utc, status,
     score_home, score_away, matchweek) from one raw api-sports /fixtures
     response item, followed by optional regulation-time home/away scores for
-    AET/PEN fixtures, or None if malformed."""
+    AET/PEN fixtures and venue name/city, or None if malformed."""
     fixture = fx.get("fixture") or {}
     fid = fixture.get("id")
     date = fixture.get("date")
@@ -306,12 +293,16 @@ def _fixture_fields(
     # (the football-data-v4-shaping layer for the live-scores path).
     league = fx.get("league") or fixture.get("league") or {}
     matchweek = _parse_matchweek(league.get("round"))
+    venue = fixture.get("venue") or {}
+    venue_name = (venue.get("name") or "").strip() or None
+    venue_city = (venue.get("city") or "").strip() or None
     return (
         int(fid), home, away, kickoff,
-        _STATUS.get(status, "scheduled"),
+        internal_status(status) or "scheduled",
         goals.get("home"), goals.get("away"),
         matchweek,
         score_home_90, score_away_90,
+        venue_name, venue_city,
     )
 
 
@@ -325,6 +316,7 @@ def load_league_structure(
     league_id: int = LEAGUE_ID,
     season: int = SEASON,
     group_round_prefixes: tuple[str, ...] | None = None,
+    preserve_stopped_statuses: bool = True,
 ) -> dict:
     """Load one league's structure (default: EPL 2026-27). The keyword-only
     tournament_name/group_name/league_id/season let pipeline/run_pipeline.py's
@@ -391,7 +383,13 @@ def load_league_structure(
             matchweek,
             score_home_90,
             score_away_90,
+            venue_name,
+            venue_city,
         ) = parsed
+        if not preserve_stopped_statuses and status in {
+            "postponed", "cancelled", "suspended",
+        }:
+            status = "scheduled"
         is_group_round = _is_group_round(fx, group_round_prefixes)
         if not is_group_round:
             matchweek = None
@@ -430,6 +428,12 @@ def load_league_structure(
         # (round moved by broadcaster reshuffle) must re-land on every
         # subsequent ingestion, not just the first time this row is created.
         match.matchweek = matchweek
+        # API-Sports sometimes omits venue data on later refreshes. Preserve
+        # the last known values instead of turning a confirmed venue into TBC.
+        if venue_name is not None:
+            match.venue = venue_name
+        if venue_city is not None:
+            match.venue_city = venue_city
 
     db.commit()
 

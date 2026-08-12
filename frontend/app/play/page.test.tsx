@@ -12,7 +12,7 @@
  *  groups' leaf components are stubbed the same way components/{leagueTips,nrl}/
  *  *.test.tsx do -- this test is about the composition, not each picker's own
  *  fetch machinery. */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import PlayPage from "./page";
 import {
   getKnockoutOddsServer,
@@ -86,6 +86,9 @@ const odd = (team_id: number, team: string, win_title: number | null): Tournamen
 // Brazil leads on win_title -> the predicted champion the card should print.
 const odds: TournamentOdds[] = [odd(1, "France", 0.15), odd(2, "Brazil", 0.18)];
 
+const playPage = (competition: string) =>
+  PlayPage({ searchParams: Promise.resolve({ competition }) });
+
 beforeEach(() => {
   mockTipsheet.mockResolvedValue(tipsheet);
   mockKnockoutOdds.mockResolvedValue(odds);
@@ -93,7 +96,7 @@ beforeEach(() => {
 afterEach(() => jest.resetAllMocks());
 
 it("renders the prototype slate grouped by competition", async () => {
-  render(await PlayPage());
+  render(await PlayPage({}));
 
   expect(screen.getByRole("heading", { level: 1, name: "The slate" })).toBeInTheDocument();
   for (const name of [
@@ -106,40 +109,54 @@ it("renders the prototype slate grouped by competition", async () => {
   ]) {
     expect(screen.getByRole("heading", { name })).toBeInTheDocument();
   }
-  expect(document.querySelectorAll("[data-competition-logo]")).toHaveLength(11);
+  expect(document.querySelectorAll("[data-competition-logo]")).toHaveLength(10);
+});
+
+it("mounts only the selected competition's interactive section", async () => {
+  render(await PlayPage({}));
+
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+  expect(screen.queryByTestId("picker-laliga")).toBeNull();
+  expect(screen.queryByTestId("picker-bundesliga")).toBeNull();
+  expect(screen.queryByTestId("nrl-play-round")).toBeNull();
+  expect(screen.queryByRole("link", { name: /Projected knockout bracket/i })).toBeNull();
+  expect(screen.queryByRole("link", { name: /View Champions League fixtures/i })).toBeNull();
 });
 
 it("seeds the NRL group with the current round when the tipsheet loads", async () => {
-  render(await PlayPage());
+  render(await playPage("nrl"));
 
   expect(mockTipsheet).toHaveBeenCalledWith();
   expect(screen.getByText("Round 2 · 2026")).toBeInTheDocument();
 });
 
 it("composes the NRL beat-the-AI loop, seeding the play round with the current round", async () => {
-  render(await PlayPage());
+  render(await playPage("nrl"));
 
   // The reused NrlTipsPlaySection mounts the play round seeded with the
   // server-fetched season/round (2026 round 2). Its weekly leaderboard is
   // suppressed here (showLeaderboard=false) -- it's hoisted into the unified
   // board below (see the unified-leaderboard test).
   expect(screen.getByTestId("nrl-play-round")).toHaveTextContent("2026-2");
-  expect(screen.queryByTestId("nrl-leaderboard")).not.toBeInTheDocument();
+  expect(screen.getByTestId("nrl-leaderboard")).toHaveTextContent("2026-2");
   expect(screen.queryByText(/NRL tips aren't available/)).not.toBeInTheDocument();
 });
 
 it("hoists the NRL board into the unified leaderboard, seeded from the current round", async () => {
-  render(await PlayPage());
+  render(await playPage("nrl"));
 
-  // The unified board defaults to the EPL filter; picking NRL mounts the reused
-  // NrlTipsLeaderboard seeded with the same server-fetched season/round.
-  fireEvent.click(screen.getByRole("button", { name: "NRL" }));
+  // The query-selected NRL board mounts directly, seeded with the same
+  // server-fetched season/round. Other filter links navigate through the URL
+  // so their own prerequisites resolve on the next server render.
+  expect(screen.getByRole("link", { name: "NRL" })).toHaveAttribute(
+    "href", "/play?competition=nrl",
+  );
   expect(screen.getByTestId("nrl-leaderboard")).toHaveTextContent("2026-2");
 });
 
 it("degrades to the empty state (no round line, no crash) when the tipsheet is null", async () => {
   mockTipsheet.mockResolvedValue(null);
-  render(await PlayPage());
+  render(await playPage("nrl"));
 
   expect(screen.getByRole("heading", { name: "Premier League" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "NRL" })).toBeInTheDocument();
@@ -151,7 +168,7 @@ it("degrades to the empty state (no round line, no crash) when the tipsheet is n
 
 it("degrades to the empty state (no crash) when the NRL tipsheet fetch rejects", async () => {
   mockTipsheet.mockRejectedValue(new Error("upstream down"));
-  render(await PlayPage());
+  render(await playPage("nrl"));
 
   expect(screen.getByRole("heading", { name: "Premier League" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "NRL" })).toBeInTheDocument();
@@ -160,7 +177,7 @@ it("degrades to the empty state (no crash) when the NRL tipsheet fetch rejects",
 });
 
 it("shows the World Cup bracket card linking to /football/wc26/bracket with the predicted champion", async () => {
-  render(await PlayPage());
+  render(await playPage("wc26"));
 
   const bracketLink = screen.getByRole("link", { name: /Projected knockout bracket/i });
   expect(bracketLink).toHaveAttribute("href", "/football/wc26/bracket");
@@ -168,24 +185,30 @@ it("shows the World Cup bracket card linking to /football/wc26/bracket with the 
   expect(bracketLink).toHaveTextContent("18%");
 });
 
+it("does not leave the leaderboard loading when the World Cup bracket is selected", async () => {
+  render(await playPage("wc26"));
+
+  expect(screen.getByText("World Cup 2026 has no weekly leaderboard.")).toBeInTheDocument();
+  expect(screen.queryByRole("status", { name: "Loading leaderboard…" })).not.toBeInTheDocument();
+  expect(screen.queryByTestId("leaderboard")).not.toBeInTheDocument();
+});
+
 it("degrades the bracket card to a plain link when the knockout odds are unavailable", async () => {
   mockKnockoutOdds.mockResolvedValue(null);
-  render(await PlayPage());
+  render(await playPage("wc26"));
 
   const bracketLink = screen.getByRole("link", { name: /Projected knockout bracket/i });
   expect(bracketLink).toHaveAttribute("href", "/football/wc26/bracket");
   expect(bracketLink).not.toHaveTextContent("Predicted champion");
 });
 
-it("mounts tips pickers only for leagues with real matchweeks", async () => {
-  render(await PlayPage());
+it("mounts the requested league picker and keeps the other leagues closed", async () => {
+  render(await playPage("laliga"));
 
-  expect(screen.getByTestId("picker-epl")).toHaveTextContent("epl");
   expect(screen.getByTestId("picker-laliga")).toHaveTextContent("laliga");
-  expect(screen.getByTestId("picker-bundesliga")).toHaveTextContent("bundesliga");
+  expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("picker-bundesliga")).not.toBeInTheDocument();
   expect(screen.queryByTestId("picker-ucl")).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /View Champions League fixtures/i })).toHaveAttribute(
-    "href",
-    "/football/ucl/fixtures",
-  );
+  expect(mockTipsheet).not.toHaveBeenCalled();
+  expect(mockKnockoutOdds).not.toHaveBeenCalled();
 });

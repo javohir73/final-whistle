@@ -1,18 +1,43 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { PremiumCheckout } from "@/components/PremiumCheckout";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
 import {
   createCheckoutSession,
   createPortalSession,
   friendlyAuthError,
 } from "@/lib/session";
-import { PREMIUM_FEATURES } from "@/lib/premium";
+import { PREMIUM_FEATURES, PREMIUM_PRICING, annualSavingLabel } from "@/lib/premium";
+import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 type Plan = "monthly" | "annual";
+
+/** Split out of this route's chunk.
+ *
+ *  loadStripe() was already deferred to first use, but @stripe/stripe-js and
+ *  @stripe/react-stripe-js were STATIC imports — so the SDK shipped in the
+ *  /premium chunk and every visitor who merely read the pricing page paid for
+ *  it, including the ones who never opened the form. `payOpen` is false until
+ *  someone clicks, and now the bundle follows the same gate.
+ *
+ *  ssr:false because the component reads getComputedStyle at mount to build
+ *  Stripe's Appearance object from our design tokens; there is no server-side
+ *  equivalent, and it renders nothing useful before hydration anyway. */
+const PremiumCheckout = dynamic(
+  () => import("@/components/PremiumCheckout").then((m) => m.PremiumCheckout),
+  {
+    ssr: false,
+    loading: () => (
+      <p role="status" className="text-sm text-muted">
+        Loading secure payment form…
+      </p>
+    ),
+  },
+);
 
 /** /premium — pricing, checkout and portal entry points. Amounts below are
  *  copy only: the backend derives the price from the `plan` string via
@@ -20,6 +45,26 @@ type Plan = "monthly" | "annual";
 export function PremiumClient() {
   const { user, loading, openSignIn, refresh } = useAuth();
   const params = useSearchParams();
+  const rawCompetition = params.get("competition");
+  const competition: CompetitionId =
+    rawCompetition && rawCompetition in COMPETITIONS
+      ? (rawCompetition as CompetitionId)
+      : "epl";
+  const rawReturnTo = params.get("returnTo");
+  const competitionBase = COMPETITIONS[competition].basePath;
+  const safeReturnTo =
+    rawReturnTo &&
+    rawReturnTo.length <= 512 &&
+    /^[A-Za-z0-9/_-]+$/.test(rawReturnTo) &&
+    (rawReturnTo === competitionBase || rawReturnTo.startsWith(`${competitionBase}/`))
+      ? rawReturnTo
+      : null;
+  const returnTo = safeReturnTo ?? competitionBase;
+  const hasContext = Boolean(rawCompetition || rawReturnTo);
+  const checkoutContext = useMemo(
+    () => (hasContext ? { competition, returnTo } : undefined),
+    [competition, hasContext, returnTo],
+  );
   // Payment Element needs a publishable key; without one the page keeps the
   // hosted-Checkout redirect, so a half-configured deploy degrades quietly.
   const inPage = Boolean(STRIPE_PUBLISHABLE_KEY);
@@ -52,13 +97,15 @@ export function PremiumClient() {
     setBusy(true);
     setError(null);
     try {
-      const { url } = await createCheckoutSession(p);
+      const { url } = checkoutContext
+        ? await createCheckoutSession(p, checkoutContext)
+        : await createCheckoutSession(p);
       window.location.assign(url);
     } catch (e) {
       setError(friendlyAuthError(e));
       setBusy(false);
     }
-  }, []);
+  }, [checkoutContext]);
 
   // In-page: reveal the form beneath the plan cards. Otherwise: redirect out.
   const start = useCallback(() => {
@@ -106,6 +153,14 @@ export function PremiumClient() {
           {user?.premium
             ? "You're Premium. Enjoy the full markets."
             : "Payment received — activating your membership…"}
+          {hasContext && (
+            <Link
+              href={returnTo}
+              className="ml-2 font-semibold text-lime-deep underline underline-offset-2"
+            >
+              Back to {COMPETITIONS[competition].label}
+            </Link>
+          )}
         </div>
       )}
 
@@ -151,7 +206,8 @@ export function PremiumClient() {
               }`}
             >
               <div className="font-display text-2xl font-extrabold text-foreground">
-                $4.99<span className="text-sm font-normal text-muted">/month</span>
+                ${PREMIUM_PRICING.monthly.toFixed(2)}
+                <span className="text-sm font-normal text-muted">/month</span>
               </div>
               <div className="mt-1 text-xs text-muted">Billed monthly</div>
             </button>
@@ -167,9 +223,12 @@ export function PremiumClient() {
               }`}
             >
               <div className="font-display text-2xl font-extrabold text-foreground">
-                $39.99<span className="text-sm font-normal text-muted">/year</span>
+                ${PREMIUM_PRICING.annual.toFixed(2)}
+                <span className="text-sm font-normal text-muted">/year</span>
               </div>
-              <div className="mt-1 text-xs font-semibold text-lime-deep">2 months free</div>
+              <div className="mt-1 text-xs font-semibold text-lime-deep">
+                {annualSavingLabel()}
+              </div>
             </button>
           </div>
         </div>
@@ -186,7 +245,11 @@ export function PremiumClient() {
             {busy ? "Please wait…" : "Manage subscription"}
           </button>
         ) : payOpen ? (
-          <PremiumCheckout plan={plan} onActivated={() => setSubscribed(true)} />
+          <PremiumCheckout
+            plan={plan}
+            checkoutContext={checkoutContext}
+            onActivated={() => setSubscribed(true)}
+          />
         ) : (
           <button
             type="button"

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Match, Team
 from pipeline.ingest.api_football import fetch_injuries, parse_injuries
+from pipeline.ingest.provider_errors import ProviderError, record
 from pipeline.team_mapping import normalize_team_name
 
 log = logging.getLogger(__name__)
@@ -64,6 +65,11 @@ def refresh_injuries(db: Session, api_key: str, window_hours: float = WINDOW_HOU
                     summary["matches_skipped"] += 1
                     continue
                 records = parse_injuries(fetch_injuries(api_key, fid))
+            except ProviderError:
+                # Not a per-match miss: quota/auth applies to every remaining
+                # match, so continuing would burn the rest of the loop
+                # re-confirming it. Aborted by the outer handler.
+                raise
             except Exception as exc:  # noqa: BLE001 - best-effort per match
                 log.warning("injuries fetch failed for match %s: %s", m.id, exc)
                 summary["matches_skipped"] += 1
@@ -85,6 +91,13 @@ def refresh_injuries(db: Session, api_key: str, window_hours: float = WINDOW_HOU
             m.injuries = injuries
             summary["matches_injuries"] += 1
         db.commit()
+    except ProviderError as exc:
+        # Still never raises, but record() makes the incident fail the run at
+        # the end (provider_errors.blocking) instead of reading as a quiet day.
+        record(exc)
+        db.commit()
+        log.error("injuries refresh aborted by provider (%s): %s", exc.kind, exc)
+        return {**summary, "provider_error": exc.kind}
     except Exception as exc:  # noqa: BLE001 - the pass itself must never raise
         db.rollback()
         log.warning("injuries refresh aborted: %s", exc)

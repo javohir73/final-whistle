@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 const SITE = "https://fifa-wc26-prediction.vercel.app";
 const API = process.env.NEXT_PUBLIC_API_URL || "https://pitchprophet-api.onrender.com";
@@ -16,20 +17,80 @@ async function ids<T>(path: string, pick: (row: T) => number): Promise<number[]>
   }
 }
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [matchIds, teamIds, groupIds] = await Promise.all([
-    ids<{ match_id: number }>("/api/matches/upcoming", (m) => m.match_id),
-    ids<{ id: number }>("/api/teams", (t) => t.id),
-    ids<{ id: number }>("/api/groups", (g) => g.id),
+/** Football competitions that have their own /football/{comp}/... surface.
+ *  Derived from the registry rather than hardcoded, so activating a
+ *  competition in lib/sports.ts puts it in the sitemap automatically. */
+const FOOTBALL: CompetitionId[] = (Object.values(COMPETITIONS) as (typeof COMPETITIONS)[CompetitionId][])
+  .filter((c) => c.sport === "football" && c.enabled)
+  .map((c) => c.id);
+
+/** Per-competition match and team ids, fetched SCOPED to that competition.
+ *
+ *  The scoping is the whole point. This used to call /api/matches/upcoming and
+ *  /api/teams with no competition filter and emit every id it got back under
+ *  /football/wc26/... — so once the league pipeline went live, the sitemap was
+ *  advertising Premier League fixtures and clubs at World Cup URLs. Those are
+ *  not just mislabelled, they are invalid routes: the [comp] pages verify that
+ *  the match belongs to the competition in the path and 404. We were feeding
+ *  Googlebot a list of soft-404s.
+ */
+async function competitionEntries(comp: CompetitionId): Promise<MetadataRoute.Sitemap> {
+  const c = COMPETITIONS[comp];
+  const base = `${SITE}${c.basePath}`;
+
+  const [matchIds, teamIds] = await Promise.all([
+    ids<{ match_id: number }>(
+      `/api/matches/upcoming?competition=${comp}`, (m) => m.match_id),
+    ids<{ id: number }>(`/api/teams?competition=${comp}`, (t) => t.id),
   ]);
 
-  const staticRoutes: MetadataRoute.Sitemap = [
+  const surfaces: MetadataRoute.Sitemap = [
+    { url: base, changeFrequency: "daily", priority: 0.8 },
+    { url: `${base}/fixtures`, changeFrequency: "daily", priority: 0.7 },
+  ];
+  // A league table lives at /standings; WC26's group tables live at /groups and
+  // it is the only competition with a bracket. Emitting the wrong one is a 404.
+  if (c.hasGroups) {
+    surfaces.push({ url: `${base}/groups`, changeFrequency: "daily", priority: 0.7 });
+  } else {
+    surfaces.push({ url: `${base}/standings`, changeFrequency: "daily", priority: 0.7 });
+  }
+  if (c.hasBracket) {
+    surfaces.push({ url: `${base}/bracket`, changeFrequency: "daily", priority: 0.7 });
+  }
+
+  return [
+    ...surfaces,
+    ...matchIds.map((id) => ({
+      url: `${base}/match/${id}`,
+      changeFrequency: "daily" as const,
+      priority: 0.6,
+    })),
+    ...teamIds.map((id) => ({
+      url: `${base}/team/${id}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.5,
+    })),
+  ];
+}
+
+/** NRL keeps its own namespace (not /football/{comp}), so its surfaces are
+ *  listed explicitly rather than derived from basePath + the football shape. */
+function nrlEntries(): MetadataRoute.Sitemap {
+  return ["/nrl", "/nrl/matches", "/nrl/ladder", "/nrl/record", "/nrl/tips"].map((p) => ({
+    url: `${SITE}${p}`,
+    changeFrequency: "daily" as const,
+    priority: p === "/nrl" ? 0.8 : 0.6,
+  }));
+}
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const perCompetition = await Promise.all(FOOTBALL.map(competitionEntries));
+
+  const platform: MetadataRoute.Sitemap = [
     { url: SITE, changeFrequency: "daily", priority: 1 },
-    // Floodlight P1 slice p1-s3 301'd /matches, /groups, /brackets to their
-    // /football/wc26/... equivalents (next.config.mjs) -- list the live URLs
-    // here instead, or Googlebot only ever sees redirect targets from this
-    // sitemap. /leaderboard is cross-competition and wasn't moved.
-    ...["/football/wc26/fixtures", "/football/wc26/groups", "/football/wc26/bracket", "/leaderboard"].map((p) => ({
+    // Cross-competition surfaces — they were never part of the WC26 move.
+    ...["/leaderboard", "/play", "/premium"].map((p) => ({
       url: `${SITE}${p}`,
       changeFrequency: "daily" as const,
       priority: 0.7,
@@ -41,25 +102,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
   ];
 
-  // Same 301 move applies to the per-id content pages -- point these at the
-  // live /football/wc26/... paths (see the static-routes comment above).
-  const dynamicRoutes: MetadataRoute.Sitemap = [
-    ...matchIds.map((id) => ({
-      url: `${SITE}/football/wc26/match/${id}`,
-      changeFrequency: "daily" as const,
-      priority: 0.6,
-    })),
-    ...groupIds.map((id) => ({
-      url: `${SITE}/football/wc26/groups/${id}`,
-      changeFrequency: "daily" as const,
-      priority: 0.5,
-    })),
-    ...teamIds.map((id) => ({
-      url: `${SITE}/football/wc26/team/${id}`,
-      changeFrequency: "weekly" as const,
-      priority: 0.5,
-    })),
-  ];
-
-  return [...staticRoutes, ...dynamicRoutes];
+  return [...platform, ...perCompetition.flat(), ...nrlEntries()];
 }

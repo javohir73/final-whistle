@@ -10,6 +10,20 @@ const mockGetLeaderboard = getLeaderboard as jest.MockedFunction<typeof getLeade
 
 const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
+jest.mock("@/components/leagueTips/LeagueYouVsAi", () => ({
+  LeagueYouVsAi: ({ league }: { league: string }) => <div data-testid="league-record">{league}</div>,
+}));
+jest.mock("@/components/leagueTips/LeagueTipsLeaderboard", () => ({
+  LeagueTipsLeaderboard: ({ league, seasonOnly }: { league: string; seasonOnly: boolean }) => (
+    <div data-testid="league-board">{`${league}-${seasonOnly}`}</div>
+  ),
+}));
+jest.mock("@/components/nrl/YouVsAi", () => ({ YouVsAi: () => <div data-testid="nrl-record" /> }));
+jest.mock("@/components/nrl/NrlTipsLeaderboard", () => ({
+  NrlTipsLeaderboard: ({ season, seasonOnly }: { season: number; seasonOnly: boolean }) => (
+    <div data-testid="nrl-board">{`${season}-${seasonOnly}`}</div>
+  ),
+}));
 
 import { LeaderboardClient } from "./LeaderboardClient";
 
@@ -58,5 +72,27 @@ describe("LeaderboardClient — supporter badge", () => {
     render(<LeaderboardClient initialRows={rows} />);
     expect(screen.queryByLabelText("Premium supporter")).not.toBeInTheDocument();
     await waitFor(() => expect(mockGetLeaderboard).toHaveBeenCalled());
+  });
+
+  it("shows La Liga's own record and season board without fetching World Cup brackets", async () => {
+    render(<LeaderboardClient competition="laliga" />);
+
+    expect(screen.getByTestId("league-record")).toHaveTextContent("laliga");
+    expect(screen.getByTestId("league-board")).toHaveTextContent("laliga-true");
+    expect(screen.queryByText(/Public brackets ranked/i)).toBeNull();
+    expect(mockGetLeaderboard).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "La Liga" })).toHaveAttribute(
+      "href",
+      "/leaderboard?competition=laliga",
+    );
+  });
+
+  it("shows NRL's own record and an honest empty season when no round is loaded", () => {
+    render(<LeaderboardClient competition="nrl" nrlSeason={null} />);
+
+    expect(screen.getByTestId("nrl-record")).toBeInTheDocument();
+    expect(screen.queryByTestId("nrl-board")).toBeNull();
+    expect(screen.getByText(/NRL season leaderboard is not available yet/i)).toBeInTheDocument();
+    expect(mockGetLeaderboard).not.toHaveBeenCalled();
   });
 });

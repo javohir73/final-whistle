@@ -7,9 +7,14 @@ from pipeline.ingest.wc26_structure import load_structure as load_wc26_structure
 
 
 def _fixture(fid, home, away, *, status="NS", gh=None, ga=None,
-             kickoff="2026-08-21T19:00:00+00:00", round_=None):
+             kickoff="2026-08-21T19:00:00+00:00", round_=None, venue=None):
     fx = {
-        "fixture": {"id": fid, "date": kickoff, "status": {"short": status}},
+        "fixture": {
+            "id": fid,
+            "date": kickoff,
+            "status": {"short": status},
+            **({"venue": venue} if venue is not None else {}),
+        },
         "teams": {"home": {"name": home}, "away": {"name": away}},
         "goals": {"home": gh, "away": ga},
     }
@@ -62,6 +67,79 @@ def test_upserts_fixtures_idempotently(db_session, monkeypatch):
     assert match.status == "finished"
     assert match.score_home == 2
     assert match.score_away == 1
+
+
+def test_abandoned_fixture_uses_the_same_suspended_state_as_live_ingestion(
+    db_session, monkeypatch,
+):
+    monkeypatch.setattr(
+        ls_mod, "fetch_fixtures",
+        lambda *a, **k: [_fixture(1002, "Arsenal", "Chelsea", status="ABD")],
+    )
+
+    load_league_structure(db_session, api_key="x")
+
+    match = db_session.query(Match).filter_by(provider_fixture_id=1002).one()
+    assert match.status == "suspended"
+
+
+def test_rollout_gate_keeps_stopped_status_legacy_safe(db_session, monkeypatch):
+    monkeypatch.setattr(
+        ls_mod, "fetch_fixtures",
+        lambda *a, **k: [_fixture(1003, "Arsenal", "Chelsea", status="PST")],
+    )
+
+    load_league_structure(
+        db_session,
+        api_key="x",
+        preserve_stopped_statuses=False,
+    )
+
+    match = db_session.query(Match).filter_by(provider_fixture_id=1003).one()
+    assert match.status == "scheduled"
+
+
+def test_stores_provider_venue_name_and_city(db_session, monkeypatch):
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *a, **k: [
+            _fixture(
+                1010,
+                "Arsenal",
+                "Chelsea",
+                venue={"name": "Emirates Stadium", "city": "London"},
+            )
+        ],
+    )
+
+    load_league_structure(db_session, api_key="x")
+
+    match = db_session.query(Match).filter_by(provider_fixture_id=1010).one()
+    assert match.venue == "Emirates Stadium"
+    assert match.venue_city == "London"
+
+
+def test_missing_provider_venue_does_not_erase_a_known_value(db_session, monkeypatch):
+    with_venue = _fixture(
+        1011,
+        "Arsenal",
+        "Chelsea",
+        venue={"name": "Emirates Stadium", "city": "London"},
+    )
+    monkeypatch.setattr(ls_mod, "fetch_fixtures", lambda *a, **k: [with_venue])
+    load_league_structure(db_session, api_key="x")
+
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *a, **k: [_fixture(1011, "Arsenal", "Chelsea")],
+    )
+    load_league_structure(db_session, api_key="x")
+
+    match = db_session.query(Match).filter_by(provider_fixture_id=1011).one()
+    assert match.venue == "Emirates Stadium"
+    assert match.venue_city == "London"
 
 
 def test_normalizes_football_data_style_aliases(db_session, monkeypatch):

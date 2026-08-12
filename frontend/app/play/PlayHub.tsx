@@ -12,6 +12,9 @@ import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 import type { NrlTipsheet } from "@/lib/types";
 
 interface PlayHubProps {
+  /** Competition selected by `?competition=`. Only this section mounts its
+   *  fetch-bearing picker/card; the other headings remain lightweight links. */
+  selectedCompetition: CompetitionId;
   /** Current-round NRL tipsheet, server-fetched to seed the NRL group's
    *  season/round. Null when the endpoint has no data yet -- the group still
    *  renders, just without the round line (honest degrade). */
@@ -31,7 +34,12 @@ interface PlayHubProps {
  * Every active football league owns its picker and resolved matchweek; no
  * league can borrow another competition's state.
  */
-export function PlayHub({ nrlTipsheet, hasBrackets, champion }: PlayHubProps) {
+export function PlayHub({
+  selectedCompetition,
+  nrlTipsheet,
+  hasBrackets,
+  champion,
+}: PlayHubProps) {
   const [footballMatchweeks, setFootballMatchweeks] = useState<
     Partial<Record<string, number | null>>
   >({});
@@ -53,42 +61,62 @@ export function PlayHub({ nrlTipsheet, hasBrackets, champion }: PlayHubProps) {
           key={league}
           competition={league as CompetitionId}
           subtitle="Score predictions"
+          selected={selectedCompetition === league}
         >
-          <div className="-mt-5">
-            <LeagueTipsPlaySection
-              defaultLeague={league}
-              showLeaderboard={false}
-              showLeagueSwitcher={false}
-              showClaim={league === ACTIVE_LEAGUES[0]}
-              onMatchweekResolved={(matchweek) => setLeagueMatchweek(league, matchweek)}
-            />
-          </div>
+          {selectedCompetition === league ? (
+            <div className="-mt-5">
+              <LeagueTipsPlaySection
+                defaultLeague={league}
+                showLeaderboard={false}
+                showLeagueSwitcher={false}
+                showClaim={league === ACTIVE_LEAGUES[0]}
+                onMatchweekResolved={(matchweek) => setLeagueMatchweek(league, matchweek)}
+              />
+            </div>
+          ) : null}
         </PlayCompetitionSection>
       ))}
 
-      <PlayCompetitionSection competition="ucl" subtitle="League-phase score predictions">
-        <div className="glass mt-3 rounded-2xl p-4">
-          <p className="text-body text-muted">
-            Score tips open when the league-phase matchweeks are loaded. Qualifying model
-            predictions are available now on the fixtures page.
-          </p>
-          <Link
-            href="/football/ucl/fixtures"
-            className="mt-3 inline-flex text-sm font-semibold text-lime-deep hover:underline"
-          >
-            View Champions League fixtures →
-          </Link>
-        </div>
+      <PlayCompetitionSection
+        competition="ucl"
+        subtitle="League-phase score predictions"
+        selected={selectedCompetition === "ucl"}
+      >
+        {selectedCompetition === "ucl" ? (
+          <div className="glass mt-3 rounded-2xl p-4">
+            <p className="text-body text-muted">
+              Score tips open when the league-phase matchweeks are loaded. Qualifying model
+              predictions are available now on the fixtures page.
+            </p>
+            <Link
+              href="/football/ucl/fixtures"
+              className="mt-3 inline-flex text-sm font-semibold text-lime-deep hover:underline"
+            >
+              View Champions League fixtures →
+            </Link>
+          </div>
+        ) : null}
       </PlayCompetitionSection>
 
-      {hasBrackets && (
-        <PlayCompetitionSection competition="wc26" subtitle="Knockout bracket">
-          <PlayBracketCard champion={champion} className="mt-3" />
-        </PlayCompetitionSection>
-      )}
+      <PlayCompetitionSection
+        competition="wc26"
+        subtitle="Knockout bracket"
+        selected={selectedCompetition === "wc26"}
+      >
+        {selectedCompetition === "wc26" ? (
+          hasBrackets ? (
+            <PlayBracketCard champion={champion} className="mt-3" />
+          ) : (
+            <div className="glass mt-3 rounded-2xl p-4 text-body text-muted">
+              The knockout bracket is not available yet.
+            </div>
+          )
+        ) : null}
+      </PlayCompetitionSection>
 
       <PlayCompetitionSection
         competition="nrl"
+        selected={selectedCompetition === "nrl"}
         subtitle={
           nrlTipsheet
             ? `Round ${nrlTipsheet.round} · ${nrlTipsheet.season}`
@@ -104,18 +132,20 @@ export function PlayHub({ nrlTipsheet, hasBrackets, champion }: PlayHubProps) {
             unchanged. When the tipsheet fetch has no data (off-season / upstream
             down) we never invent a season/round -- the group degrades to an
             honest empty state. */}
-        {nrlTipsheet ? (
-          <NrlTipsPlaySection
-            season={nrlTipsheet.season}
-            round={nrlTipsheet.round}
-            showLeaderboard={false}
-            showConfidence
-          />
-        ) : (
-          <div className="glass mt-3 rounded-2xl p-4">
-            <p className="text-body text-muted">NRL tips aren&apos;t available right now.</p>
-          </div>
-        )}
+        {selectedCompetition === "nrl" ? (
+          nrlTipsheet ? (
+            <NrlTipsPlaySection
+              season={nrlTipsheet.season}
+              round={nrlTipsheet.round}
+              showLeaderboard={false}
+              showConfidence
+            />
+          ) : (
+            <div className="glass mt-3 rounded-2xl p-4">
+              <p className="text-body text-muted">No NRL round is open for picks right now.</p>
+            </div>
+          )
+        ) : null}
       </PlayCompetitionSection>
 
       {/* One board for every competition (p5-s4). It reuses the same shipped
@@ -128,6 +158,7 @@ export function PlayHub({ nrlTipsheet, hasBrackets, champion }: PlayHubProps) {
         nrlRound={nrlTipsheet?.round ?? null}
         footballLeagues={ACTIVE_LEAGUES}
         footballMatchweeks={footballMatchweeks}
+        initialCompetition={selectedCompetition}
       />
     </div>
   );
@@ -136,26 +167,34 @@ export function PlayHub({ nrlTipsheet, hasBrackets, champion }: PlayHubProps) {
 function PlayCompetitionSection({
   competition,
   subtitle,
+  selected,
   children,
 }: {
   competition: CompetitionId;
   subtitle: string;
+  selected: boolean;
   children?: React.ReactNode;
 }) {
   const config = COMPETITIONS[competition];
   const headingId = `play-competition-${competition}`;
 
   return (
-    <section className="mt-8" aria-labelledby={headingId}>
-      <div className="-mx-4 flex items-center gap-3 border-b border-border px-4 pb-3">
+    <section className="mt-5" aria-labelledby={headingId}>
+      <Link
+        href={`/play?competition=${competition}`}
+        aria-expanded={selected}
+        aria-current={selected ? "page" : undefined}
+        className="-mx-4 flex min-h-[56px] items-center gap-3 border-b border-border px-4 py-3 transition hover:bg-surface-2/50"
+      >
         <CompetitionLogo competition={competition} size={32} />
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 id={headingId} className="font-display text-xl font-extrabold">
             {config.label}
           </h2>
           <p className="text-label text-muted">{subtitle}</p>
         </div>
-      </div>
+        <span aria-hidden className="text-muted">{selected ? "−" : "+"}</span>
+      </Link>
 
       {children}
     </section>

@@ -84,6 +84,53 @@ def test_checkout_creates_session_with_selected_price(client, billing_on, monkey
     assert captured["client_reference_id"]  # binds the session to our user id
 
 
+def test_checkout_carries_safe_competition_return_context(client, billing_on, monkeypatch):
+    _register(client)
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return type("S", (), {"url": "https://checkout.stripe.test/context"})()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
+    r = client.post("/api/billing/checkout-session", json={
+        "plan": "monthly",
+        "competition": "laliga",
+        "return_to": "/football/laliga/match/8",
+    })
+
+    assert r.status_code == 200
+    assert "competition=laliga" in captured["success_url"]
+    assert "returnTo=%2Ffootball%2Flaliga%2Fmatch%2F8" in captured["success_url"]
+    assert "competition=laliga" in captured["cancel_url"]
+
+
+@pytest.mark.parametrize("return_to", [
+    "https://evil.example/steal",
+    "/\\evil.example/steal",
+    "/%5C%5Cevil.example/steal",
+])
+def test_checkout_drops_an_unsafe_return_path(
+    client, billing_on, monkeypatch, return_to,
+):
+    _register(client)
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return type("S", (), {"url": "https://checkout.stripe.test/context"})()
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
+    r = client.post("/api/billing/checkout-session", json={
+        "plan": "monthly",
+        "competition": "epl",
+        "return_to": return_to,
+    })
+
+    assert r.status_code == 200
+    assert "evil.example" not in captured["success_url"]
+
+
 def test_checkout_reuses_customer_and_skips_trial_for_lapsed_subscriber(
         client, billing_on, monkeypatch):
     """A lapsed (not currently premium) subscriber re-checking out must not get a

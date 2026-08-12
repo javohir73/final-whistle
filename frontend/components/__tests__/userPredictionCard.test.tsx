@@ -119,3 +119,41 @@ it("shows ‘Model missed this one’ badge when the model predicted the wrong w
   );
   expect(screen.getByText("Model missed this one")).toBeInTheDocument();
 });
+
+it.each(["cancelled", "suspended"] as const)(
+  "shows %s and disables prediction controls",
+  (status) => {
+    const onPick = jest.fn();
+    render(
+      <UserPredictionCard
+        match={{ ...match(), status, kickoff_utc: "2026-08-21T19:00:00Z" }}
+        country="Brazil"
+        pick={undefined}
+        onPick={onPick}
+        tz="UTC"
+      />,
+    );
+
+    expect(screen.getByText(status === "cancelled" ? "Cancelled" : "Suspended")).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Brazil" }));
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.queryByText(/21 August|19:00/)).not.toBeInTheDocument();
+  },
+);
+
+it("keeps postponed predictions editable but removes the stale kickoff countdown", () => {
+  render(
+    <UserPredictionCard
+      match={{ ...match(), status: "postponed", kickoff_utc: "2026-08-21T19:00:00Z" }}
+      country="Brazil"
+      pick={undefined}
+      onPick={jest.fn()}
+      tz="UTC"
+    />,
+  );
+
+  expect(screen.getByText("Postponed")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Brazil" })).toBeEnabled();
+  expect(screen.queryByText(/21 August|19:00/)).not.toBeInTheDocument();
+});

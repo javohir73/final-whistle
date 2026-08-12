@@ -9,6 +9,7 @@ import { kickoffDate, kickoffTime } from "@/lib/datetime";
 import { useTimezone } from "@/lib/useTimezone";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { isPickable, stoppedLabel } from "@/lib/matchStatus";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse, LeagueTipsMineYourPrediction } from "@/lib/types";
 
 const MIN_GOALS = 0;
@@ -191,6 +192,7 @@ export function LeagueTipsPicker({
               m.id === matchId
                 ? {
                     ...m,
+                    model: res.model,
                     your_prediction: {
                       predicted_home: res.prediction.predicted_home,
                       predicted_away: res.prediction.predicted_away,
@@ -287,7 +289,7 @@ export function LeagueTipsPicker({
       {navError ? <p className="mb-3 text-center text-xs text-muted">{navError}</p> : null}
 
       <p className="mb-3 text-center text-xs text-muted">
-        Every AI scoreline below is frozen at kickoff, exactly like yours.
+        Make your prediction to reveal the model&apos;s frozen scoreline. Locked fixtures reveal it automatically.
       </p>
 
       {current.matches.length === 0 ? (
@@ -340,10 +342,17 @@ function PredictionRow({
   onDraftAway: (value: string) => void;
   onSubmit: (home: number, away: number) => void;
 }) {
+  const stopped = stoppedLabel(match.status);
   const locked =
-    match.status === "finished" ||
-    (match.kickoff_utc != null && now.getTime() >= new Date(match.kickoff_utc).getTime());
+    !isPickable(match.status) ||
+    (match.status === "scheduled" &&
+      match.kickoff_utc != null &&
+      now.getTime() >= new Date(match.kickoff_utc).getTime());
   const your = match.your_prediction;
+  // Keep the model hidden until the user has picked or the fixture is locked.
+  // This also protects rolling deploys where an older API still returns model
+  // data for an unlocked, unpicked fixture.
+  const showModel = Boolean(match.model && (your || locked));
   const home = match.home ?? "Home";
   const away = match.away ?? "Away";
 
@@ -357,24 +366,26 @@ function PredictionRow({
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
     const clamped = clampGoals(Math.trunc(n));
-    const otherHome = side === "home" ? clamped : Number(homeValue) || 0;
-    const otherAway = side === "away" ? clamped : Number(awayValue) || 0;
-    onSubmit(otherHome, otherAway);
+    if (side === "home") onDraftHome(String(clamped));
+    else onDraftAway(String(clamped));
   }
 
   function delta(side: "home" | "away", step: 1 | -1) {
     const nextHome = side === "home" ? clampGoals((Number(homeValue) || 0) + step) : Number(homeValue) || 0;
     const nextAway = side === "away" ? clampGoals((Number(awayValue) || 0) + step) : Number(awayValue) || 0;
-    onSubmit(nextHome, nextAway);
+    onDraftHome(String(nextHome));
+    onDraftAway(String(nextAway));
   }
 
   return (
     <div className="glass rounded-2xl p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="text-label font-semibold uppercase tracking-wider text-muted">
-          {match.status === "finished" ? "Full time" : locked ? "Locked" : kickoffLabel(match.kickoff_utc, tz)}
+          {match.status === "finished"
+            ? "Full time"
+            : stopped ?? (locked ? "Locked" : kickoffLabel(match.kickoff_utc, tz))}
         </span>
-        {match.model ? (
+        {showModel && match.model ? (
           <span className="inline-flex items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-xs font-bold tabular-nums text-foreground">
             <span className="mr-1.5 align-middle text-note font-semibold uppercase tracking-wide text-muted">
               ML model
@@ -392,7 +403,7 @@ function PredictionRow({
         <TeamBadge team={away} />
       </div>
 
-      {locked ? (
+      {locked || your ? (
         <p className="mt-3 text-center text-sm">
           {your ? (
             <>
@@ -403,7 +414,9 @@ function PredictionRow({
               {match.score_home != null && match.score_away != null ? (
                 <span className="text-muted"> · Final {formatScore(match.score_home, match.score_away)}</span>
               ) : null}
-              {your.graded_at ? (
+              {!locked ? (
+                <span className="text-muted"> · Prediction locked</span>
+              ) : your.graded_at ? (
                 <span className={your.points && your.points > 0 ? "text-lime-deep" : "text-loss-ink"}>
                   {" "}
                   — {your.exact ? "exact score!" : your.points ? "correct result" : "missed"}
@@ -417,25 +430,35 @@ function PredictionRow({
           )}
         </p>
       ) : (
-        <div className="mt-3 flex items-center justify-center gap-3" role="group" aria-label={`Your score prediction for ${home} vs ${away}`}>
-          <GoalStepper
-            label={home}
-            value={homeValue}
+        <>
+          <div className="mt-3 flex items-center justify-center gap-3" role="group" aria-label={`Your score prediction for ${home} vs ${away}`}>
+            <GoalStepper
+              label={home}
+              value={homeValue}
+              disabled={pending}
+              onDelta={(step) => delta("home", step)}
+              onChange={(v) => onDraftHome(v)}
+              onBlur={() => commit("home", homeValue)}
+            />
+            <span className="pt-4 text-lg font-bold text-muted">–</span>
+            <GoalStepper
+              label={away}
+              value={awayValue}
+              disabled={pending}
+              onDelta={(step) => delta("away", step)}
+              onChange={(v) => onDraftAway(v)}
+              onBlur={() => commit("away", awayValue)}
+            />
+          </div>
+          <button
+            type="button"
             disabled={pending}
-            onDelta={(step) => delta("home", step)}
-            onChange={(v) => onDraftHome(v)}
-            onBlur={() => commit("home", homeValue)}
-          />
-          <span className="pt-4 text-lg font-bold text-muted">–</span>
-          <GoalStepper
-            label={away}
-            value={awayValue}
-            disabled={pending}
-            onDelta={(step) => delta("away", step)}
-            onChange={(v) => onDraftAway(v)}
-            onBlur={() => commit("away", awayValue)}
-          />
-        </div>
+            onClick={() => onSubmit(Number(homeValue) || 0, Number(awayValue) || 0)}
+            className="mx-auto mt-3 flex min-h-[44px] items-center rounded-xl bg-win px-4 py-2 text-sm font-bold text-pitch transition hover:brightness-105 disabled:cursor-wait disabled:opacity-disabled-40"
+          >
+            {pending ? "Locking…" : "Lock prediction and reveal model"}
+          </button>
+        </>
       )}
 
       {error ? <p className="mt-2 text-center text-xs font-medium text-loss-ink">{error}</p> : null}

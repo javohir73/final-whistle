@@ -64,6 +64,51 @@ describe("PremiumMarkets", () => {
     await waitFor(() => expect(mockGet).toHaveBeenCalled());
     expect(container.querySelector("table")).toBeNull(); // no half-rendered card
   });
+
+  it("clears the previous match while a new match loads", async () => {
+    mockUseAuth.mockReturnValue({ user: { id: 1, premium: true }, loading: false,
+                                  openSignIn: jest.fn() });
+    let resolveNext: ((value: typeof PAYLOAD) => void) | undefined;
+    mockGet
+      .mockResolvedValueOnce(PAYLOAD)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
+
+    const { rerender } = render(<PremiumMarkets matchId={7} home="A" away="B" />);
+    expect(await screen.findByText("2–0")).toBeInTheDocument();
+
+    rerender(<PremiumMarkets matchId={8} home="C" away="D" />);
+    expect(screen.queryByText("2–0")).toBeNull();
+
+    resolveNext?.({
+      ...PAYLOAD,
+      match_id: 8,
+      markets: { ...PAYLOAD.markets, correct_score: [{ home: 3, away: 1, prob: 0.2 }] },
+    });
+    expect(await screen.findByText("3–1")).toBeInTheDocument();
+  });
+
+  it("ignores an older request that resolves after the current match", async () => {
+    mockUseAuth.mockReturnValue({ user: { id: 1, premium: true }, loading: false,
+                                  openSignIn: jest.fn() });
+    let resolveOld: ((value: typeof PAYLOAD) => void) | undefined;
+    let resolveCurrent: ((value: typeof PAYLOAD) => void) | undefined;
+    mockGet
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveCurrent = resolve; }));
+
+    const { rerender } = render(<PremiumMarkets matchId={7} home="A" away="B" />);
+    rerender(<PremiumMarkets matchId={8} home="C" away="D" />);
+    resolveCurrent?.({
+      ...PAYLOAD,
+      match_id: 8,
+      markets: { ...PAYLOAD.markets, correct_score: [{ home: 3, away: 1, prob: 0.2 }] },
+    });
+    expect(await screen.findByText("3–1")).toBeInTheDocument();
+
+    resolveOld?.(PAYLOAD);
+    await waitFor(() => expect(screen.queryByText("2–0")).toBeNull());
+    expect(screen.getByText("3–1")).toBeInTheDocument();
+  });
 });
 
 // BILLING_ENABLED is read at import time, and the file-level jest.mock above
