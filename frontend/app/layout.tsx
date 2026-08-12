@@ -30,11 +30,21 @@ const body = Hanken_Grotesk({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const tournament = await getTournament();
+  // No getTournament() call: this metadata is competition-neutral now (see
+  // below), so the fetch it used to need is one less request on every page.
   return {
     metadataBase: new URL(SITE_URL),
-    title: `${APP_NAME} — ${tournament.name} Predictions`,
-    description: `Explainable predictions for the ${tournament.name} from FinalWhistle's in-house ML model. For analytics and entertainment only.`,
+    // Competition-NEUTRAL, deliberately. This is the site-wide fallback every
+    // page without its own metadata inherits, and it used to be built from the
+    // active tournament — so whichever competition the pipeline happened to be
+    // pointed at described the whole site. That is how /football/epl/standings
+    // ended up titled "Premier League standings" with a La Liga description.
+    // Per-competition pages state their own competition; this one must not
+    // guess on their behalf.
+    title: `${APP_NAME} — Sports predictions, clearly explained`,
+    description:
+      "Explainable football and NRL predictions from FinalWhistle's in-house ML model, " +
+      "published with their uncertainty. For analytics and entertainment only.",
     applicationName: APP_NAME,
     twitter: { card: "summary_large_image" },
     appleWebApp: {

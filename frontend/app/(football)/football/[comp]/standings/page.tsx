@@ -15,8 +15,18 @@ export async function generateMetadata({
   params: Promise<{ comp: string }>;
 }): Promise<Metadata> {
   const { comp } = await params;
-  const label = isWiredFootballCompetition(comp) ? COMPETITIONS[comp].label : "Football";
-  return { title: `${label} standings` };
+  const wired = isWiredFootballCompetition(comp);
+  const label = wired ? COMPETITIONS[comp].label : "Football";
+  // The description is not optional here. Without one this page inherited the
+  // root layout's, which was built from the ACTIVE tournament — so the EPL
+  // standings page carried a La Liga description whenever the pipeline was
+  // pointed at La Liga. Every competition page states its own competition.
+  const term = wired ? COMPETITIONS[comp].terms.standings : "Standings";
+  return {
+    title: `${label} ${term.toLowerCase()}`,
+    description: `Live ${label} ${term.toLowerCase()} with played, won, drawn, lost, goals for and against, goal difference and points.`,
+    alternates: { canonical: `/football/${comp}/standings` },
+  };
 }
 
 export default async function CompStandingsPage({

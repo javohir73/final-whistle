@@ -14,6 +14,7 @@ export async function generateMetadata({
   return {
     title: `${label} fixtures — ${APP_NAME}`,
     description: `Every ${label} fixture, organized by kickoff and match status.`,
+    alternates: { canonical: `/football/${comp}/fixtures` },
   };
 }
 

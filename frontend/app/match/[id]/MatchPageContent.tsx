@@ -23,6 +23,7 @@ import { LocalKickoff } from "@/components/LocalKickoff";
 import { ShareButton } from "@/components/ShareButton";
 import { TeamBadge } from "@/components/TeamBadge";
 import { GoalMarkets } from "@/components/GoalMarkets";
+import { SportsEventJsonLd } from "@/components/SportsEventJsonLd";
 import { PremiumMarkets } from "@/components/PremiumMarkets";
 import { LikelyScorers } from "@/components/LikelyScorers";
 import { AvailabilityNote } from "@/components/AvailabilityNote";
@@ -107,9 +108,30 @@ export async function renderMatchDetailPage(
   const predictedWinner = topSide === "home" ? home : topSide === "away" ? away : null;
   // Headline probability for the ConfidenceRing: the leading W/D/L outcome's chance.
   const headline = Math.max(p.probabilities.home_win, p.probabilities.draw, p.probabilities.away_win);
+  const canonicalPath = `${COMPETITIONS[competition].basePath}/match/${p.match_id}`;
 
   return (
     <div className="fade-up mx-auto max-w-2xl space-y-6">
+      {/* The page had no h1 at all — only h2 section headings — so crawlers and
+          screen-reader users got no top-level title for the fixture. sr-only
+          because MatchScoreboard already presents the matchup graphically; a
+          visible heading above it would duplicate that and change the layout. */}
+      <h1 className="sr-only">
+        {home} vs {away} — {tournament.name} prediction
+      </h1>
+
+      <SportsEventJsonLd
+        home={home}
+        away={away}
+        competitionLabel={tournament.name}
+        kickoffUtc={p.kickoff_utc}
+        venue={p.venue}
+        venueCity={p.venue_city}
+        venueCountry={p.venue_country}
+        canonicalPath={canonicalPath}
+        status={summary?.status ?? null}
+      />
+
       <div className="flex items-center justify-between gap-3">
         <Link href={fixturesHref} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
           <span aria-hidden>←</span> All fixtures
