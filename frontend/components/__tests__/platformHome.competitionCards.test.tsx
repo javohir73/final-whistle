@@ -37,4 +37,25 @@ describe("PlatformHome competition cards", () => {
       "competition-card--wide",
     );
   });
+
+  it("leaves competition card copy colour to the authoritative component layer", () => {
+    const { container } = render(<PlatformHome />);
+
+    for (const copy of container.querySelectorAll(".competition-card__copy")) {
+      expect(copy).not.toHaveClass("text-muted");
+    }
+  });
+
+  it("leaves competition card arrow colour and motion to the authoritative component layer", () => {
+    const { container } = render(<PlatformHome />);
+
+    for (const arrow of container.querySelectorAll(".competition-card__arrow")) {
+      for (const className of ["text-muted", "text-lime-deep", "transition"]) {
+        expect(arrow).not.toHaveClass(className);
+      }
+      expect(Array.from(arrow.classList).some((name) => name.startsWith("group-hover:"))).toBe(
+        false,
+      );
+    }
+  });
 });

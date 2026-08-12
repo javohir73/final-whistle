@@ -164,18 +164,18 @@ export function PlatformHome() {
               >
                 <div className="flex items-start justify-between">
                   <CompetitionLogo competition={id} size={50} />
-                  <span className="competition-card__arrow text-muted transition group-hover:translate-x-0.5 group-hover:text-foreground">
+                  <span className="competition-card__arrow">
                     <ArrowIcon />
                   </span>
                 </div>
                 <div className="mt-8">
-                  <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em] text-muted">
+                  <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em]">
                     {region}
                   </p>
                   <h3 className="mt-1 font-display text-2xl font-extrabold tracking-tight">
                     {competition.label}
                   </h3>
-                  <p className="competition-card__copy mt-2 text-sm leading-relaxed text-muted">
+                  <p className="competition-card__copy mt-2 text-sm leading-relaxed">
                     {description}
                   </p>
                 </div>
@@ -205,18 +205,18 @@ export function PlatformHome() {
           <div className="flex items-center gap-4">
             <CompetitionLogo competition="nrl" size={64} />
             <div>
-              <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em] text-muted">
+              <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em]">
                 2026 season
               </p>
               <h3 className="mt-1 font-display text-3xl font-extrabold tracking-tight">
                 National Rugby League
               </h3>
-              <p className="competition-card__copy mt-1 text-sm text-muted">
+              <p className="competition-card__copy mt-1 text-sm">
                 Round-by-round predictions, ladder and model record.
               </p>
             </div>
           </div>
-          <span className="competition-card__arrow mt-5 inline-flex items-center gap-2 self-start font-display text-sm font-bold text-lime-deep sm:mt-0 sm:self-auto">
+          <span className="competition-card__arrow mt-5 inline-flex items-center gap-2 self-start font-display text-sm font-bold sm:mt-0 sm:self-auto">
             Open NRL
             <ArrowIcon />
           </span>

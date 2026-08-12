@@ -269,7 +269,7 @@ body {
   }
 
   .competition-card--wide::before {
-    clip-path: polygon(0 0, 116px 0, 96px 100%, 0 100%);
+    clip-path: polygon(0 0, 86px 0, 76px 100%, 0 100%);
   }
 
   .competition-card__copy {
