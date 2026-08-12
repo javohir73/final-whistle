@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { BrandMark } from "@/components/Logo";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { PremiumPromo } from "@/components/PremiumPromo";
@@ -35,6 +36,14 @@ const FOOTBALL_COMPETITIONS: Array<{
     description: "The complete World Cup tournament view.",
   },
 ];
+
+type CompetitionCardStyle = CSSProperties & {
+  "--competition-card-accent": string;
+};
+
+function competitionCardStyle(accentVar: string): CompetitionCardStyle {
+  return { "--competition-card-accent": `var(${accentVar})` };
+}
 
 function ArrowIcon() {
   return (
@@ -149,27 +158,26 @@ export function PlatformHome() {
               <Link
                 key={id}
                 href={competition.basePath}
-                className="glass card-hover group relative min-h-[210px] overflow-hidden rounded-2xl p-5"
+                data-competition-card={id}
+                style={competitionCardStyle(competition.accentVar)}
+                className="competition-card group relative min-h-[210px] overflow-hidden rounded-2xl p-5"
               >
-                <span
-                  aria-hidden="true"
-                  className="absolute inset-x-0 top-0 h-0.5"
-                  style={{ backgroundColor: `hsl(var(${competition.accentVar}))` }}
-                />
                 <div className="flex items-start justify-between">
                   <CompetitionLogo competition={id} size={50} />
-                  <span className="text-muted transition group-hover:translate-x-0.5 group-hover:text-foreground">
+                  <span className="competition-card__arrow text-muted transition group-hover:translate-x-0.5 group-hover:text-foreground">
                     <ArrowIcon />
                   </span>
                 </div>
                 <div className="mt-8">
-                  <p className="text-label font-bold uppercase tracking-[0.12em] text-muted">
+                  <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em] text-muted">
                     {region}
                   </p>
                   <h3 className="mt-1 font-display text-2xl font-extrabold tracking-tight">
                     {competition.label}
                   </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted">{description}</p>
+                  <p className="competition-card__copy mt-2 text-sm leading-relaxed text-muted">
+                    {description}
+                  </p>
                 </div>
               </Link>
             );
@@ -190,28 +198,25 @@ export function PlatformHome() {
 
         <Link
           href={COMPETITIONS.nrl.basePath}
-          className="glass card-hover group relative flex min-h-[150px] flex-col justify-between overflow-hidden rounded-2xl p-5 sm:flex-row sm:items-center sm:p-7"
+          data-competition-card="nrl"
+          style={competitionCardStyle(COMPETITIONS.nrl.accentVar)}
+          className="competition-card competition-card--wide group relative flex min-h-[150px] flex-col justify-between overflow-hidden rounded-2xl p-5 sm:flex-row sm:items-center sm:p-7"
         >
-          <span
-            aria-hidden="true"
-            className="absolute inset-y-0 left-0 w-0.5"
-            style={{ backgroundColor: `hsl(var(${COMPETITIONS.nrl.accentVar}))` }}
-          />
           <div className="flex items-center gap-4">
             <CompetitionLogo competition="nrl" size={64} />
             <div>
-              <p className="text-label font-bold uppercase tracking-[0.12em] text-muted">
+              <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em] text-muted">
                 2026 season
               </p>
               <h3 className="mt-1 font-display text-3xl font-extrabold tracking-tight">
                 National Rugby League
               </h3>
-              <p className="mt-1 text-sm text-muted">
+              <p className="competition-card__copy mt-1 text-sm text-muted">
                 Round-by-round predictions, ladder and model record.
               </p>
             </div>
           </div>
-          <span className="mt-5 inline-flex items-center gap-2 self-start font-display text-sm font-bold text-lime-deep sm:mt-0 sm:self-auto">
+          <span className="competition-card__arrow mt-5 inline-flex items-center gap-2 self-start font-display text-sm font-bold text-lime-deep sm:mt-0 sm:self-auto">
             Open NRL
             <ArrowIcon />
           </span>
