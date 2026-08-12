@@ -61,10 +61,15 @@ export function BottomNav() {
             (!tab.requiresLeagueFormat || !has_brackets),
         );
 
+  // lg:hidden, not sm:hidden — paired with SiteNav's link row, which is
+  // lg:flex for the same reason. The two must swap at the SAME breakpoint or
+  // one width band gets both (clutter) or neither (no primary navigation).
+  // The old sm handoff put the header row on screen at 640px, where it did
+  // not fit; 640-1023px now keeps this tab bar instead.
   return (
     <nav
       aria-label="Primary"
-      className="safe-x safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-border bg-surface/90 backdrop-blur-xl sm:hidden"
+      className="safe-x safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-border bg-surface/90 backdrop-blur-xl lg:hidden"
     >
       <div className="mx-auto flex max-w-md items-stretch justify-around">
         {tabs.map((tab) => {
