@@ -19,38 +19,28 @@ from __future__ import annotations
 
 import math
 
-from ml.models.poisson import MAX_GOALS, score_matrix
+from ml.models.poisson import MAX_GOALS, btts_yes, normalized_score_matrix, total_over
 
-
-def _normalized_grid(
-    lam_home: float, lam_away: float, rho: float = 0.0, max_goals: int = MAX_GOALS
-) -> list[list[float]]:
-    """Normalized scoreline grid where cell[h][a] = P(home=h, away=a).
-
-    Built from the unnormalized Dixon-Coles ``score_matrix``: NaN/negative cells
-    are clamped to 0, then every cell is divided by the grid sum. Raises
-    ``ValueError`` on a degenerate (non-positive total mass) grid, mirroring
-    ``poisson.score_cdf``."""
-    matrix = score_matrix(lam_home, lam_away, max_goals=max_goals, rho=rho)
-    cleaned = [
-        [c if (isinstance(c, (int, float)) and math.isfinite(c) and c > 0.0) else 0.0 for c in row]
-        for row in matrix
-    ]
-    total = sum(sum(row) for row in cleaned)
-    if total <= 0.0:
-        raise ValueError("degenerate score grid: non-positive total mass")
-    return [[c / total for c in row] for row in cleaned]
+#: One grid builder for the whole product. Lives in poisson.py so the public
+#: Goals section can share it without importing this module (which would be a
+#: cycle). Kept as a module-level alias so this file's own callers and tests
+#: keep working unchanged.
+_normalized_grid = normalized_score_matrix
 
 
 def _over_under_from_grid(grid: list[list[float]], lines) -> list[dict]:
-    """Totals over/under for each line off a normalized grid. ``over`` is the
-    mass of scorelines whose total goals strictly exceed the line (lines are
-    half/whole points, so no scoreline ever lands exactly on one)."""
-    n = len(grid)
+    """Totals over/under for each line off a normalized grid.
+
+    Delegates to poisson.total_over — the SAME function the public Goals
+    section calls for its "Over 2.5" stat. Previously this summed the grid
+    itself and skipped the 4dp rounding goal_markets applied, so the two
+    surfaces printed values that differed by ~5e-5 for the identical quantity.
+    ``under`` is derived from the rounded ``over`` so the pair always sums to 1
+    exactly as displayed."""
     out = []
     for line in lines:
-        over = sum(grid[h][a] for h in range(n) for a in range(n) if (h + a) > line)
-        out.append({"line": float(line), "over": over, "under": 1.0 - over})
+        over = total_over(grid, line)
+        out.append({"line": float(line), "over": over, "under": round(1.0 - over, 4)})
     return out
 
 
@@ -68,9 +58,10 @@ def over_under(
 
 
 def _btts_from_grid(grid: list[list[float]]) -> dict:
-    n = len(grid)
-    yes = sum(grid[h][a] for h in range(1, n) for a in range(1, n))
-    return {"yes": yes, "no": 1.0 - yes}
+    """Delegates to poisson.btts_yes — the same call behind the public Goals
+    section's "Both score" stat, so the two cannot disagree."""
+    yes = btts_yes(grid)
+    return {"yes": yes, "no": round(1.0 - yes, 4)}
 
 
 def both_teams_to_score(

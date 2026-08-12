@@ -67,15 +67,21 @@ def test_over_under_2_5_matches_independent_poisson():
     ]
     norm = sum(total_pmf)
     expected = sum(total_pmf[3:]) / norm
-    assert abs(o - expected) < 1e-6
+    # 5e-5 is half the 4dp display quantum every market now rounds to
+    # (poisson.MARKET_DP). The grid math itself is exact; this bound is the
+    # rounding, not slack in the calculation.
+    assert abs(o - expected) < 5e-5
 
 
 def test_over_under_2_5_matches_goal_markets():
-    # Consistency with the already-shipped poisson.goal_markets over_2_5. The
-    # exact-to-1e-6 agreement is asserted against the unrounded independent
-    # Poisson above; goal_markets rounds to 4 dp, so match it at that precision.
+    # The anti-contradiction guarantee: the premium totals ladder and the public
+    # Goals section's "Over 2.5" are the SAME number, not merely close. Both go
+    # through poisson.total_over on a grid from poisson.normalized_score_matrix.
+    # Asserted exactly — approx() here would let the two surfaces drift apart
+    # again, which is precisely the bug (a match page showed 57% in the premium
+    # teaser and 53% in the Goals section).
     o = next(r for r in over_under(2.0, 0.5, rho=-0.1) if r["line"] == 2.5)["over"]
-    assert o == pytest.approx(goal_markets(2.0, 0.5, rho=-0.1)["total"]["over_2_5"], abs=5e-5)
+    assert o == goal_markets(2.0, 0.5, rho=-0.1)["total"]["over_2_5"]
 
 
 def test_btts_yes_plus_no_and_bounded_by_each_side():
