@@ -34,7 +34,12 @@ export function CompetitionLogo({
         height={size}
         loading="lazy"
         decoding="async"
-        className="h-full w-full object-contain p-[4%] drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]"
+        className={cn(
+          "h-full w-full drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]",
+          competition === "wc26"
+            ? "object-cover object-center p-0"
+            : "object-contain p-[4%]",
+        )}
       />
     </span>
   );
