@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { LeagueTipsLeaderboard } from "@/components/leagueTips/LeagueTipsLeaderboard";
 import { NrlTipsLeaderboard } from "@/components/nrl/NrlTipsLeaderboard";
@@ -17,6 +17,8 @@ const TIPS_COMPETITIONS: Competition[] = Object.values(COMPETITIONS).filter(
 );
 
 interface PlayLeaderboardProps {
+  /** Competition selected by the Play page query string. */
+  initialCompetition?: CompetitionId;
   /** Current NRL season/round from the seeded tipsheet (same source /nrl/tips
    *  uses); null off-season / when the fetch had no data -- the NRL filter then
    *  degrades to an honest empty state rather than fetching a guessed round. */
@@ -36,6 +38,7 @@ interface PlayLeaderboardProps {
  *  degrade only. Floodlight skin -- lime is the sole active-chip colour,
  *  numerics stay tabular (the reused boards already are). */
 export function PlayLeaderboard({
+  initialCompetition,
   nrlSeason,
   nrlRound,
   footballLeagues,
@@ -46,13 +49,18 @@ export function PlayLeaderboard({
   // it's never a dormant chip.
   const isDormant = (c: Competition) => c.sport === "football" && !footballLeagues.includes(c.id);
 
-  // Default to the first selectable competition (EPL today); fall back to the
-  // first chip so the panel always has a valid selection to render.
-  const [selected, setSelected] = useState<CompetitionId>(
-    () => TIPS_COMPETITIONS.find((c) => !isDormant(c))?.id ?? TIPS_COMPETITIONS[0].id,
-  );
+  const requested = TIPS_COMPETITIONS.find((c) => c.id === initialCompetition);
+  // A valid page context can intentionally have no weekly board (WC26 uses a
+  // bracket). Keep that context truthful instead of silently selecting a
+  // football league whose picker is not mounted to resolve its matchweek.
+  const hasContextWithoutBoard = initialCompetition != null && requested == null;
+  const selected = hasContextWithoutBoard
+    ? null
+    : requested?.id ??
+      TIPS_COMPETITIONS.find((c) => !isDormant(c))?.id ??
+      TIPS_COMPETITIONS[0].id;
 
-  const active = COMPETITIONS[selected];
+  const active = selected == null ? null : COMPETITIONS[selected];
 
   return (
     <section className="mt-10" aria-labelledby="play-leaderboard-heading">
@@ -70,11 +78,10 @@ export function PlayLeaderboard({
           const dormant = isDormant(c);
           const isActive = c.id === selected;
           return (
-            <button
+            <Link
               key={c.id}
-              type="button"
-              onClick={() => setSelected(c.id)}
-              aria-pressed={isActive}
+              href={`/play?competition=${c.id}`}
+              aria-current={isActive ? "page" : undefined}
               aria-label={dormant ? `${c.label} (coming soon)` : undefined}
               className={cn(
                 "flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-2.5 text-body font-semibold transition",
@@ -87,19 +94,23 @@ export function PlayLeaderboard({
             >
               <CompetitionLogo competition={c.id} size={24} />
               {c.label}
-            </button>
+            </Link>
           );
         })}
       </div>
 
       <div className="mt-3">
-        <LeaderboardPanel
-          competition={active}
-          dormant={isDormant(active)}
-          nrlSeason={nrlSeason}
-          nrlRound={nrlRound}
-          footballMatchweek={footballMatchweeks[active.id] ?? null}
-        />
+        {active == null ? (
+          <EmptyPanel>{COMPETITIONS[initialCompetition!].label} has no weekly leaderboard.</EmptyPanel>
+        ) : (
+          <LeaderboardPanel
+            competition={active}
+            dormant={isDormant(active)}
+            nrlSeason={nrlSeason}
+            nrlRound={nrlRound}
+            footballMatchweek={footballMatchweeks[active.id] ?? null}
+          />
+        )}
       </div>
     </section>
   );

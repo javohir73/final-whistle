@@ -102,6 +102,55 @@ def test_locked_match_pick_rejected(env):
     assert r.json()["error"]["code"] == "match_locked"
 
 
+def test_postponed_bracket_pick_can_be_added_changed_and_removed(env):
+    client, SessionF = env
+    ids = _group_match_ids(SessionF, 1)
+    db = SessionF()
+    db.get(Match, ids[0]).status = "postponed"
+    db.commit()
+    db.close()
+
+    added = client.post(
+        "/api/brackets",
+        json={"group_picks": [{"match_id": ids[0], "pick": "home"}]},
+    )
+    assert added.status_code == 200, added.text
+    changed = client.post(
+        "/api/brackets",
+        json={"group_picks": [{"match_id": ids[0], "pick": "draw"}]},
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["group_picks"][0]["pick"] == "draw"
+
+    removed = client.post("/api/brackets", json={"group_picks": []})
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["group_picks"] == []
+
+
+@pytest.mark.parametrize("status", ["cancelled", "suspended", "in_play", "finished", "future_status"])
+def test_non_pickable_bracket_statuses_are_immutable(env, status):
+    client, SessionF = env
+    ids = _group_match_ids(SessionF, 1)
+    assert client.post(
+        "/api/brackets",
+        json={"group_picks": [{"match_id": ids[0], "pick": "home"}]},
+    ).status_code == 200
+
+    db = SessionF()
+    db.get(Match, ids[0]).status = status
+    db.commit()
+    db.close()
+
+    edited = client.post(
+        "/api/brackets",
+        json={"group_picks": [{"match_id": ids[0], "pick": "away"}]},
+    )
+    assert edited.status_code == 422
+    unchanged = client.post("/api/brackets", json={"group_picks": []})
+    assert unchanged.status_code == 200
+    assert unchanged.json()["group_picks"] == [{"match_id": ids[0], "pick": "home"}]
+
+
 def test_private_by_default_then_join_publishes(env):
     client, SessionF = env
     ids = _group_match_ids(SessionF, 1)

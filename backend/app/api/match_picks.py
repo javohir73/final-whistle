@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app import schemas
 from app.auth import get_current_user
 from app.db import get_db
+from app.match_status import is_locked
 from app.models import AppUser, Match, MatchPick
 from app.security import require_same_origin
 
@@ -73,7 +74,7 @@ def save_match_picks(
         if m is None:
             continue
         incoming_ids.add(mp.match_id)
-        locked = m.status != "scheduled"
+        locked = is_locked(m.status)
         cur = existing.get(mp.match_id)
         if locked:
             # Locked matches are immutable; allow an unchanged resend, reject edits.
@@ -90,11 +91,14 @@ def save_match_picks(
         else:
             db.add(MatchPick(user_id=user.id, match_id=mp.match_id, pick=mp.pick, updated_at=now))
 
-    # Remove de-selected picks, but never touch locked ones.
+    # Remove de-selected picks, but never touch locked ones. Uses the SAME
+    # is_locked predicate as the upsert above: a raw `status == "scheduled"`
+    # here would let a postponed pick be edited but never removed, since
+    # postponed is open for picks but is not the string "scheduled".
     for mid, p in existing.items():
         if mid not in incoming_ids:
             m = db.get(Match, mid)
-            if m is not None and m.status == "scheduled":
+            if m is not None and not is_locked(m.status):
                 db.delete(p)
 
     db.commit()

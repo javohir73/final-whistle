@@ -16,12 +16,12 @@
     "@capacitor/android": "^8.4.0",
     "@capacitor/core": "^8.4.0",
     "@capacitor/ios": "^8.4.0",
-    "@sentry/nextjs": "^10.56.0",
+    "@sentry/nextjs": "^10.70.0",
     "@stripe/react-stripe-js": "^6.8.1",
     "@stripe/stripe-js": "^9.13.0",
     "@vercel/analytics": "^2.0.1",
     "clsx": "^2.1.1",
-    "next": "^15.5.19",
+    "next": "^15.5.23",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "recharts": "^2.15.4",
@@ -38,14 +38,20 @@
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
-    "eslint-config-next": "^15.5.19",
+    "eslint-config-next": "^15.5.23",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "playwright-core": "^1.60.0",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.26",
     "sharp": "^0.35.1",
     "tailwindcss": "^3.4.17",
     "ts-jest": "^29.2.5",
     "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "$postcss",
+      "sharp": "$sharp"
+    }
   }
 }

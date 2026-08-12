@@ -19,9 +19,8 @@ def main() -> int:
       unconfigured, and including per-match misses (no fixture id, feed
       down, no markets), which snapshot_phased_odds already absorbs
       (FR-4.2, never raises).
-    - 1: the pass itself failed (e.g. DB unreachable) — surfaced as an
-      "error" key in the summary rather than an exception; that's the one
-      case the Action should go red on.
+    - 1: the pass itself failed (e.g. DB unreachable), or the provider
+      reported a systemic auth/quota failure. Both must make the Action red.
     """
     logging.basicConfig(level=logging.INFO)
     ap = argparse.ArgumentParser(description=__doc__)
@@ -45,7 +44,7 @@ def main() -> int:
         session.close()
 
     print(summary)
-    return 1 if "error" in summary else 0
+    return 1 if "error" in summary or "provider_error" in summary else 0
 
 
 if __name__ == "__main__":

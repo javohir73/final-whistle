@@ -12,6 +12,13 @@ import { Flag } from "@/components/Flag";
 import { MyRankCard } from "@/components/MyRankCard";
 import { LocationPicker } from "@/components/LocationPicker";
 import { useInstallPrompt } from "@/lib/useInstallPrompt";
+import { CompetitionLogo } from "@/components/CompetitionLogo";
+import { LeagueYouVsAi } from "@/components/leagueTips/LeagueYouVsAi";
+import { LeagueTipsLeaderboard } from "@/components/leagueTips/LeagueTipsLeaderboard";
+import { YouVsAi } from "@/components/nrl/YouVsAi";
+import { NrlTipsLeaderboard } from "@/components/nrl/NrlTipsLeaderboard";
+import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
+import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 import type { LeaderboardRow, SavedBracket } from "@/lib/types";
 
 /** Initials for the avatar — first letters of up to two name words, else the
@@ -26,8 +33,21 @@ function initialsFor(name?: string | null, email?: string | null): string {
   return local.slice(0, 2).toUpperCase() || "··";
 }
 
-export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRow[] }) {
-  const state = useFetch(getLeaderboard, [], undefined, initialRows);
+export function LeaderboardClient({
+  initialRows,
+  competition = "wc26",
+  nrlSeason = null,
+}: {
+  initialRows?: LeaderboardRow[];
+  competition?: CompetitionId;
+  nrlSeason?: number | null;
+}) {
+  const state = useFetch(
+    () => competition === "wc26" ? getLeaderboard() : Promise.resolve([]),
+    [competition],
+    undefined,
+    competition === "wc26" ? initialRows : [],
+  );
   const { user, openSignIn } = useAuth();
   const { favorites } = useFavorites();
   // "Install app" settings row — only meaningful when a native prompt is queued.
@@ -36,7 +56,7 @@ export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRo
   // The signed-in user's saved bracket drives the stat row (rank / points).
   const [bracket, setBracket] = useState<SavedBracket | null>(null);
   useEffect(() => {
-    if (!user) {
+    if (!user || competition !== "wc26") {
       setBracket(null);
       return;
     }
@@ -52,7 +72,7 @@ export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRo
     return () => {
       live = false;
     };
-  }, [user]);
+  }, [competition, user]);
 
   const rows = state.status === "success" ? state.data : [];
   // Match the signed-in player's leaderboard row by display name so we can both
@@ -72,33 +92,62 @@ export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRo
       : "Signed in"
     : "Guest · picks saved on this device";
 
+  if (competition !== "wc26") {
+    const selected = COMPETITIONS[competition];
+    const leagueHasTips = competition !== "nrl" && ACTIVE_LEAGUES.includes(competition);
+    return (
+      <div className="space-y-6">
+        <ProfileHeader
+          name={name}
+          statusLine={statusLine}
+          avatarUrl={user?.avatar_url}
+          initials={initialsFor(user?.display_name, user?.email)}
+        />
+        <CompetitionTabs selected={competition} />
+        <header className="flex items-center gap-3">
+          <CompetitionLogo competition={competition} size={40} />
+          <div>
+            <p className="text-label font-semibold uppercase tracking-wider text-muted">Your record</p>
+            <h2 className="font-display text-2xl font-extrabold">{selected.label}</h2>
+          </div>
+        </header>
+        {competition === "nrl" ? (
+          <>
+            <YouVsAi />
+            {nrlSeason != null ? (
+              <NrlTipsLeaderboard season={nrlSeason} seasonOnly />
+            ) : (
+              <Empty label="The NRL season leaderboard is not available yet." />
+            )}
+          </>
+        ) : leagueHasTips ? (
+          <>
+            <LeagueYouVsAi league={competition} />
+            <LeagueTipsLeaderboard league={competition} seasonOnly />
+          </>
+        ) : (
+          <Empty label={`${selected.label} score-tip records are not available yet.`} />
+        )}
+        <Link
+          href={`/play?competition=${competition}`}
+          className="inline-flex min-h-[44px] items-center rounded-xl bg-win/15 px-4 text-sm font-bold text-lime-deep ring-1 ring-win/30"
+        >
+          Play {selected.label} →
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* 1 · Profile header */}
-      <header className="fade-up flex items-center gap-4">
-        {user?.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={user.avatar_url}
-            alt=""
-            aria-hidden
-            className="h-16 w-16 shrink-0 rounded-full object-cover ring-1 ring-border"
-          />
-        ) : (
-          <span
-            aria-hidden
-            className="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-pitch font-display text-xl font-extrabold text-win"
-          >
-            {initialsFor(user?.display_name, user?.email)}
-          </span>
-        )}
-        <div className="min-w-0">
-          <h1 className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl">
-            {name}
-          </h1>
-          <p className="mt-1 truncate text-sm text-muted">{statusLine}</p>
-        </div>
-      </header>
+      <ProfileHeader
+        name={name}
+        statusLine={statusLine}
+        avatarUrl={user?.avatar_url}
+        initials={initialsFor(user?.display_name, user?.email)}
+      />
+      <CompetitionTabs selected="wc26" />
 
       {/* 2 · Stat row */}
       <div className="grid grid-cols-3 gap-3">
@@ -289,6 +338,63 @@ export function LeaderboardClient({ initialRows }: { initialRows?: LeaderboardRo
         </p>
       </footer>
     </div>
+  );
+}
+
+function ProfileHeader({
+  name,
+  statusLine,
+  avatarUrl,
+  initials,
+}: {
+  name: string;
+  statusLine: string;
+  avatarUrl?: string | null;
+  initials: string;
+}) {
+  return (
+    <header className="fade-up flex items-center gap-4">
+      {avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={avatarUrl}
+          alt=""
+          aria-hidden
+          className="h-16 w-16 shrink-0 rounded-full object-cover ring-1 ring-border"
+        />
+      ) : (
+        <span
+          aria-hidden
+          className="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-pitch font-display text-xl font-extrabold text-win"
+        >
+          {initials}
+        </span>
+      )}
+      <div className="min-w-0">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl">{name}</h1>
+        <p className="mt-1 truncate text-sm text-muted">{statusLine}</p>
+      </div>
+    </header>
+  );
+}
+
+function CompetitionTabs({ selected }: { selected: CompetitionId }) {
+  return (
+    <nav aria-label="Your competition" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+      {Object.values(COMPETITIONS).map((competition) => (
+        <Link
+          key={competition.id}
+          href={`/leaderboard?competition=${competition.id}`}
+          aria-current={competition.id === selected ? "page" : undefined}
+          className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold ${
+            competition.id === selected ? "bg-win text-pitch" : "bg-surface-2 text-muted"
+          }`}
+        >
+          <CompetitionLogo competition={competition.id} size={22} />
+          {competition.label}
+        </Link>
+      ))}
+    </nav>
   );
 }
 

@@ -29,11 +29,11 @@ describe("ModelVsMarket", () => {
     expect(screen.getByText(/Not betting advice/)).toBeInTheDocument();
   });
 
-  it("renders nothing without a snapshot", () => {
+  it("renders an honest unavailable state without a snapshot", () => {
     const p = { ...base, odds_comparison: { available: false } } as Prediction;
-    const { container } = render(
-      <ModelVsMarket prediction={p} home="Norway" away="England" />,
-    );
-    expect(container).toBeEmptyDOMElement();
+    render(<ModelVsMarket prediction={p} home="Norway" away="England" />);
+    expect(screen.getByText("Model vs market")).toBeInTheDocument();
+    expect(screen.getByText(/Market consensus is not available/i)).toBeInTheDocument();
+    expect(screen.queryByText("Market consensus", { selector: "div" })).toBeNull();
   });
 });

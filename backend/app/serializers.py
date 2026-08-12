@@ -470,26 +470,35 @@ def group_to_out(db: Session, group) -> schemas.GroupOut:
     """The LIVE group table: points/goals come from real results (in-play scores
     count provisionally), never from simulations. Qualification probability is
     the model's forecast for the games still to play — a separate column.
-    Ranked points → GD → GF, with qual prob as the pre-tournament tiebreak so an
-    all-zero table still orders sensibly."""
+    Ranked points → GD → GF. Before a club league begins, every official row is
+    tied and is therefore shown alphabetically; tournament groups retain the
+    qualification forecast as their useful pre-tournament tiebreak."""
     rows = db.query(Standing).filter_by(group_id=group.id).all()
     live = live_group_table(db, group.id)
+    teams = {r.team_id: db.get(Team, r.team_id) for r in rows}
 
     def tally(r: Standing) -> dict:
         return live.get(r.team_id, _EMPTY_TALLY)
 
-    rows.sort(
-        key=lambda r: (
-            tally(r)["points"],
-            tally(r)["gf"] - tally(r)["ga"],
-            tally(r)["gf"],
-            r.qualification_prob or 0.0,
-        ),
-        reverse=True,
+    is_unplayed_club_league = (
+        group.tournament.home_advantage_mode == "home"
+        and all(tally(r)["played"] == 0 for r in rows)
     )
+    if is_unplayed_club_league:
+        rows.sort(key=lambda r: (teams[r.team_id].name if teams[r.team_id] else "TBD").casefold())
+    else:
+        rows.sort(
+            key=lambda r: (
+                tally(r)["points"],
+                tally(r)["gf"] - tally(r)["ga"],
+                tally(r)["gf"],
+                r.qualification_prob or 0.0,
+            ),
+            reverse=True,
+        )
     standings = []
     for r in rows:
-        team = db.get(Team, r.team_id)
+        team = teams[r.team_id]
         t = tally(r)
         standings.append(
             schemas.StandingRowOut(

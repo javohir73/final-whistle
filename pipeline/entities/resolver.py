@@ -44,14 +44,22 @@ DEFAULT_KICKOFF_TOLERANCE = timedelta(hours=36)
 #: Fixture statuses that must never be auto-linked: the venue may still be
 #: quoting a match our data says is not happening as scheduled.
 #:
-#: HONESTY NOTE: today's ingestion (league_structure._STATUS,
-#: live_scores._STATUS_MAP) normalizes SUSP/PST/CANC/ABD to internal
-#: "scheduled", so these values never reach a fixture candidate and this
-#: guard is INERT in production. It is a contract for the resolver core, kept
-#: so the day a provider-status column lands the behavior already exists --
-#: not a claim that stopped fixtures are currently detected. The gap is
-#: recorded in docs/PREDICTION-MARKET-RESOLUTION.md.
-_UNLINKABLE_FIXTURE_STATUSES = frozenset({"postponed", "cancelled", "abandoned"})
+#: This guard used to be INERT: both ingest paths normalized SUSP/PST/CANC/ABD
+#: to internal "scheduled", so a stopped fixture was indistinguishable from a
+#: live one by the time it reached a candidate, and the honesty note here said
+#: so -- a contract awaiting a provider-status column.
+#:
+#: That column turned out to be unnecessary: Match.status is a plain string, so
+#: app/match_status.py simply stopped flattening. The guard is now LIVE, and
+#: pipeline/entities/reconcile_test.py asserts it fires on a real postponed
+#: fixture rather than documenting that it cannot.
+#:
+#: "suspended" covers SUSP/INT/ABD -- stopped mid-play and not resumed.
+#: "abandoned" is kept as an accepted synonym so any caller or fixture using
+#: the older wording keeps working.
+_UNLINKABLE_FIXTURE_STATUSES = frozenset(
+    {"postponed", "cancelled", "abandoned", "suspended"}
+)
 
 _DRAW_KEYS = frozenset({"draw", "tie", "x"})
 

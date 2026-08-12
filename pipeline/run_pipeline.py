@@ -68,6 +68,7 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
     from pipeline.generate_predictions import generate_predictions
     from pipeline.ingest.club_results import sync_finished_matches_to_history
     from pipeline.ingest.league_structure import load_league_structure
+    from pipeline.ingest.provider_errors import ProviderAuthError, ProviderQuotaError
     from pipeline.league_activation import ensure_club_history
     from pipeline.leagues import (
         ACTIVE_LEAGUES,
@@ -110,6 +111,7 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
                     db, teams_file=cfg["teams_file"], tournament_name=cfg["tournament_name"],
                     group_name=cfg["group_name"], league_id=cfg["league_id"], season=cfg["season"],
                     group_round_prefixes=cfg.get("group_round_prefixes"),
+                    preserve_stopped_statuses=settings.preserve_match_stop_statuses,
                 ),
             )
             tournament = db.get(Tournament, league_summary["tournament_id"])
@@ -119,6 +121,12 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
                     db, t, competition=cfg["club_competition"],
                 ),
             )
+        except (ProviderQuotaError, ProviderAuthError):
+            # Every configured league shares this credential. A systemic
+            # failure cannot be isolated per league: retrying only burns more
+            # calls, and swallowing all of them lets a zero-ingest run exit 0.
+            db.rollback()
+            raise
         except Exception:  # noqa: BLE001 - isolation boundary, see docstring
             if not isolate_failures:
                 raise

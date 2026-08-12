@@ -578,6 +578,8 @@ class MarketsOut(BaseModel):
 # ---- Billing (FinalWhistle Premium) ----
 class CheckoutSessionIn(BaseModel):
     plan: Literal["monthly", "annual"]
+    competition: Literal["epl", "laliga", "bundesliga", "ucl", "wc26", "nrl"] | None = None
+    return_to: str | None = None
 
 
 class BillingUrlOut(BaseModel):

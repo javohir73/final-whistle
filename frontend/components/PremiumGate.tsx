@@ -7,17 +7,29 @@
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { BILLING_ENABLED } from "@/lib/constants";
+import type { CompetitionId } from "@/lib/sports";
 
 export function PremiumGate({
   teaser,
   children,
+  competition,
+  returnTo,
 }: {
   teaser: React.ReactNode;
   children: React.ReactNode;
+  competition?: CompetitionId;
+  returnTo?: string;
 }) {
   const { user, openSignIn } = useAuth();
   if (!BILLING_ENABLED) return null;
   if (user?.premium) return <>{children}</>;
+  const context = new URLSearchParams();
+  if (competition) context.set("competition", competition);
+  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
+    context.set("returnTo", returnTo);
+  }
+  const contextQuery = context.toString();
+  const premiumHref = contextQuery ? `/premium?${contextQuery}` : "/premium";
 
   return (
     <section className="glass rounded-2xl p-6">
@@ -30,7 +42,7 @@ export function PremiumGate({
         </span>
         {user ? (
           <Link
-            href="/premium"
+            href={premiumHref}
             className="rounded-lg bg-win/15 px-3 py-1.5 text-sm font-semibold text-lime-deep ring-1 ring-win/30 transition hover:bg-win/25"
           >
             Go Premium
@@ -39,12 +51,17 @@ export function PremiumGate({
           <>
             <button
               type="button"
-              onClick={() => openSignIn({ mode: "signup" })}
+              onClick={() =>
+                openSignIn({
+                  mode: "signup",
+                  onSuccess: () => window.location.assign(premiumHref),
+                })
+              }
               className="rounded-lg bg-win/15 px-3 py-1.5 text-sm font-semibold text-lime-deep ring-1 ring-win/30 transition hover:bg-win/25"
             >
               Create a free account
             </button>
-            <Link href="/premium" className="text-sm text-muted underline">
+            <Link href={premiumHref} className="text-sm text-muted underline">
               About Premium
             </Link>
           </>

@@ -18,6 +18,14 @@ const ucl: ActiveTournament = {
   has_brackets: false,
 };
 
+const epl: ActiveTournament = {
+  id: 6,
+  name: "Premier League 2026-27",
+  year: 2026,
+  format: "league",
+  has_brackets: false,
+};
+
 const row = (over: Partial<StandingRow> = {}): StandingRow => ({
   team_id: 1,
   team: "Arsenal",
@@ -56,4 +64,60 @@ it("renders the table and the live subtitle once rows exist", async () => {
   expect(
     screen.getByText("Live standings, updated as results come in."),
   ).toBeInTheDocument();
+});
+
+it("labels an all-zero league table as preseason and hides finish zones", async () => {
+  const groups: Group[] = [{
+    id: 17,
+    name: "Premier League",
+    standings: [row({
+      played: 0,
+      won: 0,
+      drawn: 0,
+      lost: 0,
+      projected_points: 0,
+      projected_goals_for: 0,
+      projected_goal_diff: 0,
+    })],
+  }];
+  mockGroups.mockResolvedValue(groups);
+  render(<StandingsClient comp="epl" initialGroups={groups} tournament={epl} />);
+
+  expect(await screen.findByText("Arsenal")).toBeInTheDocument();
+  expect(screen.getByText(/Season not started/)).toBeInTheDocument();
+  expect(screen.queryByText("Live standings, updated as results come in.")).toBeNull();
+  expect(screen.queryByText("Champions League")).toBeNull();
+  expect(screen.queryByText("Europa League")).toBeNull();
+  expect(screen.queryByText("Relegation")).toBeNull();
+});
+
+it("recognizes a legacy all-zero response before the backend adds played", async () => {
+  const groups: Group[] = [{
+    id: 17,
+    name: "Premier League",
+    standings: [row({
+      played: undefined,
+      projected_points: 0,
+      projected_goals_for: 0,
+      projected_goal_diff: 0,
+    })],
+  }];
+  mockGroups.mockResolvedValue(groups);
+  render(<StandingsClient comp="epl" initialGroups={groups} tournament={epl} />);
+
+  expect(await screen.findByText(/Season not started/)).toBeInTheDocument();
+  expect(screen.queryByText("Champions League")).toBeNull();
+});
+
+it("does not call a legacy non-zero table preseason", async () => {
+  const groups: Group[] = [{
+    id: 17,
+    name: "Premier League",
+    standings: [row({ played: undefined })],
+  }];
+  mockGroups.mockResolvedValue(groups);
+  render(<StandingsClient comp="epl" initialGroups={groups} tournament={epl} />);
+
+  expect(await screen.findByText("Live standings, updated as results come in.")).toBeInTheDocument();
+  expect(screen.queryByText(/Season not started/)).toBeNull();
 });

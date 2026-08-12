@@ -73,6 +73,8 @@ def test_deliberate_stops_map_through():
     assert to_feed([_fixture("PST")])[0]["status"] == "POSTPONED"
     assert to_feed([_fixture("CANC")])[0]["status"] == "CANCELLED"
     assert to_feed([_fixture("SUSP")])[0]["status"] == "SUSPENDED"
+    assert to_feed([_fixture("INT")])[0]["status"] == "SUSPENDED"
+    assert to_feed([_fixture("ABD")])[0]["status"] == "SUSPENDED"
 
 
 def test_malformed_fixture_is_skipped_not_crashed():

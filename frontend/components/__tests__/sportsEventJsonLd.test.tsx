@@ -70,8 +70,71 @@ it.each([
   ["postponed", "https://schema.org/EventPostponed"],
   ["cancelled", "https://schema.org/EventCancelled"],
   ["scheduled", "https://schema.org/EventScheduled"],
+  ["in_play", "https://schema.org/EventScheduled"],
+  ["finished", "https://schema.org/EventScheduled"],
   [null, "https://schema.org/EventScheduled"],
 ])("maps status %s to %s", (status, expected) => {
   const data = parse(<SportsEventJsonLd {...base} status={status} />);
   expect(data.eventStatus).toBe(expected);
+});
+
+it("emits no markup for a suspended fixture", () => {
+  // schema.org has no term for a match that kicked off and was abandoned.
+  // Falling back to EventScheduled would tell crawlers it is going ahead as
+  // planned — the opposite of true — so the markup is omitted entirely.
+  expect(parse(<SportsEventJsonLd {...base} status="suspended" />)).toBeNull();
+});
+
+it("emits no markup for an unknown fixture status", () => {
+  expect(parse(<SportsEventJsonLd {...base} status="walkover_pending_appeal" />)).toBeNull();
+});
+
+
+// --- script-tag breakout -----------------------------------------------------
+
+describe("embedding safety", () => {
+  // Team and venue names come from a third-party provider. A name containing
+  // </script> closes the tag early and everything after it parses as markup —
+  // stored XSS with the provider feed as the injection vector.
+  const HOSTILE = 'Arsenal</script><img src=x onerror=alert(1)>';
+
+  it("never emits a literal </script> inside the script content", () => {
+    const { container } = render(<SportsEventJsonLd {...base} home={HOSTILE} />);
+    // Asserted on the script's CONTENT, not container.innerHTML — the latter
+    // legitimately ends with the element's own closing tag, which would make
+    // this assertion pass or fail for the wrong reason.
+    const raw = container.querySelector("script")?.textContent ?? "";
+    expect(raw.toLowerCase()).not.toContain("</script>");
+    // And nothing broke out of the element into real markup.
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    expect(container.children).toHaveLength(1);
+  });
+
+  it("escapes every angle bracket, wherever the hostile string appears", () => {
+    for (const field of ["home", "away", "venue", "competitionLabel"] as const) {
+      const { container } = render(
+        <SportsEventJsonLd {...base} {...{ [field]: HOSTILE }} />,
+      );
+      const raw = container.querySelector("script")?.textContent ?? "";
+      expect(raw).not.toContain("<");
+      expect(raw).not.toContain(">");
+    }
+  });
+
+  it("still parses back to the exact original string", () => {
+    // Escaping must not corrupt the data: \\u003c is valid JSON and decodes to
+    // "<", so a consumer sees precisely what the provider sent.
+    const data = parse(<SportsEventJsonLd {...base} home={HOSTILE} />);
+    expect(data.name).toBe(`${HOSTILE} vs Chelsea`);
+    expect(data.homeTeam.name).toBe(HOSTILE);
+  });
+
+  it("escapes ampersands too", () => {
+    const data = parse(<SportsEventJsonLd {...base} venue="Bar & Grill Arena" />);
+    expect(data.location.name).toBe("Bar & Grill Arena");
+    const { container } = render(
+      <SportsEventJsonLd {...base} venue="Bar & Grill Arena" />,
+    );
+    expect(container.querySelector("script")?.textContent).not.toContain("&");
+  });
 });

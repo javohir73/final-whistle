@@ -17,6 +17,7 @@ jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }))
 let mockPath = "/";
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPath,
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 import { SiteNav } from "@/components/SiteNav";
@@ -59,7 +60,7 @@ describe("SiteNav — Premium link (billing on)", () => {
     render(<SiteNav />);
     expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute(
       "href",
-      "/premium",
+      "/premium?competition=epl&returnTo=%2Ffootball%2Fepl",
     );
     // The competition registry still owns the link row itself.
     expect(screen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();

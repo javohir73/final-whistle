@@ -90,6 +90,54 @@ def test_no_chain_when_nothing_newly_finished(monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_complete_provider_failure_returns_503_not_a_false_green(monkeypatch):
+    monkeypatch.setattr(settings, "recompute_token", "secret")
+    monkeypatch.setattr(
+        "pipeline.ingest.live_scores.refresh_live",
+        lambda db: {
+            "updated": 0,
+            "live": 0,
+            "finished": 0,
+            "provider_attempts": 2,
+            "provider_successes": 0,
+            "provider_unavailable": True,
+            "degraded": True,
+        },
+    )
+    client = _client()
+    try:
+        r = client.post("/api/internal/refresh-live", headers={"X-Recompute-Token": "secret"})
+        assert r.status_code == 503
+        assert r.json()["error"]["code"] == "live_provider_unavailable"
+        assert r.json()["error"]["live"]["provider_successes"] == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_partial_provider_failure_returns_503_so_cron_goes_red(monkeypatch):
+    monkeypatch.setattr(settings, "recompute_token", "secret")
+    monkeypatch.setattr(
+        "pipeline.ingest.live_scores.refresh_live",
+        lambda db: {
+            "updated": 1,
+            "live": 1,
+            "finished": 0,
+            "provider_attempts": 2,
+            "provider_successes": 1,
+            "provider_unavailable": False,
+            "degraded": True,
+        },
+    )
+    client = _client()
+    try:
+        r = client.post("/api/internal/refresh-live", headers={"X-Recompute-Token": "secret"})
+        assert r.status_code == 503
+        assert r.json()["error"]["code"] == "live_provider_degraded"
+        assert r.json()["error"]["live"]["provider_successes"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_endpoint_sweeps_owed_chain_without_transition(monkeypatch):
     """A finish that slipped through (chain crashed, or ingested while the
     process was down) is swept by the next cron hit — the cron path must not

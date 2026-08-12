@@ -96,3 +96,14 @@ it("switches back to the weekly board without re-fetching it", async () => {
   expect(await screen.findByText("SwiftHalfback482")).toBeInTheDocument();
   expect(mockLeaderboard).toHaveBeenCalledTimes(1);
 });
+
+it("supports a season-only You view without fetching a guessed round", async () => {
+  mockSeasonLeaderboard.mockResolvedValue({ season: 2026, participant_count: 0, entries: [] });
+
+  render(<NrlTipsLeaderboard season={2026} seasonOnly />);
+
+  expect(await screen.findByText("0 playing this season")).toBeInTheDocument();
+  expect(mockSeasonLeaderboard).toHaveBeenCalledWith(2026);
+  expect(mockLeaderboard).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Weekly" })).toBeNull();
+});

@@ -441,6 +441,7 @@ export function competitionFromPathname(pathname: string): CompetitionId {
 const PLATFORM_ROUTE_PREFIXES = [
   "/play",
   "/leaderboard",
+  "/premium",
   "/about",
   "/methodology",
   "/privacy",

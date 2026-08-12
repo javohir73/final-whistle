@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
@@ -11,6 +12,7 @@ import {
   friendlyAuthError,
 } from "@/lib/session";
 import { PREMIUM_FEATURES, PREMIUM_PRICING, annualSavingLabel } from "@/lib/premium";
+import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 type Plan = "monthly" | "annual";
 
@@ -43,6 +45,26 @@ const PremiumCheckout = dynamic(
 export function PremiumClient() {
   const { user, loading, openSignIn, refresh } = useAuth();
   const params = useSearchParams();
+  const rawCompetition = params.get("competition");
+  const competition: CompetitionId =
+    rawCompetition && rawCompetition in COMPETITIONS
+      ? (rawCompetition as CompetitionId)
+      : "epl";
+  const rawReturnTo = params.get("returnTo");
+  const competitionBase = COMPETITIONS[competition].basePath;
+  const safeReturnTo =
+    rawReturnTo &&
+    rawReturnTo.length <= 512 &&
+    /^[A-Za-z0-9/_-]+$/.test(rawReturnTo) &&
+    (rawReturnTo === competitionBase || rawReturnTo.startsWith(`${competitionBase}/`))
+      ? rawReturnTo
+      : null;
+  const returnTo = safeReturnTo ?? competitionBase;
+  const hasContext = Boolean(rawCompetition || rawReturnTo);
+  const checkoutContext = useMemo(
+    () => (hasContext ? { competition, returnTo } : undefined),
+    [competition, hasContext, returnTo],
+  );
   // Payment Element needs a publishable key; without one the page keeps the
   // hosted-Checkout redirect, so a half-configured deploy degrades quietly.
   const inPage = Boolean(STRIPE_PUBLISHABLE_KEY);
@@ -75,13 +97,15 @@ export function PremiumClient() {
     setBusy(true);
     setError(null);
     try {
-      const { url } = await createCheckoutSession(p);
+      const { url } = checkoutContext
+        ? await createCheckoutSession(p, checkoutContext)
+        : await createCheckoutSession(p);
       window.location.assign(url);
     } catch (e) {
       setError(friendlyAuthError(e));
       setBusy(false);
     }
-  }, []);
+  }, [checkoutContext]);
 
   // In-page: reveal the form beneath the plan cards. Otherwise: redirect out.
   const start = useCallback(() => {
@@ -129,6 +153,14 @@ export function PremiumClient() {
           {user?.premium
             ? "You're Premium. Enjoy the full markets."
             : "Payment received — activating your membership…"}
+          {hasContext && (
+            <Link
+              href={returnTo}
+              className="ml-2 font-semibold text-lime-deep underline underline-offset-2"
+            >
+              Back to {COMPETITIONS[competition].label}
+            </Link>
+          )}
         </div>
       )}
 
@@ -213,7 +245,11 @@ export function PremiumClient() {
             {busy ? "Please wait…" : "Manage subscription"}
           </button>
         ) : payOpen ? (
-          <PremiumCheckout plan={plan} onActivated={() => setSubscribed(true)} />
+          <PremiumCheckout
+            plan={plan}
+            checkoutContext={checkoutContext}
+            onActivated={() => setSubscribed(true)}
+          />
         ) : (
           <button
             type="button"

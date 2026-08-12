@@ -1,5 +1,21 @@
 /** API response types mirroring the backend Pydantic schemas (PRD §17, §11). */
 
+/** Match lifecycle, mirroring backend/app/match_status.py.
+ *
+ *  The last three used to be flattened into "scheduled" by both ingest paths.
+ *  They are preserved now because a postponed fixture keeps its ORIGINAL
+ *  kickoff, and the freshness monitor rightly treats an old kickoff on a
+ *  still-"scheduled" row as impossible — so an ordinary postponement pinned
+ *  /api/health degraded forever. Anything switching on this must handle all
+ *  six; "not finished" is not the same as "about to be played". */
+export type MatchStatus =
+  | "scheduled"
+  | "in_play"
+  | "finished"
+  | "postponed"
+  | "cancelled"
+  | "suspended";
+
 export interface Teams {
   home: string;
   away: string;
@@ -183,7 +199,7 @@ export interface MatchSummary {
   venue_city: string | null;
   venue_country: string | null;
   is_neutral: boolean;
-  status: "scheduled" | "in_play" | "finished";
+  status: MatchStatus;
   score_home: number | null;
   score_away: number | null;
   score_home_90?: number | null;
@@ -392,7 +408,7 @@ export type KnockoutTie = {
   match_no: number;
   match_id: number | null;
   stage: "R32" | "R16" | "QF" | "SF" | "third_place" | "final";
-  status: "scheduled" | "in_play" | "finished";
+  status: MatchStatus;
   kickoff_utc: string | null;
   home: KnockoutSide;
   away: KnockoutSide;
@@ -1059,6 +1075,7 @@ export interface RetentionStats {
 export interface LeagueTipSubmitResponse {
   ok: boolean;
   handle: string;
+  model: LeagueTipsMineModel | null;
   prediction: {
     match_id: number;
     predicted_home: number;

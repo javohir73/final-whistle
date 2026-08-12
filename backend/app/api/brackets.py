@@ -14,6 +14,7 @@ from app import schemas
 from app.auth import get_current_user
 from app.cache import cache
 from app.db import get_db
+from app.match_status import is_locked
 from app.models import AppUser, Bracket, BracketGroupPick, BracketKnockoutPick, Match
 from app.security import require_same_origin
 
@@ -93,7 +94,7 @@ def save_bracket(
         if m is None:
             continue
         incoming_ids.add(gp.match_id)
-        locked = m.status != "scheduled"
+        locked = is_locked(m.status)
         cur = existing.get(gp.match_id)
         if locked:
             # Locked matches are immutable; allow an unchanged resend, reject edits.
@@ -108,11 +109,13 @@ def save_bracket(
         else:
             db.add(BracketGroupPick(bracket_id=b.id, match_id=gp.match_id, pick=gp.pick))
 
-    # Remove de-selected picks, but never touch locked ones.
+    # Remove de-selected picks, but never touch locked ones. Same is_locked
+    # predicate as the upsert above — a raw `status == "scheduled"` here would
+    # make a postponed pick editable but impossible to remove.
     for mid, p in existing.items():
         if mid not in incoming_ids:
             m = db.get(Match, mid)
-            if m is not None and m.status == "scheduled":
+            if m is not None and not is_locked(m.status):
                 db.delete(p)
 
     # Knockout picks: full replace (knockout games are future-dated in the MVP).

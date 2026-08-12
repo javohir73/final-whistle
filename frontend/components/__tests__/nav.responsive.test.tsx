@@ -31,7 +31,10 @@ const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
 
 let mockPath = "/";
-jest.mock("next/navigation", () => ({ usePathname: () => mockPath }));
+jest.mock("next/navigation", () => ({
+  usePathname: () => mockPath,
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 import { BottomNav } from "@/components/BottomNav";
 import { SiteNav } from "@/components/SiteNav";

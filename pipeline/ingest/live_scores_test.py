@@ -171,9 +171,23 @@ def test_lagging_feed_does_not_regress_finished_match(db_session):
 def test_suspended_is_a_deliberate_downgrade_and_still_applies(db_session):
     # SUSPENDED/POSTPONED/CANCELLED are real not-playing states, not feed lag —
     # those must still take a live match off the board.
+    #
+    # The status is now PRESERVED rather than flattened into "scheduled". Same
+    # intent as before (the downgrade applies); the difference is that
+    # app/data_freshness can now tell a deliberate stop from a feed that went
+    # quiet, instead of declaring the row impossible four hours later and
+    # pinning /api/health degraded forever. See app/match_status.py.
     load_structure(db_session)
     update_live_scores(db_session, _feed("IN_PLAY"))
     update_live_scores(db_session, _feed("SUSPENDED"))
+
+    m = _match_for(db_session, "Mexico", "South Africa")
+    assert m.status == "suspended"
+
+
+def test_rollout_gate_keeps_stopped_status_legacy_safe(db_session):
+    load_structure(db_session)
+    update_live_scores(db_session, _feed("SUSPENDED"), preserve_stopped_statuses=False)
 
     m = _match_for(db_session, "Mexico", "South Africa")
     assert m.status == "scheduled"
@@ -363,7 +377,8 @@ def test_deliberate_suspension_applies_even_from_an_older_snapshot(db_session):
         "POSTPONED", home=1, away=0, last_updated="2026-06-13T02:05:00Z"))
 
     m = _match_for(db_session, "Mexico", "South Africa")
-    assert m.status == "scheduled"
+    # Preserved, not flattened to "scheduled" — see the suspension test above.
+    assert m.status == "postponed"
 
 
 def test_partial_payload_does_not_blank_a_known_live_score(db_session):
@@ -799,6 +814,34 @@ def test_league_fetch_failure_isolated_per_league(db_session, monkeypatch):
     assert ucl.status == "finished"
     assert summary["leagues"]["ucl"]["finished"] == 1
     assert "error" in summary["leagues"]["laliga"]
+    assert summary["provider_attempts"] == 2
+    assert summary["provider_successes"] == 1
+    assert summary["degraded"] is True
+    assert summary["provider_unavailable"] is False
+
+
+def test_all_in_window_provider_fetches_fail_loudly(db_session, monkeypatch):
+    from app.config import settings as app_settings
+
+    now = datetime.now(timezone.utc)
+    _seed_league_fixture(db_session, "ucl", fid=9015,
+                         kickoff=now - timedelta(minutes=30))
+    _seed_league_fixture(db_session, "laliga", fid=9016,
+                         kickoff=now - timedelta(minutes=40),
+                         home="Eta CF", away="Theta CF")
+
+    monkeypatch.setattr(app_settings, "api_football_api_key", "af-key")
+    monkeypatch.setattr(
+        "pipeline.ingest.api_football.fetch_fixtures",
+        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("provider down")),
+    )
+
+    summary = refresh_live(db_session)
+
+    assert summary["provider_attempts"] == 2
+    assert summary["provider_successes"] == 0
+    assert summary["degraded"] is True
+    assert summary["provider_unavailable"] is True
 
 
 def test_league_pass_merges_with_active_legacy_provider(db_session, monkeypatch):

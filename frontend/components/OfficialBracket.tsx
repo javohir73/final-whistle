@@ -5,6 +5,7 @@ import { Flag } from "@/components/Flag";
 import { KO_TREE, FINAL_MATCH, THIRD_PLACE } from "@/lib/bracketStructure";
 import type { SideView, TieView } from "@/lib/officialBracket";
 import { cn } from "@/lib/utils";
+import { stoppedLabel } from "@/lib/matchStatus";
 
 const ROUND_LABEL: Record<string, string> = {
   r32: "Round of 32",
@@ -79,6 +80,7 @@ function SideRow({ s, accent }: { s: SideView; accent?: boolean }) {
 
 function TieCard({ v, roundLabel, accent }: { v: TieView; roundLabel: string; accent?: boolean }) {
   const live = v.state === "in_play";
+  const stopped = stoppedLabel(v.state);
   const body = (
     <div
       className={cn(
@@ -103,6 +105,10 @@ function TieCard({ v, roundLabel, accent }: { v: TieView; roundLabel: string; ac
         ) : v.state === "finished" ? (
           <span className={cn("rounded-full px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide", accent ? "bg-pitch-chip text-pitch-muted-ink" : "bg-surface-2/70 text-muted")}>
             FT
+          </span>
+        ) : stopped ? (
+          <span className={cn("rounded-full px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide", accent ? "bg-pitch-chip text-pitch-muted-ink" : "bg-surface-2/70 text-muted")}>
+            {stopped}
           </span>
         ) : null}
       </div>

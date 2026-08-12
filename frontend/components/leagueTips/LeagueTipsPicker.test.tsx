@@ -39,7 +39,7 @@ function mine(overrides: Partial<LeagueTipsMineResponse> = {}): LeagueTipsMineRe
       {
         id: 501, home: "Arsenal", away: "Chelsea", kickoff_utc: future(60), status: "scheduled",
         score_home: null, score_away: null,
-        model: { predicted_home: 2, predicted_away: 1, model_version: "poisson-elo-club-v0.1" },
+        model: null,
         your_prediction: null,
       },
     ],
@@ -48,16 +48,20 @@ function mine(overrides: Partial<LeagueTipsMineResponse> = {}): LeagueTipsMineRe
   };
 }
 
-it("submits the device id, match and full scoreline payload when a stepper is tapped", async () => {
+it("submits the composed score only when the reveal button is pressed", async () => {
   mockMine.mockResolvedValue(mine());
   mockSubmit.mockResolvedValue({
     ok: true, handle: "SwiftStriker42",
+    model: { predicted_home: 2, predicted_away: 1, model_version: "poisson-elo-club-v0.1" },
     prediction: { match_id: 501, predicted_home: 1, predicted_away: 0, updated_at: "2026-08-22T10:00:00+00:00" },
   });
 
   render(<LeagueTipsPicker league="epl" />);
   const group = await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
   fireEvent.click(within(group).getByRole("button", { name: "Increase Arsenal goals" }));
+
+  expect(mockSubmit).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: /Lock prediction and reveal model/i }));
 
   await waitFor(() =>
     expect(mockSubmit).toHaveBeenCalledWith("epl", {
@@ -67,6 +71,60 @@ it("submits the device id, match and full scoreline payload when a stepper is ta
   expect(mockPing).toHaveBeenCalled();
 });
 
+it("reveals the model scoreline only after a confirmed submit", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockResolvedValue({
+    ok: true,
+    handle: "SwiftStriker42",
+    model: { predicted_home: 2, predicted_away: 1, model_version: "poisson-elo-club-v0.1" },
+    prediction: {
+      match_id: 501,
+      predicted_home: 1,
+      predicted_away: 0,
+      updated_at: "2026-08-22T10:00:00+00:00",
+    },
+  });
+
+  render(<LeagueTipsPicker league="epl" />);
+  const group = await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
+  expect(screen.queryByText("ML model")).not.toBeInTheDocument();
+
+  fireEvent.click(within(group).getByRole("button", { name: "Increase Arsenal goals" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /Lock prediction and reveal model/i }));
+
+  expect(await screen.findByText("ML model")).toBeInTheDocument();
+  expect(screen.getByText("2–1")).toBeInTheDocument();
+  expect(screen.getByText(/prediction locked/i)).toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: /Arsenal vs Chelsea/i })).not.toBeInTheDocument();
+});
+
+it("withholds a model score leaked by an older backend for an unlocked unpicked match", async () => {
+  mockMine.mockResolvedValue(mine({
+    matches: [{
+      id: 501,
+      home: "Arsenal",
+      away: "Chelsea",
+      kickoff_utc: future(60),
+      status: "scheduled",
+      score_home: null,
+      score_away: null,
+      model: {
+        predicted_home: 2,
+        predicted_away: 1,
+        model_version: "poisson-elo-club-v0.1",
+      },
+      your_prediction: null,
+    }],
+  }));
+
+  render(<LeagueTipsPicker league="epl" />);
+  await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
+
+  expect(screen.queryByText("ML model")).not.toBeInTheDocument();
+  expect(screen.queryByText("2–1")).not.toBeInTheDocument();
+});
+
 it("shows both a home and away goals input for an unlocked fixture", async () => {
   mockMine.mockResolvedValue(mine());
   render(<LeagueTipsPicker league="epl" />);
@@ -74,7 +132,7 @@ it("shows both a home and away goals input for an unlocked fixture", async () =>
   expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
 });
 
-it("disables the decrement button at 0 goals and the increment button at 15", async () => {
+it("renders a previously submitted prediction as final with no editable controls", async () => {
   mockMine.mockResolvedValue(
     mine({
       matches: [
@@ -91,11 +149,9 @@ it("disables the decrement button at 0 goals and the increment button at 15", as
   );
 
   render(<LeagueTipsPicker league="epl" />);
-  await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
-  expect(screen.getByRole("button", { name: "Decrease Arsenal goals" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Increase Chelsea goals" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Increase Arsenal goals" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Decrease Chelsea goals" })).toBeEnabled();
+  expect(await screen.findByText(/You predicted/)).toBeInTheDocument();
+  expect(screen.getByText(/prediction locked/i)).toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: /Arsenal vs Chelsea/i })).not.toBeInTheDocument();
 });
 
 it("renders a kickoff-locked row frozen, with no picker controls", async () => {
@@ -119,6 +175,25 @@ it("renders a kickoff-locked row frozen, with no picker controls", async () => {
   expect(screen.getByText(/You predicted/)).toBeInTheDocument();
   expect(screen.getByText(/awaiting full time/)).toBeInTheDocument();
   expect(screen.queryByRole("group")).not.toBeInTheDocument();
+});
+
+it("reveals the model scoreline once the fixture is locked", async () => {
+  mockMine.mockResolvedValue(
+    mine({
+      matches: [
+        {
+          id: 502, home: "Arsenal", away: "Chelsea", kickoff_utc: past(10), status: "scheduled",
+          score_home: null, score_away: null,
+          model: { predicted_home: 2, predicted_away: 1, model_version: "poisson-elo-club-v0.1" },
+          your_prediction: null,
+        },
+      ],
+    }),
+  );
+
+  render(<LeagueTipsPicker league="epl" />);
+  expect(await screen.findByText("ML model")).toBeInTheDocument();
+  expect(screen.getByText("2–1")).toBeInTheDocument();
 });
 
 it("shows the no-prediction-submitted state for a locked match the device never predicted", async () => {
@@ -227,7 +302,42 @@ it("surfaces a rejected submit honestly and reverts the optimistic prediction", 
   render(<LeagueTipsPicker league="epl" />);
   const group = await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
   fireEvent.click(within(group).getByRole("button", { name: "Increase Arsenal goals" }));
+  fireEvent.click(screen.getByRole("button", { name: /Lock prediction and reveal model/i }));
 
   expect(await screen.findByText("Match 501 has kicked off and is locked.")).toBeInTheDocument();
-  expect(within(group).getByRole("spinbutton", { name: "Arsenal goals" })).toHaveValue(0);
+  await waitFor(() =>
+    expect(screen.getByRole("spinbutton", { name: "Arsenal goals" })).toHaveValue(0),
+  );
+  expect(screen.queryByText("ML model")).not.toBeInTheDocument();
+});
+
+it.each(["cancelled", "suspended"] as const)("locks a %s fixture and labels it", async (status) => {
+  mockMine.mockResolvedValue(
+    mine({
+      matches: [{
+        id: 505, home: "Arsenal", away: "Chelsea", kickoff_utc: future(60), status,
+        score_home: null, score_away: null, model: null, your_prediction: null,
+      }],
+    }),
+  );
+
+  render(<LeagueTipsPicker league="epl" />);
+  expect(await screen.findByText(status === "cancelled" ? "Cancelled" : "Suspended")).toBeInTheDocument();
+  expect(screen.queryByRole("group")).not.toBeInTheDocument();
+  expect(screen.getByText("No prediction submitted")).toBeInTheDocument();
+});
+
+it("keeps a postponed fixture editable after its original kickoff", async () => {
+  mockMine.mockResolvedValue(
+    mine({
+      matches: [{
+        id: 506, home: "Arsenal", away: "Chelsea", kickoff_utc: past(60), status: "postponed",
+        score_home: null, score_away: null, model: null, your_prediction: null,
+      }],
+    }),
+  );
+
+  render(<LeagueTipsPicker league="epl" />);
+  expect(await screen.findByText("Postponed")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: /Arsenal vs Chelsea/i })).toBeInTheDocument();
 });

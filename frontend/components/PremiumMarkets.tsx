@@ -13,6 +13,7 @@ import { PremiumGate } from "@/components/PremiumGate";
 import { BILLING_ENABLED } from "@/lib/constants";
 import { getPremiumMarkets, type PremiumMarkets as Payload } from "@/lib/session";
 import { pct, formatScore } from "@/lib/format";
+import type { CompetitionId } from "@/lib/sports";
 
 const TEASER_DISCLAIMER = "Not betting advice.";
 
@@ -204,16 +205,25 @@ export function PremiumMarkets({
   matchId,
   home,
   away,
+  competition,
+  returnTo,
 }: {
   matchId: number;
   home: string;
   away: string;
+  competition?: CompetitionId;
+  returnTo?: string;
 }) {
   const { user } = useAuth();
   const [data, setData] = useState<Payload | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // State belongs to one fixture only. Clear a previous success/failure as
+    // soon as the route reuses this component for another match so stale
+    // numbers never flash while the new request is in flight.
+    setData(null);
+    setFailed(false);
     // Billing off must behave exactly as if Premium never existed — even for
     // a session with a server-set premium:true (e.g. the flag gets flipped
     // off after subscriptions already exist). Never fire the entitled fetch
@@ -256,6 +266,12 @@ export function PremiumMarkets({
   }
 
   return (
-    <PremiumGate teaser={<MarketsTeaser home={home} away={away} />}>{null}</PremiumGate>
+    <PremiumGate
+      teaser={<MarketsTeaser home={home} away={away} />}
+      competition={competition}
+      returnTo={returnTo}
+    >
+      {null}
+    </PremiumGate>
   );
 }

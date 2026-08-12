@@ -206,3 +206,77 @@ def test_no_store_cache_headers(env):
     client, _ = env
     assert client.get("/api/match-picks/me").headers["cache-control"] == "no-store"
     assert client.post("/api/match-picks", json={"picks": []}).headers["cache-control"] == "no-store"
+
+
+# --- deliberate stops: add / change / REMOVE ---------------------------------
+# Both the upsert and the de-selection loop must use the same open/locked
+# predicate. They did not: after is_locked() landed on the upsert, the removal
+# loop still tested `status == "scheduled"` — so a postponed pick could be
+# edited but never deleted, which is a worse state than either rule alone.
+
+
+def _set_status(SessionF, match_id, status):
+    db = SessionF()
+    db.get(Match, match_id).status = status
+    db.commit()
+    db.close()
+
+
+def test_a_postponed_pick_can_be_added_changed_and_removed(env):
+    client, SessionF = env
+    ids = _group_match_ids(SessionF, 2)
+    _set_status(SessionF, ids[0], "postponed")
+
+    # add
+    r = client.post("/api/match-picks", json={"picks": [{"match_id": ids[0], "pick": "home"}]})
+    assert r.status_code == 200, r.text
+    assert _picks_by_match(r.json()) == {ids[0]: "home"}
+
+    # change
+    r = client.post("/api/match-picks", json={"picks": [{"match_id": ids[0], "pick": "draw"}]})
+    assert r.status_code == 200, r.text
+    assert _picks_by_match(r.json()) == {ids[0]: "draw"}
+
+    # remove — the half that was broken
+    r = client.post("/api/match-picks", json={"picks": []})
+    assert r.status_code == 200, r.text
+    assert _picks_by_match(r.json()) == {}
+
+
+@pytest.mark.parametrize("status", ["cancelled", "suspended", "in_play", "finished"])
+def test_other_stopped_statuses_stay_immutable(env, status):
+    client, SessionF = env
+    ids = _group_match_ids(SessionF, 1)
+
+    # Pick while it is still open, then stop the fixture.
+    assert client.post(
+        "/api/match-picks", json={"picks": [{"match_id": ids[0], "pick": "home"}]}
+    ).status_code == 200
+    _set_status(SessionF, ids[0], status)
+
+    # Editing is rejected...
+    assert client.post(
+        "/api/match-picks", json={"picks": [{"match_id": ids[0], "pick": "away"}]}
+    ).status_code == 422
+    # ...and de-selecting silently leaves it in place.
+    r = client.post("/api/match-picks", json={"picks": []})
+    assert r.status_code == 200, r.text
+    assert _picks_by_match(r.json()) == {ids[0]: "home"}
+
+
+def test_an_unknown_status_locks_by_default(env):
+    """Fail closed. A provider status nobody has mapped yet must not silently
+    become editable."""
+    client, SessionF = env
+    ids = _group_match_ids(SessionF, 1)
+    assert client.post(
+        "/api/match-picks", json={"picks": [{"match_id": ids[0], "pick": "home"}]}
+    ).status_code == 200
+    _set_status(SessionF, ids[0], "walkover_pending_appeal")
+
+    assert client.post(
+        "/api/match-picks", json={"picks": [{"match_id": ids[0], "pick": "away"}]}
+    ).status_code == 422
+    assert _picks_by_match(client.post("/api/match-picks", json={"picks": []}).json()) == {
+        ids[0]: "home"
+    }

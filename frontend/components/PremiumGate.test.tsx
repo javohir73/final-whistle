@@ -26,8 +26,16 @@ jest.mock("next/link", () => {
 });
 
 // BILLING_ENABLED is read at import time — evaluate per-test via isolateModules.
-function renderGate(billingEnabled: boolean) {
-  let Gate: React.ComponentType<{ teaser: React.ReactNode; children: React.ReactNode }> =
+function renderGate(
+  billingEnabled: boolean,
+  context?: { competition: "epl"; returnTo: string },
+) {
+  let Gate: React.ComponentType<{
+    teaser: React.ReactNode;
+    children: React.ReactNode;
+    competition?: "epl";
+    returnTo?: string;
+  }> =
     () => null;
   jest.isolateModules(() => {
     jest.doMock("@/lib/constants", () => ({
@@ -37,7 +45,7 @@ function renderGate(billingEnabled: boolean) {
     Gate = require("./PremiumGate").PremiumGate;
   });
   return render(
-    <Gate teaser={<div>teaser here</div>}>
+    <Gate teaser={<div>teaser here</div>} {...context}>
       <div>secret markets</div>
     </Gate>,
   );
@@ -68,7 +76,17 @@ describe("PremiumGate", () => {
     renderGate(true);
     expect(screen.getByText("teaser here")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /create a free account/i }));
-    expect(openSignIn).toHaveBeenCalledWith({ mode: "signup" });
+    expect(openSignIn).toHaveBeenCalledWith({ mode: "signup", onSuccess: expect.any(Function) });
+  });
+
+  it("keeps the match context in upgrade links", () => {
+    mockUseAuth.mockReturnValue({ user: { id: 1, premium: false }, loading: false,
+                                  openSignIn: jest.fn() });
+    renderGate(true, { competition: "epl", returnTo: "/football/epl/match/105" });
+    expect(screen.getByRole("link", { name: /premium/i })).toHaveAttribute(
+      "href",
+      "/premium?competition=epl&returnTo=%2Ffootball%2Fepl%2Fmatch%2F105",
+    );
   });
 
   it("renders nothing when billing is disabled", () => {

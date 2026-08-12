@@ -8,6 +8,7 @@ import { kickoffDate, kickoffTime, tzAbbrev } from "@/lib/datetime";
 import { pct, formatScore } from "@/lib/format";
 import { liveLabel, penaltyTally, isLiveNow } from "@/lib/liveLabel";
 import { predictionVerdict } from "@/lib/verdict";
+import { stoppedLabel } from "@/lib/matchStatus";
 import { ShootoutNote, BasisTag, KnockoutDrawNote } from "@/components/ShootoutNote";
 import { KnockoutAdvanceCard } from "@/components/KnockoutAdvanceCard";
 import type { KnockoutAdvance, MatchSummary, PredictedScore, Probabilities, GoalEvent, CardEvent } from "@/lib/types";
@@ -113,7 +114,14 @@ export function MatchScoreboard({
   const kickoff = kickoffUtc
     ? `${kickoffDate(kickoffUtc, tz)} · ${kickoffTime(kickoffUtc, tz)} ${tzAbbrev(kickoffUtc, tz)}`.trim()
     : null;
-  const statusLine = kickoff && venue ? `${kickoff} · ${venue}` : kickoff ?? venue ?? null;
+  // A deliberately stopped fixture must say so. These used to be flattened into
+  // "scheduled" by both ingest paths, so a postponed match rendered as an
+  // ordinary upcoming one — counting down to a kickoff that will not happen.
+  // The original date stays on the line (it is what was scheduled, and it is
+  // real), led by the state that overrides it.
+  const stopped = stoppedLabel(summary?.status);
+  const statusLine =
+    [stopped, kickoff, venue].filter(Boolean).join(" · ") || null;
 
   return (
     <>

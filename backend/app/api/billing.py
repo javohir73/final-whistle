@@ -10,6 +10,8 @@ like today's site.
 """
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -22,6 +24,33 @@ from app.models import AppUser, Subscription
 from app.security import require_same_origin
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
+
+_COMPETITION_BASE_PATHS = {
+    "epl": "/football/epl",
+    "laliga": "/football/laliga",
+    "bundesliga": "/football/bundesliga",
+    "ucl": "/football/ucl",
+    "wc26": "/football/wc26",
+    "nrl": "/nrl",
+}
+
+
+def _safe_return_path(value: str | None, competition: str | None) -> str | None:
+    """Accept only ordinary paths inside the selected competition namespace.
+
+    A leading slash check is insufficient in browsers: WHATWG treats
+    ``/\\evil.example`` as a cross-origin network path. Restricting the
+    alphabet and namespace also rejects encoded/double-encoded separator
+    tricks, query strings, and fragments — none are needed by our callers.
+    """
+    if not value or not competition or len(value) > 512:
+        return None
+    if any(not (ch.isascii() and (ch.isalnum() or ch in "/_-")) for ch in value):
+        return None
+    base = _COMPETITION_BASE_PATHS[competition]
+    if value != base and not value.startswith(base + "/"):
+        return None
+    return value
 
 
 def _require_billing_enabled() -> None:
@@ -180,14 +209,25 @@ def create_checkout_session(payload: schemas.CheckoutSessionIn,
     # fell back to here must not lose their trial.
     if billing.trial_eligible(sub):
         subscription_data["trial_period_days"] = 7
+    context: dict[str, str] = {}
+    if payload.competition is not None:
+        context["competition"] = payload.competition
+    # This value returns only as an encoded link on our own Premium page, but
+    # validate it at both boundaries anyway so it can never become an open
+    # redirect if the page behavior changes later.
+    safe_return_to = _safe_return_path(payload.return_to, payload.competition)
+    if safe_return_to:
+        context["returnTo"] = safe_return_to
+    success_query = urlencode({"checkout": "success", **context})
+    cancel_query = urlencode({"checkout": "cancelled", **context})
     kwargs: dict = dict(
         api_key=settings.stripe_secret_key,
         mode="subscription",
         line_items=[{"price": price, "quantity": 1}],
         subscription_data=subscription_data,
         client_reference_id=str(user.id),
-        success_url=f"{settings.public_base_url}/premium?checkout=success",
-        cancel_url=f"{settings.public_base_url}/premium?checkout=cancelled",
+        success_url=f"{settings.public_base_url}/premium?{success_query}",
+        cancel_url=f"{settings.public_base_url}/premium?{cancel_query}",
     )
     if sub is not None and sub.stripe_customer_id:
         kwargs["customer"] = sub.stripe_customer_id

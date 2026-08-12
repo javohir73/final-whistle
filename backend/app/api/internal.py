@@ -100,6 +100,22 @@ def refresh_live(
     # cache — an idle 1-minute ping must not keep the cache permanently cold.
     if summary.get("updated") or summary.get("post_results"):
         cache.clear()
+    if summary.get("provider_unavailable"):
+        raise HTTPException(status_code=503, detail={
+            "code": "live_provider_unavailable",
+            "message": "Every in-window live-score provider request failed.",
+            "live": summary,
+        })
+    if summary.get("degraded"):
+        # Successful leagues are already committed, but a non-2xx response is
+        # deliberate: GitHub's curl-based cron must go red when even one
+        # in-window competition failed instead of blessing partial data as a
+        # green run merely because another competition updated.
+        raise HTTPException(status_code=503, detail={
+            "code": "live_provider_degraded",
+            "message": "At least one in-window live-score provider request failed.",
+            "live": summary,
+        })
     return {"status": "ok", "live": summary}
 
 

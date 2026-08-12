@@ -99,3 +99,14 @@ it("re-fetches the weekly board when the matchweek prop changes", async () => {
   expect(await screen.findByText("11 playing this matchweek")).toBeInTheDocument();
   expect(mockLeaderboard).toHaveBeenCalledWith("epl", 2);
 });
+
+it("supports a season-only You view without fetching a guessed matchweek", async () => {
+  mockSeasonLeaderboard.mockResolvedValue({ league: "laliga", participant_count: 0, entries: [] });
+
+  render(<LeagueTipsLeaderboard league="laliga" seasonOnly />);
+
+  expect(await screen.findByText("0 playing this season")).toBeInTheDocument();
+  expect(mockSeasonLeaderboard).toHaveBeenCalledWith("laliga");
+  expect(mockLeaderboard).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Weekly" })).toBeNull();
+});

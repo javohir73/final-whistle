@@ -5,8 +5,10 @@ import { ProbabilityBar } from "@/components/ProbabilityBar";
  *  the market-consensus implied probabilities (median across bookmakers,
  *  margin removed). Renders nothing until an odds snapshot exists for the
  *  match. Probabilities only — no prices, no bookmaker names, and the
- *  standing not-betting-advice framing. (Distinct from MarketComparison,
- *  the methodology page's aggregate benchmark table.) */
+ *  standing not-betting-advice framing. When no snapshot exists, say so
+ *  explicitly instead of making the whole section silently disappear.
+ *  (Distinct from MarketComparison, the methodology page's aggregate
+ *  benchmark table.) */
 export function ModelVsMarket({
   prediction,
   home,
@@ -17,7 +19,19 @@ export function ModelVsMarket({
   away: string;
 }) {
   const oc = prediction.odds_comparison;
-  if (!oc?.available || !oc.market) return null;
+  if (!oc?.available || !oc.market) {
+    return (
+      <section className="glass rounded-2xl p-6">
+        <h2 className="mb-1 font-display text-lg font-bold text-foreground">
+          Model vs market
+        </h2>
+        <p className="text-sm leading-relaxed text-muted">
+          Market consensus is not available for this fixture yet. The comparison appears once
+          enough current bookmaker snapshots have been captured.
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="glass rounded-2xl p-6">
       <h2 className="mb-1 font-display text-lg font-bold text-foreground">

@@ -18,9 +18,10 @@ nrl_intel.py / nrl_live.py, and activity.py's own _DEVICE_ID_RE). POST
 /api/nrl/tips/claim already claims a device's rows in this table too (see
 its second reassign/dedupe loop, added for this table).
 
-INTEGRITY: a prediction is rejected once its match's kickoff_utc has passed,
-by the server clock only -- mirrors nrl_user_tips.submit_tip exactly. Until
-then a device may change its scoreline freely (upsert on (match_id, player)).
+INTEGRITY: the first accepted prediction is final. Submitting it reveals the
+model's frozen scoreline, so allowing later edits would let a player copy the
+model before kickoff. Kickoff/status locking remains a second server-side
+guard for devices that have not submitted.
 
 Grading (points/exact/graded_at on LeagueScorePrediction) is a SEPARATE,
 pipeline-owned pass (mirrors pipeline.sports.nrl_user_tips.grade()) --
@@ -45,6 +46,7 @@ from sqlalchemy.orm import Session, aliased, undefer
 from app import schemas
 from app.api.auth import _email_action_rate_limited
 from app.db import get_db
+from app.match_status import IN_PLAY, SCHEDULED, is_locked
 from app.models import EmailActionAttempt, LeagueScorePrediction, Match, Prediction, Team, TipPlayer, Tournament
 from app.security import client_ip, hash_ip, require_same_origin, to_aware_utc
 from pipeline.leagues import LEAGUES as _PIPELINE_LEAGUES
@@ -63,7 +65,7 @@ _DEVICE_ID_RE = re.compile(
 
 # A matchweek is ~9-10 fixtures for any of these leagues (Bundesliga 18
 # teams/9 fixtures, EPL/La Liga 20 teams/10) and a prediction can be revised
-# freely until kickoff, so the cap is generous (same magnitude as
+# once per fixture, so the cap is generous (same magnitude as
 # nrl_user_tips._SUBMIT_MAX) -- this exists to stop a scripted flood, not to
 # limit normal matchweek-by-matchweek play. Scoped per-league (action string
 # includes the league code) so one league's traffic never eats another's
@@ -181,15 +183,47 @@ def _kickoff_locked_prediction(preds_by_match: dict[int, list[Prediction]], m: M
     return candidates[0] if candidates else None
 
 
+def _match_locked(m: Match, now: datetime) -> bool:
+    """Server-authoritative tips lock.
+
+    Status wins over the listed kickoff: postponed remains editable after its
+    original date, while cancelled/suspended/in-play/finished and unknown
+    provider states fail closed. A scheduled fixture still locks at kickoff.
+    """
+    if m.score_home is not None and m.score_away is not None:
+        return True
+    if is_locked(m.status):
+        return True
+    return (
+        m.status == SCHEDULED
+        and m.kickoff_utc is not None
+        and now >= to_aware_utc(m.kickoff_utc)
+    )
+
+
+def _model_out(pred: Prediction | None) -> dict | None:
+    if pred is None:
+        return None
+    return {
+        "predicted_home": pred.predicted_score_home,
+        "predicted_away": pred.predicted_score_away,
+        "model_version": pred.model_version,
+    }
+
+
 def _current_matchweek(db: Session, tournament_id: int) -> int | None:
-    """Matchweek containing the earliest still-scheduled match; if the whole
+    """Matchweek containing the earliest playable match; if the whole
     tournament is finished (or nothing has a matchweek yet), the latest
     matchweek that has any match at all. Same rule shape as nrl_tips.
     _current_round, scoped to tournament_id instead of (sport, season) since
-    one Tournament row already IS one season for a football league."""
+    one Tournament row already IS one season for a football league.
+
+    Postponed/suspended fixtures are intentionally excluded until the provider
+    gives them a new playable state. Otherwise an old stopped fixture pins the
+    Play page to its original matchweek indefinitely."""
     upcoming = (
         db.query(Match.matchweek)
-        .filter(Match.tournament_id == tournament_id, Match.status != "finished",
+        .filter(Match.tournament_id == tournament_id, Match.status.in_((SCHEDULED, IN_PLAY)),
                 Match.matchweek.isnot(None))
         .order_by(Match.kickoff_utc.is_(None), Match.kickoff_utc.asc(), Match.id.asc())
         .first()
@@ -255,9 +289,12 @@ def submit_prediction(
     league: str, payload: schemas.LeagueScorePredictionSubmitIn, request: Request,
     db: Session = Depends(get_db),
 ):
-    """Upsert one device's scoreline guess for one match. A device may change
-    its prediction freely until the match's kickoff_utc -- checked against
-    the server clock, never the client's -- after which it's frozen."""
+    """Save one device's final scoreline guess for one match.
+
+    The accepted response reveals the model score, so the first saved guess is
+    immutable even before kickoff. This is enforced here, never by trusting
+    the browser. Kickoff/status locking independently rejects late first picks.
+    """
     tournament = _resolve_league(db, league)
 
     device_id = payload.device_id
@@ -289,8 +326,7 @@ def submit_prediction(
     # Belt-and-braces on top of the kickoff comparison below: a match that's
     # already finished (or already has a final score) is locked even if its
     # kickoff_utc is somehow missing -- mirrors nrl_user_tips.submit_tip.
-    already_played = m.status == "finished" or (m.score_home is not None and m.score_away is not None)
-    if already_played or (m.kickoff_utc is not None and now >= to_aware_utc(m.kickoff_utc)):
+    if _match_locked(m, now):
         raise HTTPException(status_code=422, detail={
             "code": "match_locked",
             "message": f"Match {m.id} has kicked off and is locked.",
@@ -298,6 +334,11 @@ def submit_prediction(
 
     player = _get_or_create_player(db, device_id)
     pred = _find_prediction(db, m.id, player.id)
+    if pred is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "prediction_finalized",
+            "message": "Your prediction is final because the model score has been revealed.",
+        })
     if pred is None:
         pred = LeagueScorePrediction(
             tournament_id=tournament.id, match_id=m.id, player_id=player.id,
@@ -309,25 +350,26 @@ def submit_prediction(
             db.commit()
         except IntegrityError:
             # Lost a race with a concurrent first prediction for this (match,
-            # player) -- the row exists either way; re-read it (directly, not
-            # via _find_prediction -- see _get_or_create_player) and apply
-            # this request's guess as the update, same idempotent-success
-            # idiom as nrl_user_tips.submit_tip.
+            # player). The other accepted request already revealed the model,
+            # so its score must win; never overwrite it with the racing request.
             db.rollback()
-            pred = db.query(LeagueScorePrediction).filter_by(match_id=m.id, player_id=player.id).one()
-            pred.predicted_home = payload.predicted_home
-            pred.predicted_away = payload.predicted_away
-            pred.updated_at = now
-            db.commit()
-    else:
-        pred.predicted_home = payload.predicted_home
-        pred.predicted_away = payload.predicted_away
-        pred.updated_at = now
-        db.commit()
+            raise HTTPException(status_code=409, detail={
+                "code": "prediction_finalized",
+                "message": "Your prediction is final because the model score has been revealed.",
+            })
+
+    model_rows = (
+        db.query(Prediction)
+        .filter(Prediction.match_id == m.id, Prediction.is_shadow.is_(False))
+        .order_by(Prediction.created_at.desc(), Prediction.id.desc())
+        .all()
+    )
+    model = _kickoff_locked_prediction({m.id: model_rows}, m)
 
     return {
         "ok": True,
         "handle": player.handle,
+        "model": _model_out(model),
         "prediction": {
             "match_id": m.id,
             "predicted_home": pred.predicted_home,
@@ -396,16 +438,11 @@ def my_predictions(league: str, device_id: str, matchweek: int | None = None, db
             yours_by_match[pr.match_id] = pr
 
     matches_out = []
+    now = datetime.now(timezone.utc)
     for m, home_name, away_name in rows:
         pred = _kickoff_locked_prediction(preds_by_match, m)
-        model_out = None
-        if pred is not None:
-            model_out = {
-                "predicted_home": pred.predicted_score_home,
-                "predicted_away": pred.predicted_score_away,
-                "model_version": pred.model_version,
-            }
         yours = yours_by_match.get(m.id)
+        model_out = _model_out(pred) if yours is not None or _match_locked(m, now) else None
         your_out = None
         if yours is not None:
             your_out = {

@@ -1,7 +1,8 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { BrandMark, Wordmark } from "@/components/Logo";
 import { NavIcon } from "@/components/NavIcon";
 import { AuthButton } from "@/components/AuthButton";
@@ -52,7 +53,13 @@ const hit = (pathname: string, prefix: string) =>
  *  a subscriber, mid session-check, or when billing is off — which is why the
  *  overflow this element contributes only ever appeared on a configured
  *  production deploy, and never locally with billing off. */
-function PremiumNavLink() {
+function PremiumNavLink({
+  competition,
+  returnTo,
+}: {
+  competition?: string;
+  returnTo?: string;
+}) {
   const { user, loading } = useAuth();
   if (!BILLING_ENABLED || loading) return null;
 
@@ -65,10 +72,14 @@ function PremiumNavLink() {
   // banner renders, so a subscriber whose card had just failed was shown that
   // warning on a page they could no longer navigate to.
   const subscribed = Boolean(user?.premium);
+  const query = new URLSearchParams();
+  if (competition) query.set("competition", competition);
+  if (returnTo) query.set("returnTo", returnTo);
+  const premiumHref = query.toString() ? `/premium?${query}` : "/premium";
 
   return (
     <Link
-      href="/premium"
+      href={premiumHref}
       // Accessible name stays "Premium" in both states — the destination is the
       // same page and an aria-label that varies by entitlement would just make
       // the control harder to refer to. Membership is marked visually (a ring)
@@ -90,6 +101,23 @@ function PremiumNavLink() {
  *  The link row is hidden on mobile (`hidden sm:flex`) — there the bottom tab
  *  bar handles navigation. */
 export function SiteNav() {
+  return (
+    <Suspense fallback={<SiteNavContent queryCompetition={null} />}>
+      <SiteNavWithCompetition />
+    </Suspense>
+  );
+}
+
+function SiteNavWithCompetition() {
+  const requested = useSearchParams().get("competition");
+  return (
+    <SiteNavContent
+      queryCompetition={requested && requested in COMPETITIONS ? requested : null}
+    />
+  );
+}
+
+function SiteNavContent({ queryCompetition }: { queryCompetition: string | null }) {
   // Through normalizePathname: the raw value is "/index" during the root
   // route's ISR revalidation, which would flip the whole bar into WC26
   // competition mode server-side and break hydration.
@@ -102,6 +130,9 @@ export function SiteNav() {
   // Tips (league-format only) takes the slot Bracket vacates -- see
   // requiresLeagueFormat's doc comment in lib/sports.ts.
   const isPlatformRoute = isPlatformPathname(pathname);
+  const competition = isPlatformRoute
+    ? queryCompetition
+    : competitionFromPathname(pathname);
   const links = isPlatformRoute
     ? PLATFORM_LINKS
     : COMPETITIONS[competitionFromPathname(pathname)].navLinks.filter(
@@ -141,7 +172,7 @@ export function SiteNav() {
             return (
               <Link
                 key={link.href}
-                href={link.href}
+                href={contextualHref(link.href, competition)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition",
@@ -157,10 +188,18 @@ export function SiteNav() {
           })}
         </div>
 
-        <PremiumNavLink />
+        <PremiumNavLink
+          competition={competition ?? undefined}
+          returnTo={competition && !isPlatformRoute ? pathname : undefined}
+        />
         <ThemeToggle />
         <AuthButton />
       </nav>
     </header>
   );
+}
+
+function contextualHref(href: string, competition: string | null): string {
+  if (!competition || (href !== "/play" && href !== "/leaderboard")) return href;
+  return `${href}?competition=${competition}`;
 }

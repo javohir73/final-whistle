@@ -64,6 +64,62 @@ describe("PremiumClient", () => {
       expect(assignSpy).toHaveBeenCalledWith("https://checkout.stripe.test/x"));
   });
 
+  it("carries a validated competition and return path through hosted Checkout", async () => {
+    mockParams = new URLSearchParams(
+      "competition=laliga&returnTo=%2Ffootball%2Flaliga%2Fmatch%2F8",
+    );
+    mockUseAuth.mockReturnValue({ user: { id: 1, premium: false }, loading: false,
+                                  openSignIn: jest.fn(), refresh: jest.fn() });
+    mockCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/context" });
+    const assignSpy = jest.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign: assignSpy }, writable: true, configurable: true,
+    });
+
+    render(<PremiumClient />);
+    fireEvent.click(screen.getByRole("button", { name: /start free trial/i }));
+
+    await waitFor(() => expect(mockCheckout).toHaveBeenCalledWith("monthly", {
+      competition: "laliga",
+      returnTo: "/football/laliga/match/8",
+    }));
+  });
+
+  it("offers a safe route back to the selected competition after activation", () => {
+    mockParams = new URLSearchParams(
+      "checkout=success&competition=epl&returnTo=%2Ffootball%2Fepl%2Fmatch%2F105",
+    );
+    mockUseAuth.mockReturnValue({ user: { id: 1, premium: true }, loading: false,
+                                  openSignIn: jest.fn(), refresh: jest.fn() });
+
+    render(<PremiumClient />);
+
+    expect(screen.getByRole("link", { name: /Back to Premier League/i })).toHaveAttribute(
+      "href",
+      "/football/epl/match/105",
+    );
+  });
+
+  it.each(["/\\evil.example/steal", "/%5C%5Cevil.example/steal", "/football/nrl"])(
+    "rejects unsafe or cross-competition return path %s",
+    (returnTo) => {
+      mockParams = new URLSearchParams({
+        checkout: "success",
+        competition: "epl",
+        returnTo,
+      });
+      mockUseAuth.mockReturnValue({ user: { id: 1, premium: true }, loading: false,
+                                    openSignIn: jest.fn(), refresh: jest.fn() });
+
+      render(<PremiumClient />);
+
+      expect(screen.getByRole("link", { name: /Back to Premier League/i })).toHaveAttribute(
+        "href",
+        "/football/epl",
+      );
+    },
+  );
+
   it("checks out the annual plan once selected", async () => {
     mockUseAuth.mockReturnValue({ user: { id: 1, premium: false }, loading: false,
                                   openSignIn: jest.fn(), refresh: jest.fn() });

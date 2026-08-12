@@ -63,6 +63,28 @@ describe("MatchCard (full variant, default)", () => {
     expect(screen.getByText("34'")).toBeInTheDocument();
     expect(screen.getByLabelText(/Live, 34'/)).toBeInTheDocument();
   });
+
+  it("labels a postponed fixture without showing its stale kickoff", () => {
+    render(
+      <MatchCard
+        match={makeMatch({ status: "postponed", kickoff_utc: "2026-08-21T19:00:00Z" })}
+        tz="UTC"
+      />,
+    );
+
+    expect(screen.getByText("Postponed")).toBeInTheDocument();
+    expect(screen.queryByText("19:00")).not.toBeInTheDocument();
+  });
+
+  it.each(["cancelled", "suspended"] as const)(
+    "labels %s and suppresses the model scoreline",
+    (status) => {
+      render(<MatchCard match={makeMatch({ status })} tz="UTC" />);
+
+      expect(screen.getByText(status === "cancelled" ? "Cancelled" : "Suspended")).toBeInTheDocument();
+      expect(screen.queryByText("2–0")).not.toBeInTheDocument();
+    },
+  );
 });
 
 describe("MatchCard (variant=\"compact\")", () => {
@@ -85,6 +107,17 @@ describe("MatchCard (variant=\"compact\")", () => {
 
     const lead = screen.getByText("72%");
     expect(lead).toHaveClass("text-lime-deep");
+  });
+
+  it("shows Venue TBC when the provider has not confirmed a stadium", () => {
+    render(
+      <MatchCard
+        match={makeMatch({ venue: null, venue_city: null, venue_country: null })}
+        variant="compact"
+      />,
+    );
+
+    expect(screen.getByText(/Venue TBC/)).toBeInTheDocument();
   });
 
   it("shows a muted lead percentage when no side clears 60%", () => {

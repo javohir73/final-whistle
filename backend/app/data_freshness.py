@@ -16,7 +16,16 @@ it a further hour of slack. Past that bound:
 * a row still ``scheduled`` is equally impossible — it kicked off and we never
   heard (the freshness check).
 
-Neither needs a schema change, a provider call, or a new column to write, so
+"Impossible" depends entirely on the status meaning what it says, which is why
+app/match_status.py exists. A postponed fixture keeps its ORIGINAL kickoff, and
+while both ingest paths flattened postponed/cancelled/suspended into
+``scheduled`` this detector would have called every one of them impossible four
+hours later — pinning /api/health degraded and smoke red after any ordinary
+postponement, with nothing able to clear it. Deliberate stops are excluded here
+because the provider TOLD us the match is not proceeding; that is ingested fact,
+not a feed that went quiet.
+
+Neither check needs a schema change, a provider call, or a new column to write, so
 this runs safely inside /api/health on a request path. Deliberately imports
 only app.models, matching app/chain_status.py's note about staying importable
 without pulling the pipeline in.
@@ -27,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from app.match_status import AWAITING_KICKOFF, IN_PLAY, SCHEDULED
 from app.models import Match, Tournament
 
 #: Hours after kickoff past which a match cannot still be running. 90' + HT +
@@ -36,7 +46,14 @@ from app.models import Match, Tournament
 MATCH_MAX_DURATION_HOURS = 4.0
 
 #: Statuses that must not outlive MATCH_MAX_DURATION_HOURS past kickoff.
-_UNFINISHED = ("in_play", "scheduled")
+#:
+#: Excludes every DELIBERATE_STOP (postponed / cancelled / suspended). Those
+#: legitimately sit at an old kickoff forever — the provider told us the match
+#: is not proceeding, which is ingested FACT, not a feed that went quiet. Before
+#: app/match_status.py preserved them they were flattened into "scheduled", so
+#: one ordinary weather postponement would have pinned /api/health degraded and
+#: smoke red permanently, with nothing able to clear it.
+_UNFINISHED = tuple(sorted({IN_PLAY} | AWAITING_KICKOFF))
 
 
 def _horizon(now: datetime | None, grace_hours: float) -> tuple[datetime, datetime]:
@@ -116,7 +133,7 @@ def coverage_gaps(
     imminent = (
         db.query(Match)
         .filter(
-            Match.status == "scheduled",
+            Match.status == SCHEDULED,
             Match.kickoff_utc.isnot(None),
             Match.kickoff_utc >= _now,
             Match.kickoff_utc <= horizon,
@@ -174,8 +191,8 @@ def data_status(
         # Split the two causes: a stuck in_play row is a live-feed fault, a
         # stuck scheduled row means the daily ingest never ran or ingested
         # nothing. They page different people.
-        in_play = [m for m in stuck if m["status"] == "in_play"]
-        scheduled = [m for m in stuck if m["status"] == "scheduled"]
+        in_play = [m for m in stuck if m["status"] == IN_PLAY]
+        scheduled = [m for m in stuck if m["status"] == SCHEDULED]
         if in_play:
             degradations.append({
                 "kind": "stale_live_match",

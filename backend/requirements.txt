@@ -1,5 +1,5 @@
 # Web framework
-fastapi==0.115.6
+fastapi==0.141.1
 uvicorn[standard]==0.34.0
 
 # Database
@@ -24,8 +24,8 @@ stripe==12.4.0
 pandas==2.2.3
 numpy==2.2.1
 scikit-learn==1.6.0
-requests==2.32.3
+requests==2.33.0
 
 # Testing
-pytest==8.3.4
+pytest==9.0.3
 httpx==0.28.1  # FastAPI TestClient dependency

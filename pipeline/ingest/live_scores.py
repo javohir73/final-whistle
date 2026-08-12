@@ -31,12 +31,20 @@ _WINDOW_AHEAD = timedelta(minutes=5)  # kicking off imminently → flip promptly
 
 def live_window_clause(now: datetime):
     """SQLAlchemy predicate: matches whose live state could be changing — in
-    play, or scheduled with a kickoff in the recent past / imminent future
-    (covering the scheduled→in-play transition our DB hasn't seen yet)."""
+    play, or awaiting/stopped with a kickoff in the recent past / imminent
+    future (covering the scheduled→in-play transition our DB hasn't seen yet).
+
+    Suspended and postponed fixtures are candidates too. They used to arrive
+    here as "scheduled" and so were swept in for free; now that the status is
+    preserved they have to be named, or a resumed abandoned match — or one
+    reinstated after a postponement — would never be looked at again and would
+    sit in its stopped state permanently."""
+    from app.match_status import IN_PLAY, LIVE_CANDIDATE
+
     return or_(
-        Match.status == "in_play",
+        Match.status == IN_PLAY,
         and_(
-            Match.status == "scheduled",
+            Match.status.in_(sorted(LIVE_CANDIDATE - {IN_PLAY})),
             Match.kickoff_utc.isnot(None),
             Match.kickoff_utc >= now - _WINDOW_BACK,
             Match.kickoff_utc <= now + _WINDOW_AHEAD,
@@ -56,14 +64,19 @@ _STATUS_MAP = {
     "PAUSED": "in_play",   # a break (half-time / before-ET / ET-break) — still live
     "FINISHED": "finished",
     "AWARDED": "finished",
-    "SUSPENDED": "scheduled",
-    "POSTPONED": "scheduled",
-    "CANCELLED": "scheduled",
+    # Preserved rather than flattened into "scheduled" — see
+    # app/match_status.py. A postponed fixture kept its original kickoff and
+    # read as "scheduled", so the freshness detector rightly called that state
+    # impossible and /api/health stayed degraded for good after any ordinary
+    # postponement.
+    "SUSPENDED": "suspended",
+    "POSTPONED": "postponed",
+    "CANCELLED": "cancelled",
 }
 
 # Raw statuses that mean "hasn't kicked off yet" — unlike the deliberate
-# not-playing states (SUSPENDED/POSTPONED/CANCELLED) that also map to
-# "scheduled" but must always be applied.
+# not-playing states (SUSPENDED/POSTPONED/CANCELLED), which are preserved as
+# distinct internal states and must always be applied.
 _NOT_STARTED = frozenset({"SCHEDULED", "TIMED"})
 
 # Deliberate not-playing transitions: a match is genuinely pulled off the board.
@@ -315,7 +328,12 @@ def _pick_minute(feed_minute: object, kickoff: datetime | None) -> int | None:
     return estimate_minute(kickoff)
 
 
-def update_live_scores(db: Session, api_matches: list[dict]) -> dict:
+def update_live_scores(
+    db: Session,
+    api_matches: list[dict],
+    *,
+    preserve_stopped_statuses: bool = True,
+) -> dict:
     """Apply fetched match states to our DB. Returns a small summary."""
     index = _index_by_pair(db)
     # Secondary index keyed on provider_fixture_id for KO rows that have been
@@ -354,6 +372,10 @@ def update_live_scores(db: Session, api_matches: list[dict]) -> dict:
             log.warning("ignoring unknown feed status %r for %s vs %s",
                         raw_status, home_name, away_name)
             continue
+        if not preserve_stopped_statuses and status in {
+            "postponed", "cancelled", "suspended",
+        }:
+            status = "scheduled"
 
         # Freshness guard: the feed is served by load-balanced caches that can
         # lag each other. `lastUpdated` is a per-match version stamp — never let
@@ -562,8 +584,10 @@ def _refresh_league_live(db: Session, now: datetime | None = None) -> dict:
     from pipeline.ingest.api_football import attach_events, fetch_fixtures, to_feed
 
     total: dict = {"updated": 0, "live": 0, "finished": 0, "newly_finished": 0,
+                   "provider_attempts": 0, "provider_successes": 0,
                    "leagues": {}}
     for target in targets:
+        total["provider_attempts"] += 1
         try:
             feed = attach_events(
                 db,
@@ -572,13 +596,36 @@ def _refresh_league_live(db: Session, now: datetime | None = None) -> dict:
             )
         except Exception as exc:  # noqa: BLE001 — one league's feed hiccup is isolated
             log.warning("league live fetch failed for %s: %s", target["code"], exc)
-            total["leagues"][target["code"]] = {"error": str(exc)}
+            failure = {"error": str(exc)}
+            try:
+                from pipeline.ingest.provider_errors import ProviderError
+                if isinstance(exc, ProviderError):
+                    failure["provider_error"] = exc.kind
+            except ImportError:
+                pass
+            total["leagues"][target["code"]] = failure
             continue
-        summary = update_live_scores(db, feed)
+        total["provider_successes"] += 1
+        summary = update_live_scores(
+            db,
+            feed,
+            preserve_stopped_statuses=settings.preserve_match_stop_statuses,
+        )
         total["leagues"][target["code"]] = summary
         for k in ("updated", "live", "finished", "newly_finished"):
             total[k] += summary.get(k, 0)
+    _set_provider_health(total)
     return total
+
+
+def _set_provider_health(summary: dict) -> None:
+    """Attach stable monitoring fields without mistaking an idle tick for an
+    outage. A partial pass stays usable but degraded; zero successful calls
+    after at least one attempt is unavailable and must fail the HTTP cron."""
+    attempts = int(summary.get("provider_attempts", 0))
+    successes = int(summary.get("provider_successes", 0))
+    summary["degraded"] = attempts > successes
+    summary["provider_unavailable"] = attempts > 0 and successes == 0
 
 
 def refresh_live(db: Session, api_key: str | None = None, competition: str | None = None) -> dict:
@@ -596,6 +643,15 @@ def refresh_live(db: Session, api_key: str | None = None, competition: str | Non
         return legacy_summary
     merged = dict(league_summary)
     merged["legacy"] = legacy_summary
+    merged["provider_attempts"] = (
+        league_summary.get("provider_attempts", 0)
+        + legacy_summary.get("provider_attempts", 0)
+    )
+    merged["provider_successes"] = (
+        league_summary.get("provider_successes", 0)
+        + legacy_summary.get("provider_successes", 0)
+    )
+    _set_provider_health(merged)
     if not (legacy_summary.get("skipped") or legacy_summary.get("error")):
         for k in ("updated", "live", "finished", "newly_finished"):
             merged[k] = merged.get(k, 0) + legacy_summary.get(k, 0)
@@ -644,10 +700,26 @@ def _legacy_refresh_live(db: Session, api_key: str | None = None, competition: s
                 key, settings.api_football_league, settings.api_football_season)), key)
     except Exception as exc:  # noqa: BLE001 - never break the cron on a feed hiccup
         log.warning("live scores fetch failed: %s", exc)
-        return {"error": str(exc), "updated": 0, "live": 0, "finished": 0}
+        summary = {"error": str(exc), "updated": 0, "live": 0, "finished": 0,
+                   "provider_attempts": 1, "provider_successes": 0}
+        try:
+            from pipeline.ingest.provider_errors import ProviderError
+            if isinstance(exc, ProviderError):
+                summary["provider_error"] = exc.kind
+        except ImportError:
+            pass
+        _set_provider_health(summary)
+        return summary
 
     ko = assign_knockout_teams(db, api_matches)
-    summary = update_live_scores(db, api_matches)
+    summary = update_live_scores(
+        db,
+        api_matches,
+        preserve_stopped_statuses=settings.preserve_match_stop_statuses,
+    )
+    summary["provider_attempts"] = 1
+    summary["provider_successes"] = 1
+    _set_provider_health(summary)
     # FR-1.1: a pairing that just became known (or changed) needs a frozen
     # prediction before kickoff — without one, evaluation silently skips the
     # match. Best-effort: a sweep failure must never break score ingestion;

@@ -3,9 +3,23 @@
  *  slot-label resolution, node-state derivation, penalties-aware winner read. */
 import { R32, THIRD_SLOTS, KO_TREE, THIRD_PLACE } from "./bracketStructure";
 import { liveLabel } from "./liveLabel";
+import { isDeliberateStop } from "./matchStatus";
 import type { KnockoutBracket, KnockoutTie } from "./types";
 
-export type TieState = "labels" | "scheduled" | "in_play" | "finished";
+/** How a bracket tie renders. Deliberately NARROWER than MatchStatus: the
+ *  bracket has three visual treatments (placeholder labels, an upcoming or
+ *  live tie, a decided one) and a postponed or suspended tie still draws as an
+ *  undecided fixture. `stateFor` below collapses the extra statuses rather
+ *  than the type quietly widening to include states this renderer has no
+ *  design for. */
+export type TieState =
+  | "labels"
+  | "scheduled"
+  | "in_play"
+  | "finished"
+  | "postponed"
+  | "cancelled"
+  | "suspended";
 
 export type SideView = {
   teamId: number | null;
@@ -118,7 +132,13 @@ function viewFor(matchNo: number, tie: KnockoutTie | undefined): TieView {
   }
   const winner = resolveWinner(tie);
   const hasTeam = tie.home.team_id != null || tie.away.team_id != null;
-  const state: TieState = !hasTeam ? "labels" : tie.status;
+  // Preserve stopped states for an honest bracket label. They remain
+  // undecided (resolveWinner is finished-only) but must not look scheduled.
+  const state: TieState = isDeliberateStop(tie.status)
+    ? tie.status
+    : !hasTeam
+      ? "labels"
+      : tie.status;
   const penaltyText =
     tie.status === "finished" &&
     tie.home.penalty != null &&

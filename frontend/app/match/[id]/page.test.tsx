@@ -91,6 +91,7 @@ it("server-renders teams, probabilities, reasons and odds stub", async () => {
   expect(screen.getByText(/higher Elo rating/)).toBeInTheDocument();
   // The AI's call leads with the plain verdict sentence.
   expect(screen.getByText(/to win/)).toBeInTheDocument();
+  expect(screen.getByText(/Venue TBC/)).toBeInTheDocument();
 });
 
 it("draws the forecast timeline SVG when >=2 prob-history points exist", async () => {
@@ -201,4 +202,5 @@ it("renders a prediction-pending view (not 404) when the match exists but has no
   expect(screen.getAllByText("Brazil").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("Japan").length).toBeGreaterThanOrEqual(1);
   expect(screen.getByText(/prediction on the way/i)).toBeInTheDocument();
+  expect(screen.getByText(/Venue TBC.*Philadelphia/)).toBeInTheDocument();
 });

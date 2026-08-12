@@ -19,22 +19,12 @@ import time
 import requests
 
 from pipeline.ingest.provider_errors import read_payload
+from pipeline.ingest.api_football_status import football_data_status
 
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://v3.football.api-sports.io"
 
-# api-sports status.short -> football-data v4 status (a key of live_scores._STATUS_MAP).
-_STATUS = {
-    "TBD": "TIMED", "NS": "TIMED",
-    "1H": "IN_PLAY", "2H": "IN_PLAY", "ET": "IN_PLAY", "P": "IN_PLAY", "LIVE": "IN_PLAY",
-    "HT": "PAUSED", "BT": "PAUSED",          # half-time / break before extra time
-    "FT": "FINISHED", "AET": "FINISHED", "PEN": "FINISHED",
-    "AWD": "AWARDED", "WO": "AWARDED",
-    "SUSP": "SUSPENDED", "INT": "SUSPENDED",
-    "PST": "POSTPONED",
-    "CANC": "CANCELLED", "ABD": "CANCELLED",
-}
 # Statuses signalling extra time / a shootout — surfaced via score.duration, the
 # same channel football-data uses (status stays IN_PLAY/FINISHED).
 _EXTRA_TIME = frozenset({"ET", "AET", "BT"})
@@ -317,9 +307,14 @@ def _to_item(fx: object) -> dict | None:
     if not isinstance(fx, dict):
         return None
     status = (fx.get("fixture") or {}).get("status") or {}
-    fd_status = _STATUS.get(status.get("short"))
+    short = status.get("short")
+    fd_status = football_data_status(short)
     if fd_status is None:
         return None
+    # Preserve the two provider break states inside the canonical in-play
+    # lifecycle; live_scores uses PAUSED to derive half-time / the ET break.
+    if short in {"HT", "BT"}:
+        fd_status = "PAUSED"
 
     teams = fx.get("teams") or {}
     home = (teams.get("home") or {}).get("name")
@@ -328,7 +323,6 @@ def _to_item(fx: object) -> dict | None:
         return None
 
     goals = fx.get("goals") or {}
-    short = status.get("short")
     score: dict = {
         "fullTime": {"home": goals.get("home"), "away": goals.get("away")},
         "duration": _duration(short),

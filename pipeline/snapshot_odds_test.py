@@ -41,3 +41,23 @@ def test_main_returns_0_when_the_pass_completes_without_an_error_key(monkeypatch
     monkeypatch.setattr(sys, "argv", ["snapshot_odds.py"])
 
     assert snapshot_odds.main() == 0
+
+
+def test_main_returns_1_when_provider_auth_or_quota_failed(monkeypatch, db_session, capsys):
+    monkeypatch.setattr(settings, "api_football_api_key", "key")
+    db_session.close = lambda: None
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(
+        odds_mod,
+        "snapshot_phased_odds",
+        lambda *a, **k: {
+            "matches_priced": 0,
+            "matches_skipped": 3,
+            "budget_skipped": 0,
+            "provider_error": "quota",
+        },
+    )
+    monkeypatch.setattr(sys, "argv", ["snapshot_odds.py"])
+
+    assert snapshot_odds.main() == 1
+    assert "provider_error" in capsys.readouterr().out

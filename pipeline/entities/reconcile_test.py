@@ -390,34 +390,42 @@ def test_missing_internal_entities_are_reported_as_data_gaps(db):
     assert report.counts() == {"unmapped": 1}
 
 
-def test_stopped_provider_statuses_never_reach_candidates_today(db):
-    """THE HONESTY TEST for the stopped-fixture guard: production ingestion
-    normalizes every stopped provider status to internal 'scheduled', so the
-    resolver's postponed/cancelled guard cannot fire on real data. The guard
-    is a core contract awaiting a provider-status column -- a recorded data
-    gap, not a live protection."""
-    from pipeline.ingest.league_structure import _STATUS
+def test_stopped_provider_statuses_now_reach_candidates(db):
+    """The former HONESTY TEST, inverted.
+
+    It used to document a gap: both ingest paths normalized every stopped
+    provider status to internal "scheduled", so the resolver's
+    postponed/cancelled guard could not fire on real data and was inert in
+    production, "awaiting a provider-status column".
+
+    No column was needed — Match.status is a plain string, so app/match_status.py
+    simply stopped flattening. This now asserts the guard is live.
+    """
+    from pipeline.ingest.api_football_status import API_FOOTBALL_TO_INTERNAL
     from pipeline.ingest.live_scores import _STATUS_MAP
 
-    for provider_status in ("SUSP", "PST", "CANC", "ABD"):
-        assert _STATUS[provider_status] == "scheduled"
-    for provider_status in ("SUSPENDED", "POSTPONED", "CANCELLED"):
-        assert _STATUS_MAP[provider_status] == "scheduled"
+    # The information survives ingestion now.
+    assert API_FOOTBALL_TO_INTERNAL["PST"] == "postponed"
+    assert API_FOOTBALL_TO_INTERNAL["CANC"] == "cancelled"
+    for provider_status in ("SUSP", "INT", "ABD"):
+        assert API_FOOTBALL_TO_INTERNAL[provider_status] == "suspended"
+    assert _STATUS_MAP["POSTPONED"] == "postponed"
+    assert _STATUS_MAP["CANCELLED"] == "cancelled"
+    assert _STATUS_MAP["SUSPENDED"] == "suspended"
 
-    # And therefore a postponed match, ingested today, still auto-maps: the
-    # information that would stop it does not survive ingestion.
+    # And therefore a postponed fixture is no longer auto-linked: the venue may
+    # be quoting a match our data says is not happening as scheduled.
     tournament, arsenal, chelsea, match = _seed_fixtures(db)
     _verify_keys(db, tournament, arsenal, chelsea)
     db.query(Match).filter_by(id=match.id).update(
-        {"status": _STATUS["PST"]})
+        {"status": API_FOOTBALL_TO_INTERNAL["PST"]})
     db.commit()
     _market(db)
 
     report = reconcile_markets(db, now=NOW, metadata_by_key=VERIFIED_METADATA)
 
-    assert report.counts() == {"map": 1}, (
-        "documents the gap: a postponed fixture is indistinguishable from a "
-        "scheduled one after today's ingest")
+    assert report.counts() != {"map": 1}, (
+        "a postponed fixture must not auto-map — the guard is live now")
 
 
 # --- manual corrections and locks --------------------------------------------

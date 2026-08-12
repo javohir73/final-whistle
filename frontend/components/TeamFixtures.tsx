@@ -6,6 +6,7 @@ import { kickoffTime, tzAbbrev } from "@/lib/datetime";
 import { TeamBadge } from "@/components/TeamBadge";
 import { formatScore, pct } from "@/lib/format";
 import type { MatchSummary } from "@/lib/types";
+import { stoppedLabel, willBePlayed } from "@/lib/matchStatus";
 
 /** Client island: a team's fixtures in the user's timezone. The soonest match
  *  that hasn't finished is flagged "Next". Each row links to the match page. */
@@ -28,7 +29,14 @@ export function TeamFixtures({
     if (!b.kickoff_utc) return -1;
     return a.kickoff_utc < b.kickoff_utc ? -1 : 1;
   });
-  const nextId = sorted.find((m) => m.status !== "finished")?.match_id ?? null;
+  const now = Date.now();
+  const nextId =
+    sorted.find(
+      (m) =>
+        m.status === "scheduled" &&
+        m.kickoff_utc != null &&
+        new Date(m.kickoff_utc).getTime() > now,
+    )?.match_id ?? null;
 
   if (sorted.length === 0) {
     return <p className="text-sm text-muted">No fixtures scheduled yet.</p>;
@@ -50,6 +58,7 @@ export function TeamFixtures({
         const p = m.probabilities;
         const teamWin = p ? (home ? p.home_win : p.away_win) : null;
         const finished = m.status === "finished";
+        const stopped = stoppedLabel(m.status);
         return (
           <li key={m.match_id}>
             <Link
@@ -57,7 +66,9 @@ export function TeamFixtures({
               className="flex items-center gap-3 py-3 transition hover:text-lime-deep"
             >
               <span className="w-20 shrink-0 text-xs text-muted">
-                {m.kickoff_utc ? (
+                {stopped ? (
+                  <span className="block font-semibold text-foreground/90">{stopped}</span>
+                ) : m.kickoff_utc ? (
                   <>
                     <span className="block font-semibold text-foreground/90">{shortDate(m.kickoff_utc)}</span>
                     <span className="block">
@@ -83,7 +94,7 @@ export function TeamFixtures({
                     ? formatScore(m.score_home, m.score_away)
                     : formatScore(m.score_away, m.score_home)}
                 </span>
-              ) : teamWin != null ? (
+              ) : teamWin != null && willBePlayed(m.status) ? (
                 <span className="shrink-0 text-xs font-semibold tabular-nums text-lime-deep">
                   {pct(teamWin)} win
                 </span>

@@ -69,6 +69,8 @@ function useAppearance(): Appearance | undefined {
 
 interface CheckoutProps {
   plan: Plan;
+  /** Safe, relative return context carried through a 3DS browser redirect. */
+  checkoutContext?: { competition: string; returnTo: string };
   /** Fired once the subscription actually entitles, so the page can show its
    *  confirmation — this component unmounts as soon as /me reports premium. */
   onActivated?: () => void;
@@ -94,7 +96,7 @@ type Stage =
   | "done"
   | "unavailable";
 
-function InPageCheckout({ plan, onActivated }: CheckoutProps) {
+function InPageCheckout({ plan, checkoutContext, onActivated }: CheckoutProps) {
   const { refresh } = useAuth();
   const params = useSearchParams();
   const appearance = useAppearance();
@@ -233,7 +235,7 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
   return (
     <div className="glass rounded-2xl p-4 sm:p-5">
       <Elements stripe={getStripe()} options={{ clientSecret, appearance }}>
-        <CardForm plan={plan} onConfirmed={activate} />
+        <CardForm plan={plan} checkoutContext={checkoutContext} onConfirmed={activate} />
       </Elements>
     </div>
   );
@@ -241,9 +243,11 @@ function InPageCheckout({ plan, onActivated }: CheckoutProps) {
 
 function CardForm({
   plan,
+  checkoutContext,
   onConfirmed,
 }: {
   plan: Plan;
+  checkoutContext?: { competition: string; returnTo: string };
   onConfirmed: (intentId: string) => Promise<void>;
 }) {
   const stripe = useStripe();
@@ -258,10 +262,15 @@ function CardForm({
     setError(null);
     // The plan rides in the return_url: a 3DS challenge leaves the page, and
     // component state does not survive the trip to the bank and back.
+    const returnParams = new URLSearchParams({ plan });
+    if (checkoutContext) {
+      returnParams.set("competition", checkoutContext.competition);
+      returnParams.set("returnTo", checkoutContext.returnTo);
+    }
     const { error: confirmError, setupIntent } = await stripe.confirmSetup({
       elements,
       redirect: "if_required",
-      confirmParams: { return_url: `${window.location.origin}/premium?plan=${plan}` },
+      confirmParams: { return_url: `${window.location.origin}/premium?${returnParams}` },
     });
     if (confirmError) {
       // Declines and validation failures land here with copy already written

@@ -4,7 +4,7 @@
  *  the right board mounts per filter AND that a dormant competition is never
  *  fetched (the whole point of the honest-degrade). Distinct handles per
  *  endpoint let us assert which competition's data actually rendered. */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { PlayLeaderboard } from "./PlayLeaderboard";
 import { getLeagueTipsLeaderboard } from "@/lib/leagueTips";
 import { getNrlTipsLeaderboard } from "@/lib/nrlTips";
@@ -52,22 +52,23 @@ it("defaults to the EPL board, mounting LeagueTipsLeaderboard on the resolved ma
   expect(mockNrl).not.toHaveBeenCalled();
 });
 
-it("marks the active chip with lime state and toggle semantics", () => {
+it("marks the active chip and gives every filter a query-backed route", () => {
   // Matchweek unresolved -> the EPL board stays in its loading state and never
   // fetches, so the chip attributes can be asserted synchronously.
   renderBoard({ footballMatchweeks: {} });
 
-  const epl = screen.getByRole("button", { name: "Premier League" });
-  expect(epl).toHaveAttribute("aria-pressed", "true");
+  const epl = screen.getByRole("link", { name: "Premier League" });
+  expect(epl).toHaveAttribute("aria-current", "page");
+  expect(epl).toHaveAttribute("href", "/play?competition=epl");
   expect(epl).toHaveClass("bg-win");
+  expect(screen.getByRole("link", { name: "NRL" })).toHaveAttribute(
+    "href",
+    "/play?competition=nrl",
+  );
 });
 
-it("switching to the NRL filter mounts NrlTipsLeaderboard seeded from the current round", async () => {
-  renderBoard();
-  await screen.findByText("EplTipster");
-
-  fireEvent.click(screen.getByRole("button", { name: "NRL" }));
-
+it("an NRL route mounts NrlTipsLeaderboard seeded from the current round", async () => {
+  renderBoard({ initialCompetition: "nrl" });
   expect(await screen.findByText("NrlTipster")).toBeInTheDocument();
   expect(mockNrl).toHaveBeenCalledWith(2026, 2);
   // The EPL board unmounts on switch -- one competition's board at a time.
@@ -76,16 +77,14 @@ it("switching to the NRL filter mounts NrlTipsLeaderboard seeded from the curren
 
 it("mounts active score-tip leagues on their own resolved matchweek", async () => {
   renderBoard({
+    initialCompetition: "laliga",
     footballLeagues: ["epl", "laliga", "bundesliga"],
     footballMatchweeks: { epl: 4, laliga: 7, bundesliga: 3 },
   });
-  await screen.findByText("EplTipster");
-
-  const laliga = screen.getByRole("button", { name: /La Liga/i });
-  fireEvent.click(laliga);
+  await screen.findByText("EplTipster"); // mock entry label; endpoint assertion carries league identity
   expect(mockLeague).toHaveBeenCalledWith("laliga", 7);
 
-  expect(screen.queryByRole("button", { name: /UEFA Champions League/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /UEFA Champions League/i })).not.toBeInTheDocument();
 });
 
 it("holds the football board back until the matchweek is known (its own loading state)", () => {
@@ -100,9 +99,16 @@ it("holds the football board back until the matchweek is known (its own loading 
 it("degrades the NRL filter to an honest empty state off-season (no round seeded)", () => {
   // footballMatchweek null too, so the default EPL board stays in loading and
   // fires no fetch -- this test is only about NRL's off-season degrade.
-  renderBoard({ nrlSeason: null, nrlRound: null, footballMatchweeks: {} });
-
-  fireEvent.click(screen.getByRole("button", { name: "NRL" }));
+  renderBoard({ initialCompetition: "nrl", nrlSeason: null, nrlRound: null, footballMatchweeks: {} });
   expect(screen.getByText("NRL tips aren't available right now.")).toBeInTheDocument();
+  expect(mockNrl).not.toHaveBeenCalled();
+});
+
+it("shows an honest no-board state for the World Cup instead of borrowing EPL", () => {
+  renderBoard({ initialCompetition: "wc26", footballMatchweeks: {} });
+
+  expect(screen.getByText("World Cup 2026 has no weekly leaderboard.")).toBeInTheDocument();
+  expect(screen.queryByRole("status", { name: "Loading leaderboard…" })).not.toBeInTheDocument();
+  expect(mockLeague).not.toHaveBeenCalled();
   expect(mockNrl).not.toHaveBeenCalled();
 });

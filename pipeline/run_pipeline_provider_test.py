@@ -19,7 +19,7 @@ from pipeline.ingest import api_football as api_football_mod
 from pipeline.ingest import injuries as injuries_mod
 from pipeline.ingest import league_structure as ls_mod
 from pipeline.ingest import provider_errors
-from pipeline.ingest.provider_errors import ProviderError, ProviderQuotaError
+from pipeline.ingest.provider_errors import ProviderAuthError, ProviderError, ProviderQuotaError
 from pipeline.run_pipeline import ProviderDegraded, run_pipeline
 
 
@@ -76,6 +76,28 @@ def test_quota_on_core_ingest_fails_the_run(db_session, monkeypatch):
     monkeypatch.setattr(settings, "api_football_api_key", "")
 
     with pytest.raises(ProviderQuotaError):
+        run_pipeline(db_session, n_sims=10)
+
+
+@pytest.mark.parametrize("error_cls", [ProviderQuotaError, ProviderAuthError])
+def test_systemic_core_failure_aborts_a_multi_league_run(
+    db_session, monkeypatch, error_cls,
+):
+    """The multi-league isolation boundary must not swallow a dead shared key.
+
+    All active leagues use the same API-Football credential. Retrying the same
+    quota/auth failure once per league only burns calls and, before this guard,
+    could leave the overall run green with zero structures refreshed.
+    """
+    monkeypatch.setattr(leagues_mod, "ACTIVE_LEAGUES", ["epl", "laliga", "bundesliga", "ucl"])
+
+    def _systemic(*_a, **_k):
+        raise error_cls("/fixtures: shared key is unavailable", endpoint="/fixtures")
+
+    monkeypatch.setattr(ls_mod, "fetch_fixtures", _systemic)
+    monkeypatch.setattr(settings, "api_football_api_key", "present")
+
+    with pytest.raises(error_cls):
         run_pipeline(db_session, n_sims=10)
 
 

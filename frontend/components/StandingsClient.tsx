@@ -38,6 +38,15 @@ export function StandingsClient({
   // read as "no draw yet", not as a broken table — and the subtitle must not
   // claim live updates over nothing.
   const hasRows = leagueMode && state.data[0].standings.length > 0;
+  const isUnplayed = hasRows && state.data[0].standings.every((row) =>
+    (row.played ?? 0) === 0 &&
+    (row.won ?? 0) === 0 &&
+    (row.drawn ?? 0) === 0 &&
+    (row.lost ?? 0) === 0 &&
+    row.projected_points === 0 &&
+    row.projected_goals_for === 0 &&
+    row.projected_goal_diff === 0
+  );
 
   return (
     <div>
@@ -49,6 +58,8 @@ export function StandingsClient({
         <p className="mt-2 max-w-xl text-muted">
           {state.status === "success" && !hasRows
             ? "The table appears here once the draw is made and fixtures load."
+            : isUnplayed
+              ? "Season not started. Clubs are listed neutrally until the first result."
             : "Live standings, updated as results come in."}
         </p>
       </header>
@@ -66,7 +77,7 @@ export function StandingsClient({
           <div className="glass rounded-2xl p-5 sm:p-6">
             <StandingsTable
               standings={state.data[0].standings}
-              zones={competition.zones}
+              zones={isUnplayed ? [] : competition.zones}
               badge="club"
               teamBasePath={`${competition.basePath}/team`}
               // P/W/D/L/GF/GA/GD/Pts — the table a football reader expects.

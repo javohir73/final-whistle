@@ -8,6 +8,7 @@ import { liveLabel, isLiveNow } from "@/lib/liveLabel";
 import { predictionVerdict } from "@/lib/verdict";
 import { ShootoutNote, BasisTag } from "@/components/ShootoutNote";
 import { cn } from "@/lib/utils";
+import { isPickable, stoppedLabel } from "@/lib/matchStatus";
 
 type Outcome = "home" | "draw" | "away";
 
@@ -102,6 +103,8 @@ export function UserPredictionCard({
   const finished = match.status === "finished" || (match.status === "in_play" && !live);
   const hasScore = match.score_home != null && match.score_away != null;
   const matchVerdict = finished ? predictionVerdict(match) : null;
+  const stopped = stoppedLabel(match.status);
+  const pickable = isPickable(match.status);
 
   return (
     <div
@@ -150,7 +153,12 @@ export function UserPredictionCard({
         {/* Live/FT status sits under the score above; here we only add the
             kickoff for upcoming fixtures. */}
         {!live && !finished &&
-          (match.kickoff_utc ? (
+          (stopped ? (
+            <>
+              {match.group && <span aria-hidden>·</span>}
+              <span className="font-semibold">{stopped}</span>
+            </>
+          ) : match.kickoff_utc ? (
             <>
               {match.group && <span aria-hidden>·</span>}
               <span>
@@ -190,9 +198,11 @@ export function UserPredictionCard({
               key={o.side}
               type="button"
               aria-pressed={active}
-              onClick={() => onPick(o.side)}
+              disabled={!pickable}
+              onClick={() => pickable && onPick(o.side)}
               className={cn(
                 "flex-1 truncate rounded-[12px] px-2 py-[11px] text-center font-display text-body font-extrabold transition",
+                !pickable && "cursor-not-allowed opacity-50",
                 active
                   ? "bg-win text-background"
                   : "border border-border [background:hsl(var(--surface-2))] text-muted hover:border-win/40 hover:text-foreground",
