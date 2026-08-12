@@ -54,12 +54,31 @@ const hit = (pathname: string, prefix: string) =>
  *  production deploy, and never locally with billing off. */
 function PremiumNavLink() {
   const { user, loading } = useAuth();
-  if (!BILLING_ENABLED || loading || user?.premium) return null;
+  if (!BILLING_ENABLED || loading) return null;
+
+  // Subscribers get the link too, as a member badge rather than a pitch.
+  //
+  // This used to return null for them, which left /premium unreachable from
+  // navigation for the only people paying for it. Their sole route to
+  // cancelling or changing a card was one item inside the avatar dropdown —
+  // and, worse, /premium is where the past_due "there's a payment issue"
+  // banner renders, so a subscriber whose card had just failed was shown that
+  // warning on a page they could no longer navigate to.
+  const subscribed = Boolean(user?.premium);
 
   return (
     <Link
       href="/premium"
-      className="ml-auto mr-0.5 inline-flex min-h-[44px] shrink-0 items-center rounded-lg px-2 text-sm font-semibold text-lime-deep transition hover:bg-win/10 lg:ml-0 lg:mr-1 lg:px-3"
+      // Accessible name stays "Premium" in both states — the destination is the
+      // same page and an aria-label that varies by entitlement would just make
+      // the control harder to refer to. Membership is marked visually (a ring)
+      // and exposed to tests via data-member.
+      data-member={subscribed ? "true" : "false"}
+      title={subscribed ? "Your Premium membership and billing" : "About FinalWhistle Premium"}
+      className={cn(
+        "ml-auto mr-0.5 inline-flex min-h-[44px] shrink-0 items-center rounded-lg px-2 text-sm font-semibold text-lime-deep transition hover:bg-win/10 lg:ml-0 lg:mr-1 lg:px-3",
+        subscribed && "ring-1 ring-win/30",
+      )}
     >
       Premium
     </Link>

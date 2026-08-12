@@ -1,18 +1,41 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { PremiumCheckout } from "@/components/PremiumCheckout";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
 import {
   createCheckoutSession,
   createPortalSession,
   friendlyAuthError,
 } from "@/lib/session";
-import { PREMIUM_FEATURES } from "@/lib/premium";
+import { PREMIUM_FEATURES, PREMIUM_PRICING, annualSavingLabel } from "@/lib/premium";
 
 type Plan = "monthly" | "annual";
+
+/** Split out of this route's chunk.
+ *
+ *  loadStripe() was already deferred to first use, but @stripe/stripe-js and
+ *  @stripe/react-stripe-js were STATIC imports — so the SDK shipped in the
+ *  /premium chunk and every visitor who merely read the pricing page paid for
+ *  it, including the ones who never opened the form. `payOpen` is false until
+ *  someone clicks, and now the bundle follows the same gate.
+ *
+ *  ssr:false because the component reads getComputedStyle at mount to build
+ *  Stripe's Appearance object from our design tokens; there is no server-side
+ *  equivalent, and it renders nothing useful before hydration anyway. */
+const PremiumCheckout = dynamic(
+  () => import("@/components/PremiumCheckout").then((m) => m.PremiumCheckout),
+  {
+    ssr: false,
+    loading: () => (
+      <p role="status" className="text-sm text-muted">
+        Loading secure payment form…
+      </p>
+    ),
+  },
+);
 
 /** /premium — pricing, checkout and portal entry points. Amounts below are
  *  copy only: the backend derives the price from the `plan` string via
@@ -151,7 +174,8 @@ export function PremiumClient() {
               }`}
             >
               <div className="font-display text-2xl font-extrabold text-foreground">
-                $4.99<span className="text-sm font-normal text-muted">/month</span>
+                ${PREMIUM_PRICING.monthly.toFixed(2)}
+                <span className="text-sm font-normal text-muted">/month</span>
               </div>
               <div className="mt-1 text-xs text-muted">Billed monthly</div>
             </button>
@@ -167,9 +191,12 @@ export function PremiumClient() {
               }`}
             >
               <div className="font-display text-2xl font-extrabold text-foreground">
-                $39.99<span className="text-sm font-normal text-muted">/year</span>
+                ${PREMIUM_PRICING.annual.toFixed(2)}
+                <span className="text-sm font-normal text-muted">/year</span>
               </div>
-              <div className="mt-1 text-xs font-semibold text-lime-deep">2 months free</div>
+              <div className="mt-1 text-xs font-semibold text-lime-deep">
+                {annualSavingLabel()}
+              </div>
             </button>
           </div>
         </div>
