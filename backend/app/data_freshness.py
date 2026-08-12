@@ -88,6 +88,72 @@ def stuck_matches(
     return out
 
 
+#: How far ahead a fixture counts as "imminent" for coverage reporting. Matches
+#: the odds/injuries ingest window, so a gap here means an enrichment pass that
+#: should already have run has not.
+COVERAGE_WINDOW_HOURS = 48.0
+
+
+def coverage_gaps(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    window_hours: float = COVERAGE_WINDOW_HOURS,
+) -> dict:
+    """Enrichment we expected to have by now and don't, for imminent fixtures.
+
+    Distinct from ``stuck_matches``, which reports an OUTAGE. These are quality
+    gaps: a null venue or a missing odds row is legitimately unknown sometimes,
+    so they must not flip the whole API to degraded — but they must not be
+    silently absent either. A fixture two days out with no venue used to render
+    a collapsed line and produce no signal anywhere; the only way to notice was
+    for someone to open the page.
+
+    Counts, not rows: this is a gauge to alert on a trend, not a work queue.
+    """
+    _now = now or datetime.now(timezone.utc)
+    horizon = _now + timedelta(hours=window_hours)
+    imminent = (
+        db.query(Match)
+        .filter(
+            Match.status == "scheduled",
+            Match.kickoff_utc.isnot(None),
+            Match.kickoff_utc >= _now,
+            Match.kickoff_utc <= horizon,
+        )
+    )
+    total = imminent.count()
+    # A venue is a fact the fixture feed carries; missing means the ingest
+    # dropped it or the provider never had it. Either way it is not "fine".
+    without_venue = imminent.filter(
+        (Match.venue.is_(None)) | (Match.venue == "")
+    ).count()
+
+    # Market intelligence = a consensus odds row. Counted separately because
+    # odds ingest is best-effort and its silence was the least visible of all
+    # the failure modes: refresh_odds never raises, so an empty table looked
+    # exactly like a quiet day.
+    without_market = 0
+    if total:
+        from app.models import Odds
+
+        priced = {
+            row[0]
+            for row in db.query(Odds.match_id)
+            .filter(Odds.match_id.in_([m.id for m in imminent.all()]))
+            .distinct()
+            .all()
+        }
+        without_market = total - len(priced)
+
+    return {
+        "window_hours": window_hours,
+        "upcoming_matches": total,
+        "without_venue": without_venue,
+        "without_market_intel": without_market,
+    }
+
+
 def data_status(
     db: Session,
     *,
@@ -127,4 +193,8 @@ def data_status(
     return {
         "status": "degraded" if degradations else "ok",
         "degradations": degradations,
+        # Reported alongside, never folded into `status`: a null venue is a
+        # quality gap, not an outage, and conflating the two would make the
+        # degraded signal fire so often that nobody reads it.
+        "coverage": coverage_gaps(db, now=now),
     }

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.data_freshness import data_status, stuck_matches
+from app.data_freshness import coverage_gaps, data_status, stuck_matches
 from app.models import Match, Tournament
 
 NOW = datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc)
@@ -36,7 +36,12 @@ def _match(db, tournament, *, status, hours_ago):
 def test_clean_data_is_not_degraded(db_session, epl):
     _match(db_session, epl, status="finished", hours_ago=30)
     _match(db_session, epl, status="scheduled", hours_ago=-24)  # kicks off tomorrow
-    assert data_status(db_session, now=NOW) == {"status": "ok", "degradations": []}
+    out = data_status(db_session, now=NOW)
+    assert out["status"] == "ok"
+    assert out["degradations"] == []
+    # `coverage` rides alongside and is asserted by its own tests below; it is
+    # a quality gauge, not part of the outage verdict.
+    assert "coverage" in out
 
 
 def test_match_still_in_play_hours_after_kickoff_is_degraded(db_session, epl):
@@ -91,3 +96,69 @@ def test_matches_without_a_kickoff_are_ignored(db_session, epl):
     db_session.add(Match(tournament_id=epl.id, stage="SF", status="scheduled"))
     db_session.commit()
     assert data_status(db_session, now=NOW)["status"] == "ok"
+
+
+# --- coverage gaps: unavailable, not silently fine -------------------------
+
+
+def test_null_venue_on_an_imminent_fixture_is_reported(db_session, epl):
+    """A fixture two days out with no venue rendered a collapsed line and
+    produced no signal anywhere — the only way to notice was to open the page."""
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    m.venue = None
+    db_session.commit()
+
+    cov = coverage_gaps(db_session, now=NOW)
+    assert cov["upcoming_matches"] == 1
+    assert cov["without_venue"] == 1
+
+
+def test_a_venue_we_have_is_not_counted(db_session, epl):
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    m.venue = "Emirates Stadium"
+    db_session.commit()
+    assert coverage_gaps(db_session, now=NOW)["without_venue"] == 0
+
+
+def test_empty_string_venue_counts_as_missing(db_session, epl):
+    # An empty string is the ingest writing "nothing" without writing NULL.
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    m.venue = ""
+    db_session.commit()
+    assert coverage_gaps(db_session, now=NOW)["without_venue"] == 1
+
+
+def test_missing_market_intel_is_reported(db_session, epl):
+    """refresh_odds never raises, so an empty odds table looked exactly like a
+    quiet day. This is the gauge that tells them apart."""
+    _match(db_session, epl, status="scheduled", hours_ago=-6)
+    assert coverage_gaps(db_session, now=NOW)["without_market_intel"] == 1
+
+
+def test_a_priced_match_is_not_counted_as_missing_intel(db_session, epl):
+    from app.models import Odds
+
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    db_session.add(Odds(match_id=m.id))
+    db_session.commit()
+    assert coverage_gaps(db_session, now=NOW)["without_market_intel"] == 0
+
+
+def test_coverage_gaps_do_not_flip_the_api_to_degraded(db_session, epl):
+    """The severity line. A null venue is legitimately unknown sometimes; if it
+    escalated to degraded the signal would fire constantly and stop being read.
+    Only an impossible match status is an outage."""
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    m.venue = None
+    db_session.commit()
+
+    out = data_status(db_session, now=NOW)
+    assert out["status"] == "ok"
+    assert out["degradations"] == []
+    assert out["coverage"]["without_venue"] == 1
+
+
+def test_matches_beyond_the_window_are_not_counted(db_session, epl):
+    # A fixture three weeks out has no venue yet for ordinary reasons.
+    _match(db_session, epl, status="scheduled", hours_ago=-24 * 21)
+    assert coverage_gaps(db_session, now=NOW)["upcoming_matches"] == 0
