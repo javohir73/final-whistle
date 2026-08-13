@@ -244,6 +244,52 @@ it("keeps the wide accent field within the logo at every card padding", () => {
   }
 });
 
+it("keeps the vertical accent field on the logo and clear of copy at rest and hover", () => {
+  const clipPath = rule(".competition-card::before {").match(
+    /clip-path:\s*polygon\(0 0,\s*100% 0,\s*62% (\d+)px,\s*0 (\d+)px\)/,
+  );
+
+  expect(clipPath).not.toBeNull();
+  if (!clipPath) return;
+
+  const [, rawDiagonalY, rawLeadingY] = clipPath;
+  const diagonalY = Number(rawDiagonalY);
+  const leadingY = Number(rawLeadingY);
+  const inset = Number(rule(".competition-card::before {").match(/inset:\s*(-?\d+)px/)?.[1]);
+  const hoverRule = rule(
+    ".competition-card:hover::before {",
+    block(css, "@media (hover: hover) and (pointer: fine) {")
+  );
+  const scale = Number(hoverRule.match(/scale\(([\d.]+)\)/)?.[1]);
+  const angle = Number(hoverRule.match(/rotate\((-?[\d.]+)deg\)/)?.[1]);
+  const radians = (angle * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+
+  // PlatformHome's p-5, 50px logo and mt-8 establish these content bounds.
+  // The widths cover the narrowest five-column card and the phone/tablet cards.
+  const logoRight = 20 + 50;
+  const logoBottom = 20 + 50;
+  const copyLeft = 20;
+  const copyTop = 20 + 50 + 32;
+
+  for (const cardWidth of [210, 288, 358]) {
+    const diagonalX = cardWidth * 0.62;
+    const slope = (diagonalY - leadingY) / diagonalX;
+    const boundaryAt = (x: number) => leadingY + slope * x;
+    const transformedBoundaryAt = (x: number) => {
+      const sourceX = (x / scale + sine * leadingY) / (cosine - sine * slope);
+      const sourceY = boundaryAt(sourceX);
+      return inset + scale * (sine * sourceX + cosine * sourceY);
+    };
+
+    expect(inset + boundaryAt(logoRight)).toBeGreaterThanOrEqual(logoBottom);
+    expect(inset + boundaryAt(copyLeft)).toBeLessThan(copyTop);
+    expect(transformedBoundaryAt(logoRight)).toBeGreaterThanOrEqual(logoBottom);
+    expect(transformedBoundaryAt(copyLeft)).toBeLessThan(copyTop);
+  }
+});
+
 it("keeps effective card copy and arrow ink AA-safe across every accent surface", () => {
   const baseHsl = hslChannels(token(root, "competition-card-base"));
   const base = hslToRgb(baseHsl);

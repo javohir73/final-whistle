@@ -1,4 +1,4 @@
-import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { COMPETITIONS, accentInkVar, type CompetitionId } from "@/lib/sports";
 import { cn } from "@/lib/utils";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 
@@ -34,7 +34,8 @@ export function CompEyebrowChip({ comp }: { comp: CompetitionId }) {
       className="inline-flex min-h-[28px] items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2 text-label font-bold uppercase tracking-wide"
       style={{
         backgroundColor: `hsl(var(${competition.accentVar}) / 0.12)`,
-        color: `hsl(var(${comp === "nrl" ? "--accent-nrl-ink" : competition.accentVar}))`,
+        // Shared with CompetitionOverlay's pill — see accentInkVar.
+        color: `hsl(var(${accentInkVar(comp)}))`,
       }}
     >
       <CompetitionLogo competition={comp} size={20} />
