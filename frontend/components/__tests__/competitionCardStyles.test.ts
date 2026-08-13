@@ -347,3 +347,37 @@ it("keeps the offset card focus indicator visible in both themes", () => {
     ).toBeGreaterThanOrEqual(3);
   }
 });
+
+it("gives keyboard focus the same card affordance as hover, not just an outline", () => {
+  // The outline test above proves the focus RING is visible. This proves the
+  // card itself reacts identically — the lift, the accent border and the wedge
+  // scale. The two rule sets sit ~25 lines apart and neither references the
+  // other, so a change to the hover treatment can silently leave keyboard
+  // users on the old one.
+  //
+  // Confirmed in a browser before being pinned: after a real Tab press,
+  // :focus-visible matched and the card moved to translateY(-6px), border
+  // alpha 0.52 -> 0.84, wedge scale(1.055) rotate(-1.5deg) — identical to the
+  // hovered card measured alongside it.
+  const hover = rule(".competition-card:hover {");
+  const focus = rule(".competition-card:focus-visible {");
+  for (const declaration of ["transform: translateY(-6px)", "border-color:", "box-shadow:"]) {
+    expect(hover).toContain(declaration);
+    expect(focus).toContain(declaration);
+  }
+  expect(rule(".competition-card:focus-visible::before {")).toEqual(
+    rule(".competition-card:hover::before {").replace(":hover", ":focus-visible"),
+  );
+});
+
+it("keeps focus-visible outside the precise-pointer query", () => {
+  // Hover is guarded by (hover: hover) and (pointer: fine) so a touch tap does
+  // not latch the lifted state. Focus must NOT share that guard, or a keyboard
+  // user on a touchscreen laptop loses the affordance entirely.
+  const hoverIndex = css.indexOf(".competition-card:hover {");
+  const focusIndex = css.indexOf(".competition-card:focus-visible {");
+  const guardStart = css.lastIndexOf("@media (hover: hover) and (pointer: fine)", hoverIndex);
+  expect(guardStart).toBeGreaterThan(-1);
+  const guardEnd = guardStart + block(css, "@media (hover: hover) and (pointer: fine)").length;
+  expect(focusIndex).toBeGreaterThan(guardEnd);
+});
