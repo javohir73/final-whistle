@@ -495,6 +495,25 @@ export function competitionsForSport(sport: SportId): Competition[] {
   return Object.values(COMPETITIONS).filter((c) => c.sport === sport);
 }
 
+/** The CSS variable a competition's chip LABEL should be painted in.
+ *
+ *  Not the same as `accentVar`. A chip sets its background to a 0.12 wash of
+ *  the accent and its text to the accent itself, which reads fine on
+ *  Floodlight's near-black washes and fails WCAG AA on Daylight's white ones —
+ *  measured at EPL 3.67, La Liga 2.55, Bundesliga 3.59, NRL 2.55 against a
+ *  4.5:1 floor. `--accent-{id}-ink` is the accent on Floodlight and a darkened
+ *  variant under .theme-daylight, so callers get the right one for free.
+ *
+ *  This exists as one function because the two chip renderers
+ *  (CompetitionOverlay's pill and Eyebrow's CompEyebrowChip) previously each
+ *  carried their own inline ternary, and they had already drifted: the eyebrow
+ *  routed NRL through its ink while the overlay did not. Derived from `id`
+ *  rather than stored on the registry so a new competition cannot be added
+ *  with an accent but no ink. */
+export function accentInkVar(comp: CompetitionId): string {
+  return `--accent-${comp}-ink`;
+}
+
 /** True iff `v` is a key of COMPETITIONS -- the validation the CompetitionOverlay's
  *  localStorage pin (slice p1-s5, lib/competitionPrefs.ts) needs before trusting a
  *  string read back from storage (could be stale/tampered/from an older build). */

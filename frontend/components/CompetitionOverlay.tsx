@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import {
   COMPETITIONS,
+  accentInkVar,
   competitionFromPathname,
   competitionsForSport,
   type Competition,
@@ -217,7 +218,11 @@ export function CompetitionOverlay() {
                               className="rounded-full px-2 py-0.5 text-label font-bold uppercase tracking-wide"
                               style={{
                                 backgroundColor: `hsl(var(${c.accentVar}) / 0.12)`,
-                                color: `hsl(var(${c.accentVar}))`,
+                                // Shared with CompEyebrowChip. These two used
+                                // to carry separate inline ternaries and had
+                                // already drifted apart — the eyebrow routed
+                                // NRL through its ink, this one did not.
+                                color: `hsl(var(${accentInkVar(c.id)}))`,
                               }}
                             >
                               {c.shortLabel}

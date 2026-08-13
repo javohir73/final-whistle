@@ -1,4 +1,7 @@
 import { render } from "@testing-library/react";
+import { createHash } from "crypto";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 
 describe("CompetitionLogo", () => {
@@ -8,7 +11,30 @@ describe("CompetitionLogo", () => {
 
     expect(shell).toHaveStyle({ width: "32px", height: "32px" });
     expect(shell).not.toHaveClass("bg-white/95", "ring-1");
-    expect(shell?.querySelector("img")).toHaveClass("h-full", "w-full", "object-contain");
+    expect(shell?.querySelector("img")).toHaveClass(
+      "h-full",
+      "w-full",
+      "object-contain",
+      "p-[4%]",
+    );
+    expect(shell?.querySelector("img")).not.toHaveClass("object-cover");
+  });
+
+  it("uses the owner-supplied World Cup mark with a centered square crop", () => {
+    const { container } = render(
+      <CompetitionLogo competition="wc26" size={40} labelled />,
+    );
+    const image = container.querySelector('[data-competition-logo="wc26"] img');
+
+    expect(image).toHaveAttribute("src", "/competitions/wc26.png");
+    expect(image).toHaveAttribute("alt", "World Cup 2026 logo");
+    expect(image).toHaveClass("object-cover", "object-center", "p-0");
+    expect(image).not.toHaveClass("object-contain");
+
+    const bytes = readFileSync(join(process.cwd(), "public/competitions/wc26.png"));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+      "4c18cc1d14e4fdf3e6aa2e1ec4b066f945a6943cbb807b9cce6c919d166999e4",
+    );
   });
 
   it("uses the self-hosted Champions League mark", () => {

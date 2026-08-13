@@ -216,6 +216,85 @@ it("keeps measured Daylight state inks safe on every surface stop", () => {
   }
 });
 
+it("keeps World Cup label ink AA-safe on its Daylight gold wash", () => {
+  const tokenMatch = daylight.match(/--accent-wc26-ink:\s*([^;]+);/);
+  expect(tokenMatch).not.toBeNull();
+  if (!tokenMatch) return;
+
+  const ink = hsl(tokenMatch[1].trim());
+  const accent = hsl(token(floodlight, "accent-wc26"));
+  for (const stop of [hsl(token(daylight, "background")), hsl(token(daylight, "surface"))]) {
+    const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, stop);
+    expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+it("routes World Cup label consumers through semantic ink", () => {
+  for (const relativePath of ["components/Eyebrow.tsx", "components/CompetitionOverlay.tsx"]) {
+    const source = fs.readFileSync(path.join(root, relativePath), "utf8");
+    expect(source).toContain("accentInkVar");
+  }
+});
+
+// The World Cup gold was the defect that got noticed, but it was never the only
+// one. Every competition chip paints its accent as small bold text on a 0.12
+// wash of that same accent, and browser measurement on /football/wc26 in
+// Daylight put four of the six under AA: EPL 3.67, La Liga 2.55, Bundesliga
+// 3.59, NRL 2.55. Fixing gold alone would have left a "contrast audited" label
+// on a component where two thirds of the chips still failed.
+const COMPETITION_ACCENTS = ["epl", "laliga", "bundesliga", "ucl", "wc26", "nrl"];
+
+it.each(COMPETITION_ACCENTS)(
+  "keeps the %s chip label AA-safe on its own Daylight wash",
+  (comp) => {
+    const ink = hsl(token(daylight, `accent-${comp}-ink`));
+    const accent = hsl(token(floodlight, `accent-${comp}`));
+    // The chip is 11px/700 — small text by WCAG, so 4.5:1, not 3:1.
+    for (const stop of [hsl(token(daylight, "background")), hsl(token(daylight, "surface"))]) {
+      const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, stop);
+      expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
+    }
+  },
+);
+
+it("gives every competition an ink token in both themes", () => {
+  // A missing Floodlight entry silently falls back to `hsl()` of an undefined
+  // variable, which is an invalid colour: the label then inherits whatever the
+  // parent paints and the chip loses its identity entirely.
+  for (const comp of COMPETITION_ACCENTS) {
+    expect(() => token(floodlight, `accent-${comp}-ink`)).not.toThrow();
+    expect(() => token(daylight, `accent-${comp}-ink`)).not.toThrow();
+  }
+});
+
+it.each(COMPETITION_ACCENTS)(
+  "keeps the %s chip label AA-safe on its own Floodlight wash",
+  (comp) => {
+    // Floodlight is the DEFAULT theme, and it was failing too: measured EPL
+    // 3.38, Bundesliga 3.47, UCL 2.69 on the near-black chip washes. Shipping a
+    // "contrast audited" component with three failing chips in the theme most
+    // users see would have been the same half-fix as doing gold alone.
+    const ink = hsl(token(floodlight, `accent-${comp}-ink`));
+    const accent = hsl(token(floodlight, `accent-${comp}`));
+    for (const stop of [hsl(token(floodlight, "background")), hsl(token(floodlight, "surface"))]) {
+      const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, stop);
+      expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
+    }
+  },
+);
+
+it("only ever lightens a Floodlight chip ink, never darkens it", () => {
+  // The brand constraint. On a near-black wash the accessible direction is
+  // lighter; darkening would both fail contrast and stop the chip reading as
+  // its competition colour. Hue and saturation stay pinned to the accent.
+  for (const comp of COMPETITION_ACCENTS) {
+    const [inkH, inkS, inkL] = token(floodlight, `accent-${comp}-ink`).split(/\s+/);
+    const [accH, accS, accL] = token(floodlight, `accent-${comp}`).split(/\s+/);
+    expect([inkH, inkS]).toEqual([accH, accS]);
+    expect(parseInt(inkL, 10)).toBeGreaterThanOrEqual(parseInt(accL, 10));
+  }
+});
+
 it("keeps invariant pitch-panel inks safe on every solid gradient stop", () => {
   const pitchStops = [hsl("147 44% 13%"), hsl(token(daylight, "pitch")), hsl("147 45% 7%")];
   const pitchChip = hsl(token(daylight, "pitch-chip"));

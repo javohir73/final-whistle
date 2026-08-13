@@ -63,16 +63,36 @@
   --confidence-high: var(--win);
   --confidence-medium: var(--draw);
   --confidence-low: var(--muted);
-  /* Per-competition accent — used ONLY on the switcher overlay + league
-     eyebrow chips at <=12% opacity. Lime stays the sole action color.
-     HSL channel triplets so `hsl(var(--accent-xxx) / 0.12)` works. */
+  /* Per-competition accent — used by the competition cards, switcher overlay,
+     and league eyebrow chips. HSL channel triplets keep alpha composition and
+     color-mix available to each consumer. */
   --accent-epl: 283 60% 55%;        /* purple */
   --accent-laliga: 8 78% 63%;       /* coral */
   --accent-bundesliga: 0 75% 52%;   /* red */
   --accent-ucl: 224 82% 52%;        /* UEFA blue */
-  --accent-wc26: 224 64% 56%;       /* indigo (WC26 not specified in plan; neutral non-lime) */
+  --accent-wc26: 42 72% 52%;        /* trophy gold */
   --accent-nrl: 174 60% 40%;        /* teal */
+  /* Chip-label inks. Every competition needs one, because the chip paints its
+     accent as 11px/700 text on a 0.12 wash of that same accent — small text,
+     so the WCAG AA floor is 4.5:1, and browser measurement showed the raw
+     accent missing it in BOTH themes. A competition with no ink token resolves
+     hsl() of an undefined variable, i.e. an invalid colour, and the label
+     silently inherits its parent.
+
+     Floodlight (measured before the fix): EPL 3.38, Bundesliga 3.47, UCL 2.69
+     under the floor. Each is LIGHTENED to the lowest value on its own hue that
+     clears both dark stops — never darkened, so the chip keeps reading as its
+     brand colour. La Liga, the World Cup gold and NRL already cleared and are
+     left exactly as their accent. */
+  --accent-epl-ink: 283 60% 65%;
+  --accent-laliga-ink: 8 78% 63%;
+  --accent-bundesliga-ink: 0 75% 65%;
+  --accent-ucl-ink: 224 82% 67%;
+  --accent-wc26-ink: 42 72% 52%;    /* gold label ink on Floodlight washes */
   --comp-accent: var(--accent-wc26);/* default; overlay/eyebrow set per comp */
+  --competition-card-base: 150 34% 8%;
+  --competition-card-ink: 120 14% 96%;
+  --competition-card-copy: 126 14% 82%;
 }
 
 /* Daylight rollback: apply .theme-daylight on <html> to restore the light theme. */
@@ -92,6 +112,16 @@
   --disabled-opacity: 1; --disabled-opacity-40: 1;
   --gold-ink: 42 72% 27%; --muted-solid: 140 8% 38%; --hint-ink: 140 8% 38%;
   --loss-wash-ink: 350 84% 41%; --gold-wash-ink: 43 82% 27%;
+  /* Darkened chip inks. Each is the lightest value on its own hue that still
+     clears 4.5:1 on BOTH Daylight stops (canvas and white card), with a few
+     points of margin so a small accent tweak cannot silently drop it under AA.
+     Measured in-browser before the fix on /football/wc26: EPL 3.67, La Liga
+     2.55, Bundesliga 3.59, UCL 4.59, NRL 2.55 — four of six under the floor. */
+  --accent-epl-ink: 283 60% 45%;
+  --accent-laliga-ink: 8 78% 40%;
+  --accent-bundesliga-ink: 0 75% 41%;
+  --accent-ucl-ink: 224 82% 48%;
+  --accent-wc26-ink: 42 72% 27%;
   --accent-nrl-ink: 174 60% 28%;
   --pitch-accent-ink: 84 78% 55%; --pitch-loss-ink: 351 90% 69%;
   --pitch-foreground-ink: 120 14% 96%;
@@ -215,6 +245,130 @@ body {
     transform: translateY(-3px);
     border-color: hsl(var(--win) / 0.4);
     box-shadow: 0 14px 32px -14px rgba(0, 0, 0, 0.75);
+  }
+
+  .competition-card {
+    position: relative;
+    isolation: isolate;
+    color: hsl(var(--competition-card-ink));
+    background: color-mix(
+      in hsl,
+      hsl(var(--competition-card-accent)) 18%,
+      hsl(var(--competition-card-base))
+    );
+    border: 1px solid hsl(var(--competition-card-accent) / 0.52);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.08),
+      0 16px 38px -24px hsl(var(--competition-card-accent) / 0.62);
+    transition:
+      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.24s ease,
+      box-shadow 0.24s ease,
+      filter 0.24s ease;
+  }
+
+  .competition-card::before {
+    content: "";
+    position: absolute;
+    z-index: -2;
+    inset: -2px;
+    background: hsl(var(--competition-card-accent));
+    clip-path: polygon(0 0, 100% 0, 62% 84px, 0 92px);
+    transform-origin: top left;
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+  }
+
+  .competition-card::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    border: 1px solid hsl(var(--competition-card-ink) / 0.08);
+    border-radius: inherit;
+    box-shadow: inset 0 -42px 64px hsl(var(--competition-card-base) / 0.24);
+    pointer-events: none;
+  }
+
+  .competition-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .competition-card--wide::before {
+    clip-path: polygon(0 0, 86px 0, 76px 100%, 0 100%);
+  }
+
+  .competition-card__copy {
+    color: hsl(var(--competition-card-copy));
+  }
+
+  .competition-card__arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    min-height: 2rem;
+    padding: 0.4rem;
+    border: 1px solid hsl(var(--competition-card-ink) / 0.16);
+    border-radius: 999px;
+    color: hsl(var(--competition-card-ink));
+    background: hsl(var(--competition-card-base) / 0.58);
+    transition:
+      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 0.24s ease,
+      border-color 0.24s ease;
+  }
+
+  .competition-card [data-competition-logo] {
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .competition-card:hover {
+      transform: translateY(-6px);
+      border-color: hsl(var(--competition-card-accent) / 0.84);
+      box-shadow:
+        inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
+        0 22px 46px -22px hsl(var(--competition-card-accent) / 0.78);
+      filter: saturate(1.08);
+    }
+
+    .competition-card:hover::before {
+      transform: scale(1.055) rotate(-1.5deg);
+    }
+
+    .competition-card:hover [data-competition-logo] {
+      transform: translateY(-3px) scale(1.055);
+    }
+
+    .competition-card:hover .competition-card__arrow {
+      transform: translateX(4px);
+      background: hsl(var(--competition-card-base) / 0.74);
+      border-color: hsl(var(--competition-card-ink) / 0.28);
+    }
+  }
+
+  .competition-card:focus-visible {
+    transform: translateY(-6px);
+    border-color: hsl(var(--competition-card-accent) / 0.84);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
+      0 22px 46px -22px hsl(var(--competition-card-accent) / 0.78);
+  }
+
+  .competition-card:focus-visible::before {
+    transform: scale(1.055) rotate(-1.5deg);
+  }
+
+  .competition-card:focus-visible [data-competition-logo] {
+    transform: translateY(-3px) scale(1.055);
+  }
+
+  .competition-card:focus-visible .competition-card__arrow {
+    transform: translateX(4px);
+    background: hsl(var(--competition-card-base) / 0.74);
+    border-color: hsl(var(--competition-card-ink) / 0.28);
   }
 
   .chip {
@@ -452,6 +606,22 @@ body {
     transition: none;
   }
   .card-hover:hover {
+    transform: none;
+  }
+  .competition-card,
+  .competition-card::before,
+  .competition-card [data-competition-logo],
+  .competition-card .competition-card__arrow {
+    transition: none;
+  }
+  .competition-card:hover,
+  .competition-card:focus-visible,
+  .competition-card:hover::before,
+  .competition-card:focus-visible::before,
+  .competition-card:hover [data-competition-logo],
+  .competition-card:focus-visible [data-competition-logo],
+  .competition-card:hover .competition-card__arrow,
+  .competition-card:focus-visible .competition-card__arrow {
     transform: none;
   }
   .reveal {

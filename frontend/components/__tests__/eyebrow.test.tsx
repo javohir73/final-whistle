@@ -24,4 +24,10 @@ describe("CompEyebrowChip", () => {
     expect(html).toContain("text-label");
     expect(html).toContain("--accent-epl");
   });
+
+  it("uses contrast-safe semantic ink for the World Cup gold wash", () => {
+    const html = renderToStaticMarkup(<CompEyebrowChip comp="wc26" />);
+    expect(html).toContain("background-color:hsl(var(--accent-wc26) / 0.12)");
+    expect(html).toContain("color:hsl(var(--accent-wc26-ink))");
+  });
 });
