@@ -246,3 +246,50 @@ describe("MatchCard (NRL slots: badge / href / margin)", () => {
     expect(screen.getByText("dead level")).toBeInTheDocument();
   });
 });
+
+describe("MatchCard compact row shows BOTH crests", () => {
+  // The compact row names both sides in its title but rendered only the home
+  // badge, so every away team was unidentifiable at a glance — the one thing a
+  // fixture list is scanned for. The `full` variant already showed both (one
+  // per stacked team row); only this dense variant was short.
+  it("renders the away club crest alongside the home one", () => {
+    const match = makeMatch({ teams: { home: "Broncos", away: "Storm" } });
+    const { container } = render(
+      <MatchCard match={match} variant="compact" badge="club" />,
+    );
+
+    expect(container.querySelector('[data-club-logo="Broncos"] img')).toHaveAttribute(
+      "src",
+      "/clubs/nrl/broncos.svg",
+    );
+    expect(container.querySelector('[data-club-logo="Storm"] img')).toHaveAttribute(
+      "src",
+      "/clubs/nrl/storm.svg",
+    );
+  });
+
+  it("renders the away flag alongside the home one", () => {
+    // National teams route through Flag, which emits a bare decorative <img>
+    // with no data hook — so count images rather than club-logo attributes.
+    const match = makeMatch({ teams: { home: "Argentina", away: "Japan" } });
+    const { container } = render(<MatchCard match={match} variant="compact" />);
+
+    const flags = container.querySelectorAll('img[alt=""]');
+    expect(flags).toHaveLength(2);
+    expect([...flags].map((f) => f.getAttribute("src"))).toEqual([
+      expect.stringContaining("ar"),
+      expect.stringContaining("jp"),
+    ]);
+  });
+
+  it("keeps both crests decorative so the row reads once to a screen reader", () => {
+    // The team names are already in the title. If the badges announced too, a
+    // screen reader would hear "Argentina Argentina Japan Japan".
+    const match = makeMatch({ teams: { home: "Argentina", away: "Japan" } });
+    const { container } = render(<MatchCard match={match} variant="compact" />);
+
+    for (const el of container.querySelectorAll("[data-club-logo], [data-team-badge]")) {
+      expect(el.closest('[aria-hidden="true"]')).not.toBeNull();
+    }
+  });
+});

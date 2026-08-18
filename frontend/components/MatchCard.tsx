@@ -274,11 +274,28 @@ function CompactRow({
   return (
     <>
       <div className="flex items-center gap-2.5">
-        {badge === "club" ? (
-          <ClubBadge name={teams.home} size={22} />
-        ) : (
-          <TeamBadge team={teams.home} size={22} />
-        )}
+        {/* BOTH crests. The row names both sides in its title, so showing only
+            the home badge left every away team unidentifiable at a glance —
+            the one thing a fixture list is scanned for. Overlapped rather than
+            spaced: two 22px badges plus a gap cost ~26px of a 320px row, which
+            eats into the title's truncation budget, while a -6px overlap costs
+            ~16px and reads as a pairing. Both are decorative (ClubBadge and
+            TeamBadge set aria-hidden themselves) — the names are already in the
+            title, so this adds no screen-reader noise. */}
+        <span className="flex shrink-0 items-center">
+          {badge === "club" ? (
+            <ClubBadge name={teams.home} size={22} />
+          ) : (
+            <TeamBadge team={teams.home} size={22} />
+          )}
+          <span className="-ml-1.5 rounded-full ring-2 ring-surface">
+            {badge === "club" ? (
+              <ClubBadge name={teams.away} size={22} />
+            ) : (
+              <TeamBadge team={teams.away} size={22} />
+            )}
+          </span>
+        </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-display text-sm font-bold tracking-tight">
             {teams.home} <span className="font-normal text-muted">v</span> {teams.away}
