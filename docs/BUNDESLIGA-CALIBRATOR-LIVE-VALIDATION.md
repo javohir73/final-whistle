@@ -186,7 +186,7 @@ A **production** rollback is not in scope because nothing production changes.
 place `club_shadow_variants_for` is called — **does not execute in production**.
 So merging this infrastructure, with or without the flag set, accrues **zero
 Bundesliga pairs**. `/api/health` confirms production serves
-`poisson-elo-v0.5` against the 104-match WC26 ledger.
+`poisson-elo-v0.6` against the WC26 ledger.
 
 Data accrual needs, in order: (1) `PIPELINE_TARGET` flipped to the league path
 — its own stop-gated decision, not requested here; (2) the flag set; (3) the
@@ -242,7 +242,7 @@ CLUB_SHADOW_VARIANTS=bundesliga:cal_q3
 **Verify after the first league pipeline run:**
 
 1. `SELECT model_version, is_shadow, count(*) FROM predictions GROUP BY 1,2;`
-   — expect `poisson-elo-club-v0.2+cal_q3`, `is_shadow=true`, count equal to
+   — expect `poisson-elo-club-v0.3+cal_q3`, `is_shadow=true`, count equal to
    the Bundesliga production row count.
 2. Production row count and probabilities unchanged from the prior run.
 3. At least one match where the `+cal_q3` triple differs from production. If
@@ -275,3 +275,73 @@ globally. Validating only at the writer was insufficient, because a later
 *promotion* of a mis-specified calibrator would have silently de-calibrated
 production with nothing to detect it. `calibrator=None` remains the valid
 scalar-temperature path; the old contract test is updated in place.
+
+---
+
+## 7. Pre-activation check — 2026-08-18
+
+Read-only verification that the dormant path is sound **before** the flag is
+ever set. Run against `main` @ `8d99c7c`. No repository code was changed; the
+two version-string corrections below are the only edits, and they are to this
+document.
+
+This appendix proves the machinery is ready. It proves **nothing** about the
+candidate — n is still 0 and the §3 confirm gate still needs 759 finished
+Bundesliga matches.
+
+### Corrections found
+
+| Location | Was | Now | Why it mattered |
+|---|---|---|---|
+| §5 | production serves `poisson-elo-v0.5`, 104-match ledger | `poisson-elo-v0.6` | stale; `/api/health` reports v0.6 |
+| §5b step 1 | expect `poisson-elo-club-v0.2+cal_q3` | `poisson-elo-club-v0.3+cal_q3` | **the runbook was unusable as written.** Bundesliga now serves `club-v0.3`, so `variant_model_version_for` emits `club-v0.3+cal_q3`. An operator querying the documented string would have found zero rows and concluded the shadow was broken — the precise false alarm §5b's step 3 exists to catch |
+
+### Verified
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Artifact loads via `_load_calibrator_artifact`; `assert_servable_calibrator` passes | edges `[69.9, 167.3]`, occupancy 919/918/917, `thin_buckets=[]`, `n_train=2754`, 27 manifest files, 9 seasons, holdout `2526` excluded |
+| 2 | **Regime match** — artifact provenance `engine.base` vs served Bundesliga `base` | both `1.44`. Finding 2 of the #202 audit (a calibrator fitted for the wrong lambda scale) is *not* being reintroduced |
+| 3 | **Blocker A fence** — the blob calibrates rather than falling through to the identity | 0/5 gaps equal `apply_temperature`; 0/5 outputs non-normalised |
+| 4 | Structural exclusion | `epl:` `laliga:` `wc26:` `bundesliga:made_up` `garbage!!` → all `{}`, each with an explicit ignore log naming the available set |
+| 5 | Default off | flag unset → `{}` for all four leagues; zero variant rows |
+| 6 | Artifact staleness pin | `provenance.manifest_digest_sha256` == `manifest_digest()`. Hashes the 27 recorded per-file sha256s in the committed manifest, so it does not silently pass when captures are absent from disk |
+| 7 | SAVEPOINT isolation, byte-identical production rows, ledger-scoped tags | `pipeline/shadow_variants_test.py` — 21 tests |
+| 8 | Benchmark reader before any pairs exist | honest-empty, **exit 0**: "No finished match yet carries BOTH a production row and a '+cal_q3' twin." |
+| 9 | Full Python suite | **3087 passed** |
+
+`pipeline/shadow_variants_test.py` + `leagues_test.py` + `fit_club_calibrator_test.py`: 58 passed.
+
+### Effect size — for the operator, not for the gate
+
+A calibrator swap is not cosmetic. Measured on λ=(1.6, 1.2), ρ=−0.06 across the
+gap range, q3 against the production calibrator:
+
+| eff. Elo gap | production | q3 | Δ (pp) |
+|---|---|---|---|
+| 10 | H .438 D .273 A .289 | H .472 D .282 A .246 | +3.4 / +0.9 / −4.3 |
+| 60 | H .472 D .268 A .260 | H .472 D .282 A .246 | −0.0 / +1.4 / −1.4 |
+| 120 | H .472 D .268 A .260 | H .417 D .270 A .314 | −5.6 / +0.1 / +5.4 |
+| 200 | H .481 D .302 A .217 | H .447 D .270 A .283 | −3.4 / −3.2 / +6.7 |
+| 400 | H .510 D .250 A .240 | H .447 D .270 A .283 | −6.3 / +2.0 / +4.3 |
+
+Up to a 6.7pp swing. Shadow rows only — production is untouched while the flag
+routes through `club_shadow_variants_for` — but this is the magnitude that
+would become visible on the site if the candidate were ever promoted. It is
+also why §5b step 3 ("at least one match differs") is a weak check: with
+effects this size, *identical* triples mean the blob was discarded.
+
+### Activation deadline
+
+Bundesliga's 2026-27 opener is **2026-08-28** (Bayern München v VfB Stuttgart,
+18:30Z — confirmed in the live fixture feed). Matchweeks that play before the
+flag is set produce no pairs, and frozen pre-kickoff rows cannot be
+reconstructed afterwards. Two settings are required, in this order:
+
+1. `PIPELINE_TARGET=league` — **its own stop-gated decision**, out of scope
+   here and much larger than this candidate: it moves production off the WC26
+   pipeline branch entirely.
+2. `CLUB_SHADOW_VARIANTS=bundesliga:cal_q3`
+
+Without (1), (2) accrues nothing — the league branch is the only caller of
+`club_shadow_variants_for`. Neither was set by this check.
