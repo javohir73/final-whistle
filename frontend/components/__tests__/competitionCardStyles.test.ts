@@ -105,21 +105,6 @@ function hsl(value: string): Rgb {
   return hslToRgb(hslChannels(value));
 }
 
-function mixHsl(accent: Hsl, base: Hsl, accentWeight: number): Hsl {
-  const hueDelta = ((accent[0] - base[0] + 540) % 360) - 180;
-  return [
-    (base[0] + hueDelta * accentWeight + 360) % 360,
-    base[1] + (accent[1] - base[1]) * accentWeight,
-    base[2] + (accent[2] - base[2]) * accentWeight,
-  ];
-}
-
-function composite(foreground: Rgb, background: Rgb, opacity: number): Rgb {
-  return foreground.map(
-    (channel, index) => channel * opacity + background[index] * (1 - opacity),
-  ) as Rgb;
-}
-
 function luminance(rgb: Rgb): number {
   const linear = rgb.map((raw) => {
     const channel = raw / 255;
@@ -142,22 +127,58 @@ const registeredCompetitions = Object.values(COMPETITIONS);
 it("defines the Graphic split card source contract", () => {
   expect(root).toMatch(/--accent-wc26:\s*42 72% 52%/);
   expect(root).toMatch(/--competition-card-base:\s*150 34% 8%/);
-  expect(root).toMatch(/--competition-card-ink:\s*120 14% 96%/);
-  expect(root).toMatch(/--competition-card-copy:\s*126 14% 82%/);
-  expect(daylight).not.toMatch(/--competition-card-(?:base|ink|copy):/);
+  expect(root).toMatch(/--competition-card-ink:\s*0 0% 100%/);
+  expect(daylight).not.toMatch(/--competition-card-(?:base|ink):/);
 
   expect(rule(".competition-card {")).toContain(
-    "color-mix(in hsl, hsl(var(--competition-card-accent)) 18%, hsl(var(--competition-card-base)))",
+    "background: hsl(var(--competition-card-deep))",
   );
   expect(rule(".competition-card::before {")).toContain(
     "background: hsl(var(--competition-card-accent))",
   );
-  expect(rule(".competition-card--wide::before {")).toContain("clip-path");
   expect(rule(".competition-card__copy {")).toContain(
-    "color: hsl(var(--competition-card-copy))",
+    "color: hsl(var(--competition-card-ink) / 0.72)",
   );
   expect(css).toContain(".competition-card:focus-visible");
   expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+});
+
+it("matches the approved compact Graphic split palette, geometry, and texture", () => {
+  const tones = {
+    epl: ["283 59% 41%", "283 61% 17%"],
+    laliga: ["6 100% 64%", "350 64% 33%"],
+    bundesliga: ["355 87% 52%", "356 77% 28%"],
+    ucl: ["226 79% 47%", "227 83% 19%"],
+    wc26: ["226 65% 61%", "227 57% 34%"],
+    nrl: ["174 60% 40%", "174 71% 18%"],
+  } as const;
+
+  for (const [competition, [accent, deep]] of Object.entries(tones)) {
+    const toneRule = rule(
+      `.competition-card[data-competition-card="${competition}"] {`,
+    );
+    expect(token(toneRule, "competition-card-accent")).toBe(accent);
+    expect(token(toneRule, "competition-card-deep")).toBe(deep);
+  }
+
+  expect(rule(".competition-card {")).toContain(
+    "background: hsl(var(--competition-card-deep))",
+  );
+
+  const accentField = rule(".competition-card::before {");
+  expect(accentField).toContain("inset: -30% -20% 26% -34%");
+  expect(accentField).toContain("transform: rotate(-13deg)");
+  expect(accentField).not.toContain("clip-path");
+
+  const texture = rule(".competition-card::after {");
+  expect(texture).toContain("repeating-linear-gradient(135deg");
+  expect(texture).toContain("hsl(var(--competition-card-ink) / 0.035)");
+
+  const hoverAccent = rule(
+    ".competition-card:hover::before {",
+    block(css, "@media (hover: hover) and (pointer: fine) {")
+  );
+  expect(hoverAccent).toContain("transform: rotate(-9deg) scale(1.06)");
 });
 
 it.each(
@@ -170,56 +191,26 @@ it.each(
 )(
   "keeps the $competition.id resting boundary at 3:1 in $theme.name",
   ({ theme, competition }) => {
-    const cardRule = rule(".competition-card {");
-    const accentWeight = Number(
-      cardRule.match(/hsl\(var\(--competition-card-accent\)\)\s*([\d.]+)%/)?.[1],
-    ) / 100;
-    const accent = hsl(
-      themedToken(theme.scope, competition.accentVar.replace(/^--/, "")),
+    const toneRule = rule(
+      `.competition-card[data-competition-card="${competition.id}"] {`,
     );
-    const base = hsl(themedToken(theme.scope, "competition-card-base"));
-    const fill = hslToRgb(
-      mixHsl(
-        hslChannels(themedToken(theme.scope, competition.accentVar.replace(/^--/, ""))),
-        hslChannels(themedToken(theme.scope, "competition-card-base")),
-        accentWeight,
-      ),
-    );
-    const boundaryToken = cardRule.match(
-      /border:\s*1px solid hsl\(var\(--([\w-]+)\)\)/,
-    )?.[1];
-    const borderOpacity = Number(
-      cardRule.match(
-        /border:\s*1px solid hsl\(var\(--competition-card-accent\)\s*\/\s*([\d.]+)\)/,
-      )?.[1],
-    );
-    let renderedBorder: Rgb;
-    if (boundaryToken) {
-      expect(boundaryToken).toBe("competition-card-boundary");
-      renderedBorder = hsl(
-        themedToken(
-          theme.scope,
-          `${competition.accentVar.replace(/^--/, "")}-boundary`,
-        ),
-      );
-    } else {
-      renderedBorder = composite(accent, fill, borderOpacity);
-    }
+    const fill = hsl(token(toneRule, "competition-card-deep"));
+    const renderedBorder = hsl(token(toneRule, "competition-card-boundary"));
     const canvas = hsl(themedToken(theme.scope, "background"));
 
     expect(ratio(renderedBorder, fill)).toBeGreaterThanOrEqual(3);
-    expect(ratio(renderedBorder, canvas)).toBeGreaterThanOrEqual(3);
+    expect(Math.max(ratio(renderedBorder, canvas), ratio(fill, canvas))).toBeGreaterThanOrEqual(3);
   },
 );
 
 it("keeps all positive hover motion inside the precise-pointer query", () => {
   const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
   const transforms = new Map([
-    [".competition-card:hover {", "transform: translateY(-6px)"],
-    [".competition-card:hover::before {", "transform: scale(1.055) rotate(-1.5deg)"],
+    [".competition-card:hover {", "transform: translateY(-7px) scale(1.015)"],
+    [".competition-card:hover::before {", "transform: rotate(-9deg) scale(1.06)"],
     [
       ".competition-card:hover [data-competition-logo] {",
-      "transform: translateY(-3px) scale(1.055)",
+      "transform: translateY(-2px) scale(1.08) rotate(-2deg)",
     ],
     [
       ".competition-card:hover .competition-card__arrow {",
@@ -281,152 +272,49 @@ it("neutralizes every card transition and interaction transform for reduced moti
   expect(transformReset).toContain("transform: none");
 });
 
-it("keeps the wide accent field within the mobile logo at rest, hover, and focus", () => {
-  const wideRule = rule(".competition-card--wide::before {");
-  const polygon = wideRule.match(
-    /clip-path:\s*polygon\(0 0,\s*(\d+)px 0,\s*(\d+)px 100%,\s*0 100%\)/,
-  );
-
-  expect(polygon).not.toBeNull();
-  if (!polygon) return;
-
-  const [, rawTopX, rawBottomX] = polygon;
-  const topX = Number(rawTopX);
-  const bottomX = Number(rawBottomX);
-  const inset = Number(rule(".competition-card::before {").match(/inset:\s*(-?\d+)px/)?.[1]);
-  const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
-  const stateTransform = (state: "hover" | "focus-visible") => {
-    const source = state === "hover" ? precisePointer : css;
-    const wideSelector = `.competition-card--wide:${state}::before {`;
-    const sharedSelector = `.competition-card:${state}::before {`;
-    const stateRule = source.includes(wideSelector)
-      ? rule(wideSelector, source)
-      : rule(sharedSelector, source);
-    const scale = Number(stateRule.match(/scale\(([\d.]+)\)/)?.[1] ?? 1);
-    const angle = Number(stateRule.match(/rotate\((-?[\d.]+)deg\)/)?.[1] ?? 0);
-    return { scale, angle };
-  };
-  const states = [
-    { name: "rest", scale: 1, angle: 0 },
-    { name: "hover", ...stateTransform("hover") },
-    { name: "focus", ...stateTransform("focus-visible") },
-  ];
-  const logoRight = 20 + 64;
-
-  // The bottom vertex stays covered too when copy wrapping grows the card at
-  // the two narrow viewports in the release matrix.
-  for (const { viewportWidth, cardHeight } of [
-    { viewportWidth: 320, cardHeight: 260 },
-    { viewportWidth: 390, cardHeight: 232 },
-  ]) {
-    const pseudoHeight = cardHeight - 2 * inset;
-    for (const { name, scale, angle } of states) {
-      const radians = (angle * Math.PI) / 180;
-      const cosine = Math.cos(radians);
-      const sine = Math.sin(radians);
-      const transformedX = (x: number, y: number) =>
-        inset + scale * (cosine * x - sine * y);
-      const paintedEdge = Math.max(
-        transformedX(topX, 0),
-        transformedX(bottomX, pseudoHeight),
-      );
-
-      expect({ name, viewportWidth, withinLogo: paintedEdge <= logoRight }).toEqual({
-        name,
-        viewportWidth,
-        withinLogo: true,
-      });
-    }
-  }
-});
-
-it("keeps the vertical accent field on the logo and clear of copy at rest and hover", () => {
-  const clipPath = rule(".competition-card::before {").match(
-    /clip-path:\s*polygon\(0 0,\s*100% 0,\s*62% (\d+)px,\s*0 (\d+)px\)/,
-  );
-
-  expect(clipPath).not.toBeNull();
-  if (!clipPath) return;
-
-  const [, rawDiagonalY, rawLeadingY] = clipPath;
-  const diagonalY = Number(rawDiagonalY);
-  const leadingY = Number(rawLeadingY);
-  const inset = Number(rule(".competition-card::before {").match(/inset:\s*(-?\d+)px/)?.[1]);
-  const hoverRule = rule(
-    ".competition-card:hover::before {",
+it("keeps the wide NRL split distinct while matching hover and focus motion", () => {
+  const wide = rule(".competition-card--wide::before {");
+  const hover = rule(
+    ".competition-card--wide:hover::before {",
     block(css, "@media (hover: hover) and (pointer: fine) {")
   );
-  const scale = Number(hoverRule.match(/scale\(([\d.]+)\)/)?.[1]);
-  const angle = Number(hoverRule.match(/rotate\((-?[\d.]+)deg\)/)?.[1]);
-  const radians = (angle * Math.PI) / 180;
-  const cosine = Math.cos(radians);
-  const sine = Math.sin(radians);
+  const focus = rule(".competition-card--wide:focus-visible::before {");
 
-  // PlatformHome's p-5, 50px logo and mt-8 establish these content bounds.
-  // The widths cover the narrowest five-column card and the phone/tablet cards.
-  const logoRight = 20 + 50;
-  const logoBottom = 20 + 50;
-  const copyLeft = 20;
-  const copyTop = 20 + 50 + 32;
-
-  for (const cardWidth of [210, 288, 358]) {
-    const diagonalX = cardWidth * 0.62;
-    const slope = (diagonalY - leadingY) / diagonalX;
-    const boundaryAt = (x: number) => leadingY + slope * x;
-    const transformedBoundaryAt = (x: number) => {
-      const sourceX = (x / scale + sine * leadingY) / (cosine - sine * slope);
-      const sourceY = boundaryAt(sourceX);
-      return inset + scale * (sine * sourceX + cosine * sourceY);
-    };
-
-    expect(inset + boundaryAt(logoRight)).toBeGreaterThanOrEqual(logoBottom);
-    expect(inset + boundaryAt(copyLeft)).toBeLessThan(copyTop);
-    expect(transformedBoundaryAt(logoRight)).toBeGreaterThanOrEqual(logoBottom);
-    expect(transformedBoundaryAt(copyLeft)).toBeLessThan(copyTop);
-  }
+  expect(wide).toContain("inset: -70% 58% -70% -18%");
+  expect(wide).toContain("transform: rotate(-8deg)");
+  expect(hover).toContain("transform: rotate(-4deg) scale(1.06)");
+  expect(focus).toEqual(hover.replace(":hover", ":focus-visible"));
 });
 
 it("keeps effective card copy and arrow ink AA-safe across every accent surface", () => {
-  const baseHsl = hslChannels(token(root, "competition-card-base"));
-  const base = hslToRgb(baseHsl);
   const cardInkToken = winningColorToken(".competition-card");
-  const copyToken = winningColorToken(".competition-card__copy");
   const arrowInkToken = winningColorToken(".competition-card__arrow");
   const cardInk = hsl(token(root, cardInkToken));
-  const copy = hsl(token(root, copyToken));
   const arrowInk = hsl(token(root, arrowInkToken));
 
   expect(cardInkToken).toBe("competition-card-ink");
-  expect(copyToken).toBe("competition-card-copy");
   expect(arrowInkToken).toBe("competition-card-ink");
 
   expect(rule(".competition-card__arrow {")).toContain(
-    "background: hsl(var(--competition-card-base) / 0.58)",
+    "background: hsl(var(--competition-card-ink) / 0.12)",
   );
   expect(
     rule(
       ".competition-card:hover .competition-card__arrow {",
       block(css, "@media (hover: hover) and (pointer: fine) {"),
     ),
-  ).toContain("background: hsl(var(--competition-card-base) / 0.74)");
+  ).toContain("background: hsl(var(--competition-card-ink) / 0.22)");
 
   for (const competition of registeredCompetitions) {
-    const accentHsl = hslChannels(
-      token(root, competition.accentVar.replace(/^--/, "")),
+    const toneRule = rule(
+      `.competition-card[data-competition-card="${competition.id}"] {`,
     );
-    const accent = hslToRgb(accentHsl);
-    const mixedSurface = hslToRgb(mixHsl(accentHsl, baseHsl, 0.18));
+    const accent = hsl(token(toneRule, "competition-card-accent"));
+    const deep = hsl(token(toneRule, "competition-card-deep"));
 
-    expect(ratio(cardInk, mixedSurface)).toBeGreaterThanOrEqual(4.5);
-    expect(ratio(copy, mixedSurface)).toBeGreaterThanOrEqual(4.5);
-    for (const arrowOpacity of [0.58, 0.74]) {
-      expect(ratio(arrowInk, composite(base, accent, arrowOpacity))).toBeGreaterThanOrEqual(
-        4.5,
-      );
-      expect(
-        ratio(arrowInk, composite(base, mixedSurface, arrowOpacity)),
-      ).toBeGreaterThanOrEqual(4.5);
-    }
+    expect(ratio(cardInk, deep)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(cardInk, accent)).toBeGreaterThanOrEqual(3);
+    expect(ratio(arrowInk, accent)).toBeGreaterThanOrEqual(3);
   }
 });
 

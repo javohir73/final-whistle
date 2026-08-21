@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { BrandMark } from "@/components/Logo";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { PremiumPromo } from "@/components/PremiumPromo";
@@ -36,18 +35,6 @@ const FOOTBALL_COMPETITIONS: Array<{
     description: "The complete World Cup tournament view.",
   },
 ];
-
-type CompetitionCardStyle = CSSProperties & {
-  "--competition-card-accent": string;
-  "--competition-card-boundary": string;
-};
-
-function competitionCardStyle(accentVar: string): CompetitionCardStyle {
-  return {
-    "--competition-card-accent": `var(${accentVar})`,
-    "--competition-card-boundary": `var(${accentVar}-boundary)`,
-  };
-}
 
 function ArrowIcon() {
   return (
@@ -155,7 +142,7 @@ export function PlatformHome() {
           <span className="hidden text-sm text-muted sm:block">Football</span>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid items-start gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
           {FOOTBALL_COMPETITIONS.map(({ id, region, description }) => {
             const competition = COMPETITIONS[id];
             return (
@@ -163,23 +150,22 @@ export function PlatformHome() {
                 key={id}
                 href={competition.basePath}
                 data-competition-card={id}
-                style={competitionCardStyle(competition.accentVar)}
-                className="competition-card group relative min-h-[210px] overflow-hidden rounded-2xl p-5"
+                className="competition-card competition-card--compact group relative h-[214px] overflow-hidden rounded-2xl p-4"
               >
                 <div className="flex items-start justify-between">
-                  <CompetitionLogo competition={id} size={50} />
+                  <CompetitionLogo competition={id} size={47} />
                   <span className="competition-card__arrow">
                     <ArrowIcon />
                   </span>
                 </div>
-                <div className="mt-8">
-                  <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em]">
+                <div className="competition-card__content mt-[34px]">
+                  <p className="competition-card__copy text-[9px] font-extrabold uppercase tracking-[0.15em]">
                     {region}
                   </p>
-                  <h3 className="mt-1 font-display text-2xl font-extrabold tracking-tight">
+                  <h3 className="mt-[7px] max-w-[168px] font-display text-[19px] font-extrabold leading-[1.08] tracking-[-0.035em]">
                     {competition.label}
                   </h3>
-                  <p className="competition-card__copy mt-2 text-sm leading-relaxed">
+                  <p className="competition-card__copy competition-card__description mt-2 max-w-[190px] text-[10px] leading-[1.4]">
                     {description}
                   </p>
                 </div>
@@ -203,7 +189,6 @@ export function PlatformHome() {
         <Link
           href={COMPETITIONS.nrl.basePath}
           data-competition-card="nrl"
-          style={competitionCardStyle(COMPETITIONS.nrl.accentVar)}
           className="competition-card competition-card--wide group relative flex min-h-[150px] flex-col justify-between overflow-hidden rounded-2xl p-5 sm:flex-row sm:items-center sm:p-7"
         >
           <div className="flex items-center gap-4">
@@ -220,7 +205,7 @@ export function PlatformHome() {
               </p>
             </div>
           </div>
-          <span className="competition-card__arrow mt-5 inline-flex items-center gap-2 self-start font-display text-sm font-bold sm:mt-0 sm:self-auto">
+          <span className="competition-card__arrow competition-card__arrow--wide mt-5 inline-flex items-center gap-2 self-start whitespace-nowrap font-display text-sm font-bold sm:mt-0 sm:self-auto">
             Open NRL
             <ArrowIcon />
           </span>

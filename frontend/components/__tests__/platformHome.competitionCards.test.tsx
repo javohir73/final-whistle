@@ -55,25 +55,13 @@ function isHoverTransformUtility(className: string): boolean {
 }
 
 describe("PlatformHome competition cards", () => {
-  it("gives every competition the shared branded treatment and registry accent", () => {
+  it("gives every competition the shared branded treatment", () => {
     const { container } = render(<PlatformHome />);
 
     for (const id of competitionIds) {
       const card = container.querySelector(`[data-competition-card="${id}"]`);
       expect(card).toHaveClass("competition-card");
       expect(card).toHaveClass("rounded-2xl");
-      expect(card).toHaveAttribute(
-        "style",
-        expect.stringContaining(
-          `--competition-card-accent: var(${COMPETITIONS[id].accentVar})`,
-        ),
-      );
-      expect(card).toHaveAttribute(
-        "style",
-        expect.stringContaining(
-          `--competition-card-boundary: var(${COMPETITIONS[id].accentVar}-boundary)`,
-        ),
-      );
       expect(card?.querySelector(".competition-card__copy")).toBeInTheDocument();
       expect(card?.querySelector(".competition-card__arrow")).toBeInTheDocument();
     }
@@ -99,5 +87,48 @@ describe("PlatformHome competition cards", () => {
     for (const element of container.querySelectorAll(authoritativeCardSurfaces)) {
       expect(Array.from(element.classList).filter(isHoverTransformUtility)).toEqual([]);
     }
+  });
+
+  it("keeps the football row compact and matches the approved Graphic split proportions", () => {
+    const { container } = render(<PlatformHome />);
+    const footballCards = Array.from(
+      container.querySelectorAll('[data-competition-card]:not([data-competition-card="nrl"])'),
+    );
+
+    expect(footballCards).toHaveLength(5);
+    expect(footballCards[0]?.parentElement).toHaveClass("items-start");
+
+    for (const card of footballCards) {
+      expect(card).toHaveClass(
+        "competition-card--compact",
+        "h-[214px]",
+        "p-4",
+      );
+      expect(card.querySelector("[data-competition-logo]")).toHaveStyle({
+        width: "47px",
+        height: "47px",
+      });
+      expect(card.querySelector("h3")).toHaveClass(
+        "text-[19px]",
+        "leading-[1.08]",
+      );
+      expect(card.querySelector(".competition-card__description")).toHaveClass(
+        "text-[10px]",
+        "leading-[1.4]",
+      );
+    }
+  });
+
+  it("keeps the wide NRL action readable instead of forcing it into the circular arrow", () => {
+    const { container } = render(<PlatformHome />);
+    const nrlAction = container.querySelector(
+      '[data-competition-card="nrl"] .competition-card__arrow',
+    );
+
+    expect(nrlAction).toHaveClass(
+      "competition-card__arrow--wide",
+      "whitespace-nowrap",
+    );
+    expect(nrlAction).toHaveTextContent("Open NRL");
   });
 });

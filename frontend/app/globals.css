@@ -101,8 +101,7 @@
   --accent-wc26-ink: 42 72% 52%;    /* gold label ink on Floodlight washes */
   --comp-accent: var(--accent-wc26);/* default; overlay/eyebrow set per comp */
   --competition-card-base: 150 34% 8%;
-  --competition-card-ink: 120 14% 96%;
-  --competition-card-copy: 126 14% 82%;
+  --competition-card-ink: 0 0% 100%;
 }
 
 /* Daylight rollback: apply .theme-daylight on <html> to restore the light theme. */
@@ -263,15 +262,11 @@ body {
     position: relative;
     isolation: isolate;
     color: hsl(var(--competition-card-ink));
-    background: color-mix(
-      in hsl,
-      hsl(var(--competition-card-accent)) 18%,
-      hsl(var(--competition-card-base))
-    );
+    background: hsl(var(--competition-card-deep));
     border: 1px solid hsl(var(--competition-card-boundary));
     box-shadow:
-      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.08),
-      0 16px 38px -24px hsl(var(--competition-card-accent) / 0.62);
+      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
+      0 12px 28px hsl(var(--competition-card-base) / 0.18);
     transition:
       transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
       border-color 0.24s ease,
@@ -283,10 +278,11 @@ body {
     content: "";
     position: absolute;
     z-index: -2;
-    inset: -2px;
+    inset: -30% -20% 26% -34%;
     background: hsl(var(--competition-card-accent));
-    clip-path: polygon(0 0, 100% 0, 62% 84px, 0 92px);
-    transform-origin: top left;
+    transform: rotate(-13deg);
+    transform-origin: center;
+    box-shadow: 0 18px 35px hsl(var(--competition-card-base) / 0.16);
     transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
     pointer-events: none;
   }
@@ -295,10 +291,15 @@ body {
     content: "";
     position: absolute;
     z-index: -1;
-    inset: 0;
-    border: 1px solid hsl(var(--competition-card-ink) / 0.08);
-    border-radius: inherit;
-    box-shadow: inset 0 -42px 64px hsl(var(--competition-card-base) / 0.24);
+    top: 0;
+    right: 0;
+    width: 45%;
+    height: 100%;
+    background: repeating-linear-gradient(
+      135deg,
+      transparent 0 14px,
+      hsl(var(--competition-card-ink) / 0.035) 14px 16px
+    );
     pointer-events: none;
   }
 
@@ -307,29 +308,73 @@ body {
     z-index: 1;
   }
 
+  .competition-card[data-competition-card="epl"] {
+    --competition-card-accent: 283 59% 41%;
+    --competition-card-deep: 283 61% 17%;
+    --competition-card-boundary: 283 60% 61%;
+  }
+
+  .competition-card[data-competition-card="laliga"] {
+    --competition-card-accent: 6 100% 64%;
+    --competition-card-deep: 350 64% 33%;
+    --competition-card-boundary: 6 100% 72%;
+  }
+
+  .competition-card[data-competition-card="bundesliga"] {
+    --competition-card-accent: 355 87% 52%;
+    --competition-card-deep: 356 77% 28%;
+    --competition-card-boundary: 355 87% 65%;
+  }
+
+  .competition-card[data-competition-card="ucl"] {
+    --competition-card-accent: 226 79% 47%;
+    --competition-card-deep: 227 83% 19%;
+    --competition-card-boundary: 226 79% 64%;
+  }
+
+  .competition-card[data-competition-card="wc26"] {
+    --competition-card-accent: 226 65% 61%;
+    --competition-card-deep: 227 57% 34%;
+    --competition-card-boundary: 226 65% 72%;
+  }
+
+  .competition-card[data-competition-card="nrl"] {
+    --competition-card-accent: 174 60% 40%;
+    --competition-card-deep: 174 71% 18%;
+    --competition-card-boundary: 174 60% 48%;
+  }
+
   .competition-card--wide::before {
-    clip-path: polygon(0 0, 86px 0, 76px 100%, 0 100%);
+    inset: -70% 58% -70% -18%;
+    transform: rotate(-8deg);
   }
 
   .competition-card__copy {
-    color: hsl(var(--competition-card-copy));
+    color: hsl(var(--competition-card-ink) / 0.72);
   }
 
   .competition-card__arrow {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 2rem;
-    min-height: 2rem;
-    padding: 0.4rem;
+    width: 1.875rem;
+    height: 1.875rem;
+    flex: 0 0 1.875rem;
     border: 1px solid hsl(var(--competition-card-ink) / 0.16);
     border-radius: 999px;
     color: hsl(var(--competition-card-ink));
-    background: hsl(var(--competition-card-base) / 0.58);
+    background: hsl(var(--competition-card-ink) / 0.12);
     transition:
       transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
       background-color 0.24s ease,
       border-color 0.24s ease;
+  }
+
+  .competition-card__arrow--wide {
+    width: auto;
+    height: auto;
+    flex-basis: auto;
+    padding: 0.55rem 0.75rem;
   }
 
   .competition-card [data-competition-logo] {
@@ -338,60 +383,60 @@ body {
 
   @media (hover: hover) and (pointer: fine) {
     .competition-card:hover {
-      transform: translateY(-6px);
-      border-color: hsl(var(--competition-card-boundary));
+      transform: translateY(-7px) scale(1.015);
+      border-color: hsl(var(--competition-card-ink) / 0.4);
       box-shadow:
-        inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
-        0 22px 46px -22px hsl(var(--competition-card-accent) / 0.78);
-      filter: saturate(1.08);
+        inset 0 1px 0 hsl(var(--competition-card-ink) / 0.22),
+        0 24px 48px color-mix(in srgb, hsl(var(--competition-card-accent)) 34%, transparent);
+      filter: saturate(1.12) brightness(1.06);
     }
 
     .competition-card:hover::before {
-      transform: scale(1.055) rotate(-1.5deg);
+      transform: rotate(-9deg) scale(1.06);
     }
 
-    /* Its fixed 86px top vertex already meets the 84px mobile logo edge once
-       the -2px inset is applied. Keep the tilt, but do not scale it past copy. */
+    /* The wide card keeps the same split motion with a shallower angle so its
+       accent field stays on the NRL identity block instead of crossing copy. */
     .competition-card--wide:hover::before {
-      transform: rotate(-1.5deg);
+      transform: rotate(-4deg) scale(1.06);
     }
 
     .competition-card:hover [data-competition-logo] {
-      transform: translateY(-3px) scale(1.055);
+      transform: translateY(-2px) scale(1.08) rotate(-2deg);
     }
 
     .competition-card:hover .competition-card__arrow {
       transform: translateX(4px);
-      background: hsl(var(--competition-card-base) / 0.74);
-      border-color: hsl(var(--competition-card-ink) / 0.28);
+      background: hsl(var(--competition-card-ink) / 0.22);
+      border-color: hsl(var(--competition-card-ink) / 0.4);
     }
   }
 
   .competition-card:focus-visible {
-    transform: translateY(-6px);
-    border-color: hsl(var(--competition-card-boundary));
+    transform: translateY(-7px) scale(1.015);
+    border-color: hsl(var(--competition-card-ink) / 0.4);
     box-shadow:
-      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
-      0 22px 46px -22px hsl(var(--competition-card-accent) / 0.78);
-    filter: saturate(1.08);
+      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.22),
+      0 24px 48px color-mix(in srgb, hsl(var(--competition-card-accent)) 34%, transparent);
+    filter: saturate(1.12) brightness(1.06);
   }
 
   .competition-card:focus-visible::before {
-    transform: scale(1.055) rotate(-1.5deg);
+    transform: rotate(-9deg) scale(1.06);
   }
 
   .competition-card--wide:focus-visible::before {
-    transform: rotate(-1.5deg);
+    transform: rotate(-4deg) scale(1.06);
   }
 
   .competition-card:focus-visible [data-competition-logo] {
-    transform: translateY(-3px) scale(1.055);
+    transform: translateY(-2px) scale(1.08) rotate(-2deg);
   }
 
   .competition-card:focus-visible .competition-card__arrow {
     transform: translateX(4px);
-    background: hsl(var(--competition-card-base) / 0.74);
-    border-color: hsl(var(--competition-card-ink) / 0.28);
+    background: hsl(var(--competition-card-ink) / 0.22);
+    border-color: hsl(var(--competition-card-ink) / 0.4);
   }
 
   .chip {
