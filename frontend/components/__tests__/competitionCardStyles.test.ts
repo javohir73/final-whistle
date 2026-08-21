@@ -120,6 +120,12 @@ function ratio(a: Rgb, b: Rgb): number {
   return (high + 0.05) / (low + 0.05);
 }
 
+function composite(foreground: Rgb, background: Rgb, alpha: number): Rgb {
+  return foreground.map(
+    (channel, index) => channel * alpha + background[index] * (1 - alpha),
+  ) as Rgb;
+}
+
 const root = rule(":root {");
 const daylight = rule(".theme-daylight {");
 const registeredCompetitions = Object.values(COMPETITIONS);
@@ -225,7 +231,10 @@ it("keeps all positive hover motion inside the precise-pointer query", () => {
 
 it("has no positive hover transforms outside the precise-pointer query", () => {
   const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
-  const outsidePrecisePointer = css.replace(precisePointer, "");
+  const reducedMotion = block(css, "@media (prefers-reduced-motion: reduce) {");
+  const outsidePrecisePointer = css
+    .replace(precisePointer, "")
+    .replace(reducedMotion, "");
   const violations = styleRules(outsidePrecisePointer).flatMap((item) =>
     item.selectors
       .filter((selector) => selector.includes(".competition-card:hover"))
@@ -242,10 +251,18 @@ it("has no positive hover transforms outside the precise-pointer query", () => {
   expect(violations).toEqual([]);
 });
 
-it("neutralizes every card transition and interaction transform for reduced motion", () => {
+it("removes card motion without changing the resting split geometry", () => {
   const reducedMotion = block(css, "@media (prefers-reduced-motion: reduce) {");
   const transitionReset = rule(".competition-card,", reducedMotion);
   const transformReset = rule(".competition-card:hover,", reducedMotion);
+  const compactSplitReset = rule(
+    ".competition-card:hover::before,",
+    reducedMotion,
+  );
+  const wideSplitReset = rule(
+    ".competition-card--wide:hover::before,",
+    reducedMotion,
+  );
 
   for (const selector of [
     ".competition-card",
@@ -260,8 +277,6 @@ it("neutralizes every card transition and interaction transform for reduced moti
   for (const selector of [
     ".competition-card:hover",
     ".competition-card:focus-visible",
-    ".competition-card:hover::before",
-    ".competition-card:focus-visible::before",
     ".competition-card:hover [data-competition-logo]",
     ".competition-card:focus-visible [data-competition-logo]",
     ".competition-card:hover .competition-card__arrow",
@@ -270,6 +285,10 @@ it("neutralizes every card transition and interaction transform for reduced moti
     expect(transformReset).toContain(selector);
   }
   expect(transformReset).toContain("transform: none");
+  expect(compactSplitReset).toContain(".competition-card:focus-visible::before");
+  expect(compactSplitReset).toContain("transform: rotate(-13deg)");
+  expect(wideSplitReset).toContain(".competition-card--wide:focus-visible::before");
+  expect(wideSplitReset).toContain("transform: rotate(-8deg)");
 });
 
 it("keeps the wide NRL split distinct while matching hover and focus motion", () => {
@@ -286,24 +305,35 @@ it("keeps the wide NRL split distinct while matching hover and focus motion", ()
   expect(focus).toEqual(hover.replace(":hover", ":focus-visible"));
 });
 
-it("keeps effective card copy and arrow ink AA-safe across every accent surface", () => {
+it("keeps rendered small copy and arrow controls AA-safe on every card", () => {
   const cardInkToken = winningColorToken(".competition-card");
   const arrowInkToken = winningColorToken(".competition-card__arrow");
   const cardInk = hsl(token(root, cardInkToken));
   const arrowInk = hsl(token(root, arrowInkToken));
+  const copyOpacity = Number(
+    rule(".competition-card__copy {").match(/\/\s*([\d.]+)\)/)?.[1],
+  );
 
   expect(cardInkToken).toBe("competition-card-ink");
-  expect(arrowInkToken).toBe("competition-card-ink");
+  expect(arrowInkToken).toBe("competition-card-base");
+  expect(copyOpacity).toBe(0.72);
+  expect(rule(".competition-card__copy {")).not.toContain("background:");
+  expect(rule(".competition-card--compact .competition-card__content {")).toContain(
+    "background: hsl(var(--competition-card-deep))",
+  );
+  expect(rule(".competition-card__wide-copy {")).toContain(
+    "background: hsl(var(--competition-card-deep))",
+  );
 
   expect(rule(".competition-card__arrow {")).toContain(
-    "background: hsl(var(--competition-card-ink) / 0.12)",
+    "background: hsl(var(--competition-card-ink))",
   );
   expect(
     rule(
       ".competition-card:hover .competition-card__arrow {",
       block(css, "@media (hover: hover) and (pointer: fine) {"),
     ),
-  ).toContain("background: hsl(var(--competition-card-ink) / 0.22)");
+  ).toContain("background: hsl(var(--competition-card-ink))");
 
   for (const competition of registeredCompetitions) {
     const toneRule = rule(
@@ -311,10 +341,13 @@ it("keeps effective card copy and arrow ink AA-safe across every accent surface"
     );
     const accent = hsl(token(toneRule, "competition-card-accent"));
     const deep = hsl(token(toneRule, "competition-card-deep"));
+    const renderedCopy = composite(cardInk, deep, copyOpacity);
+    const control = hsl(token(root, "competition-card-ink"));
 
-    expect(ratio(cardInk, deep)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(renderedCopy, deep)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(cardInk, accent)).toBeGreaterThanOrEqual(3);
-    expect(ratio(arrowInk, accent)).toBeGreaterThanOrEqual(3);
+    expect(ratio(arrowInk, control)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(control, accent)).toBeGreaterThanOrEqual(3);
   }
 });
 
@@ -335,16 +368,9 @@ it("keeps the offset card focus indicator visible in both themes", () => {
 });
 
 it("gives keyboard focus the same card affordance as hover, not just an outline", () => {
-  // The outline test above proves the focus RING is visible. This proves the
-  // card itself reacts identically — the lift, the accent border and the wedge
-  // scale. The two rule sets sit ~25 lines apart and neither references the
-  // other, so a change to the hover treatment can silently leave keyboard
-  // users on the old one.
-  //
-  // Confirmed in a browser before being pinned: after a real Tab press,
-  // :focus-visible matched and the card moved to translateY(-6px), border
-  // alpha 0.52 -> 0.84, wedge scale(1.055) rotate(-1.5deg) — identical to the
-  // hovered card measured alongside it.
+  // The outline test above proves the focus ring is visible. This proves the
+  // card itself receives the same lift, boundary emphasis and split motion as
+  // the current hover treatment.
   const hover = rule(".competition-card:hover {");
   const focus = rule(".competition-card:focus-visible {");
   for (const property of ["transform", "border-color", "box-shadow", "filter"]) {

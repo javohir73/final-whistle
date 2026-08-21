@@ -63,9 +63,10 @@
   --confidence-high: var(--win);
   --confidence-medium: var(--draw);
   --confidence-low: var(--muted);
-  /* Per-competition accent — used by the competition cards, switcher overlay,
-     and league eyebrow chips. HSL channel triplets keep alpha composition and
-     color-mix available to each consumer. */
+  /* Core per-competition accents used by the switcher overlay and league
+     eyebrow chips. The homepage Graphic split cards define their approved,
+     richer two-tone palette alongside the card rules below. HSL channel
+     triplets keep alpha composition and color-mix available to each consumer. */
   --accent-epl: 283 60% 55%;        /* purple */
   --accent-laliga: 8 78% 63%;       /* coral */
   --accent-bundesliga: 0 75% 52%;   /* red */
@@ -353,6 +354,21 @@ body {
     color: hsl(var(--competition-card-ink) / 0.72);
   }
 
+  .competition-card--compact .competition-card__content {
+    position: absolute;
+    inset: 88px 0 0;
+    margin-top: 0;
+    padding: 22px 16px 14px;
+    background: hsl(var(--competition-card-deep));
+    clip-path: polygon(0 16px, 100% 0, 100% 100%, 0 100%);
+  }
+
+  .competition-card__wide-copy {
+    padding: 8px 22px 8px 12px;
+    background: hsl(var(--competition-card-deep));
+    clip-path: polygon(0 0, 94% 0, 100% 100%, 0 100%);
+  }
+
   .competition-card__arrow {
     display: inline-flex;
     align-items: center;
@@ -362,8 +378,8 @@ body {
     flex: 0 0 1.875rem;
     border: 1px solid hsl(var(--competition-card-ink) / 0.16);
     border-radius: 999px;
-    color: hsl(var(--competition-card-ink));
-    background: hsl(var(--competition-card-ink) / 0.12);
+    color: hsl(var(--competition-card-base));
+    background: hsl(var(--competition-card-ink));
     transition:
       transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
       background-color 0.24s ease,
@@ -407,8 +423,8 @@ body {
 
     .competition-card:hover .competition-card__arrow {
       transform: translateX(4px);
-      background: hsl(var(--competition-card-ink) / 0.22);
-      border-color: hsl(var(--competition-card-ink) / 0.4);
+      background: hsl(var(--competition-card-ink));
+      border-color: hsl(var(--competition-card-base) / 0.4);
     }
   }
 
@@ -435,8 +451,8 @@ body {
 
   .competition-card:focus-visible .competition-card__arrow {
     transform: translateX(4px);
-    background: hsl(var(--competition-card-ink) / 0.22);
-    border-color: hsl(var(--competition-card-ink) / 0.4);
+    background: hsl(var(--competition-card-ink));
+    border-color: hsl(var(--competition-card-base) / 0.4);
   }
 
   .chip {
@@ -684,13 +700,19 @@ body {
   }
   .competition-card:hover,
   .competition-card:focus-visible,
-  .competition-card:hover::before,
-  .competition-card:focus-visible::before,
   .competition-card:hover [data-competition-logo],
   .competition-card:focus-visible [data-competition-logo],
   .competition-card:hover .competition-card__arrow,
   .competition-card:focus-visible .competition-card__arrow {
     transform: none;
+  }
+  .competition-card:hover::before,
+  .competition-card:focus-visible::before {
+    transform: rotate(-13deg);
+  }
+  .competition-card--wide:hover::before,
+  .competition-card--wide:focus-visible::before {
+    transform: rotate(-8deg);
   }
   .reveal {
     opacity: 1;

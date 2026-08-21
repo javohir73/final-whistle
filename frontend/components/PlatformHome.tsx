@@ -142,7 +142,7 @@ export function PlatformHome() {
           <span className="hidden text-sm text-muted sm:block">Football</span>
         </div>
 
-        <div className="grid items-start gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid items-start gap-2.5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
           {FOOTBALL_COMPETITIONS.map(({ id, region, description }) => {
             const competition = COMPETITIONS[id];
             return (
@@ -193,7 +193,7 @@ export function PlatformHome() {
         >
           <div className="flex items-center gap-4">
             <CompetitionLogo competition="nrl" size={64} />
-            <div>
+            <div className="competition-card__wide-copy">
               <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em]">
                 2026 season
               </p>

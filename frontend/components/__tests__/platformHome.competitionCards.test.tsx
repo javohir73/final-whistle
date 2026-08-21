@@ -70,6 +70,9 @@ describe("PlatformHome competition cards", () => {
     expect(container.querySelector('[data-competition-card="nrl"]')).toHaveClass(
       "competition-card--wide",
     );
+    expect(
+      container.querySelector('[data-competition-card="nrl"] .competition-card__wide-copy'),
+    ).toBeInTheDocument();
   });
 
   it("keeps Tailwind text colours off every authoritative competition card surface", () => {
@@ -96,7 +99,13 @@ describe("PlatformHome competition cards", () => {
     );
 
     expect(footballCards).toHaveLength(5);
-    expect(footballCards[0]?.parentElement).toHaveClass("items-start");
+    expect(footballCards[0]?.parentElement).toHaveClass(
+      "items-start",
+      "sm:grid-cols-2",
+      "md:grid-cols-3",
+      "xl:grid-cols-5",
+    );
+    expect(footballCards[0]?.parentElement).not.toHaveClass("lg:grid-cols-5");
 
     for (const card of footballCards) {
       expect(card).toHaveClass(
