@@ -37,6 +37,27 @@ describe("CompetitionLogo", () => {
     );
   });
 
+  it("can render the World Cup asset on a taller rectangular canvas", () => {
+    const { container } = render(
+      <CompetitionLogo
+        competition="wc26"
+        size={60}
+        width={84}
+        height={72}
+        fit="cover"
+        labelled
+      />,
+    );
+    const shell = container.querySelector('[data-competition-logo="wc26"]');
+    const image = shell?.querySelector("img");
+
+    expect(shell).toHaveStyle({ width: "84px", height: "72px" });
+    expect(image).toHaveAttribute("width", "84");
+    expect(image).toHaveAttribute("height", "72");
+    expect(image).toHaveClass("object-cover", "object-center", "p-0");
+    expect(image).not.toHaveClass("object-contain");
+  });
+
   it("uses the self-hosted Champions League mark", () => {
     const { container } = render(<CompetitionLogo competition="ucl" size={32} />);
     expect(container.querySelector('[data-competition-logo="ucl"] img')).toHaveAttribute(

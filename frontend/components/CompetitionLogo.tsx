@@ -8,20 +8,31 @@ import { cn } from "@/lib/utils";
 export function CompetitionLogo({
   competition,
   size = 28,
+  width,
+  height,
+  fit,
   className,
+  imageClassName,
   labelled = false,
 }: {
   competition: CompetitionId;
   size?: number;
+  width?: number;
+  height?: number;
+  fit?: "contain" | "cover";
   className?: string;
+  imageClassName?: string;
   labelled?: boolean;
 }) {
   const config = COMPETITIONS[competition];
+  const canvasWidth = width ?? size;
+  const canvasHeight = height ?? size;
+  const imageFit = fit ?? (competition === "wc26" ? "cover" : "contain");
   return (
     <span
       data-competition-logo={competition}
       className={cn("grid shrink-0 place-items-center", className)}
-      style={{ width: size, height: size }}
+      style={{ width: canvasWidth, height: canvasHeight }}
     >
       {/* The assets are deliberately self-hosted: the prototype's remote logo
           URLs are vulnerable to CSP and hotlink blocking. */}
@@ -30,15 +41,15 @@ export function CompetitionLogo({
         src={config.logoSrc}
         alt={labelled ? `${config.label} logo` : ""}
         aria-hidden={labelled ? undefined : true}
-        width={size}
-        height={size}
+        width={canvasWidth}
+        height={canvasHeight}
         loading="lazy"
         decoding="async"
         className={cn(
           "h-full w-full drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]",
-          competition === "wc26"
-            ? "object-cover object-center p-0"
-            : "object-contain p-[4%]",
+          imageFit === "cover" ? "object-cover" : "object-contain",
+          competition === "wc26" ? "object-center p-0" : "p-[4%]",
+          imageClassName,
         )}
       />
     </span>

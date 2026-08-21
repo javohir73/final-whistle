@@ -356,11 +356,18 @@ body {
     color: hsl(var(--competition-card-ink) / 0.72);
   }
 
+  .competition-card-grid {
+    position: relative;
+    left: 50%;
+    width: min(1280px, calc(100vw - 2rem));
+    transform: translateX(-50%);
+  }
+
   .competition-card--compact .competition-card__content {
     position: absolute;
-    inset: 88px 0 0;
+    inset: 116px 0 0;
     margin-top: 0;
-    padding: 22px 16px 14px;
+    padding: 28px 20px 16px;
     background: hsl(var(--competition-card-deep));
     clip-path: polygon(0 16px, 100% 0, 100% 100%, 0 100%);
   }
@@ -405,22 +412,18 @@ body {
 
   .competition-card[data-competition-card="wc26"] [data-competition-logo] {
     position: relative;
-    isolation: isolate;
-    background: transparent;
-  }
-
-  .competition-card[data-competition-card="wc26"] [data-competition-logo]::before {
-    content: "";
-    position: absolute;
-    inset: -4px;
-    z-index: -1;
-    background: hsl(var(--competition-card-accent));
-    pointer-events: none;
+    overflow: hidden;
+    background: hsl(var(--competition-card-ink));
+    mask-image: url("/competitions/wc26.png");
+    mask-mode: luminance;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: 180%;
   }
 
   .competition-card[data-competition-card="wc26"] [data-competition-logo] img {
-    background: transparent;
-    mix-blend-mode: lighten;
+    opacity: 0;
+    transform: none;
     filter: none;
   }
 

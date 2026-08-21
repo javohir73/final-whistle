@@ -92,7 +92,7 @@ describe("PlatformHome competition cards", () => {
     }
   });
 
-  it("keeps the football row compact and matches the approved Graphic split proportions", () => {
+  it("gives the football row the approved larger Graphic split proportions", () => {
     const { container } = render(<PlatformHome />);
     const footballCards = Array.from(
       container.querySelectorAll('[data-competition-card]:not([data-competition-card="nrl"])'),
@@ -100,6 +100,7 @@ describe("PlatformHome competition cards", () => {
 
     expect(footballCards).toHaveLength(5);
     expect(footballCards[0]?.parentElement).toHaveClass(
+      "competition-card-grid",
       "items-start",
       "sm:grid-cols-2",
       "md:grid-cols-3",
@@ -110,22 +111,37 @@ describe("PlatformHome competition cards", () => {
     for (const card of footballCards) {
       expect(card).toHaveClass(
         "competition-card--compact",
-        "h-[214px]",
-        "p-4",
+        "h-[300px]",
+        "p-5",
       );
-      expect(card.querySelector("[data-competition-logo]")).toHaveStyle({
-        width: "47px",
-        height: "47px",
-      });
       expect(card.querySelector("h3")).toHaveClass(
-        "text-[19px]",
+        "text-[22px]",
         "leading-[1.08]",
       );
       expect(card.querySelector(".competition-card__description")).toHaveClass(
-        "text-[10px]",
+        "text-[11px]",
         "leading-[1.4]",
       );
     }
+
+    for (const card of footballCards.filter(
+      (item) => item.getAttribute("data-competition-card") !== "wc26",
+    )) {
+      expect(card.querySelector("[data-competition-logo]")).toHaveStyle({
+        width: "60px",
+        height: "60px",
+      });
+    }
+
+    const worldCupCard = container.querySelector('[data-competition-card="wc26"]');
+    expect(worldCupCard?.querySelector("[data-competition-logo]")).toHaveStyle({
+      width: "84px",
+      height: "72px",
+    });
+    expect(worldCupCard?.querySelector("[data-competition-logo] img")).toHaveClass(
+      "object-cover",
+      "competition-card__wc26-mark",
+    );
   });
 
   it("keeps the wide NRL action readable instead of forcing it into the circular arrow", () => {
