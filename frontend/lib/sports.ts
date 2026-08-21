@@ -319,7 +319,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     sport: "football",
     label: "World Cup 2026",
     shortLabel: "WC26",
-    logoSrc: "/competitions/wc26.png",
+    logoSrc: "/competitions/wc26-20260821.png",
     basePath: "/football/wc26",
     accentVar: "--accent-wc26",
     format: "knockout",
