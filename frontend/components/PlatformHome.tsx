@@ -142,7 +142,7 @@ export function PlatformHome() {
           <span className="hidden text-sm text-muted sm:block">Football</span>
         </div>
 
-        <div className="grid items-start gap-2.5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <div className="competition-card-grid grid items-start gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
           {FOOTBALL_COMPETITIONS.map(({ id, region, description }) => {
             const competition = COMPETITIONS[id];
             return (
@@ -150,10 +150,19 @@ export function PlatformHome() {
                 key={id}
                 href={competition.basePath}
                 data-competition-card={id}
-                className="competition-card competition-card--compact group relative h-[214px] overflow-hidden rounded-2xl p-4"
+                className="competition-card competition-card--compact group relative h-[300px] overflow-hidden rounded-2xl p-5"
               >
                 <div className="flex items-start justify-between">
-                  <CompetitionLogo competition={id} size={47} />
+                  <CompetitionLogo
+                    competition={id}
+                    size={60}
+                    width={id === "wc26" ? 84 : undefined}
+                    height={id === "wc26" ? 72 : undefined}
+                    fit={id === "wc26" ? "cover" : undefined}
+                    imageClassName={
+                      id === "wc26" ? "competition-card__wc26-mark" : undefined
+                    }
+                  />
                   <span className="competition-card__arrow">
                     <ArrowIcon />
                   </span>
@@ -162,10 +171,10 @@ export function PlatformHome() {
                   <p className="competition-card__copy text-[9px] font-extrabold uppercase tracking-[0.15em]">
                     {region}
                   </p>
-                  <h3 className="mt-[7px] max-w-[168px] font-display text-[19px] font-extrabold leading-[1.08] tracking-[-0.035em]">
+                  <h3 className="mt-[7px] max-w-[190px] font-display text-[22px] font-extrabold leading-[1.08] tracking-[-0.035em]">
                     {competition.label}
                   </h3>
-                  <p className="competition-card__copy competition-card__description mt-2 max-w-[190px] text-[10px] leading-[1.4]">
+                  <p className="competition-card__copy competition-card__description mt-2 max-w-[210px] text-[11px] leading-[1.4]">
                     {description}
                   </p>
                 </div>

@@ -329,30 +329,36 @@ it("uses high-contrast logo treatments without adding visible logo tiles", () =>
   const worldCup = rule(
     '.competition-card[data-competition-card="wc26"] [data-competition-logo] img {',
   );
-  expect(worldCup).toContain("mix-blend-mode: lighten");
-  expect(worldCup).toContain("background: transparent");
+  expect(worldCup).toContain("opacity: 0");
+  expect(worldCup).toContain("transform: none");
   expect(worldCup).toContain("filter: none");
+  expect(worldCup).not.toContain("mix-blend-mode:");
   expect(worldCup).not.toContain("box-shadow:");
 
   const worldCupCanvas = rule(
     '.competition-card[data-competition-card="wc26"] [data-competition-logo] {',
   );
   expect(worldCupCanvas).toContain("position: relative");
-  expect(worldCupCanvas).toContain("background: transparent");
-  expect(worldCupCanvas).toContain("isolation: isolate");
+  expect(worldCupCanvas).toContain(
+    "background: hsl(var(--competition-card-ink))",
+  );
+  expect(worldCupCanvas).not.toContain("isolation: isolate");
+  expect(worldCupCanvas).toContain("overflow: hidden");
+  expect(worldCupCanvas).toContain(
+    'mask-image: url("/competitions/wc26.png")',
+  );
+  expect(worldCupCanvas).toContain("mask-mode: luminance");
+  expect(worldCupCanvas).toContain("mask-size: 180%");
+  expect(worldCupCanvas).toContain("mask-position: center");
+  expect(worldCupCanvas).toContain("mask-repeat: no-repeat");
   expect(worldCupCanvas).not.toContain("filter:");
 
-  const worldCupBackdrop = rule(
-    '.competition-card[data-competition-card="wc26"] [data-competition-logo]::before {',
+  expect(css).not.toContain(
+    '.competition-card[data-competition-card="wc26"] [data-competition-logo]::before',
   );
-  expect(worldCupBackdrop).toContain("inset: -4px");
-  expect(worldCupBackdrop).toContain(
-    "background: hsl(var(--competition-card-accent))",
-  );
-  expect(worldCupBackdrop).toContain("z-index: -1");
 });
 
-it("keeps the World Cup blend canvas and its backdrop stationary during interaction", () => {
+it("keeps the World Cup mask canvas and card backdrop stationary during interaction", () => {
   const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
   const hover = rule(
     '.competition-card[data-competition-card="wc26"]:hover [data-competition-logo] {',
