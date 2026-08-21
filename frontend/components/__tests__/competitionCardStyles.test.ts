@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { COMPETITIONS } from "@/lib/sports";
 
 type Hsl = [number, number, number];
 type Rgb = [number, number, number];
@@ -136,7 +137,7 @@ function ratio(a: Rgb, b: Rgb): number {
 
 const root = rule(":root {");
 const daylight = rule(".theme-daylight {");
-const competitionAccents = ["epl", "laliga", "bundesliga", "ucl", "wc26", "nrl"];
+const registeredCompetitions = Object.values(COMPETITIONS);
 
 it("defines the Graphic split card source contract", () => {
   expect(root).toMatch(/--accent-wc26:\s*42 72% 52%/);
@@ -158,6 +159,58 @@ it("defines the Graphic split card source contract", () => {
   expect(css).toContain(".competition-card:focus-visible");
   expect(css).toContain("@media (prefers-reduced-motion: reduce)");
 });
+
+it.each(
+  [
+    { name: "Floodlight", scope: root },
+    { name: "Daylight", scope: daylight },
+  ].flatMap((theme) =>
+    registeredCompetitions.map((competition) => ({ theme, competition })),
+  ),
+)(
+  "keeps the $competition.id resting boundary at 3:1 in $theme.name",
+  ({ theme, competition }) => {
+    const cardRule = rule(".competition-card {");
+    const accentWeight = Number(
+      cardRule.match(/hsl\(var\(--competition-card-accent\)\)\s*([\d.]+)%/)?.[1],
+    ) / 100;
+    const accent = hsl(
+      themedToken(theme.scope, competition.accentVar.replace(/^--/, "")),
+    );
+    const base = hsl(themedToken(theme.scope, "competition-card-base"));
+    const fill = hslToRgb(
+      mixHsl(
+        hslChannels(themedToken(theme.scope, competition.accentVar.replace(/^--/, ""))),
+        hslChannels(themedToken(theme.scope, "competition-card-base")),
+        accentWeight,
+      ),
+    );
+    const boundaryToken = cardRule.match(
+      /border:\s*1px solid hsl\(var\(--([\w-]+)\)\)/,
+    )?.[1];
+    const borderOpacity = Number(
+      cardRule.match(
+        /border:\s*1px solid hsl\(var\(--competition-card-accent\)\s*\/\s*([\d.]+)\)/,
+      )?.[1],
+    );
+    let renderedBorder: Rgb;
+    if (boundaryToken) {
+      expect(boundaryToken).toBe("competition-card-boundary");
+      renderedBorder = hsl(
+        themedToken(
+          theme.scope,
+          `${competition.accentVar.replace(/^--/, "")}-boundary`,
+        ),
+      );
+    } else {
+      renderedBorder = composite(accent, fill, borderOpacity);
+    }
+    const canvas = hsl(themedToken(theme.scope, "background"));
+
+    expect(ratio(renderedBorder, fill)).toBeGreaterThanOrEqual(3);
+    expect(ratio(renderedBorder, canvas)).toBeGreaterThanOrEqual(3);
+  },
+);
 
 it("keeps all positive hover motion inside the precise-pointer query", () => {
   const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
@@ -357,8 +410,10 @@ it("keeps effective card copy and arrow ink AA-safe across every accent surface"
     ),
   ).toContain("background: hsl(var(--competition-card-base) / 0.74)");
 
-  for (const accentName of competitionAccents) {
-    const accentHsl = hslChannels(token(root, `accent-${accentName}`));
+  for (const competition of registeredCompetitions) {
+    const accentHsl = hslChannels(
+      token(root, competition.accentVar.replace(/^--/, "")),
+    );
     const accent = hslToRgb(accentHsl);
     const mixedSurface = hslToRgb(mixHsl(accentHsl, baseHsl, 0.18));
 
@@ -404,12 +459,42 @@ it("gives keyboard focus the same card affordance as hover, not just an outline"
   // hovered card measured alongside it.
   const hover = rule(".competition-card:hover {");
   const focus = rule(".competition-card:focus-visible {");
-  for (const declaration of ["transform: translateY(-6px)", "border-color:", "box-shadow:"]) {
-    expect(hover).toContain(declaration);
-    expect(focus).toContain(declaration);
+  for (const property of ["transform", "border-color", "box-shadow", "filter"]) {
+    const declaration = new RegExp(`${property}:\\s*([^;]+)`);
+    const hoverValue = hover.match(declaration)?.[1];
+    const focusValue = focus.match(declaration)?.[1];
+    expect(hoverValue).toBeDefined();
+    expect(focusValue).toBe(hoverValue);
   }
   expect(rule(".competition-card:focus-visible::before {")).toEqual(
     rule(".competition-card:hover::before {").replace(":hover", ":focus-visible"),
+  );
+});
+
+it("leaves focused competition cards on their rounded-2xl shape", () => {
+  // Unlayered author styles outrank normal declarations inside Tailwind's
+  // component/utility layers, regardless of selector specificity. Any
+  // unlayered radius that still applies to the card therefore becomes the
+  // browser's effective focus radius instead of rounded-2xl.
+  const unlayered = css.replace(block(css, "@layer components {"), "");
+  const cardFocusRadiusOverrides = styleRules(unlayered).flatMap((item) =>
+    item.selectors
+      .filter(
+        (selector) =>
+          selector.includes(":focus-visible") &&
+          !selector.includes(":not(.competition-card)"),
+      )
+      .flatMap((selector) =>
+        Array.from(
+          item.declarations.matchAll(/(?:^|;)\s*border-radius:\s*([^;]+)/g),
+          (match) => ({ selector, value: match[1].trim() }),
+        ),
+      ),
+  );
+
+  expect(cardFocusRadiusOverrides).toEqual([]);
+  expect(rule(":focus-visible:not(.competition-card) {")).toContain(
+    "border-radius: 6px",
   );
 });
 

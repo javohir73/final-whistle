@@ -6,14 +6,9 @@ jest.mock("@/components/AuthProvider", () => ({
   useAuth: () => ({ user: null, loading: false }),
 }));
 
-const competitionIds: CompetitionId[] = [
-  "epl",
-  "laliga",
-  "bundesliga",
-  "ucl",
-  "wc26",
-  "nrl",
-];
+const competitionIds: CompetitionId[] = Object.values(COMPETITIONS).map(
+  (competition) => competition.id,
+);
 
 const authoritativeCardSurfaces =
   "[data-competition-card], .competition-card__copy, .competition-card__arrow, [data-competition-logo]";
@@ -66,10 +61,17 @@ describe("PlatformHome competition cards", () => {
     for (const id of competitionIds) {
       const card = container.querySelector(`[data-competition-card="${id}"]`);
       expect(card).toHaveClass("competition-card");
+      expect(card).toHaveClass("rounded-2xl");
       expect(card).toHaveAttribute(
         "style",
         expect.stringContaining(
           `--competition-card-accent: var(${COMPETITIONS[id].accentVar})`,
+        ),
+      );
+      expect(card).toHaveAttribute(
+        "style",
+        expect.stringContaining(
+          `--competition-card-boundary: var(${COMPETITIONS[id].accentVar}-boundary)`,
         ),
       );
       expect(card?.querySelector(".competition-card__copy")).toBeInTheDocument();

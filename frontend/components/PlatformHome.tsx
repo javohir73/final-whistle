@@ -39,10 +39,14 @@ const FOOTBALL_COMPETITIONS: Array<{
 
 type CompetitionCardStyle = CSSProperties & {
   "--competition-card-accent": string;
+  "--competition-card-boundary": string;
 };
 
 function competitionCardStyle(accentVar: string): CompetitionCardStyle {
-  return { "--competition-card-accent": `var(${accentVar})` };
+  return {
+    "--competition-card-accent": `var(${accentVar})`,
+    "--competition-card-boundary": `var(${accentVar}-boundary)`,
+  };
 }
 
 function ArrowIcon() {

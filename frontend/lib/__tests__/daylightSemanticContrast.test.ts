@@ -8,6 +8,13 @@ const root = path.resolve(__dirname, "../..");
 const css = fs.readFileSync(path.join(root, "app/globals.css"), "utf8");
 const floodlight = css.slice(css.indexOf(":root {"), css.indexOf(".theme-daylight {"));
 const daylight = css.slice(css.indexOf(".theme-daylight {"), css.indexOf("@media (min-width"));
+const overlaySource = fs.readFileSync(
+  path.join(root, "components/CompetitionOverlay.tsx"),
+  "utf8",
+);
+const overlayOpacity = Number(
+  overlaySource.match(/bg-background\/(\d+)/)?.[1],
+) / 100;
 
 function token(scope: string, name: string): string {
   const match = scope.match(new RegExp(`--${name}:\\s*([^;]+);`));
@@ -274,7 +281,10 @@ it.each(REGISTERED_COMPETITIONS)(
   (competition) => {
     const ink = hsl(token(daylight, cssTokenName(accentInkVar(competition.id))));
     const accent = hsl(token(floodlight, cssTokenName(competition.accentVar)));
-    const overlayFill = [...hsl(token(daylight, "background")).slice(0, 3), 0.95] as Rgba;
+    const overlayFill = [
+      ...hsl(token(daylight, "background")).slice(0, 3),
+      overlayOpacity,
+    ] as Rgba;
     // CompetitionOverlay is translucent, so its real background is not the
     // opaque Daylight canvas modeled above. These are the darkest invariant
     // platform surfaces the fixed overlay can cover: the competition-card
@@ -285,6 +295,34 @@ it.each(REGISTERED_COMPETITIONS)(
     ];
 
     for (const underlying of underlyingStops) {
+      const overlay = composite(overlayFill, underlying);
+      const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, overlay);
+      expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
+    }
+  },
+);
+
+it.each(REGISTERED_COMPETITIONS)(
+  "keeps the $id overlay chip label AA-safe over bright Floodlight fields",
+  (competition) => {
+    const ink = hsl(token(floodlight, cssTokenName(accentInkVar(competition.id))));
+    const accent = hsl(token(floodlight, cssTokenName(competition.accentVar)));
+    const overlayFill = [
+      ...hsl(token(floodlight, "background")).slice(0, 3),
+      overlayOpacity,
+    ] as Rgba;
+    // The fixed switcher can cover every solid competition field on the
+    // platform home, plus the brighter lime action/pitch highlight. Exercise
+    // all of those actual registry/token surfaces instead of assuming a dark
+    // opaque canvas behind the chip.
+    const brightUnderlyingStops = [
+      ...REGISTERED_COMPETITIONS.map((underlying) =>
+        hsl(token(floodlight, cssTokenName(underlying.accentVar))),
+      ),
+      hsl(token(floodlight, "win")),
+    ];
+
+    for (const underlying of brightUnderlyingStops) {
       const overlay = composite(overlayFill, underlying);
       const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, overlay);
       expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
