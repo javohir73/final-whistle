@@ -334,9 +334,9 @@ body {
   }
 
   .competition-card[data-competition-card="wc26"] {
-    --competition-card-accent: 226 65% 61%;
-    --competition-card-deep: 227 57% 34%;
-    --competition-card-boundary: 226 65% 72%;
+    --competition-card-accent: 42 68% 42%;
+    --competition-card-deep: 35 58% 24%;
+    --competition-card-boundary: 42 72% 68%;
   }
 
   .competition-card[data-competition-card="nrl"] {
@@ -346,8 +346,10 @@ body {
   }
 
   .competition-card--wide::before {
-    inset: -70% 58% -70% -18%;
-    transform: rotate(-8deg);
+    inset: 0 auto 0 0;
+    width: 112px;
+    clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%);
+    transform: none;
   }
 
   .competition-card__copy {
@@ -364,9 +366,7 @@ body {
   }
 
   .competition-card__wide-copy {
-    padding: 8px 22px 8px 12px;
-    background: hsl(var(--competition-card-deep));
-    clip-path: polygon(0 0, 94% 0, 100% 100%, 0 100%);
+    min-width: 0;
   }
 
   .competition-card__arrow {
@@ -397,6 +397,28 @@ body {
     transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
+  .competition-card[data-competition-card="epl"] [data-competition-logo] img,
+  .competition-card[data-competition-card="laliga"] [data-competition-logo] img,
+  .competition-card[data-competition-card="ucl"] [data-competition-logo] img {
+    filter: brightness(0) invert(1) drop-shadow(0 1px 2px hsl(var(--competition-card-base) / 0.45));
+  }
+
+  .competition-card[data-competition-card="wc26"] [data-competition-logo] {
+    isolation: isolate;
+    background: hsl(var(--competition-card-accent));
+  }
+
+  .competition-card[data-competition-card="wc26"] [data-competition-logo] img {
+    background: transparent;
+    mix-blend-mode: lighten;
+    filter: none;
+  }
+
+  .competition-card[data-competition-card="wc26"] .competition-card__arrow {
+    color: hsl(var(--competition-card-ink));
+    background: hsl(var(--competition-card-base));
+  }
+
   @media (hover: hover) and (pointer: fine) {
     .competition-card:hover {
       transform: translateY(-7px) scale(1.015);
@@ -411,10 +433,10 @@ body {
       transform: rotate(-9deg) scale(1.06);
     }
 
-    /* The wide card keeps the same split motion with a shallower angle so its
-       accent field stays on the NRL identity block instead of crossing copy. */
+    /* The NRL accent stays fixed on the logo rail; the card, logo and action
+       still carry the shared hover motion without pushing colour under copy. */
     .competition-card--wide:hover::before {
-      transform: rotate(-4deg) scale(1.06);
+      transform: none;
     }
 
     .competition-card:hover [data-competition-logo] {
@@ -425,6 +447,12 @@ body {
       transform: translateX(4px);
       background: hsl(var(--competition-card-ink));
       border-color: hsl(var(--competition-card-base) / 0.4);
+    }
+
+    .competition-card[data-competition-card="wc26"]:hover .competition-card__arrow {
+      color: hsl(var(--competition-card-ink));
+      background: hsl(var(--competition-card-base));
+      border-color: hsl(var(--competition-card-ink) / 0.4);
     }
   }
 
@@ -442,7 +470,7 @@ body {
   }
 
   .competition-card--wide:focus-visible::before {
-    transform: rotate(-4deg) scale(1.06);
+    transform: none;
   }
 
   .competition-card:focus-visible [data-competition-logo] {
@@ -453,6 +481,12 @@ body {
     transform: translateX(4px);
     background: hsl(var(--competition-card-ink));
     border-color: hsl(var(--competition-card-base) / 0.4);
+  }
+
+  .competition-card[data-competition-card="wc26"]:focus-visible .competition-card__arrow {
+    color: hsl(var(--competition-card-ink));
+    background: hsl(var(--competition-card-base));
+    border-color: hsl(var(--competition-card-ink) / 0.4);
   }
 
   .chip {
@@ -712,7 +746,7 @@ body {
   }
   .competition-card--wide:hover::before,
   .competition-card--wide:focus-visible::before {
-    transform: rotate(-8deg);
+    transform: none;
   }
   .reveal {
     opacity: 1;

@@ -155,7 +155,7 @@ it("matches the approved compact Graphic split palette, geometry, and texture", 
     laliga: ["6 100% 64%", "350 64% 33%"],
     bundesliga: ["355 87% 52%", "356 77% 28%"],
     ucl: ["226 79% 47%", "227 83% 19%"],
-    wc26: ["226 65% 61%", "227 57% 34%"],
+    wc26: ["42 68% 42%", "35 58% 24%"],
     nrl: ["174 60% 40%", "174 71% 18%"],
   } as const;
 
@@ -288,10 +288,10 @@ it("removes card motion without changing the resting split geometry", () => {
   expect(compactSplitReset).toContain(".competition-card:focus-visible::before");
   expect(compactSplitReset).toContain("transform: rotate(-13deg)");
   expect(wideSplitReset).toContain(".competition-card--wide:focus-visible::before");
-  expect(wideSplitReset).toContain("transform: rotate(-8deg)");
+  expect(wideSplitReset).toContain("transform: none");
 });
 
-it("keeps the wide NRL split distinct while matching hover and focus motion", () => {
+it("confines the wide NRL accent to the logo rail without an inset copy panel", () => {
   const wide = rule(".competition-card--wide::before {");
   const hover = rule(
     ".competition-card--wide:hover::before {",
@@ -299,17 +299,51 @@ it("keeps the wide NRL split distinct while matching hover and focus motion", ()
   );
   const focus = rule(".competition-card--wide:focus-visible::before {");
 
-  expect(wide).toContain("inset: -70% 58% -70% -18%");
-  expect(wide).toContain("transform: rotate(-8deg)");
-  expect(hover).toContain("transform: rotate(-4deg) scale(1.06)");
+  expect(wide).toContain("inset: 0 auto 0 0");
+  expect(wide).toContain("width: 112px");
+  expect(wide).toContain("clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%)");
+  expect(wide).toContain("transform: none");
+  expect(hover).toContain("transform: none");
   expect(focus).toEqual(hover.replace(":hover", ":focus-visible"));
+
+  const copyPanel = rule(".competition-card__wide-copy {");
+  expect(copyPanel).not.toMatch(/(?:background|clip-path|padding):/);
+});
+
+it("uses high-contrast logo treatments without adding visible logo tiles", () => {
+  const monochrome = rule(
+    '.competition-card[data-competition-card="epl"] [data-competition-logo] img,',
+  );
+  for (const competition of ["epl", "laliga", "ucl"]) {
+    expect(monochrome).toContain(
+      `.competition-card[data-competition-card="${competition}"] [data-competition-logo] img`,
+    );
+  }
+  expect(monochrome).toContain("filter: brightness(0) invert(1)");
+  expect(monochrome).not.toContain("background:");
+
+  const worldCup = rule(
+    '.competition-card[data-competition-card="wc26"] [data-competition-logo] img {',
+  );
+  expect(worldCup).toContain("mix-blend-mode: lighten");
+  expect(worldCup).toContain("background: transparent");
+  expect(worldCup).toContain("filter: none");
+  expect(worldCup).not.toContain("box-shadow:");
+
+  const worldCupCanvas = rule(
+    '.competition-card[data-competition-card="wc26"] [data-competition-logo] {',
+  );
+  expect(worldCupCanvas).toContain(
+    "background: hsl(var(--competition-card-accent))",
+  );
+  expect(worldCupCanvas).toContain("isolation: isolate");
+  expect(worldCupCanvas).not.toContain("filter:");
 });
 
 it("keeps rendered small copy and arrow controls AA-safe on every card", () => {
   const cardInkToken = winningColorToken(".competition-card");
   const arrowInkToken = winningColorToken(".competition-card__arrow");
   const cardInk = hsl(token(root, cardInkToken));
-  const arrowInk = hsl(token(root, arrowInkToken));
   const copyOpacity = Number(
     rule(".competition-card__copy {").match(/\/\s*([\d.]+)\)/)?.[1],
   );
@@ -321,9 +355,7 @@ it("keeps rendered small copy and arrow controls AA-safe on every card", () => {
   expect(rule(".competition-card--compact .competition-card__content {")).toContain(
     "background: hsl(var(--competition-card-deep))",
   );
-  expect(rule(".competition-card__wide-copy {")).toContain(
-    "background: hsl(var(--competition-card-deep))",
-  );
+  expect(rule(".competition-card__wide-copy {")).not.toContain("background:");
 
   expect(rule(".competition-card__arrow {")).toContain(
     "background: hsl(var(--competition-card-ink))",
@@ -342,13 +374,25 @@ it("keeps rendered small copy and arrow controls AA-safe on every card", () => {
     const accent = hsl(token(toneRule, "competition-card-accent"));
     const deep = hsl(token(toneRule, "competition-card-deep"));
     const renderedCopy = composite(cardInk, deep, copyOpacity);
-    const control = hsl(token(root, "competition-card-ink"));
+    const isWorldCup = competition.id === "wc26";
+    const control = hsl(
+      token(root, isWorldCup ? "competition-card-base" : "competition-card-ink"),
+    );
+    const controlInk = hsl(
+      token(root, isWorldCup ? "competition-card-ink" : "competition-card-base"),
+    );
 
     expect(ratio(renderedCopy, deep)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(cardInk, accent)).toBeGreaterThanOrEqual(3);
-    expect(ratio(arrowInk, control)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(controlInk, control)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(control, accent)).toBeGreaterThanOrEqual(3);
   }
+
+  const worldCupControl = rule(
+    '.competition-card[data-competition-card="wc26"] .competition-card__arrow {',
+  );
+  expect(worldCupControl).toContain("color: hsl(var(--competition-card-ink))");
+  expect(worldCupControl).toContain("background: hsl(var(--competition-card-base))");
 });
 
 it("keeps the offset card focus indicator visible in both themes", () => {
