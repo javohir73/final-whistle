@@ -414,7 +414,7 @@ body {
     position: relative;
     overflow: hidden;
     background: hsl(var(--competition-card-ink));
-    mask-image: url("/competitions/wc26.png");
+    mask-image: url("/competitions/wc26-20260821.png");
     mask-mode: luminance;
     mask-repeat: no-repeat;
     mask-position: center;

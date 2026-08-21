@@ -345,7 +345,7 @@ it("uses high-contrast logo treatments without adding visible logo tiles", () =>
   expect(worldCupCanvas).not.toContain("isolation: isolate");
   expect(worldCupCanvas).toContain("overflow: hidden");
   expect(worldCupCanvas).toContain(
-    'mask-image: url("/competitions/wc26.png")',
+    'mask-image: url("/competitions/wc26-20260821.png")',
   );
   expect(worldCupCanvas).toContain("mask-mode: luminance");
   expect(worldCupCanvas).toContain("mask-size: 180%");

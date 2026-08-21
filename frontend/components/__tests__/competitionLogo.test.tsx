@@ -26,12 +26,14 @@ describe("CompetitionLogo", () => {
     );
     const image = container.querySelector('[data-competition-logo="wc26"] img');
 
-    expect(image).toHaveAttribute("src", "/competitions/wc26.png");
+    expect(image).toHaveAttribute("src", "/competitions/wc26-20260821.png");
     expect(image).toHaveAttribute("alt", "World Cup 2026 logo");
     expect(image).toHaveClass("object-cover", "object-center", "p-0");
     expect(image).not.toHaveClass("object-contain");
 
-    const bytes = readFileSync(join(process.cwd(), "public/competitions/wc26.png"));
+    const bytes = readFileSync(
+      join(process.cwd(), "public/competitions/wc26-20260821.png"),
+    );
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(
       "4c18cc1d14e4fdf3e6aa2e1ec4b066f945a6943cbb807b9cce6c919d166999e4",
     );
