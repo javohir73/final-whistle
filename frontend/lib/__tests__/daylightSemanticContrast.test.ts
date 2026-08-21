@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { COMPETITIONS, accentInkVar } from "@/lib/sports";
 
 type Rgba = [number, number, number, number];
 
@@ -7,6 +8,13 @@ const root = path.resolve(__dirname, "../..");
 const css = fs.readFileSync(path.join(root, "app/globals.css"), "utf8");
 const floodlight = css.slice(css.indexOf(":root {"), css.indexOf(".theme-daylight {"));
 const daylight = css.slice(css.indexOf(".theme-daylight {"), css.indexOf("@media (min-width"));
+const overlaySource = fs.readFileSync(
+  path.join(root, "components/CompetitionOverlay.tsx"),
+  "utf8",
+);
+const overlayOpacity = Number(
+  overlaySource.match(/bg-background\/(\d+)/)?.[1],
+) / 100;
 
 function token(scope: string, name: string): string {
   const match = scope.match(new RegExp(`--${name}:\\s*([^;]+);`));
@@ -229,10 +237,14 @@ it("keeps World Cup label ink AA-safe on its Daylight gold wash", () => {
   }
 });
 
-it("routes World Cup label consumers through semantic ink", () => {
-  for (const relativePath of ["components/Eyebrow.tsx", "components/CompetitionOverlay.tsx"]) {
+it("routes both chip consumers through their registry competition's semantic ink", () => {
+  const consumers = [
+    ["components/Eyebrow.tsx", "accentInkVar(comp)"],
+    ["components/CompetitionOverlay.tsx", "accentInkVar(c.id)"],
+  ] as const;
+  for (const [relativePath, semanticInkCall] of consumers) {
     const source = fs.readFileSync(path.join(root, relativePath), "utf8");
-    expect(source).toContain("accentInkVar");
+    expect(source).toContain(semanticInkCall);
   }
 });
 
@@ -242,16 +254,77 @@ it("routes World Cup label consumers through semantic ink", () => {
 // Daylight put four of the six under AA: EPL 3.67, La Liga 2.55, Bundesliga
 // 3.59, NRL 2.55. Fixing gold alone would have left a "contrast audited" label
 // on a component where two thirds of the chips still failed.
-const COMPETITION_ACCENTS = ["epl", "laliga", "bundesliga", "ucl", "wc26", "nrl"];
+const REGISTERED_COMPETITIONS = Object.values(COMPETITIONS);
+const cssTokenName = (variable: string) => variable.replace(/^--/, "");
 
-it.each(COMPETITION_ACCENTS)(
-  "keeps the %s chip label AA-safe on its own Daylight wash",
-  (comp) => {
-    const ink = hsl(token(daylight, `accent-${comp}-ink`));
-    const accent = hsl(token(floodlight, `accent-${comp}`));
+it("derives every competition's chip ink from its registry accent", () => {
+  for (const competition of Object.values(COMPETITIONS)) {
+    expect(accentInkVar(competition.id)).toBe(`${competition.accentVar}-ink`);
+  }
+});
+
+it.each(REGISTERED_COMPETITIONS)(
+  "keeps the $id chip label AA-safe on its own Daylight wash",
+  (competition) => {
+    const ink = hsl(token(daylight, cssTokenName(accentInkVar(competition.id))));
+    const accent = hsl(token(floodlight, cssTokenName(competition.accentVar)));
     // The chip is 11px/700 — small text by WCAG, so 4.5:1, not 3:1.
     for (const stop of [hsl(token(daylight, "background")), hsl(token(daylight, "surface"))]) {
       const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, stop);
+      expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
+    }
+  },
+);
+
+it.each(REGISTERED_COMPETITIONS)(
+  "keeps the $id overlay chip label AA-safe over branded Daylight content",
+  (competition) => {
+    const ink = hsl(token(daylight, cssTokenName(accentInkVar(competition.id))));
+    const accent = hsl(token(floodlight, cssTokenName(competition.accentVar)));
+    const overlayFill = [
+      ...hsl(token(daylight, "background")).slice(0, 3),
+      overlayOpacity,
+    ] as Rgba;
+    // CompetitionOverlay is translucent, so its real background is not the
+    // opaque Daylight canvas modeled above. These are the darkest invariant
+    // platform surfaces the fixed overlay can cover: the competition-card
+    // base and the dark end of panel-pitch's gradient.
+    const underlyingStops = [
+      hsl(token(floodlight, "competition-card-base")),
+      hsl("147 45% 7%"),
+    ];
+
+    for (const underlying of underlyingStops) {
+      const overlay = composite(overlayFill, underlying);
+      const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, overlay);
+      expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
+    }
+  },
+);
+
+it.each(REGISTERED_COMPETITIONS)(
+  "keeps the $id overlay chip label AA-safe over bright Floodlight fields",
+  (competition) => {
+    const ink = hsl(token(floodlight, cssTokenName(accentInkVar(competition.id))));
+    const accent = hsl(token(floodlight, cssTokenName(competition.accentVar)));
+    const overlayFill = [
+      ...hsl(token(floodlight, "background")).slice(0, 3),
+      overlayOpacity,
+    ] as Rgba;
+    // The fixed switcher can cover every solid competition field on the
+    // platform home, plus the brighter lime action/pitch highlight. Exercise
+    // all of those actual registry/token surfaces instead of assuming a dark
+    // opaque canvas behind the chip.
+    const brightUnderlyingStops = [
+      ...REGISTERED_COMPETITIONS.map((underlying) =>
+        hsl(token(floodlight, cssTokenName(underlying.accentVar))),
+      ),
+      hsl(token(floodlight, "win")),
+    ];
+
+    for (const underlying of brightUnderlyingStops) {
+      const overlay = composite(overlayFill, underlying);
+      const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, overlay);
       expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
     }
   },
@@ -261,21 +334,22 @@ it("gives every competition an ink token in both themes", () => {
   // A missing Floodlight entry silently falls back to `hsl()` of an undefined
   // variable, which is an invalid colour: the label then inherits whatever the
   // parent paints and the chip loses its identity entirely.
-  for (const comp of COMPETITION_ACCENTS) {
-    expect(() => token(floodlight, `accent-${comp}-ink`)).not.toThrow();
-    expect(() => token(daylight, `accent-${comp}-ink`)).not.toThrow();
+  for (const competition of REGISTERED_COMPETITIONS) {
+    const inkToken = cssTokenName(accentInkVar(competition.id));
+    expect(() => token(floodlight, inkToken)).not.toThrow();
+    expect(() => token(daylight, inkToken)).not.toThrow();
   }
 });
 
-it.each(COMPETITION_ACCENTS)(
-  "keeps the %s chip label AA-safe on its own Floodlight wash",
-  (comp) => {
+it.each(REGISTERED_COMPETITIONS)(
+  "keeps the $id chip label AA-safe on its own Floodlight wash",
+  (competition) => {
     // Floodlight is the DEFAULT theme, and it was failing too: measured EPL
     // 3.38, Bundesliga 3.47, UCL 2.69 on the near-black chip washes. Shipping a
     // "contrast audited" component with three failing chips in the theme most
     // users see would have been the same half-fix as doing gold alone.
-    const ink = hsl(token(floodlight, `accent-${comp}-ink`));
-    const accent = hsl(token(floodlight, `accent-${comp}`));
+    const ink = hsl(token(floodlight, cssTokenName(accentInkVar(competition.id))));
+    const accent = hsl(token(floodlight, cssTokenName(competition.accentVar)));
     for (const stop of [hsl(token(floodlight, "background")), hsl(token(floodlight, "surface"))]) {
       const wash = composite([...accent.slice(0, 3), 0.12] as Rgba, stop);
       expect(ratio(ink, wash)).toBeGreaterThanOrEqual(4.5);
@@ -287,9 +361,15 @@ it("only ever lightens a Floodlight chip ink, never darkens it", () => {
   // The brand constraint. On a near-black wash the accessible direction is
   // lighter; darkening would both fail contrast and stop the chip reading as
   // its competition colour. Hue and saturation stay pinned to the accent.
-  for (const comp of COMPETITION_ACCENTS) {
-    const [inkH, inkS, inkL] = token(floodlight, `accent-${comp}-ink`).split(/\s+/);
-    const [accH, accS, accL] = token(floodlight, `accent-${comp}`).split(/\s+/);
+  for (const competition of REGISTERED_COMPETITIONS) {
+    const [inkH, inkS, inkL] = token(
+      floodlight,
+      cssTokenName(accentInkVar(competition.id)),
+    ).split(/\s+/);
+    const [accH, accS, accL] = token(
+      floodlight,
+      cssTokenName(competition.accentVar),
+    ).split(/\s+/);
     expect([inkH, inkS]).toEqual([accH, accS]);
     expect(parseInt(inkL, 10)).toBeGreaterThanOrEqual(parseInt(accL, 10));
   }

@@ -7,6 +7,7 @@ import { render, screen } from "@testing-library/react";
 // through the normal RTL path.
 import { renderToStaticMarkup } from "react-dom/server.node";
 import { Eyebrow, CompEyebrowChip } from "@/components/Eyebrow";
+import { COMPETITIONS, accentInkVar } from "@/lib/sports";
 
 describe("Eyebrow", () => {
   it("renders its text at the 11px a11y floor, uppercased by CSS", () => {
@@ -18,16 +19,16 @@ describe("Eyebrow", () => {
 });
 
 describe("CompEyebrowChip", () => {
-  it("renders the EPL short label with the epl accent var and >=11px text", () => {
-    const html = renderToStaticMarkup(<CompEyebrowChip comp="epl" />);
-    expect(html).toContain(">EPL<");
-    expect(html).toContain("text-label");
-    expect(html).toContain("--accent-epl");
-  });
-
-  it("uses contrast-safe semantic ink for the World Cup gold wash", () => {
-    const html = renderToStaticMarkup(<CompEyebrowChip comp="wc26" />);
-    expect(html).toContain("background-color:hsl(var(--accent-wc26) / 0.12)");
-    expect(html).toContain("color:hsl(var(--accent-wc26-ink))");
-  });
+  it.each(Object.values(COMPETITIONS))(
+    "renders $id through its registry accent and semantic ink",
+    (competition) => {
+      const html = renderToStaticMarkup(<CompEyebrowChip comp={competition.id} />);
+      expect(html).toContain(`>${competition.shortLabel}<`);
+      expect(html).toContain("text-label");
+      expect(html).toContain(
+        `background-color:hsl(var(${competition.accentVar}) / 0.12)`,
+      );
+      expect(html).toContain(`color:hsl(var(${accentInkVar(competition.id)}))`);
+    },
+  );
 });

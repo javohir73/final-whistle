@@ -507,11 +507,10 @@ export function competitionsForSport(sport: SportId): Competition[] {
  *  This exists as one function because the two chip renderers
  *  (CompetitionOverlay's pill and Eyebrow's CompEyebrowChip) previously each
  *  carried their own inline ternary, and they had already drifted: the eyebrow
- *  routed NRL through its ink while the overlay did not. Derived from `id`
- *  rather than stored on the registry so a new competition cannot be added
- *  with an accent but no ink. */
+ *  routed NRL through its ink while the overlay did not. Derived from the
+ *  registry's accent variable so consumers cannot drift from its identity. */
 export function accentInkVar(comp: CompetitionId): string {
-  return `--accent-${comp}-ink`;
+  return `${COMPETITIONS[comp].accentVar}-ink`;
 }
 
 /** True iff `v` is a key of COMPETITIONS -- the validation the CompetitionOverlay's

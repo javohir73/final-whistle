@@ -72,6 +72,16 @@
   --accent-ucl: 224 82% 52%;        /* UEFA blue */
   --accent-wc26: 42 72% 52%;        /* trophy gold */
   --accent-nrl: 174 60% 40%;        /* teal */
+  /* Opaque card boundaries keep the accent hue/saturation but normalize its
+     lightness into the narrow band that clears 3:1 against both the invariant
+     dark card fill and either theme's page canvas. One alpha cannot do this:
+     the card background paints beneath its translucent border. */
+  --accent-epl-boundary: 283 60% 61%;
+  --accent-laliga-boundary: 8 78% 58%;
+  --accent-bundesliga-boundary: 0 75% 60%;
+  --accent-ucl-boundary: 224 82% 63%;
+  --accent-wc26-boundary: 42 72% 38%;
+  --accent-nrl-boundary: 174 60% 35%;
   /* Chip-label inks. Every competition needs one, because the chip paints its
      accent as 11px/700 text on a 0.12 wash of that same accent — small text,
      so the WCAG AA floor is 4.5:1, and browser measurement showed the raw
@@ -122,7 +132,7 @@
   --accent-bundesliga-ink: 0 75% 41%;
   --accent-ucl-ink: 224 82% 48%;
   --accent-wc26-ink: 42 72% 27%;
-  --accent-nrl-ink: 174 60% 28%;
+  --accent-nrl-ink: 174 60% 27%;
   --pitch-accent-ink: 84 78% 55%; --pitch-loss-ink: 351 90% 69%;
   --pitch-foreground-ink: 120 14% 96%;
   --pitch-muted-ink: 129 10% 62%; --pitch-subtle-ink: 0 0% 100% / 0.7;
@@ -157,6 +167,8 @@ html {
 :focus-visible {
   outline: 2px solid hsl(var(--lime-deep));
   outline-offset: 2px;
+}
+:focus-visible:not(.competition-card) {
   border-radius: 6px;
 }
 /* Skip-to-content link: off-screen until focused, then pinned top-left. */
@@ -256,7 +268,7 @@ body {
       hsl(var(--competition-card-accent)) 18%,
       hsl(var(--competition-card-base))
     );
-    border: 1px solid hsl(var(--competition-card-accent) / 0.52);
+    border: 1px solid hsl(var(--competition-card-boundary));
     box-shadow:
       inset 0 1px 0 hsl(var(--competition-card-ink) / 0.08),
       0 16px 38px -24px hsl(var(--competition-card-accent) / 0.62);
@@ -327,7 +339,7 @@ body {
   @media (hover: hover) and (pointer: fine) {
     .competition-card:hover {
       transform: translateY(-6px);
-      border-color: hsl(var(--competition-card-accent) / 0.84);
+      border-color: hsl(var(--competition-card-boundary));
       box-shadow:
         inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
         0 22px 46px -22px hsl(var(--competition-card-accent) / 0.78);
@@ -336,6 +348,12 @@ body {
 
     .competition-card:hover::before {
       transform: scale(1.055) rotate(-1.5deg);
+    }
+
+    /* Its fixed 86px top vertex already meets the 84px mobile logo edge once
+       the -2px inset is applied. Keep the tilt, but do not scale it past copy. */
+    .competition-card--wide:hover::before {
+      transform: rotate(-1.5deg);
     }
 
     .competition-card:hover [data-competition-logo] {
@@ -351,14 +369,19 @@ body {
 
   .competition-card:focus-visible {
     transform: translateY(-6px);
-    border-color: hsl(var(--competition-card-accent) / 0.84);
+    border-color: hsl(var(--competition-card-boundary));
     box-shadow:
       inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
       0 22px 46px -22px hsl(var(--competition-card-accent) / 0.78);
+    filter: saturate(1.08);
   }
 
   .competition-card:focus-visible::before {
     transform: scale(1.055) rotate(-1.5deg);
+  }
+
+  .competition-card--wide:focus-visible::before {
+    transform: rotate(-1.5deg);
   }
 
   .competition-card:focus-visible [data-competition-logo] {
