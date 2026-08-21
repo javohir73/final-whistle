@@ -228,19 +228,62 @@ it("neutralizes every card transition and interaction transform for reduced moti
   expect(transformReset).toContain("transform: none");
 });
 
-it("keeps the wide accent field within the logo at every card padding", () => {
+it("keeps the wide accent field within the mobile logo at rest, hover, and focus", () => {
   const wideRule = rule(".competition-card--wide::before {");
-  const xCoordinates = Array.from(wideRule.matchAll(/(\d+)px/g), (match) => Number(match[1]));
-  const inset = Number(rule(".competition-card::before {").match(/inset:\s*(-?\d+)px/)?.[1]);
-  const paintedEdge = Math.max(...xCoordinates) + inset;
-  const logoSize = 64;
+  const polygon = wideRule.match(
+    /clip-path:\s*polygon\(0 0,\s*(\d+)px 0,\s*(\d+)px 100%,\s*0 100%\)/,
+  );
 
-  expect(xCoordinates).not.toHaveLength(0);
-  for (const padding of [20, 28]) {
-    const logoEdge = padding + logoSize;
-    const copyStart = logoEdge + 16;
-    expect(paintedEdge).toBeLessThanOrEqual(logoEdge);
-    expect(paintedEdge).toBeLessThan(copyStart);
+  expect(polygon).not.toBeNull();
+  if (!polygon) return;
+
+  const [, rawTopX, rawBottomX] = polygon;
+  const topX = Number(rawTopX);
+  const bottomX = Number(rawBottomX);
+  const inset = Number(rule(".competition-card::before {").match(/inset:\s*(-?\d+)px/)?.[1]);
+  const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
+  const stateTransform = (state: "hover" | "focus-visible") => {
+    const source = state === "hover" ? precisePointer : css;
+    const wideSelector = `.competition-card--wide:${state}::before {`;
+    const sharedSelector = `.competition-card:${state}::before {`;
+    const stateRule = source.includes(wideSelector)
+      ? rule(wideSelector, source)
+      : rule(sharedSelector, source);
+    const scale = Number(stateRule.match(/scale\(([\d.]+)\)/)?.[1] ?? 1);
+    const angle = Number(stateRule.match(/rotate\((-?[\d.]+)deg\)/)?.[1] ?? 0);
+    return { scale, angle };
+  };
+  const states = [
+    { name: "rest", scale: 1, angle: 0 },
+    { name: "hover", ...stateTransform("hover") },
+    { name: "focus", ...stateTransform("focus-visible") },
+  ];
+  const logoRight = 20 + 64;
+
+  // The bottom vertex stays covered too when copy wrapping grows the card at
+  // the two narrow viewports in the release matrix.
+  for (const { viewportWidth, cardHeight } of [
+    { viewportWidth: 320, cardHeight: 260 },
+    { viewportWidth: 390, cardHeight: 232 },
+  ]) {
+    const pseudoHeight = cardHeight - 2 * inset;
+    for (const { name, scale, angle } of states) {
+      const radians = (angle * Math.PI) / 180;
+      const cosine = Math.cos(radians);
+      const sine = Math.sin(radians);
+      const transformedX = (x: number, y: number) =>
+        inset + scale * (cosine * x - sine * y);
+      const paintedEdge = Math.max(
+        transformedX(topX, 0),
+        transformedX(bottomX, pseudoHeight),
+      );
+
+      expect({ name, viewportWidth, withinLogo: paintedEdge <= logoRight }).toEqual({
+        name,
+        viewportWidth,
+        withinLogo: true,
+      });
+    }
   }
 });
 
@@ -368,6 +411,29 @@ it("gives keyboard focus the same card affordance as hover, not just an outline"
   expect(rule(".competition-card:focus-visible::before {")).toEqual(
     rule(".competition-card:hover::before {").replace(":hover", ":focus-visible"),
   );
+});
+
+it("gives keyboard focus the same logo transform as hover", () => {
+  const hover = rule(".competition-card:hover [data-competition-logo] {");
+  const focus = rule(".competition-card:focus-visible [data-competition-logo] {");
+  const hoverTransform = hover.match(/transform:\s*([^;]+)/)?.[1];
+  const focusTransform = focus.match(/transform:\s*([^;]+)/)?.[1];
+
+  expect(hoverTransform).toBeDefined();
+  expect(focusTransform).toBe(hoverTransform);
+});
+
+it("gives keyboard focus the same arrow transform and surface emphasis as hover", () => {
+  const hover = rule(".competition-card:hover .competition-card__arrow {");
+  const focus = rule(".competition-card:focus-visible .competition-card__arrow {");
+
+  for (const property of ["transform", "background", "border-color"]) {
+    const declaration = new RegExp(`${property}:\\s*([^;]+)`);
+    const hoverValue = hover.match(declaration)?.[1];
+    const focusValue = focus.match(declaration)?.[1];
+    expect(hoverValue).toBeDefined();
+    expect(focusValue).toBe(hoverValue);
+  }
 });
 
 it("keeps focus-visible outside the precise-pointer query", () => {

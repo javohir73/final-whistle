@@ -5,6 +5,7 @@
  *  60px nav strip instead of the viewport (caught live on the P1 deploy). */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { CompetitionOverlay } from "@/components/CompetitionOverlay";
+import { COMPETITIONS } from "@/lib/sports";
 
 let mockPath = "/";
 jest.mock("next/navigation", () => ({
@@ -50,6 +51,18 @@ it("separates sports into sections and links every football competition", () => 
     "href",
     "/football/ucl",
   );
+});
+
+it("renders a switcher chip for every competition in the registry", () => {
+  render(<CompetitionOverlay />);
+  fireEvent.click(screen.getByRole("button", { name: "WC26" }));
+
+  for (const competition of Object.values(COMPETITIONS)) {
+    const chip = screen
+      .getAllByText(competition.shortLabel)
+      .find((label) => label.classList.contains("text-label"));
+    expect(chip).toBeDefined();
+  }
 });
 
 it("Escape closes the dialog and returns focus to the trigger", () => {

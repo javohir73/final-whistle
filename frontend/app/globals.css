@@ -122,7 +122,7 @@
   --accent-bundesliga-ink: 0 75% 41%;
   --accent-ucl-ink: 224 82% 48%;
   --accent-wc26-ink: 42 72% 27%;
-  --accent-nrl-ink: 174 60% 28%;
+  --accent-nrl-ink: 174 60% 27%;
   --pitch-accent-ink: 84 78% 55%; --pitch-loss-ink: 351 90% 69%;
   --pitch-foreground-ink: 120 14% 96%;
   --pitch-muted-ink: 129 10% 62%; --pitch-subtle-ink: 0 0% 100% / 0.7;
@@ -338,6 +338,12 @@ body {
       transform: scale(1.055) rotate(-1.5deg);
     }
 
+    /* Its fixed 86px top vertex already meets the 84px mobile logo edge once
+       the -2px inset is applied. Keep the tilt, but do not scale it past copy. */
+    .competition-card--wide:hover::before {
+      transform: rotate(-1.5deg);
+    }
+
     .competition-card:hover [data-competition-logo] {
       transform: translateY(-3px) scale(1.055);
     }
@@ -359,6 +365,10 @@ body {
 
   .competition-card:focus-visible::before {
     transform: scale(1.055) rotate(-1.5deg);
+  }
+
+  .competition-card--wide:focus-visible::before {
+    transform: rotate(-1.5deg);
   }
 
   .competition-card:focus-visible [data-competition-logo] {
