@@ -300,7 +300,7 @@ it("confines the wide NRL accent to the logo rail without an inset copy panel", 
   const focus = rule(".competition-card--wide:focus-visible::before {");
 
   expect(wide).toContain("inset: 0 auto 0 0");
-  expect(wide).toContain("width: 112px");
+  expect(wide).toContain("width: 96px");
   expect(wide).toContain("clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%)");
   expect(wide).toContain("transform: none");
   expect(hover).toContain("transform: none");
@@ -308,6 +308,10 @@ it("confines the wide NRL accent to the logo rail without an inset copy panel", 
 
   const copyPanel = rule(".competition-card__wide-copy {");
   expect(copyPanel).not.toMatch(/(?:background|clip-path|padding):/);
+
+  const railWidth = Number(wide.match(/width:\s*(\d+)px/)?.[1]);
+  const mobileCopyStart = 100;
+  expect(railWidth).toBeLessThan(mobileCopyStart);
 });
 
 it("uses high-contrast logo treatments without adding visible logo tiles", () => {
@@ -333,11 +337,45 @@ it("uses high-contrast logo treatments without adding visible logo tiles", () =>
   const worldCupCanvas = rule(
     '.competition-card[data-competition-card="wc26"] [data-competition-logo] {',
   );
-  expect(worldCupCanvas).toContain(
-    "background: hsl(var(--competition-card-accent))",
-  );
+  expect(worldCupCanvas).toContain("position: relative");
+  expect(worldCupCanvas).toContain("background: transparent");
   expect(worldCupCanvas).toContain("isolation: isolate");
   expect(worldCupCanvas).not.toContain("filter:");
+
+  const worldCupBackdrop = rule(
+    '.competition-card[data-competition-card="wc26"] [data-competition-logo]::before {',
+  );
+  expect(worldCupBackdrop).toContain("inset: -4px");
+  expect(worldCupBackdrop).toContain(
+    "background: hsl(var(--competition-card-accent))",
+  );
+  expect(worldCupBackdrop).toContain("z-index: -1");
+});
+
+it("keeps the World Cup blend canvas and its backdrop stationary during interaction", () => {
+  const precisePointer = block(css, "@media (hover: hover) and (pointer: fine) {");
+  const hover = rule(
+    '.competition-card[data-competition-card="wc26"]:hover [data-competition-logo] {',
+    precisePointer,
+  );
+  const focus = rule(
+    '.competition-card[data-competition-card="wc26"]:focus-visible [data-competition-logo] {',
+  );
+
+  expect(hover).toContain("transform: none");
+  expect(focus).toEqual(hover.replace(":hover", ":focus-visible"));
+
+  const hoverBackdrop = rule(
+    '.competition-card[data-competition-card="wc26"]:hover::before {',
+    precisePointer,
+  );
+  const focusBackdrop = rule(
+    '.competition-card[data-competition-card="wc26"]:focus-visible::before {',
+  );
+  expect(hoverBackdrop).toContain("transform: rotate(-13deg)");
+  expect(focusBackdrop).toEqual(
+    hoverBackdrop.replace(":hover", ":focus-visible"),
+  );
 });
 
 it("keeps rendered small copy and arrow controls AA-safe on every card", () => {

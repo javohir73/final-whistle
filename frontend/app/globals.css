@@ -347,7 +347,7 @@ body {
 
   .competition-card--wide::before {
     inset: 0 auto 0 0;
-    width: 112px;
+    width: 96px;
     clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%);
     transform: none;
   }
@@ -404,8 +404,18 @@ body {
   }
 
   .competition-card[data-competition-card="wc26"] [data-competition-logo] {
+    position: relative;
     isolation: isolate;
+    background: transparent;
+  }
+
+  .competition-card[data-competition-card="wc26"] [data-competition-logo]::before {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    z-index: -1;
     background: hsl(var(--competition-card-accent));
+    pointer-events: none;
   }
 
   .competition-card[data-competition-card="wc26"] [data-competition-logo] img {
@@ -433,6 +443,10 @@ body {
       transform: rotate(-9deg) scale(1.06);
     }
 
+    .competition-card[data-competition-card="wc26"]:hover::before {
+      transform: rotate(-13deg);
+    }
+
     /* The NRL accent stays fixed on the logo rail; the card, logo and action
        still carry the shared hover motion without pushing colour under copy. */
     .competition-card--wide:hover::before {
@@ -441,6 +455,10 @@ body {
 
     .competition-card:hover [data-competition-logo] {
       transform: translateY(-2px) scale(1.08) rotate(-2deg);
+    }
+
+    .competition-card[data-competition-card="wc26"]:hover [data-competition-logo] {
+      transform: none;
     }
 
     .competition-card:hover .competition-card__arrow {
@@ -469,12 +487,20 @@ body {
     transform: rotate(-9deg) scale(1.06);
   }
 
+  .competition-card[data-competition-card="wc26"]:focus-visible::before {
+    transform: rotate(-13deg);
+  }
+
   .competition-card--wide:focus-visible::before {
     transform: none;
   }
 
   .competition-card:focus-visible [data-competition-logo] {
     transform: translateY(-2px) scale(1.08) rotate(-2deg);
+  }
+
+  .competition-card[data-competition-card="wc26"]:focus-visible [data-competition-logo] {
+    transform: none;
   }
 
   .competition-card:focus-visible .competition-card__arrow {
