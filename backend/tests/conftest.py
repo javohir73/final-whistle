@@ -19,3 +19,5 @@ settings.stripe_secret_key = ""  # billing OFF by default in tests
 settings.stripe_webhook_secret = ""
 settings.stripe_price_monthly = ""
 settings.stripe_price_annual = ""
+settings.api_football_api_key = ""
+settings.football_data_api_key = ""
