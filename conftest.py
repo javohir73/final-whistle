@@ -23,10 +23,26 @@ def _clear_external_provider_credentials(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _block_external_requests(monkeypatch):
+    original_request = requests.sessions.Session.request
+
     def blocked(_session, method, url, **_kwargs):
         raise AssertionError(f"unmocked external HTTP: {method} {url}")
 
     monkeypatch.setattr(requests.sessions.Session, "request", blocked)
+    return {
+        "blocked_request": blocked,
+        "original_request": original_request,
+    }
+
+
+@pytest.fixture
+def _allow_external_requests(monkeypatch, _block_external_requests):
+    monkeypatch.setattr(
+        requests.sessions.Session,
+        "request",
+        _block_external_requests["original_request"],
+    )
+    return _block_external_requests
 
 
 @pytest.fixture
