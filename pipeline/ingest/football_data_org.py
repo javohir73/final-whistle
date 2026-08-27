@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Callable
 
 import requests
@@ -25,6 +27,7 @@ from pipeline.ingest.provider_errors import (
 BASE_URL = "https://api.football-data.org/v4"
 MAX_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 6.5
+MAX_RETRY_DELAY_SECONDS = 30.0
 
 _STATUS_TO_INTERNAL = {
     "SCHEDULED": SCHEDULED,
@@ -32,6 +35,7 @@ _STATUS_TO_INTERNAL = {
     "IN_PLAY": IN_PLAY,
     "PAUSED": IN_PLAY,
     "FINISHED": FINISHED,
+    "AWARDED": FINISHED,
     "POSTPONED": POSTPONED,
     "CANCELLED": CANCELLED,
     "SUSPENDED": SUSPENDED,
@@ -42,9 +46,12 @@ def _parse_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
 def _optional_text(value: object) -> str | None:
@@ -64,8 +71,11 @@ def normalize_fixture(
         return None
     fixture_id = raw.get("id")
     kickoff = _parse_datetime(raw.get("utcDate"))
-    home = raw.get("homeTeam") or {}
-    away = raw.get("awayTeam") or {}
+    home = raw.get("homeTeam")
+    away = raw.get("awayTeam")
+    score = raw.get("score")
+    if not all(isinstance(node, dict) for node in (home, away, score)):
+        return None
     home_name = _optional_text(home.get("name"))
     away_name = _optional_text(away.get("name"))
     if (
@@ -76,15 +86,23 @@ def normalize_fixture(
     ):
         return None
 
-    status = _STATUS_TO_INTERNAL.get(raw.get("status"), SCHEDULED)
+    status = _STATUS_TO_INTERNAL.get(raw.get("status"))
+    if status is None:
+        return None
     if not preserve_stopped_statuses and status in {
         POSTPONED, CANCELLED, SUSPENDED,
     }:
         status = SCHEDULED
 
-    score = raw.get("score") or {}
-    full_time = score.get("fullTime") or {}
-    regular_time = score.get("regularTime") or {}
+    full_time = score.get("fullTime")
+    regular_time = score.get("regularTime")
+    if (
+        (full_time is not None and not isinstance(full_time, dict))
+        or (regular_time is not None and not isinstance(regular_time, dict))
+    ):
+        return None
+    full_time = full_time or {}
+    regular_time = regular_time or {}
     score_home_90 = score_away_90 = None
     if score.get("duration") not in {None, "REGULAR"}:
         if (
@@ -94,7 +112,14 @@ def normalize_fixture(
             score_home_90 = regular_time["home"]
             score_away_90 = regular_time["away"]
 
-    venue = raw.get("venue") or {}
+    venue = raw.get("venue")
+    if venue is not None and not isinstance(venue, dict):
+        return None
+    venue = venue or {}
+    last_updated = raw.get("lastUpdated")
+    upstream_updated_at = _parse_datetime(last_updated)
+    if last_updated is not None and upstream_updated_at is None:
+        return None
     matchweek = raw.get("matchday")
     if not isinstance(matchweek, int):
         matchweek = None
@@ -113,20 +138,37 @@ def normalize_fixture(
         venue_name=_optional_text(venue.get("name")),
         venue_city=_optional_text(venue.get("city")),
         round_label=_optional_text(raw.get("stage")),
-        upstream_updated_at=_parse_datetime(raw.get("lastUpdated")),
+        upstream_updated_at=upstream_updated_at,
         home_provider_id=home.get("id") if isinstance(home.get("id"), int) else None,
         away_provider_id=away.get("id") if isinstance(away.get("id"), int) else None,
     )
 
 
-def _retry_delay(response) -> float:
-    raw = getattr(response, "headers", {}).get("Retry-After")
+def _retry_delay(response, *, clock: Callable[[], datetime]) -> float:
+    headers = getattr(response, "headers", {})
+    raw = headers.get("Retry-After") if isinstance(headers, Mapping) else None
     if raw is not None:
         try:
-            return max(0.0, float(raw))
+            delay = float(raw)
         except (TypeError, ValueError):
-            pass
-    return RETRY_DELAY_SECONDS
+            try:
+                retry_at = parsedate_to_datetime(raw)
+                now = clock()
+                if (
+                    retry_at.tzinfo is None
+                    or retry_at.utcoffset() is None
+                    or now.tzinfo is None
+                    or now.utcoffset() is None
+                ):
+                    raise ValueError("Retry-After date and clock must be timezone-aware")
+                delay = (
+                    retry_at.astimezone(timezone.utc)
+                    - now.astimezone(timezone.utc)
+                ).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                delay = RETRY_DELAY_SECONDS
+        return min(MAX_RETRY_DELAY_SECONDS, max(0.0, delay))
+    return min(MAX_RETRY_DELAY_SECONDS, RETRY_DELAY_SECONDS)
 
 
 def _provider_error(message: str, *, endpoint: str, detail=None) -> ProviderError:
@@ -141,10 +183,12 @@ def fetch_football_data_fixtures(
     timeout: float = 15.0,
     request_get: Callable | None = None,
     sleeper: Callable[[float], None] = time.sleep,
+    clock: Callable[[], datetime] | None = None,
 ) -> list[NormalizedFixture]:
     """Fetch and normalize one current-season football-data.org competition."""
     endpoint = f"/competitions/{competition_code}/matches"
     get = request_get or requests.get
+    now = clock or (lambda: datetime.now(timezone.utc))
     for attempt in range(MAX_ATTEMPTS):
         try:
             response = get(
@@ -171,7 +215,7 @@ def fetch_football_data_fixtures(
             )
         if status_code == 429:
             if attempt + 1 < MAX_ATTEMPTS:
-                sleeper(_retry_delay(response))
+                sleeper(_retry_delay(response, clock=now))
                 continue
             raise ProviderQuotaError(
                 f"{endpoint}: rate limit exhausted (HTTP 429)",
@@ -180,7 +224,7 @@ def fetch_football_data_fixtures(
             )
         if 500 <= status_code < 600:
             if attempt + 1 < MAX_ATTEMPTS:
-                sleeper(_retry_delay(response))
+                sleeper(_retry_delay(response, clock=now))
                 continue
             raise _provider_error(
                 f"{endpoint}: provider unavailable (HTTP {status_code})",
@@ -206,7 +250,13 @@ def fetch_football_data_fixtures(
                 f"{endpoint}: expected a JSON object",
                 endpoint=endpoint,
             )
-        returned_code = (payload.get("competition") or {}).get("code")
+        competition = payload.get("competition")
+        if not isinstance(competition, dict):
+            raise _provider_error(
+                f"{endpoint}: competition must be a JSON object",
+                endpoint=endpoint,
+            )
+        returned_code = competition.get("code")
         if returned_code != competition_code:
             raise _provider_error(
                 f"{endpoint}: expected competition {competition_code}, got {returned_code!r}",

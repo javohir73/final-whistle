@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -308,9 +308,12 @@ def _fixture_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
 def _fixture_matchweek(round_label: object) -> int | None:
@@ -333,10 +336,17 @@ def normalize_league_fixture(
     """Normalize one api-sports league fixture, or reject a malformed row."""
     if not isinstance(raw, dict):
         return None
-    fixture = raw.get("fixture") or {}
-    teams = raw.get("teams") or {}
-    home = teams.get("home") or {}
-    away = teams.get("away") or {}
+    fixture = raw.get("fixture")
+    teams = raw.get("teams")
+    if not isinstance(fixture, dict) or not isinstance(teams, dict):
+        return None
+    home = teams.get("home")
+    away = teams.get("away")
+    status_node = fixture.get("status")
+    goals = raw.get("goals")
+    score = raw.get("score")
+    if not all(isinstance(node, dict) for node in (home, away, status_node, goals, score)):
+        return None
     fixture_id = fixture.get("id")
     kickoff = _fixture_datetime(fixture.get("date"))
     home_name = home.get("name")
@@ -351,35 +361,49 @@ def normalize_league_fixture(
     ):
         return None
 
-    provider_status = (fixture.get("status") or {}).get("short")
+    provider_status = status_node.get("short")
     status = internal_status(provider_status) or "scheduled"
     if not preserve_stopped_statuses and status in {
         "postponed", "cancelled", "suspended",
     }:
         status = "scheduled"
 
-    goals = raw.get("goals") or {}
     score_home_90 = score_away_90 = None
     if provider_status in {"AET", "PEN"}:
-        fulltime = (raw.get("score") or {}).get("fulltime") or {}
+        fulltime = score.get("fulltime")
+        if fulltime is not None and not isinstance(fulltime, dict):
+            return None
+        fulltime = fulltime or {}
         if isinstance(fulltime.get("home"), int) and isinstance(fulltime.get("away"), int):
             score_home_90 = fulltime["home"]
             score_away_90 = fulltime["away"]
 
-    league = raw.get("league") or fixture.get("league") or {}
+    league = raw.get("league")
+    if league is None:
+        league = fixture.get("league")
+    if league is not None and not isinstance(league, dict):
+        return None
+    league = league or {}
     round_label = league.get("round")
     if not isinstance(round_label, str) or not round_label.strip():
         round_label = None
     else:
         round_label = round_label.strip()
-    venue = fixture.get("venue") or {}
+    venue = fixture.get("venue")
+    if venue is not None and not isinstance(venue, dict):
+        return None
+    venue = venue or {}
     venue_name = venue.get("name")
     venue_city = venue.get("city")
-    updated = (
-        fixture.get("updated")
-        or fixture.get("lastUpdated")
-        or raw.get("lastUpdated")
-    )
+    if "updated" in fixture:
+        updated = fixture["updated"]
+    elif "lastUpdated" in fixture:
+        updated = fixture["lastUpdated"]
+    else:
+        updated = raw.get("lastUpdated")
+    upstream_updated_at = _fixture_datetime(updated)
+    if updated is not None and upstream_updated_at is None:
+        return None
 
     return NormalizedFixture(
         provider="api_football",
@@ -396,7 +420,7 @@ def normalize_league_fixture(
         venue_name=venue_name.strip() if isinstance(venue_name, str) and venue_name.strip() else None,
         venue_city=venue_city.strip() if isinstance(venue_city, str) and venue_city.strip() else None,
         round_label=round_label,
-        upstream_updated_at=_fixture_datetime(updated),
+        upstream_updated_at=upstream_updated_at,
         home_provider_id=home.get("id") if isinstance(home.get("id"), int) else None,
         away_provider_id=away.get("id") if isinstance(away.get("id"), int) else None,
     )

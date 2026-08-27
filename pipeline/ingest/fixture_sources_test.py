@@ -1,10 +1,13 @@
 """Contract tests for normalized league fixture providers."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 import pytest
 import requests
+from requests.structures import CaseInsensitiveDict
 
 from pipeline.ingest.api_football import normalize_league_fixture
 from pipeline.ingest.fixture_contract import capabilities_for
@@ -128,6 +131,82 @@ def test_api_football_fixture_has_contract_parity():
     assert got.upstream_updated_at.isoformat() == "2026-08-28T21:02:03+00:00"
 
 
+def test_api_football_timestamps_are_canonicalized_to_utc():
+    got = normalize_league_fixture({
+        "fixture": {
+            "id": 992,
+            "date": "2026-08-28T20:30:00+02:00",
+            "updated": "2026-08-28T17:02:03-04:00",
+            "status": {"long": "Match Finished", "short": "FT", "elapsed": 90},
+            "venue": {"id": 80, "name": "Signal Iduna Park", "city": "Dortmund"},
+        },
+        "league": {"id": 78, "name": "Bundesliga", "country": "Germany", "season": 2026, "round": "Regular Season - 1"},
+        "teams": {"home": {"id": 165, "name": "Borussia Dortmund", "winner": True}, "away": {"id": 157, "name": "Bayern Munich", "winner": False}},
+        "goals": {"home": 2, "away": 1},
+        "score": {"halftime": {"home": 1, "away": 0}, "fulltime": {"home": 2, "away": 1}, "extratime": {"home": None, "away": None}, "penalty": {"home": None, "away": None}},
+    })
+    assert got.kickoff_utc.isoformat() == "2026-08-28T18:30:00+00:00"
+    assert got.upstream_updated_at.isoformat() == "2026-08-28T21:02:03+00:00"
+
+
+def test_football_data_timestamps_are_canonicalized_to_utc():
+    got = normalize_fixture({
+        "id": 992,
+        "utcDate": "2026-08-28T20:30:00+02:00",
+        "status": "FINISHED",
+        "matchday": 1,
+        "stage": "REGULAR_SEASON",
+        "lastUpdated": "2026-08-28T17:02:03-04:00",
+        "homeTeam": {"id": 5, "name": "Borussia Dortmund"},
+        "awayTeam": {"id": 11, "name": "FC Bayern München"},
+        "score": {"duration": "REGULAR", "fullTime": {"home": 2, "away": 1}, "regularTime": {"home": 2, "away": 1}},
+    })
+    assert got.kickoff_utc.isoformat() == "2026-08-28T18:30:00+00:00"
+    assert got.upstream_updated_at.isoformat() == "2026-08-28T21:02:03+00:00"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("date", "2026-08-28T18:30:00"), ("updated", "2026-08-28T21:02:03"), ("updated", "not-a-date")],
+)
+def test_api_football_rejects_naive_or_malformed_timestamps(field, value):
+    raw = {
+        "fixture": {
+            "id": 993,
+            "date": "2026-08-28T18:30:00Z",
+            "updated": "2026-08-28T21:02:03Z",
+            "status": {"long": "Match Finished", "short": "FT", "elapsed": 90},
+            "venue": {"id": 80, "name": "Signal Iduna Park", "city": "Dortmund"},
+        },
+        "league": {"id": 78, "name": "Bundesliga", "country": "Germany", "season": 2026, "round": "Regular Season - 1"},
+        "teams": {"home": {"id": 165, "name": "Borussia Dortmund", "winner": True}, "away": {"id": 157, "name": "Bayern Munich", "winner": False}},
+        "goals": {"home": 2, "away": 1},
+        "score": {"halftime": {"home": 1, "away": 0}, "fulltime": {"home": 2, "away": 1}, "extratime": {"home": None, "away": None}, "penalty": {"home": None, "away": None}},
+    }
+    raw["fixture"][field] = value
+    assert normalize_league_fixture(raw) is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("utcDate", "2026-08-28T18:30:00"), ("lastUpdated", "2026-08-28T21:02:03"), ("lastUpdated", "not-a-date")],
+)
+def test_football_data_rejects_naive_or_malformed_timestamps(field, value):
+    raw = {
+        "id": 993,
+        "utcDate": "2026-08-28T18:30:00Z",
+        "status": "FINISHED",
+        "matchday": 1,
+        "stage": "REGULAR_SEASON",
+        "lastUpdated": "2026-08-28T21:02:03Z",
+        "homeTeam": {"id": 5, "name": "Borussia Dortmund"},
+        "awayTeam": {"id": 11, "name": "FC Bayern München"},
+        "score": {"duration": "REGULAR", "fullTime": {"home": 2, "away": 1}, "regularTime": {"home": 2, "away": 1}},
+    }
+    raw[field] = value
+    assert normalize_fixture(raw) is None
+
+
 def test_malformed_fixture_rows_are_rejected():
     assert normalize_fixture({
         "id": 991,
@@ -152,6 +231,77 @@ def test_malformed_fixture_rows_are_rejected():
         "goals": {"home": 2, "away": 1},
         "score": {"halftime": {"home": 1, "away": 0}, "fulltime": {"home": 2, "away": 1}, "extratime": {"home": None, "away": None}, "penalty": {"home": None, "away": None}},
     }) is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("fixture",),
+        ("fixture", "status"),
+        ("fixture", "venue"),
+        ("league",),
+        ("teams",),
+        ("teams", "home"),
+        ("teams", "away"),
+        ("goals",),
+        ("score",),
+        ("score", "fulltime"),
+    ],
+)
+def test_api_football_nested_nonobjects_are_rejected(path):
+    raw = {
+        "fixture": {
+            "id": 991,
+            "date": "2026-08-28T18:30:00+00:00",
+            "updated": "2026-08-28T21:02:03Z",
+            "status": {"long": "Match Finished", "short": "FT", "elapsed": 90},
+            "venue": {"id": 80, "name": "Signal Iduna Park", "city": "Dortmund"},
+        },
+        "league": {"id": 78, "name": "Bundesliga", "country": "Germany", "season": 2026, "round": "Regular Season - 1"},
+        "teams": {"home": {"id": 165, "name": "Borussia Dortmund", "winner": True}, "away": {"id": 157, "name": "Bayern Munich", "winner": False}},
+        "goals": {"home": 2, "away": 1},
+        "score": {"halftime": {"home": 1, "away": 0}, "fulltime": {"home": 2, "away": 1}, "extratime": {"home": None, "away": None}, "penalty": {"home": None, "away": None}},
+    }
+    malformed = deepcopy(raw)
+    target = malformed
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = ["not", "an", "object"]
+    if path == ("score", "fulltime"):
+        malformed["fixture"]["status"]["short"] = "AET"
+    assert normalize_league_fixture(malformed) is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("homeTeam",),
+        ("awayTeam",),
+        ("score",),
+        ("score", "fullTime"),
+        ("score", "regularTime"),
+        ("venue",),
+    ],
+)
+def test_football_data_nested_nonobjects_are_rejected(path):
+    raw = {
+        "id": 991,
+        "utcDate": "2026-08-28T18:30:00Z",
+        "status": "FINISHED",
+        "matchday": 1,
+        "stage": "REGULAR_SEASON",
+        "lastUpdated": "2026-08-28T21:02:03Z",
+        "homeTeam": {"id": 5, "name": "Borussia Dortmund"},
+        "awayTeam": {"id": 11, "name": "FC Bayern München"},
+        "venue": {"name": "Signal Iduna Park", "city": "Dortmund"},
+        "score": {"duration": "REGULAR", "fullTime": {"home": 2, "away": 1}, "regularTime": {"home": 2, "away": 1}},
+    }
+    malformed = deepcopy(raw)
+    target = malformed
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = ["not", "an", "object"]
+    assert normalize_fixture(malformed) is None
 
 
 def test_football_data_null_score_stays_unknown():
@@ -221,6 +371,36 @@ def test_football_data_deliberate_stops_are_configurable(provider_status, expect
     }
     assert normalize_fixture(raw, preserve_stopped_statuses=True).status == expected
     assert normalize_fixture(raw, preserve_stopped_statuses=False).status == "scheduled"
+
+
+def test_football_data_awarded_result_is_finished():
+    got = normalize_fixture({
+        "id": 301,
+        "utcDate": "2026-10-04T14:00:00Z",
+        "status": "AWARDED",
+        "matchday": 7,
+        "stage": "REGULAR_SEASON",
+        "lastUpdated": "2026-10-04T16:00:00Z",
+        "homeTeam": {"id": 57, "name": "Arsenal FC"},
+        "awayTeam": {"id": 66, "name": "Manchester United FC"},
+        "score": {"duration": "REGULAR", "fullTime": {"home": 3, "away": 0}, "regularTime": {"home": 3, "away": 0}},
+    })
+    assert got.status == "finished"
+
+
+def test_football_data_unknown_status_is_rejected():
+    got = normalize_fixture({
+        "id": 302,
+        "utcDate": "2026-10-05T14:00:00Z",
+        "status": "UNKNOWN_NEW_STATUS",
+        "matchday": 7,
+        "stage": "REGULAR_SEASON",
+        "lastUpdated": "2026-10-05T16:00:00Z",
+        "homeTeam": {"id": 57, "name": "Arsenal FC"},
+        "awayTeam": {"id": 66, "name": "Manchester United FC"},
+        "score": {"duration": "REGULAR", "fullTime": {"home": None, "away": None}, "regularTime": {"home": None, "away": None}},
+    })
+    assert got is None
 
 
 def test_ucl_league_stage_keeps_stage_and_matchday():
@@ -297,7 +477,11 @@ def test_football_data_retries_one_transient_failure(first_result):
 
 def test_football_data_honors_retry_after_seconds():
     request_get = _SequenceGet(
-        _Response(429, {"message": "too many requests"}, {"Retry-After": "9"}),
+        _Response(
+            429,
+            {"message": "too many requests"},
+            CaseInsensitiveDict({"retry-after": "9"}),
+        ),
         _Response(200, _success_payload()),
     )
     sleeps = []
@@ -305,6 +489,35 @@ def test_football_data_honors_retry_after_seconds():
         "token", "BL1", 2026, request_get=request_get, sleeper=sleeps.append,
     )
     assert sleeps == [9.0]
+
+
+def test_football_data_honors_retry_after_http_date():
+    request_get = _SequenceGet(
+        _Response(429, {"message": "too many requests"}, {"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}),
+        _Response(200, _success_payload()),
+    )
+    sleeps = []
+    fetch_football_data_fixtures(
+        "token",
+        "BL1",
+        2026,
+        request_get=request_get,
+        sleeper=sleeps.append,
+        clock=lambda: datetime(2026, 10, 21, 7, 27, 40, tzinfo=timezone.utc),
+    )
+    assert sleeps == [20.0]
+
+
+def test_football_data_clamps_retry_after_to_thirty_seconds():
+    request_get = _SequenceGet(
+        _Response(429, {"message": "too many requests"}, {"Retry-After": "120"}),
+        _Response(200, _success_payload()),
+    )
+    sleeps = []
+    fetch_football_data_fixtures(
+        "token", "BL1", 2026, request_get=request_get, sleeper=sleeps.append,
+    )
+    assert sleeps == [30.0]
 
 
 @pytest.mark.parametrize("status_code", [401, 403])
@@ -328,6 +541,20 @@ def test_football_data_auth_failures_do_not_retry(status_code):
 )
 def test_football_data_invalid_payloads_do_not_retry(payload):
     request_get = _SequenceGet(_Response(200, payload))
+    with pytest.raises(ProviderError):
+        fetch_football_data_fixtures(
+            "token", "BL1", 2026, request_get=request_get, sleeper=lambda _: None,
+        )
+    assert len(request_get.calls) == 1
+
+
+def test_football_data_nonobject_competition_is_a_provider_error():
+    request_get = _SequenceGet(_Response(200, {
+        "filters": {"season": "2026"},
+        "resultSet": {"count": 1, "first": "2026-08-28", "last": "2026-08-28", "played": 1},
+        "competition": ["not", "an", "object"],
+        "matches": _success_payload()["matches"],
+    }))
     with pytest.raises(ProviderError):
         fetch_football_data_fixtures(
             "token", "BL1", 2026, request_get=request_get, sleeper=lambda _: None,
