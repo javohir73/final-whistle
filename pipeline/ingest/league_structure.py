@@ -13,8 +13,8 @@ duplicates, never touches WC26 rows — those are a different tournament_id and
 were seeded without a provider_fixture_id in the first place).
 
 Also writes matches.matchweek (League Score Predictions design doc,
-c8d9e0f1a2b3_add_match_matchweek migration) from the fixture payload's
-`league.round` (e.g. "Regular Season - 5" -> 5, see _parse_matchweek) — the
+c8d9e0f1a2b3_add_match_matchweek migration) from the normalized fixture
+contract — the
 matchweek-scoped tipsheet/leaderboards' read side (app/api/
 league_score_predictions.py) query this column; this is that column's only
 writer. Set unconditionally on every upsert, like kickoff_utc/status/score_*,
@@ -40,15 +40,15 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.models import Group, GroupTeam, Match, Team, Tournament
-from pipeline.ingest.api_football import fetch_fixtures
-from pipeline.ingest.api_football_status import internal_status
+from pipeline.ingest.api_football import fetch_fixtures, normalize_league_fixture
+from pipeline.ingest.fixture_contract import NormalizedFixture
+from pipeline.ingest.football_data_org import fetch_football_data_fixtures
 from pipeline.team_mapping import normalize_team_name
 
 log = logging.getLogger(__name__)
@@ -67,28 +67,93 @@ GROUP_NAME = "Premier League"
 LEAGUE_ID = 39
 SEASON = 2026
 
+_RECONCILIATION_WINDOW_SECONDS = 48 * 60 * 60
+
+
+class FixtureReconciliationError(RuntimeError):
+    """Raised when a provider switch cannot be matched without guessing."""
+
+
+def fetch_league_fixtures(
+    api_key: str,
+    *,
+    fixture_source: str,
+    league_id: int,
+    competition_code: str | None,
+    season: int,
+    preserve_stopped_statuses: bool = True,
+) -> list[NormalizedFixture | None]:
+    """The sole provider-selection boundary for league fixture persistence."""
+    if fixture_source == "api_football":
+        raw_fixtures = fetch_fixtures(api_key, league=league_id, season=season)
+        normalized = []
+        for raw in raw_fixtures:
+            # Older internal callers/tests supplied the subset consumed by the
+            # pre-contract loader. The provider's real payload always includes
+            # score, but an empty object is equivalent for scheduled fixtures.
+            if isinstance(raw, dict) and "score" not in raw:
+                raw = {**raw, "score": {}}
+            normalized.append(
+                normalize_league_fixture(
+                    raw,
+                    preserve_stopped_statuses=preserve_stopped_statuses,
+                )
+            )
+        return normalized
+    if fixture_source == "football_data":
+        if not competition_code:
+            raise ValueError(
+                "competition_code is required for football_data fixtures"
+            )
+        return list(
+            fetch_football_data_fixtures(
+                api_key,
+                competition_code,
+                season,
+            )
+        )
+    raise ValueError(f"unsupported fixture source: {fixture_source}")
+
+
 def _load_teams_file(teams_file: str) -> list[dict]:
     return json.loads(Path(teams_file).read_text(encoding="utf-8"))["teams"]
 
 
-def _derive_teams_from_fixtures(raw_fixtures: list[dict]) -> list[dict]:
-    """teams_file=None fallback: derive a teams_file-shaped list straight from
-    a raw api-sports /fixtures response's own teams.home/teams.away objects
-    (id + name — the real payload carries both; see _fixture_fields, which
-    discards id today). One entry per distinct provider team id seen, in
-    first-seen order. ``code`` is always None: the fixtures payload carries no
-    3-letter code (only /teams does), and pulling that would cost a second
-    HTTP call this path is specifically meant to avoid. A fixture missing
-    either side's id or name is skipped rather than guessed."""
-    seen: dict[int, str] = {}
-    for fx in raw_fixtures or []:
-        teams = fx.get("teams") or {}
-        for side in ("home", "away"):
-            team = teams.get(side) or {}
-            tid, name = team.get("id"), team.get("name")
-            if tid is not None and name and tid not in seen:
-                seen[tid] = name
-    return [{"name": name, "code": None, "api_football_id": tid} for tid, name in seen.items()]
+def _derive_teams_from_fixtures(
+    fixtures: list[NormalizedFixture | None],
+) -> list[dict]:
+    """Derive a teams-file-shaped roster from normalized fixtures.
+
+    Only API-Football IDs belong in Team.provider_team_id. football-data.org
+    IDs identify a different namespace and are deliberately discarded.
+    """
+    seen: dict[tuple[str, int | str], dict] = {}
+    for fixture in fixtures:
+        if fixture is None:
+            continue
+        for name, provider_id in (
+            (fixture.home_name, fixture.home_provider_id),
+            (fixture.away_name, fixture.away_provider_id),
+        ):
+            if fixture.provider == "api_football" and provider_id is None:
+                continue
+            api_football_id = (
+                provider_id if fixture.provider == "api_football" else None
+            )
+            key: tuple[str, int | str]
+            if api_football_id is not None:
+                key = ("id", api_football_id)
+            else:
+                key = ("name", normalize_team_name(name))
+            seen.setdefault(
+                key,
+                {
+                    "name": name,
+                    "code": None,
+                    "api_football_id": api_football_id,
+                },
+            )
+    return list(seen.values())
 
 
 def _seed_teams(
@@ -96,7 +161,7 @@ def _seed_teams(
     group: Group,
     teams_data: list[dict],
     *,
-    group_member_provider_ids: set[int] | None = None,
+    group_member_names: set[str] | None = None,
 ) -> dict[str, Team]:
     """Upsert every team in teams_data (whichever source produced it) and add
     it to ``group``. Factored out of load_league_structure so both the
@@ -107,8 +172,8 @@ def _seed_teams(
         team = _upsert_team(db, t["name"], t.get("code"), t["api_football_id"])
         team_by_name[team.name] = team
         belongs_to_group = (
-            group_member_provider_ids is None
-            or t["api_football_id"] in group_member_provider_ids
+            group_member_names is None
+            or team.name in group_member_names
         )
         if belongs_to_group:
             exists = db.query(GroupTeam).filter_by(
@@ -137,7 +202,12 @@ def _get_or_create_tournament(db: Session, tournament_name: str = TOURNAMENT_NAM
     return t
 
 
-def _upsert_team(db: Session, name: str, code: str | None, api_football_id: int) -> Team:
+def _upsert_team(
+    db: Session,
+    name: str,
+    code: str | None,
+    api_football_id: int | None,
+) -> Team:
     """Look up by ``provider_team_id`` FIRST, falling back to name only for a
     team this provider id has never been seen for yet. Team.provider_team_id
     is unique (backend/app/models/__init__.py) -- a name-only lookup would
@@ -165,7 +235,8 @@ def _upsert_team(db: Session, name: str, code: str | None, api_football_id: int)
     else:
         team.name = canon
         team.country_code = code
-        team.provider_team_id = api_football_id
+        if api_football_id is not None:
+            team.provider_team_id = api_football_id
     return team
 
 
@@ -180,28 +251,13 @@ def _get_or_create_group(db: Session, tournament: Tournament, group_name: str = 
     return group
 
 
-# API-Football's fixture.league.round is free text, e.g. "Regular Season - 5"
-# (knockout-style rounds like "Quarter-finals" carry no trailing number and
-# never occur in a league fixture list anyway) -- pull the trailing integer.
-_ROUND_NUMBER_RE = re.compile(r"(\d+)\s*$")
+def _round_name(fx: NormalizedFixture) -> str | None:
+    return fx.round_label
 
 
-def _parse_matchweek(round_str: str | None) -> int | None:
-    """"Regular Season - 5" -> 5; None for anything that doesn't end in a
-    number, or no round at all (matches.matchweek migration docstring)."""
-    if not round_str:
-        return None
-    m = _ROUND_NUMBER_RE.search(round_str)
-    return int(m.group(1)) if m else None
-
-
-def _round_name(fx: dict) -> str | None:
-    league = fx.get("league") or (fx.get("fixture") or {}).get("league") or {}
-    value = league.get("round")
-    return value.strip() if isinstance(value, str) and value.strip() else None
-
-
-def _is_group_round(fx: dict, prefixes: tuple[str, ...] | None) -> bool:
+def _is_group_round(
+    fx: NormalizedFixture, prefixes: tuple[str, ...] | None,
+) -> bool:
     """Whether a fixture belongs to the displayed shared table.
 
     ``prefixes=None`` preserves domestic-league behavior (every fixture is a
@@ -214,7 +270,9 @@ def _is_group_round(fx: dict, prefixes: tuple[str, ...] | None) -> bool:
     return any(round_name.startswith(prefix.casefold()) for prefix in prefixes)
 
 
-def _stage_for_fixture(fx: dict, prefixes: tuple[str, ...] | None) -> str:
+def _stage_for_fixture(
+    fx: NormalizedFixture, prefixes: tuple[str, ...] | None,
+) -> str:
     """Map provider round text to an honest platform stage.
 
     Domestic leagues retain their historical ``group`` value. A configured
@@ -230,80 +288,79 @@ def _stage_for_fixture(fx: dict, prefixes: tuple[str, ...] | None) -> str:
     return "knockout"
 
 
-def _is_neutral_fixture(fx: dict) -> bool:
+def _is_neutral_fixture(fx: NormalizedFixture) -> bool:
     """UEFA's one-match final is played at a preselected neutral venue."""
     return (_round_name(fx) or "").casefold() == "final"
 
 
-def _group_member_ids(
-    fixtures: list[dict], prefixes: tuple[str, ...] | None,
-) -> set[int] | None:
+def _group_member_names(
+    fixtures: list[NormalizedFixture | None],
+    prefixes: tuple[str, ...] | None,
+) -> set[str] | None:
     if prefixes is None:
         return None
-    members: set[int] = set()
+    members: set[str] = set()
     for fx in fixtures:
-        if not _is_group_round(fx, prefixes):
+        if fx is None or not _is_group_round(fx, prefixes):
             continue
-        teams = fx.get("teams") or {}
-        for side in ("home", "away"):
-            provider_id = (teams.get(side) or {}).get("id")
-            if isinstance(provider_id, int):
-                members.add(provider_id)
+        members.add(normalize_team_name(fx.home_name))
+        members.add(normalize_team_name(fx.away_name))
     return members
 
 
-def _fixture_fields(
-    fx: dict,
-) -> tuple[
-    int,
-    str,
-    str,
-    datetime,
-    str,
-    int | None,
-    int | None,
-    int | None,
-    int | None,
-    int | None,
-    str | None,
-    str | None,
-] | None:
-    """Extract (fixture_id, home_name, away_name, kickoff_utc, status,
-    score_home, score_away, matchweek) from one raw api-sports /fixtures
-    response item, followed by optional regulation-time home/away scores for
-    AET/PEN fixtures and venue name/city, or None if malformed."""
-    fixture = fx.get("fixture") or {}
-    fid = fixture.get("id")
-    date = fixture.get("date")
-    status = (fixture.get("status") or {}).get("short")
-    teams = fx.get("teams") or {}
-    home = (teams.get("home") or {}).get("name")
-    away = (teams.get("away") or {}).get("name")
-    if fid is None or not date or not home or not away:
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _reconcile_match(
+    matches: list[Match],
+    fixture: NormalizedFixture,
+    home: Team,
+    away: Team,
+) -> Match | None:
+    same_source_id = [
+        match
+        for match in matches
+        if match.fixture_provider == fixture.provider
+        and match.provider_fixture_id == fixture.fixture_id
+    ]
+    if len(same_source_id) == 1:
+        return same_source_id[0]
+    if len(same_source_id) > 1:
+        raise FixtureReconciliationError(
+            "ambiguous fixture reconciliation: repeated source fixture id "
+            f"{fixture.provider}/{fixture.fixture_id}"
+        )
+
+    oriented_pair = [
+        match
+        for match in matches
+        if match.team_home_id == home.id and match.team_away_id == away.id
+    ]
+    if len(oriented_pair) == 1:
+        return oriented_pair[0]
+    if len(oriented_pair) < 2:
         return None
-    kickoff = datetime.fromisoformat(date.replace("Z", "+00:00"))
-    goals = fx.get("goals") or {}
-    score_home_90 = score_away_90 = None
-    if status in {"AET", "PEN"}:
-        fulltime = (fx.get("score") or {}).get("fulltime") or {}
-        if isinstance(fulltime.get("home"), int) and isinstance(fulltime.get("away"), int):
-            score_home_90 = fulltime["home"]
-            score_away_90 = fulltime["away"]
-    # Same league.round lookup + fallback as api_football.py's _to_item
-    # (the football-data-v4-shaping layer for the live-scores path).
-    league = fx.get("league") or fixture.get("league") or {}
-    matchweek = _parse_matchweek(league.get("round"))
-    venue = fixture.get("venue") or {}
-    venue_name = (venue.get("name") or "").strip() or None
-    venue_city = (venue.get("city") or "").strip() or None
-    return (
-        int(fid), home, away, kickoff,
-        internal_status(status) or "scheduled",
-        goals.get("home"), goals.get("away"),
-        matchweek,
-        score_home_90, score_away_90,
-        venue_name, venue_city,
-    )
+
+    near_kickoff = [
+        match
+        for match in oriented_pair
+        if match.kickoff_utc is not None
+        and abs(
+            (_utc(match.kickoff_utc) - _utc(fixture.kickoff_utc)).total_seconds()
+        ) <= _RECONCILIATION_WINDOW_SECONDS
+    ]
+    if len(near_kickoff) == 1:
+        return near_kickoff[0]
+    if len(near_kickoff) > 1:
+        raise FixtureReconciliationError(
+            "ambiguous fixture reconciliation: multiple oriented team-pair "
+            f"candidates within 48 hours for {fixture.home_name!r} vs "
+            f"{fixture.away_name!r}"
+        )
+    return None
 
 
 def load_league_structure(
@@ -317,6 +374,9 @@ def load_league_structure(
     season: int = SEASON,
     group_round_prefixes: tuple[str, ...] | None = None,
     preserve_stopped_statuses: bool = True,
+    fixture_source: str = "api_football",
+    competition_code: str | None = None,
+    commit: bool = True,
 ) -> dict:
     """Load one league's structure (default: EPL 2026-27). The keyword-only
     tournament_name/group_name/league_id/season let pipeline/run_pipeline.py's
@@ -325,117 +385,114 @@ def load_league_structure(
     load_league_structure(db) call keeps behaving exactly as it did before
     this became parameterized. teams_file=None (Phase 2: a league with no
     curated JSON) derives teams from the fixtures payload instead -- see
-    _derive_teams_from_fixtures. Returns a summary dict for logging/tests."""
+    _derive_teams_from_fixtures. ``commit=False`` lets the caller atomically
+    combine structure and history writes. Returns a summary dict."""
     if api_key is None:
         from app.config import settings
 
-        api_key = settings.api_football_api_key
+        api_key = (
+            settings.football_data_api_key
+            if fixture_source == "football_data"
+            else settings.api_football_api_key
+        )
+
+    tournament = _get_or_create_tournament(db, tournament_name)
+    group = _get_or_create_group(db, tournament, group_name)
+    fixtures = fetch_league_fixtures(
+        api_key,
+        fixture_source=fixture_source,
+        league_id=league_id,
+        competition_code=competition_code,
+        season=season,
+        preserve_stopped_statuses=preserve_stopped_statuses,
+    )
 
     if teams_file is not None:
-        # Unchanged code path (EPL, and any future league with its own
-        # curated JSON): identical order of operations as before this became
-        # optional -- load the file, then tournament/group, then upsert.
         teams_data = _load_teams_file(teams_file)
-        tournament = _get_or_create_tournament(db, tournament_name)
-        group = _get_or_create_group(db, tournament, group_name)
         team_by_name = _seed_teams(db, group, teams_data)
-        raw_fixtures = fetch_fixtures(api_key, league=league_id, season=season)
     else:
-        # No teams_file: fetch fixtures first so teams can be derived from
-        # the SAME response the fixture upsert below also uses -- one HTTP
-        # call serves both, no second endpoint needed.
-        tournament = _get_or_create_tournament(db, tournament_name)
-        group = _get_or_create_group(db, tournament, group_name)
-        raw_fixtures = fetch_fixtures(api_key, league=league_id, season=season)
         team_by_name = _seed_teams(
             db,
             group,
-            _derive_teams_from_fixtures(raw_fixtures),
-            group_member_provider_ids=_group_member_ids(
-                raw_fixtures, group_round_prefixes
+            _derive_teams_from_fixtures(fixtures),
+            group_member_names=_group_member_names(
+                fixtures, group_round_prefixes
             ),
         )
 
-    existing_by_fixture: dict[int, Match] = {
-        m.provider_fixture_id: m
-        for m in db.query(Match)
-        .filter(
-            Match.tournament_id == tournament.id,
-            Match.provider_fixture_id.isnot(None),
-        )
-        .all()
-    }
+    existing_matches = db.query(Match).filter_by(
+        tournament_id=tournament.id
+    ).all()
 
     created = updated = skipped = 0
-    for fx in raw_fixtures:
-        parsed = _fixture_fields(fx)
-        if parsed is None:
+    for fixture in fixtures:
+        if fixture is None:
             skipped += 1
             continue
-        (
-            fid,
-            home_name,
-            away_name,
-            kickoff,
-            status,
-            score_home,
-            score_away,
-            matchweek,
-            score_home_90,
-            score_away_90,
-            venue_name,
-            venue_city,
-        ) = parsed
+        status = fixture.status
         if not preserve_stopped_statuses and status in {
             "postponed", "cancelled", "suspended",
         }:
             status = "scheduled"
-        is_group_round = _is_group_round(fx, group_round_prefixes)
+        is_group_round = _is_group_round(fixture, group_round_prefixes)
+        matchweek = fixture.matchweek
         if not is_group_round:
             matchweek = None
-        home = team_by_name.get(normalize_team_name(home_name))
-        away = team_by_name.get(normalize_team_name(away_name))
+        home = team_by_name.get(normalize_team_name(fixture.home_name))
+        away = team_by_name.get(normalize_team_name(fixture.away_name))
         if home is None or away is None:
-            log.warning("league fixture %s: unknown team(s) %r/%r", fid, home_name, away_name)
+            log.warning(
+                "league fixture %s: unknown team(s) %r/%r",
+                fixture.fixture_id,
+                fixture.home_name,
+                fixture.away_name,
+            )
             skipped += 1
             continue
 
-        match = existing_by_fixture.get(fid)
+        match = _reconcile_match(existing_matches, fixture, home, away)
         if match is None:
             match = Match(
                 tournament_id=tournament.id,
                 group_id=group.id if is_group_round else None,
-                stage=_stage_for_fixture(fx, group_round_prefixes),
-                provider_fixture_id=fid,
+                stage=_stage_for_fixture(fixture, group_round_prefixes),
                 team_home_id=home.id,
                 team_away_id=away.id,
-                is_neutral=_is_neutral_fixture(fx),
+                is_neutral=_is_neutral_fixture(fixture),
             )
             db.add(match)
             created += 1
         else:
             updated += 1
+        match.fixture_provider = fixture.provider
+        match.provider_fixture_id = fixture.fixture_id
+        match.provider_last_updated = fixture.upstream_updated_at
+        match.team_home_id = home.id
+        match.team_away_id = away.id
         match.group_id = group.id if is_group_round else None
-        match.stage = _stage_for_fixture(fx, group_round_prefixes)
-        match.is_neutral = _is_neutral_fixture(fx)
-        match.kickoff_utc = kickoff
+        match.stage = _stage_for_fixture(fixture, group_round_prefixes)
+        match.is_neutral = _is_neutral_fixture(fixture)
+        match.kickoff_utc = fixture.kickoff_utc
         match.status = status
-        match.score_home = score_home
-        match.score_away = score_away
-        match.score_home_90 = score_home_90
-        match.score_away_90 = score_away_90
+        match.score_home = fixture.score_home
+        match.score_away = fixture.score_away
+        match.score_home_90 = fixture.score_home_90
+        match.score_away_90 = fixture.score_away_90
         # Unconditional, same as the fields above -- a fixture correction
         # (round moved by broadcaster reshuffle) must re-land on every
         # subsequent ingestion, not just the first time this row is created.
         match.matchweek = matchweek
         # API-Sports sometimes omits venue data on later refreshes. Preserve
         # the last known values instead of turning a confirmed venue into TBC.
-        if venue_name is not None:
-            match.venue = venue_name
-        if venue_city is not None:
-            match.venue_city = venue_city
+        if fixture.venue_name is not None:
+            match.venue = fixture.venue_name
+        if fixture.venue_city is not None:
+            match.venue_city = fixture.venue_city
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
     # Best-effort: only matters if this ever runs inside the web process
     # itself (a separate CLI run — the daily/cutover case — has its own cache

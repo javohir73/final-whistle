@@ -179,7 +179,11 @@ def load_club_results(
 
 
 def sync_finished_matches_to_history(
-    db: Session, tournament: Tournament, *, competition: str = CLUB_COMPETITION
+    db: Session,
+    tournament: Tournament,
+    *,
+    competition: str = CLUB_COMPETITION,
+    commit: bool = True,
 ) -> dict:
     """Mirror this tournament's finished Match rows into historical_matches
     (competition=``competition``, default CLUB_COMPETITION i.e. EPL --
@@ -233,5 +237,8 @@ def sync_finished_matches_to_history(
         )
         existing.add(key)
         inserted += 1
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return {"matches_inserted": inserted}

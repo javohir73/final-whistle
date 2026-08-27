@@ -20,7 +20,8 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
-REVISION = "f110d3725491"
+BILLING_REVISION = "f110d3725491"
+HEAD_REVISION = "a9b4c7d2e601"
 
 
 def _scripts() -> ScriptDirectory:
@@ -36,12 +37,12 @@ def test_revision_ids_are_unique():
 
 def test_single_head_at_this_revision():
     scripts = _scripts()
-    assert scripts.get_heads() == [REVISION]
-    assert scripts.get_revision(REVISION).down_revision == "e0fe02d971ed"
+    assert scripts.get_heads() == [HEAD_REVISION]
+    assert scripts.get_revision(BILLING_REVISION).down_revision == "e0fe02d971ed"
 
 
 def test_upgrade_adds_column_and_backfills_existing_subscribers():
-    module = _scripts().get_revision(REVISION).module
+    module = _scripts().get_revision(BILLING_REVISION).module
     engine = create_engine("sqlite://")
     with engine.begin() as conn:
         conn.exec_driver_sql(

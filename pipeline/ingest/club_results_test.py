@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from app.models import HistoricalMatch, Match, Team
+from app.models import HistoricalMatch, Match, Team, Tournament
 from pipeline.ingest import league_structure as ls_mod
 from pipeline.ingest.club_results import (
     BASE_URL,
@@ -122,6 +122,44 @@ def test_sync_finished_matches_mirrors_in_season_results(db_session, monkeypatch
     second = sync_finished_matches_to_history(db_session, tournament)
     assert second["matches_inserted"] == 0
     assert db_session.query(HistoricalMatch).filter_by(competition=CLUB_COMPETITION).count() == 1
+
+
+def test_structure_and_history_can_share_a_caller_owned_transaction(
+    db_session, monkeypatch,
+):
+    monkeypatch.setattr(ls_mod, "fetch_fixtures", lambda *a, **k: [
+        {
+            "fixture": {
+                "id": 91,
+                "date": "2026-08-21T19:00:00+00:00",
+                "status": {"short": "FT"},
+            },
+            "teams": {
+                "home": {"name": "Arsenal"},
+                "away": {"name": "Chelsea"},
+            },
+            "goals": {"home": 2, "away": 1},
+            "score": {},
+        },
+    ])
+
+    load_league_structure(db_session, api_key="x", commit=False)
+    tournament = db_session.query(Tournament).filter_by(
+        name="Premier League 2026-27"
+    ).one()
+    sync_finished_matches_to_history(
+        db_session,
+        tournament,
+        commit=False,
+    )
+    assert db_session.query(Match).count() == 1
+    assert db_session.query(HistoricalMatch).count() == 1
+
+    db_session.rollback()
+
+    assert db_session.query(Tournament).count() == 0
+    assert db_session.query(Match).count() == 0
+    assert db_session.query(HistoricalMatch).count() == 0
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,12 @@
 """Tests for the EPL 2026-27 structure loader (league pivot D1/D2)."""
+from datetime import datetime, timezone
+
+import pytest
+
 from app.cache import cache
-from app.models import Group, GroupTeam, Match, Team, Tournament
+from app.models import Group, GroupTeam, Match, Prediction, Team, Tournament
 from pipeline.ingest import league_structure as ls_mod
+from pipeline.ingest.fixture_contract import NormalizedFixture
 from pipeline.ingest.league_structure import load_league_structure
 from pipeline.ingest.wc26_structure import load_structure as load_wc26_structure
 
@@ -21,6 +26,39 @@ def _fixture(fid, home, away, *, status="NS", gh=None, ga=None,
     if round_ is not None:
         fx["league"] = {"round": round_}
     return fx
+
+
+def _normalized_fixture(
+    fid,
+    home,
+    away,
+    *,
+    kickoff="2026-08-21T19:00:00+00:00",
+    status="scheduled",
+    updated="2026-08-20T12:34:56+00:00",
+    home_id=57,
+    away_id=61,
+    round_label="REGULAR_SEASON",
+):
+    return NormalizedFixture(
+        provider="football_data",
+        fixture_id=fid,
+        home_name=home,
+        away_name=away,
+        kickoff_utc=datetime.fromisoformat(kickoff),
+        status=status,
+        score_home=None,
+        score_away=None,
+        matchweek=1,
+        score_home_90=None,
+        score_away_90=None,
+        venue_name=None,
+        venue_city=None,
+        round_label=round_label,
+        upstream_updated_at=datetime.fromisoformat(updated),
+        home_provider_id=home_id,
+        away_provider_id=away_id,
+    )
 
 
 def test_seeds_teams_group_and_tournament_mode(db_session, monkeypatch):
@@ -463,3 +501,236 @@ def test_derives_teams_uses_the_same_fetch_fixtures_call_for_teams_and_matches(d
         league_id=140, season=2026,
     )
     assert calls == [(140, 2026)]
+
+
+def test_football_data_persists_provenance_without_replacing_api_team_ids(
+    db_session, monkeypatch,
+):
+    arsenal = Team(name="Arsenal", provider_team_id=42, is_host=False)
+    chelsea = Team(name="Chelsea", provider_team_id=49, is_host=False)
+    db_session.add_all([arsenal, chelsea])
+    db_session.commit()
+    fixture = _normalized_fixture(991, "Arsenal", "Chelsea")
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_league_fixtures",
+        lambda *a, **k: [fixture],
+        raising=False,
+    )
+
+    load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        fixture_source="football_data",
+        competition_code="PL",
+    )
+
+    match = db_session.query(Match).one()
+    assert match.fixture_provider == "football_data"
+    assert match.provider_fixture_id == 991
+    stored_updated = match.provider_last_updated
+    if stored_updated.tzinfo is None:
+        stored_updated = stored_updated.replace(tzinfo=timezone.utc)
+    assert stored_updated == datetime(2026, 8, 20, 12, 34, 56, tzinfo=timezone.utc)
+    assert db_session.query(Team).filter_by(name="Arsenal").one().provider_team_id == 42
+    assert db_session.query(Team).filter_by(name="Chelsea").one().provider_team_id == 49
+
+
+def test_provider_switch_updates_one_match_and_preserves_prediction(
+    db_session, monkeypatch,
+):
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *a, **k: [
+            _fixture_with_ids(1234, "Arsenal", 42, "Chelsea", 49)
+        ],
+    )
+    load_league_structure(db_session, teams_file=None, api_key="x")
+    original = db_session.query(Match).one()
+    prediction = Prediction(
+        match_id=original.id,
+        model_version="poisson-elo-v0.5",
+        prob_home_win=0.55,
+        prob_draw=0.25,
+        prob_away_win=0.20,
+        predicted_score_home=2,
+        predicted_score_away=1,
+        is_shadow=False,
+    )
+    db_session.add(prediction)
+    db_session.commit()
+    prediction_id = prediction.id
+
+    replacement = _normalized_fixture(991, "Arsenal", "Chelsea")
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_league_fixtures",
+        lambda *a, **k: [replacement],
+        raising=False,
+    )
+    summary = load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        fixture_source="football_data",
+        competition_code="PL",
+    )
+
+    assert summary["fixtures_created"] == 0
+    assert summary["fixtures_updated"] == 1
+    assert db_session.query(Match).count() == 1
+    switched = db_session.query(Match).one()
+    assert switched.id == original.id
+    assert switched.fixture_provider == "football_data"
+    assert switched.provider_fixture_id == 991
+    persisted_prediction = db_session.get(Prediction, prediction_id)
+    assert persisted_prediction.match_id == switched.id
+    assert persisted_prediction.model_version == "poisson-elo-v0.5"
+    assert (
+        persisted_prediction.prob_home_win,
+        persisted_prediction.prob_draw,
+        persisted_prediction.prob_away_win,
+    ) == (0.55, 0.25, 0.20)
+    assert db_session.query(Prediction).count() == 1
+
+
+def test_repeated_pair_reconciles_only_unique_fixture_within_48_hours(
+    db_session, monkeypatch,
+):
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *a, **k: [
+            _fixture_with_ids(
+                7001,
+                "Arsenal",
+                42,
+                "Real Madrid",
+                541,
+                kickoff="2026-09-01T19:00:00+00:00",
+                round_="League Stage - 1",
+            ),
+            _fixture_with_ids(
+                7002,
+                "Arsenal",
+                42,
+                "Real Madrid",
+                541,
+                kickoff="2027-03-10T19:00:00+00:00",
+                round_="Round of 16",
+            ),
+        ],
+    )
+    kwargs = {
+        "teams_file": None,
+        "api_key": "x",
+        "tournament_name": "UEFA Champions League 2026-27",
+        "group_name": "Champions League",
+        "league_id": 2,
+        "season": 2026,
+        "group_round_prefixes": ("League Stage",),
+    }
+    load_league_structure(db_session, **kwargs)
+    first_match_id = (
+        db_session.query(Match).filter_by(provider_fixture_id=7001).one().id
+    )
+
+    replacement = _normalized_fixture(
+        9901,
+        "Arsenal",
+        "Real Madrid",
+        kickoff="2026-09-02T19:00:00+00:00",
+        round_label="LEAGUE_STAGE",
+    )
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_league_fixtures",
+        lambda *a, **k: [replacement],
+        raising=False,
+    )
+    summary = load_league_structure(
+        db_session,
+        **kwargs,
+        fixture_source="football_data",
+        competition_code="CL",
+    )
+
+    assert summary["fixtures_created"] == 0
+    assert summary["fixtures_updated"] == 1
+    assert db_session.query(Match).count() == 2
+    reconciled = db_session.query(Match).filter_by(provider_fixture_id=9901).one()
+    assert reconciled.id == first_match_id
+    assert reconciled.fixture_provider == "football_data"
+
+
+def test_repeated_ucl_pair_with_two_near_kickoffs_is_rejected(
+    db_session, monkeypatch,
+):
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *a, **k: [
+            _fixture_with_ids(
+                7101,
+                "Arsenal",
+                42,
+                "Real Madrid",
+                541,
+                kickoff="2026-09-01T19:00:00+00:00",
+                round_="League Stage - 1",
+            ),
+            _fixture_with_ids(
+                7102,
+                "Arsenal",
+                42,
+                "Real Madrid",
+                541,
+                kickoff="2026-09-03T19:00:00+00:00",
+                round_="League Stage - 2",
+            ),
+        ],
+    )
+    kwargs = {
+        "teams_file": None,
+        "api_key": "x",
+        "tournament_name": "UEFA Champions League 2026-27",
+        "group_name": "Champions League",
+        "league_id": 2,
+        "season": 2026,
+        "group_round_prefixes": ("League Stage",),
+    }
+    load_league_structure(db_session, **kwargs)
+    original_ids = {
+        row.id: row.provider_fixture_id for row in db_session.query(Match).all()
+    }
+
+    replacement = _normalized_fixture(
+        9902,
+        "Arsenal",
+        "Real Madrid",
+        kickoff="2026-09-02T19:00:00+00:00",
+        round_label="LEAGUE_STAGE",
+    )
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_league_fixtures",
+        lambda *a, **k: [replacement],
+        raising=False,
+    )
+
+    with pytest.raises(
+        ls_mod.FixtureReconciliationError,
+        match="ambiguous fixture reconciliation",
+    ):
+        load_league_structure(
+            db_session,
+            **kwargs,
+            fixture_source="football_data",
+            competition_code="CL",
+        )
+    db_session.rollback()
+    assert {
+        row.id: row.provider_fixture_id for row in db_session.query(Match).all()
+    } == original_ids
