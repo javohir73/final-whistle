@@ -61,6 +61,10 @@ def _optional_text(value: object) -> str | None:
     return value or None
 
 
+def _valid_optional_integer(value: object) -> bool:
+    return value is None or type(value) is int
+
+
 def normalize_fixture(
     raw: object,
     *,
@@ -78,11 +82,19 @@ def normalize_fixture(
         return None
     home_name = _optional_text(home.get("name"))
     away_name = _optional_text(away.get("name"))
+    matchweek = raw.get("matchday")
+    home_provider_id = home.get("id")
+    away_provider_id = away.get("id")
     if (
-        not isinstance(fixture_id, int)
+        type(fixture_id) is not int
         or kickoff is None
         or home_name is None
         or away_name is None
+        or not all(_valid_optional_integer(value) for value in (
+            matchweek,
+            home_provider_id,
+            away_provider_id,
+        ))
     ):
         return None
 
@@ -103,14 +115,22 @@ def normalize_fixture(
         return None
     full_time = full_time or {}
     regular_time = regular_time or {}
+    score_home = full_time.get("home")
+    score_away = full_time.get("away")
+    if not all(_valid_optional_integer(value) for value in (
+        score_home,
+        score_away,
+    )):
+        return None
     score_home_90 = score_away_90 = None
     if score.get("duration") not in {None, "REGULAR"}:
-        if (
-            isinstance(regular_time.get("home"), int)
-            and isinstance(regular_time.get("away"), int)
-        ):
-            score_home_90 = regular_time["home"]
-            score_away_90 = regular_time["away"]
+        score_home_90 = regular_time.get("home")
+        score_away_90 = regular_time.get("away")
+        if not all(_valid_optional_integer(value) for value in (
+            score_home_90,
+            score_away_90,
+        )):
+            return None
 
     venue = raw.get("venue")
     if venue is not None and not isinstance(venue, dict):
@@ -120,9 +140,6 @@ def normalize_fixture(
     upstream_updated_at = _parse_datetime(last_updated)
     if last_updated is not None and upstream_updated_at is None:
         return None
-    matchweek = raw.get("matchday")
-    if not isinstance(matchweek, int):
-        matchweek = None
     return NormalizedFixture(
         provider="football_data",
         fixture_id=fixture_id,
@@ -130,8 +147,8 @@ def normalize_fixture(
         away_name=away_name,
         kickoff_utc=kickoff,
         status=status,
-        score_home=full_time.get("home"),
-        score_away=full_time.get("away"),
+        score_home=score_home,
+        score_away=score_away,
         matchweek=matchweek,
         score_home_90=score_home_90,
         score_away_90=score_away_90,
@@ -139,8 +156,8 @@ def normalize_fixture(
         venue_city=_optional_text(venue.get("city")),
         round_label=_optional_text(raw.get("stage")),
         upstream_updated_at=upstream_updated_at,
-        home_provider_id=home.get("id") if isinstance(home.get("id"), int) else None,
-        away_provider_id=away.get("id") if isinstance(away.get("id"), int) else None,
+        home_provider_id=home_provider_id,
+        away_provider_id=away_provider_id,
     )
 
 

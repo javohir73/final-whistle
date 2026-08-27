@@ -328,6 +328,10 @@ def _fixture_matchweek(round_label: object) -> int | None:
         return None
 
 
+def _valid_optional_integer(value: object) -> bool:
+    return value is None or type(value) is int
+
+
 def normalize_league_fixture(
     raw: object,
     *,
@@ -351,18 +355,30 @@ def normalize_league_fixture(
     kickoff = _fixture_datetime(fixture.get("date"))
     home_name = home.get("name")
     away_name = away.get("name")
+    score_home = goals.get("home")
+    score_away = goals.get("away")
+    home_provider_id = home.get("id")
+    away_provider_id = away.get("id")
     if (
-        not isinstance(fixture_id, int)
+        type(fixture_id) is not int
         or kickoff is None
         or not isinstance(home_name, str)
         or not home_name.strip()
         or not isinstance(away_name, str)
         or not away_name.strip()
+        or not all(_valid_optional_integer(value) for value in (
+            score_home,
+            score_away,
+            home_provider_id,
+            away_provider_id,
+        ))
     ):
         return None
 
     provider_status = status_node.get("short")
-    status = internal_status(provider_status) or "scheduled"
+    status = internal_status(provider_status)
+    if status is None:
+        return None
     if not preserve_stopped_statuses and status in {
         "postponed", "cancelled", "suspended",
     }:
@@ -374,9 +390,13 @@ def normalize_league_fixture(
         if fulltime is not None and not isinstance(fulltime, dict):
             return None
         fulltime = fulltime or {}
-        if isinstance(fulltime.get("home"), int) and isinstance(fulltime.get("away"), int):
-            score_home_90 = fulltime["home"]
-            score_away_90 = fulltime["away"]
+        score_home_90 = fulltime.get("home")
+        score_away_90 = fulltime.get("away")
+        if not all(_valid_optional_integer(value) for value in (
+            score_home_90,
+            score_away_90,
+        )):
+            return None
 
     league = raw.get("league")
     if league is None:
@@ -389,6 +409,9 @@ def normalize_league_fixture(
         round_label = None
     else:
         round_label = round_label.strip()
+    matchweek = _fixture_matchweek(round_label)
+    if not _valid_optional_integer(matchweek):
+        return None
     venue = fixture.get("venue")
     if venue is not None and not isinstance(venue, dict):
         return None
@@ -412,17 +435,17 @@ def normalize_league_fixture(
         away_name=away_name.strip(),
         kickoff_utc=kickoff,
         status=status,
-        score_home=goals.get("home"),
-        score_away=goals.get("away"),
-        matchweek=_fixture_matchweek(round_label),
+        score_home=score_home,
+        score_away=score_away,
+        matchweek=matchweek,
         score_home_90=score_home_90,
         score_away_90=score_away_90,
         venue_name=venue_name.strip() if isinstance(venue_name, str) and venue_name.strip() else None,
         venue_city=venue_city.strip() if isinstance(venue_city, str) and venue_city.strip() else None,
         round_label=round_label,
         upstream_updated_at=upstream_updated_at,
-        home_provider_id=home.get("id") if isinstance(home.get("id"), int) else None,
-        away_provider_id=away.get("id") if isinstance(away.get("id"), int) else None,
+        home_provider_id=home_provider_id,
+        away_provider_id=away_provider_id,
     )
 
 

@@ -304,6 +304,96 @@ def test_football_data_nested_nonobjects_are_rejected(path):
     assert normalize_fixture(malformed) is None
 
 
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("fixture", "id"), "991"),
+        (("fixture", "id"), True),
+        (("goals", "home"), "two"),
+        (("goals", "away"), False),
+        (("goals", "away"), 1.5),
+        (("score", "fulltime", "home"), "one"),
+        (("score", "fulltime", "away"), True),
+        (("teams", "home", "id"), "165"),
+        (("teams", "away", "id"), False),
+    ],
+)
+def test_api_football_invalid_integer_scalars_are_rejected(path, value):
+    raw = {
+        "fixture": {
+            "id": 991,
+            "date": "2027-05-05T19:00:00Z",
+            "updated": "2027-05-05T21:48:00Z",
+            "status": {"long": "Match Finished", "short": "AET", "elapsed": 120},
+            "venue": {"id": 9, "name": "Anfield", "city": "Liverpool"},
+        },
+        "league": {"id": 2, "name": "UEFA Champions League", "country": "World", "season": 2026, "round": "Semi-finals"},
+        "teams": {"home": {"id": 40, "name": "Liverpool", "winner": True}, "away": {"id": 529, "name": "Barcelona", "winner": False}},
+        "goals": {"home": 3, "away": 2},
+        "score": {"halftime": {"home": 0, "away": 1}, "fulltime": {"home": 1, "away": 1}, "extratime": {"home": 3, "away": 2}, "penalty": {"home": None, "away": None}},
+    }
+    malformed = deepcopy(raw)
+    target = malformed
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    assert normalize_league_fixture(malformed) is None
+
+
+@pytest.mark.parametrize("provider_status", ["UNKNOWN_NEW_STATUS", True, None])
+def test_api_football_unknown_or_malformed_status_is_rejected(provider_status):
+    got = normalize_league_fixture({
+        "fixture": {
+            "id": 991,
+            "date": "2026-08-28T18:30:00Z",
+            "updated": "2026-08-28T21:02:03Z",
+            "status": {"long": "Unknown", "short": provider_status, "elapsed": None},
+            "venue": {"id": 80, "name": "Signal Iduna Park", "city": "Dortmund"},
+        },
+        "league": {"id": 78, "name": "Bundesliga", "country": "Germany", "season": 2026, "round": "Regular Season - 1"},
+        "teams": {"home": {"id": 165, "name": "Borussia Dortmund", "winner": None}, "away": {"id": 157, "name": "Bayern Munich", "winner": None}},
+        "goals": {"home": None, "away": None},
+        "score": {"halftime": {"home": None, "away": None}, "fulltime": {"home": None, "away": None}, "extratime": {"home": None, "away": None}, "penalty": {"home": None, "away": None}},
+    })
+    assert got is None
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("id",), "991"),
+        (("id",), True),
+        (("score", "fullTime", "home"), "three"),
+        (("score", "fullTime", "away"), False),
+        (("score", "fullTime", "away"), 2.5),
+        (("score", "regularTime", "home"), "one"),
+        (("score", "regularTime", "away"), True),
+        (("matchday",), "1"),
+        (("matchday",), False),
+        (("homeTeam", "id"), "64"),
+        (("awayTeam", "id"), True),
+    ],
+)
+def test_football_data_invalid_integer_scalars_are_rejected(path, value):
+    raw = {
+        "id": 7001,
+        "utcDate": "2027-05-05T19:00:00Z",
+        "status": "FINISHED",
+        "matchday": 1,
+        "stage": "SEMI_FINALS",
+        "lastUpdated": "2027-05-05T21:48:00Z",
+        "homeTeam": {"id": 64, "name": "Liverpool FC"},
+        "awayTeam": {"id": 81, "name": "FC Barcelona"},
+        "score": {"duration": "EXTRA_TIME", "fullTime": {"home": 3, "away": 2}, "regularTime": {"home": 1, "away": 1}},
+    }
+    malformed = deepcopy(raw)
+    target = malformed
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    assert normalize_fixture(malformed) is None
+
+
 def test_football_data_null_score_stays_unknown():
     got = normalize_fixture({
         "id": 441,
