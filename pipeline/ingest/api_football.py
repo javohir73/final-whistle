@@ -376,6 +376,8 @@ def normalize_league_fixture(
         return None
 
     provider_status = status_node.get("short")
+    if not isinstance(provider_status, str):
+        return None
     status = internal_status(provider_status)
     if status is None:
         return None

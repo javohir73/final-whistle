@@ -40,6 +40,7 @@ _STATUS_TO_INTERNAL = {
     "CANCELLED": CANCELLED,
     "SUSPENDED": SUSPENDED,
 }
+_SCORE_DURATIONS = frozenset({None, "REGULAR", "EXTRA_TIME", "PENALTY_SHOOTOUT"})
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -98,7 +99,10 @@ def normalize_fixture(
     ):
         return None
 
-    status = _STATUS_TO_INTERNAL.get(raw.get("status"))
+    provider_status = raw.get("status")
+    if not isinstance(provider_status, str):
+        return None
+    status = _STATUS_TO_INTERNAL.get(provider_status)
     if status is None:
         return None
     if not preserve_stopped_statuses and status in {
@@ -108,10 +112,14 @@ def normalize_fixture(
 
     full_time = score.get("fullTime")
     regular_time = score.get("regularTime")
+    duration = score.get("duration")
     if (
         (full_time is not None and not isinstance(full_time, dict))
         or (regular_time is not None and not isinstance(regular_time, dict))
+        or (duration is not None and type(duration) is not str)
     ):
+        return None
+    if duration not in _SCORE_DURATIONS:
         return None
     full_time = full_time or {}
     regular_time = regular_time or {}
@@ -123,7 +131,7 @@ def normalize_fixture(
     )):
         return None
     score_home_90 = score_away_90 = None
-    if score.get("duration") not in {None, "REGULAR"}:
+    if duration in {"EXTRA_TIME", "PENALTY_SHOOTOUT"}:
         score_home_90 = regular_time.get("home")
         score_away_90 = regular_time.get("away")
         if not all(_valid_optional_integer(value) for value in (

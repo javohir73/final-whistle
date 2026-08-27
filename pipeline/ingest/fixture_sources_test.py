@@ -340,7 +340,10 @@ def test_api_football_invalid_integer_scalars_are_rejected(path, value):
     assert normalize_league_fixture(malformed) is None
 
 
-@pytest.mark.parametrize("provider_status", ["UNKNOWN_NEW_STATUS", True, None])
+@pytest.mark.parametrize(
+    "provider_status",
+    ["UNKNOWN_NEW_STATUS", True, None, ["NS"], {"short": "NS"}],
+)
 def test_api_football_unknown_or_malformed_status_is_rejected(provider_status):
     got = normalize_league_fixture({
         "fixture": {
@@ -425,6 +428,25 @@ def test_football_data_extra_time_preserves_regulation_score():
     assert (got.score_home_90, got.score_away_90) == (1, 1)
 
 
+@pytest.mark.parametrize(
+    "duration",
+    [["REGULAR"], {"kind": "REGULAR"}, "UNKNOWN_DURATION"],
+)
+def test_football_data_invalid_score_duration_is_rejected(duration):
+    got = normalize_fixture({
+        "id": 7002,
+        "utcDate": "2027-05-06T19:00:00Z",
+        "status": "FINISHED",
+        "matchday": None,
+        "stage": "SEMI_FINALS",
+        "lastUpdated": "2027-05-06T21:48:00Z",
+        "homeTeam": {"id": 64, "name": "Liverpool FC"},
+        "awayTeam": {"id": 81, "name": "FC Barcelona"},
+        "score": {"duration": duration, "fullTime": {"home": 3, "away": 2}, "regularTime": {"home": 1, "away": 1}},
+    })
+    assert got is None
+
+
 def test_api_football_aet_preserves_regulation_score_and_venue():
     got = normalize_league_fixture({
         "fixture": {
@@ -478,11 +500,15 @@ def test_football_data_awarded_result_is_finished():
     assert got.status == "finished"
 
 
-def test_football_data_unknown_status_is_rejected():
+@pytest.mark.parametrize(
+    "provider_status",
+    ["UNKNOWN_NEW_STATUS", ["TIMED"], {"status": "TIMED"}],
+)
+def test_football_data_unknown_or_malformed_status_is_rejected(provider_status):
     got = normalize_fixture({
         "id": 302,
         "utcDate": "2026-10-05T14:00:00Z",
-        "status": "UNKNOWN_NEW_STATUS",
+        "status": provider_status,
         "matchday": 7,
         "stage": "REGULAR_SEASON",
         "lastUpdated": "2026-10-05T16:00:00Z",
@@ -645,6 +671,21 @@ def test_football_data_nonobject_competition_is_a_provider_error():
         "competition": ["not", "an", "object"],
         "matches": _success_payload()["matches"],
     }))
+    with pytest.raises(ProviderError):
+        fetch_football_data_fixtures(
+            "token", "BL1", 2026, request_get=request_get, sleeper=lambda _: None,
+        )
+    assert len(request_get.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [["REGULAR"], {"kind": "REGULAR"}, "UNKNOWN_DURATION"],
+)
+def test_football_data_invalid_duration_is_a_provider_error(duration):
+    payload = deepcopy(_success_payload())
+    payload["matches"][0]["score"]["duration"] = duration
+    request_get = _SequenceGet(_Response(200, payload))
     with pytest.raises(ProviderError):
         fetch_football_data_fixtures(
             "token", "BL1", 2026, request_get=request_get, sleeper=lambda _: None,
