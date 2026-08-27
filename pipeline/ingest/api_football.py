@@ -15,11 +15,14 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 
 import requests
 
 from pipeline.ingest.provider_errors import read_payload
 from pipeline.ingest.api_football_status import football_data_status
+from pipeline.ingest.api_football_status import internal_status
+from pipeline.ingest.fixture_contract import NormalizedFixture
 
 log = logging.getLogger(__name__)
 
@@ -299,6 +302,104 @@ def _duration(short: str) -> str:
     if short in _EXTRA_TIME:
         return "EXTRA_TIME"
     return "REGULAR"
+
+
+def _fixture_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _fixture_matchweek(round_label: object) -> int | None:
+    if not isinstance(round_label, str):
+        return None
+    _, separator, suffix = round_label.rpartition("-")
+    if not separator:
+        return None
+    try:
+        return int(suffix.strip())
+    except ValueError:
+        return None
+
+
+def normalize_league_fixture(
+    raw: object,
+    *,
+    preserve_stopped_statuses: bool = True,
+) -> NormalizedFixture | None:
+    """Normalize one api-sports league fixture, or reject a malformed row."""
+    if not isinstance(raw, dict):
+        return None
+    fixture = raw.get("fixture") or {}
+    teams = raw.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+    fixture_id = fixture.get("id")
+    kickoff = _fixture_datetime(fixture.get("date"))
+    home_name = home.get("name")
+    away_name = away.get("name")
+    if (
+        not isinstance(fixture_id, int)
+        or kickoff is None
+        or not isinstance(home_name, str)
+        or not home_name.strip()
+        or not isinstance(away_name, str)
+        or not away_name.strip()
+    ):
+        return None
+
+    provider_status = (fixture.get("status") or {}).get("short")
+    status = internal_status(provider_status) or "scheduled"
+    if not preserve_stopped_statuses and status in {
+        "postponed", "cancelled", "suspended",
+    }:
+        status = "scheduled"
+
+    goals = raw.get("goals") or {}
+    score_home_90 = score_away_90 = None
+    if provider_status in {"AET", "PEN"}:
+        fulltime = (raw.get("score") or {}).get("fulltime") or {}
+        if isinstance(fulltime.get("home"), int) and isinstance(fulltime.get("away"), int):
+            score_home_90 = fulltime["home"]
+            score_away_90 = fulltime["away"]
+
+    league = raw.get("league") or fixture.get("league") or {}
+    round_label = league.get("round")
+    if not isinstance(round_label, str) or not round_label.strip():
+        round_label = None
+    else:
+        round_label = round_label.strip()
+    venue = fixture.get("venue") or {}
+    venue_name = venue.get("name")
+    venue_city = venue.get("city")
+    updated = (
+        fixture.get("updated")
+        or fixture.get("lastUpdated")
+        or raw.get("lastUpdated")
+    )
+
+    return NormalizedFixture(
+        provider="api_football",
+        fixture_id=fixture_id,
+        home_name=home_name.strip(),
+        away_name=away_name.strip(),
+        kickoff_utc=kickoff,
+        status=status,
+        score_home=goals.get("home"),
+        score_away=goals.get("away"),
+        matchweek=_fixture_matchweek(round_label),
+        score_home_90=score_home_90,
+        score_away_90=score_away_90,
+        venue_name=venue_name.strip() if isinstance(venue_name, str) and venue_name.strip() else None,
+        venue_city=venue_city.strip() if isinstance(venue_city, str) and venue_city.strip() else None,
+        round_label=round_label,
+        upstream_updated_at=_fixture_datetime(updated),
+        home_provider_id=home.get("id") if isinstance(home.get("id"), int) else None,
+        away_provider_id=away.get("id") if isinstance(away.get("id"), int) else None,
+    )
 
 
 def _to_item(fx: object) -> dict | None:
