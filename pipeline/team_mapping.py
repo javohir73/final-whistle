@@ -78,6 +78,41 @@ _ALIASES: dict[str, str] = {
     "nottm forest": "Nottingham Forest",
     "hull": "Hull City",
 
+    # football-data.org v4's explicit club names. Keep these aliases literal:
+    # a blanket FC/AFC stripper would silently merge unrelated clubs.
+    "arsenal fc": "Arsenal",
+    "aston villa fc": "Aston Villa",
+    "afc bournemouth": "Bournemouth",
+    "brentford fc": "Brentford",
+    "brighton & hove albion fc": "Brighton",
+    "chelsea fc": "Chelsea",
+    "coventry city fc": "Coventry",
+    "crystal palace fc": "Crystal Palace",
+    "everton fc": "Everton",
+    "fulham fc": "Fulham",
+    "hull city afc": "Hull City",
+    "ipswich town fc": "Ipswich",
+    "leeds united fc": "Leeds",
+    "liverpool fc": "Liverpool",
+    "manchester city fc": "Manchester City",
+    "manchester united fc": "Manchester United",
+    "newcastle united fc": "Newcastle",
+    "nottingham forest fc": "Nottingham Forest",
+    "sunderland afc": "Sunderland",
+    "tottenham hotspur fc": "Tottenham",
+    "fc barcelona": "Barcelona",
+    "real madrid cf": "Real Madrid",
+    "club atlético de madrid": "Atletico Madrid",
+    "real betis balompié": "Real Betis",
+    "rc celta de vigo": "Celta Vigo",
+    "rcd espanyol de barcelona": "Espanyol",
+    "real sociedad de fútbol": "Real Sociedad",
+    "rayo vallecano de madrid": "Rayo Vallecano",
+    "fc bayern münchen": "Bayern München",
+    "bayer 04 leverkusen": "Bayer Leverkusen",
+    "1. fsv mainz 05": "FSV Mainz 05",
+    "tsg 1899 hoffenheim": "1899 Hoffenheim",
+
     # --- La Liga (SP1) / Bundesliga (D1), League Score Predictions Phase 2
     # (docs/superpowers/specs/2026-07-24-league-score-predictions-design.md)
     # ---

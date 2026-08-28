@@ -16,10 +16,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "matches",
-        sa.Column("fixture_provider", sa.String(length=32), nullable=True),
-    )
+    with op.batch_alter_table("matches") as batch_op:
+        batch_op.add_column(
+            sa.Column("fixture_provider", sa.String(length=32), nullable=True),
+        )
+        batch_op.create_unique_constraint(
+            "uq_matches_fixture_provider_id",
+            ["tournament_id", "fixture_provider", "provider_fixture_id"],
+        )
     op.create_table(
         "fixture_feed_status",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -48,4 +52,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("fixture_feed_status")
-    op.drop_column("matches", "fixture_provider")
+    with op.batch_alter_table("matches") as batch_op:
+        batch_op.drop_constraint(
+            "uq_matches_fixture_provider_id",
+            type_="unique",
+        )
+        batch_op.drop_column("fixture_provider")

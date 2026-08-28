@@ -166,6 +166,10 @@ def _resolve_fixture_id(db: Session, match: Match, api_key: str) -> int | None:
     resolved by the normalized home/away team pair against the season's fixtures
     (disambiguated by kickoff date when a pair recurs) and cached on the match.
     Returns None if it can't be resolved."""
+    # A stored id is meaningful to this API only when API-Football owns it.
+    # NULL is the legacy pre-provenance spelling for API-Football.
+    if match.fixture_provider not in (None, "api_football"):
+        return None
     if match.provider_fixture_id is not None:
         return match.provider_fixture_id
 

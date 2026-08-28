@@ -43,7 +43,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app.models import Group, GroupTeam, Match, Team, Tournament
 from pipeline.ingest.api_football import fetch_fixtures, normalize_league_fixture
@@ -338,6 +338,10 @@ def _reconcile_match(
         match
         for match in matches
         if match.team_home_id == home.id and match.team_away_id == away.id
+        and (
+            match.fixture_provider != fixture.provider
+            or match.provider_fixture_id is None
+        )
     ]
     if len(oriented_pair) == 1:
         return oriented_pair[0]
@@ -420,9 +424,12 @@ def load_league_structure(
             ),
         )
 
-    existing_matches = db.query(Match).filter_by(
-        tournament_id=tournament.id
-    ).all()
+    existing_matches = (
+        db.query(Match)
+        .options(undefer(Match.fixture_provider))
+        .filter_by(tournament_id=tournament.id)
+        .all()
+    )
 
     created = updated = skipped = 0
     for fixture in fixtures:
@@ -461,8 +468,20 @@ def load_league_structure(
                 is_neutral=_is_neutral_fixture(fixture),
             )
             db.add(match)
+            existing_matches.append(match)
             created += 1
         else:
+            if match.provider_last_updated is not None and (
+                fixture.upstream_updated_at is None
+                or _utc(fixture.upstream_updated_at)
+                < _utc(match.provider_last_updated)
+            ):
+                log.warning(
+                    "league fixture %s: ignoring stale or unversioned update",
+                    fixture.fixture_id,
+                )
+                skipped += 1
+                continue
             updated += 1
         match.fixture_provider = fixture.provider
         match.provider_fixture_id = fixture.fixture_id

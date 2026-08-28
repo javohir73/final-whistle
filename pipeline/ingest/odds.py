@@ -116,6 +116,8 @@ def median_prices(response: list[dict]) -> dict | None:
 def _fixture_id(db: Session, match: Match, api_key: str) -> int | None:
     """Provider fixture id: the stored one, else the lineups path's cached
     resolver (team pair + kickoff date). Indirection point for tests."""
+    if match.fixture_provider not in (None, "api_football"):
+        return None
     if match.provider_fixture_id is not None:
         return match.provider_fixture_id
     from app.lineups import _resolve_fixture_id

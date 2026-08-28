@@ -72,6 +72,24 @@ def test_refresh_sets_empty_list_when_no_injuries(db_session, monkeypatch):
     assert db_session.get(Match, m.id).injuries == []
 
 
+def test_refresh_skips_football_data_owned_fixture_without_fetching(db_session, monkeypatch):
+    match, _home, _away = _scheduled_match(db_session)
+    match.fixture_provider = "football_data"
+    db_session.commit()
+
+    monkeypatch.setattr(
+        injuries_mod,
+        "fetch_injuries",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("football-data fixture must not call API-Football")
+        ),
+    )
+
+    result = refresh_injuries(db_session, "key")
+    assert result["matches_skipped"] == 1
+    assert db_session.get(Match, match.id).injuries is None
+
+
 def test_refresh_never_raises_on_fetch_error(db_session, monkeypatch):
     m, h, a = _scheduled_match(db_session)
     def boom(key, fid):

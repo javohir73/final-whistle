@@ -342,7 +342,15 @@ def update_live_scores(
     # a group row and a KO row share the same frozenset key; the id is unique).
     fid_index: dict[int, Match] = {
         m.provider_fixture_id: m
-        for m in db.query(Match).filter(Match.provider_fixture_id.isnot(None)).all()
+        for m in db.query(Match)
+        .filter(
+            Match.provider_fixture_id.isnot(None),
+            or_(
+                Match.fixture_provider.is_(None),
+                Match.fixture_provider == "api_football",
+            ),
+        )
+        .all()
     }
     updated = live = finished = newly_finished = 0
 

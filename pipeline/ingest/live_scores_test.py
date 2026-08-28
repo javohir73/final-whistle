@@ -461,6 +461,53 @@ def test_unknown_feed_status_never_downgrades_known_state(db_session):
     assert m.status == "in_play"
 
 
+def test_api_fixture_id_collision_ignores_football_data_owned_match(db_session):
+    tournament = Tournament(name="Provider collision", year=2026)
+    api_home, api_away = Team(name="API Home"), Team(name="API Away")
+    fd_home, fd_away = Team(name="Fallback Home"), Team(name="Fallback Away")
+    db_session.add_all([tournament, api_home, api_away, fd_home, fd_away])
+    db_session.flush()
+    api_match = Match(
+        tournament_id=tournament.id,
+        stage="group",
+        status="scheduled",
+        team_home_id=api_home.id,
+        team_away_id=api_away.id,
+        fixture_provider="api_football",
+        provider_fixture_id=777,
+    )
+    fallback_match = Match(
+        tournament_id=tournament.id,
+        stage="group",
+        status="scheduled",
+        team_home_id=fd_home.id,
+        team_away_id=fd_away.id,
+        fixture_provider="football_data",
+        provider_fixture_id=777,
+    )
+    db_session.add_all([api_match, fallback_match])
+    db_session.commit()
+
+    update_live_scores(
+        db_session,
+        [{
+            "id": 777,
+            "homeTeam": {"name": "API Home"},
+            "awayTeam": {"name": "API Away"},
+            "status": "FINISHED",
+            "score": {"fullTime": {"home": 2, "away": 1}},
+        }],
+    )
+
+    db_session.refresh(api_match)
+    db_session.refresh(fallback_match)
+    assert (api_match.status, api_match.score_home, api_match.score_away) == (
+        "finished", 2, 1,
+    )
+    assert fallback_match.status == "scheduled"
+    assert fallback_match.score_home is None
+
+
 def test_scorers_field_is_stored_as_goal_events(db_session):
     load_structure(db_session)
     feed = _feed("IN_PLAY", home=1, away=0, minute=30)

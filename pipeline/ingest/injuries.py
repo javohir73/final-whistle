@@ -27,6 +27,8 @@ WINDOW_HOURS = 48.0
 def _fixture_id(db: Session, match: Match, api_key: str) -> int | None:
     """Provider fixture id: the stored one, else the lineups path's resolver
     (team pair + kickoff date). Mirrors pipeline.ingest.odds._fixture_id."""
+    if match.fixture_provider not in (None, "api_football"):
+        return None
     if match.provider_fixture_id is not None:
         return match.provider_fixture_id
     from app.lineups import _resolve_fixture_id

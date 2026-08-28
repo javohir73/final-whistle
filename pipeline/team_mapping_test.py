@@ -75,3 +75,39 @@ def test_sp1_d1_club_aliases_resolve_to_the_api_football_spelling(raw, expected)
 
 def test_e0_hull_alias_resolves_to_the_live_api_football_spelling():
     assert normalize_team_name("Hull") == "Hull City"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("Arsenal FC", "Arsenal"),
+        ("Aston Villa FC", "Aston Villa"),
+        ("AFC Bournemouth", "Bournemouth"),
+        ("Brighton & Hove Albion FC", "Brighton"),
+        ("Chelsea FC", "Chelsea"),
+        ("Coventry City FC", "Coventry"),
+        ("Hull City AFC", "Hull City"),
+        ("Ipswich Town FC", "Ipswich"),
+        ("Leeds United FC", "Leeds"),
+        ("Everton FC", "Everton"),
+        ("Liverpool FC", "Liverpool"),
+        ("Manchester City FC", "Manchester City"),
+        ("Manchester United FC", "Manchester United"),
+        ("Newcastle United FC", "Newcastle"),
+        ("Nottingham Forest FC", "Nottingham Forest"),
+        ("Tottenham Hotspur FC", "Tottenham"),
+        ("FC Barcelona", "Barcelona"),
+        ("Real Madrid CF", "Real Madrid"),
+        ("Club Atlético de Madrid", "Atletico Madrid"),
+        ("Real Betis Balompié", "Real Betis"),
+        ("Real Sociedad de Fútbol", "Real Sociedad"),
+        ("FC Bayern München", "Bayern München"),
+        ("Bayer 04 Leverkusen", "Bayer Leverkusen"),
+        ("1. FSV Mainz 05", "FSV Mainz 05"),
+        ("TSG 1899 Hoffenheim", "1899 Hoffenheim"),
+    ],
+)
+def test_football_data_org_club_names_resolve_to_existing_roster_names(
+    raw, expected,
+):
+    assert normalize_team_name(raw) == expected

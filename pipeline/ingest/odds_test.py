@@ -82,6 +82,24 @@ def test_empty_fetch_writes_nothing(db_session, monkeypatch):
     assert db_session.query(Odds).count() == 0
 
 
+def test_refresh_skips_football_data_owned_fixture_without_fetching(db_session, monkeypatch):
+    match = _seed_match(db_session)
+    match.fixture_provider = "football_data"
+    db_session.commit()
+
+    monkeypatch.setattr(
+        odds_mod,
+        "fetch_odds",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("football-data fixture must not call API-Football")
+        ),
+    )
+
+    summary = refresh_odds(db_session, "key")
+    assert summary["matches_priced"] == 0
+    assert db_session.query(Odds).count() == 0
+
+
 def test_commit_failure_rolls_back_and_never_raises(db_session, monkeypatch):
     _seed_match(db_session)
     monkeypatch.setattr(odds_mod, "fetch_odds",

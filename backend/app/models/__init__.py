@@ -104,6 +104,14 @@ class Match(Base):
     """A scheduled WC2026 match (group or knockout)."""
 
     __tablename__ = "matches"
+    __table_args__ = (
+        UniqueConstraint(
+            "tournament_id",
+            "fixture_provider",
+            "provider_fixture_id",
+            name="uq_matches_fixture_provider_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
