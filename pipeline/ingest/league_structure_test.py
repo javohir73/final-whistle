@@ -579,6 +579,60 @@ def test_realistic_football_data_names_switch_the_curated_roster_without_duplica
     assert db_session.query(Team).filter_by(name="Chelsea FC").count() == 0
 
 
+def test_ucl_cross_provider_names_reuse_existing_api_teams(db_session, monkeypatch):
+    existing = [
+        Team(name="Paris Saint Germain", provider_team_id=85),
+        Team(name="Inter", provider_team_id=505),
+        Team(name="Bodo/Glimt", provider_team_id=327),
+        Team(name="Fenerbahce", provider_team_id=611),
+    ]
+    db_session.add_all(existing)
+    db_session.commit()
+    fixtures = [
+        _normalized_fixture(
+            3001,
+            "Paris Saint-Germain FC",
+            "FC Internazionale Milano",
+            round_label="LEAGUE_STAGE",
+        ),
+        _normalized_fixture(
+            3002,
+            "FK Bodø/Glimt",
+            "Fenerbahçe SK",
+            round_label="LEAGUE_STAGE",
+        ),
+    ]
+    monkeypatch.setattr(
+        ls_mod, "fetch_league_fixtures", lambda *a, **k: fixtures
+    )
+
+    result = load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        tournament_name="UEFA Champions League 2026-27",
+        group_name="Champions League",
+        fixture_source="football_data",
+        competition_code="CL",
+        group_round_prefixes=("League Stage",),
+    )
+
+    assert result["fixtures_created"] == 2
+    assert db_session.query(Team).count() == 4
+    assert {
+        team.name: team.provider_team_id for team in db_session.query(Team).all()
+    } == {
+        "Paris Saint Germain": 85,
+        "Inter": 505,
+        "Bodo/Glimt": 327,
+        "Fenerbahce": 611,
+    }
+    assert {
+        db_session.get(Team, match.team_home_id).name
+        for match in db_session.query(Match).all()
+    } == {"Paris Saint Germain", "Bodo/Glimt"}
+
+
 def test_stale_or_unversioned_fixture_cannot_regress_finished_match(
     db_session, monkeypatch,
 ):

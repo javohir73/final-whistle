@@ -116,6 +116,16 @@ def test_e0_hull_alias_resolves_to_the_live_api_football_spelling():
         ("TSG 1899 Hoffenheim", "1899 Hoffenheim"),
         ("SV Werder Bremen", "Werder Bremen"),
         ("1. FC Union Berlin", "Union Berlin"),
+        ("Paris Saint-Germain FC", "Paris Saint Germain"),
+        ("FC Internazionale Milano", "Inter"),
+        ("Sporting Clube de Portugal", "Sporting CP"),
+        ("Linzer ASK", "Lask Linz"),
+        ("Racing Club de Lens", "Lens"),
+        ("Lille OSC", "Lille"),
+        ("Feyenoord Rotterdam", "Feyenoord"),
+        ("SSC Napoli", "Napoli"),
+        ("PSV", "PSV Eindhoven"),
+        ("Como 1907", "Como"),
     ],
 )
 def test_football_data_org_club_names_resolve_to_existing_roster_names(

@@ -124,6 +124,20 @@ _ALIASES: dict[str, str] = {
     "sv werder bremen": "Werder Bremen",
     "1. fc union berlin": "Union Berlin",
 
+    # football-data.org Champions League spellings whose semantic short names
+    # cannot be recovered by the loader's conservative designator key alone.
+    "paris saint-germain fc": "Paris Saint Germain",
+    "fc internazionale milano": "Inter",
+    "sporting clube de portugal": "Sporting CP",
+    "linzer ask": "Lask Linz",
+    "lask": "Lask Linz",
+    "racing club de lens": "Lens",
+    "lille osc": "Lille",
+    "feyenoord rotterdam": "Feyenoord",
+    "ssc napoli": "Napoli",
+    "psv": "PSV Eindhoven",
+    "como 1907": "Como",
+
     # --- La Liga (SP1) / Bundesliga (D1), League Score Predictions Phase 2
     # (docs/superpowers/specs/2026-07-24-league-score-predictions-design.md)
     # ---

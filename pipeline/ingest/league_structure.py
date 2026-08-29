@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -119,6 +121,42 @@ def _load_teams_file(teams_file: str) -> list[dict]:
     return json.loads(Path(teams_file).read_text(encoding="utf-8"))["teams"]
 
 
+_CLUB_DESIGNATORS = {"afc", "cf", "fa", "fc", "fk", "sk", "sv"}
+_LATIN_FOLD = str.maketrans({
+    "æ": "ae", "đ": "d", "ð": "d", "ł": "l", "ø": "o",
+    "œ": "oe", "ß": "ss", "þ": "th",
+})
+
+
+def _club_identity_key(name: str) -> str:
+    """Conservative cross-provider club key used only for unique DB matches.
+
+    It removes accents/punctuation and leading or trailing legal designators,
+    but never performs fuzzy matching. Callers may use it only when exactly one
+    existing Team owns the resulting key.
+    """
+    normalized = unicodedata.normalize("NFKD", normalize_team_name(name))
+    ascii_name = "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    ).casefold().translate(_LATIN_FOLD)
+    tokens = re.findall(r"[a-z0-9]+", ascii_name)
+    while tokens and tokens[0] in _CLUB_DESIGNATORS:
+        tokens.pop(0)
+    while tokens and tokens[-1] in _CLUB_DESIGNATORS:
+        tokens.pop()
+    return " ".join(tokens)
+
+
+def _club_identity_index(db: Session) -> dict[str, Team | None]:
+    index: dict[str, Team | None] = {}
+    for team in db.query(Team).all():
+        key = _club_identity_key(team.name)
+        if not key:
+            continue
+        index[key] = team if key not in index else None
+    return index
+
+
 def _derive_teams_from_fixtures(
     fixtures: list[NormalizedFixture | None],
 ) -> list[dict]:
@@ -168,12 +206,21 @@ def _seed_teams(
     teams_file and the derive-from-fixtures paths share one upsert loop —
     same body, same order of operations, as the original inline loop."""
     team_by_name: dict[str, Team] = {}
+    identity_index = _club_identity_index(db)
     for t in teams_data:
-        team = _upsert_team(db, t["name"], t.get("code"), t["api_football_id"])
+        team = _upsert_team(
+            db,
+            t["name"],
+            t.get("code"),
+            t["api_football_id"],
+            identity_index,
+        )
         team_by_name[team.name] = team
+        team_by_name[normalize_team_name(t["name"])] = team
         belongs_to_group = (
             group_member_names is None
             or team.name in group_member_names
+            or normalize_team_name(t["name"]) in group_member_names
         )
         if belongs_to_group:
             exists = db.query(GroupTeam).filter_by(
@@ -207,6 +254,7 @@ def _upsert_team(
     name: str,
     code: str | None,
     api_football_id: int | None,
+    identity_index: dict[str, Team | None],
 ) -> Team:
     """Look up by ``provider_team_id`` FIRST, falling back to name only for a
     team this provider id has never been seen for yet. Team.provider_team_id
@@ -225,6 +273,9 @@ def _upsert_team(
         team = db.query(Team).filter_by(provider_team_id=api_football_id).one_or_none()
     if team is None:
         team = db.query(Team).filter_by(name=canon).one_or_none()
+    identity_key = _club_identity_key(canon)
+    if team is None and identity_key:
+        team = identity_index.get(identity_key)
     if team is None:
         team = Team(
             name=canon, country_code=code, is_host=False,
@@ -232,10 +283,12 @@ def _upsert_team(
         )
         db.add(team)
         db.flush()
+        if identity_key:
+            identity_index[identity_key] = team
     else:
-        team.name = canon
-        team.country_code = code
         if api_football_id is not None:
+            team.name = canon
+            team.country_code = code
             team.provider_team_id = api_football_id
     return team
 
