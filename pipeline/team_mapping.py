@@ -108,10 +108,21 @@ _ALIASES: dict[str, str] = {
     "rcd espanyol de barcelona": "Espanyol",
     "real sociedad de fútbol": "Real Sociedad",
     "rayo vallecano de madrid": "Rayo Vallecano",
+    "sevilla fc": "Sevilla",
+    "valencia cf": "Valencia",
+    "villarreal cf": "Villarreal",
+    "girona fc": "Girona",
+    "getafe cf": "Getafe",
+    "ca osasuna": "Osasuna",
+    "rcd mallorca": "Mallorca",
+    "deportivo alavés": "Alaves",
+    "levante ud": "Levante",
     "fc bayern münchen": "Bayern München",
     "bayer 04 leverkusen": "Bayer Leverkusen",
     "1. fsv mainz 05": "FSV Mainz 05",
     "tsg 1899 hoffenheim": "1899 Hoffenheim",
+    "sv werder bremen": "Werder Bremen",
+    "1. fc union berlin": "Union Berlin",
 
     # --- La Liga (SP1) / Bundesliga (D1), League Score Predictions Phase 2
     # (docs/superpowers/specs/2026-07-24-league-score-predictions-design.md)

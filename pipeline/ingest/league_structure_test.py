@@ -638,6 +638,60 @@ def test_stale_or_unversioned_fixture_cannot_regress_finished_match(
     assert stored_updated == datetime(2026, 8, 21, 21, 0, tzinfo=timezone.utc)
 
 
+def test_unversioned_provider_reactivation_adopts_identity_without_regressing_state(
+    db_session, monkeypatch,
+):
+    fallback = replace(
+        _normalized_fixture(
+            996,
+            "Arsenal",
+            "Chelsea",
+            status="finished",
+            updated="2026-08-21T21:00:00+00:00",
+        ),
+        score_home=2,
+        score_away=1,
+    )
+    monkeypatch.setattr(
+        ls_mod, "fetch_league_fixtures", lambda *a, **k: [fallback]
+    )
+    load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        fixture_source="football_data",
+        competition_code="PL",
+    )
+
+    api_fixture = replace(
+        fallback,
+        provider="api_football",
+        fixture_id=1996,
+        status="scheduled",
+        score_home=None,
+        score_away=None,
+        upstream_updated_at=None,
+        home_provider_id=42,
+        away_provider_id=49,
+    )
+    monkeypatch.setattr(
+        ls_mod, "fetch_league_fixtures", lambda *a, **k: [api_fixture]
+    )
+    result = load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        fixture_source="api_football",
+    )
+
+    match = db_session.query(Match).one()
+    assert result["fixtures_updated"] == 1
+    assert match.fixture_provider == "api_football"
+    assert match.provider_fixture_id == 1996
+    assert (match.status, match.score_home, match.score_away) == ("finished", 2, 1)
+    assert match.provider_last_updated is not None
+
+
 def test_duplicate_fixture_in_one_payload_reconciles_to_one_match(
     db_session, monkeypatch,
 ):

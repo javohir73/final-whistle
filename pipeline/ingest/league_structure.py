@@ -476,6 +476,15 @@ def load_league_structure(
                 or _utc(fixture.upstream_updated_at)
                 < _utc(match.provider_last_updated)
             ):
+                current_provider = match.fixture_provider or "api_football"
+                if current_provider != fixture.provider:
+                    # Provider ownership may change even when the incoming
+                    # source has no comparable version stamp. Adopt only its
+                    # identity; keep the fresher lifecycle, score and watermark.
+                    match.fixture_provider = fixture.provider
+                    match.provider_fixture_id = fixture.fixture_id
+                    updated += 1
+                    continue
                 log.warning(
                     "league fixture %s: ignoring stale or unversioned update",
                     fixture.fixture_id,

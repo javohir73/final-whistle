@@ -508,6 +508,64 @@ def test_api_fixture_id_collision_ignores_football_data_owned_match(db_session):
     assert fallback_match.score_home is None
 
 
+def test_pair_fallback_is_tournament_scoped_and_rejects_repeated_pair(db_session):
+    domestic = Tournament(name="Domestic scope", year=2026)
+    europe = Tournament(name="European scope", year=2026)
+    home, away = Team(name="Shared Home"), Team(name="Shared Away")
+    db_session.add_all([domestic, europe, home, away])
+    db_session.flush()
+    domestic_match = Match(
+        tournament_id=domestic.id,
+        stage="group",
+        status="scheduled",
+        team_home_id=home.id,
+        team_away_id=away.id,
+        fixture_provider="football_data",
+        provider_fixture_id=1001,
+    )
+    domestic_return = Match(
+        tournament_id=domestic.id,
+        stage="group",
+        status="scheduled",
+        team_home_id=home.id,
+        team_away_id=away.id,
+        fixture_provider="football_data",
+        provider_fixture_id=1002,
+    )
+    europe_match = Match(
+        tournament_id=europe.id,
+        stage="group",
+        status="scheduled",
+        team_home_id=home.id,
+        team_away_id=away.id,
+        fixture_provider="football_data",
+        provider_fixture_id=2001,
+    )
+    db_session.add_all([domestic_match, domestic_return, europe_match])
+    db_session.commit()
+    feed = [{
+        "id": 9999,
+        "homeTeam": {"name": "Shared Home"},
+        "awayTeam": {"name": "Shared Away"},
+        "status": "FINISHED",
+        "score": {"fullTime": {"home": 1, "away": 0}},
+    }]
+
+    # Two domestic legs make pair-only fallback ambiguous, so neither changes.
+    result = update_live_scores(
+        db_session, feed, tournament_id=domestic.id,
+    )
+    assert result["updated"] == 0
+    assert domestic_match.status == domestic_return.status == "scheduled"
+
+    # The same pair is unique inside the European tournament and is safe there.
+    result = update_live_scores(db_session, feed, tournament_id=europe.id)
+    db_session.refresh(europe_match)
+    assert result["updated"] == 1
+    assert europe_match.status == "finished"
+    assert domestic_match.status == domestic_return.status == "scheduled"
+
+
 def test_scorers_field_is_stored_as_goal_events(db_session):
     load_structure(db_session)
     feed = _feed("IN_PLAY", home=1, away=0, minute=30)

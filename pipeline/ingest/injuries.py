@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app.models import Match, Team
 from pipeline.ingest.api_football import fetch_injuries, parse_injuries
@@ -49,6 +49,7 @@ def refresh_injuries(db: Session, api_key: str, window_hours: float = WINDOW_HOU
     try:
         matches = (
             db.query(Match)
+            .options(undefer(Match.fixture_provider))
             .filter(
                 Match.status == "scheduled",
                 Match.team_home_id.isnot(None),
