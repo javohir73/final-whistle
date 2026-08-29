@@ -277,6 +277,7 @@ def _upsert_team(
     if team is None and identity_key:
         team = identity_index.get(identity_key)
     if team is None:
+        identity_key_was_known = identity_key in identity_index
         team = Team(
             name=canon, country_code=code, is_host=False,
             provider_team_id=api_football_id,
@@ -284,7 +285,9 @@ def _upsert_team(
         db.add(team)
         db.flush()
         if identity_key:
-            identity_index[identity_key] = team
+            identity_index[identity_key] = (
+                None if identity_key_was_known else team
+            )
     else:
         if api_football_id is not None:
             team.name = canon

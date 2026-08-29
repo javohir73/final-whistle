@@ -137,6 +137,9 @@ _ALIASES: dict[str, str] = {
     "ssc napoli": "Napoli",
     "psv": "PSV Eindhoven",
     "como 1907": "Como",
+    "fc københavn": "FC Copenhagen",
+    "red star belgrade": "FK Crvena Zvezda",
+    "pfc ludogorets 1945": "Ludogorets",
 
     # --- La Liga (SP1) / Bundesliga (D1), League Score Predictions Phase 2
     # (docs/superpowers/specs/2026-07-24-league-score-predictions-design.md)

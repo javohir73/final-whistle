@@ -585,6 +585,9 @@ def test_ucl_cross_provider_names_reuse_existing_api_teams(db_session, monkeypat
         Team(name="Inter", provider_team_id=505),
         Team(name="Bodo/Glimt", provider_team_id=327),
         Team(name="Fenerbahce", provider_team_id=611),
+        Team(name="FC Copenhagen", provider_team_id=400),
+        Team(name="FK Crvena Zvezda", provider_team_id=598),
+        Team(name="Ludogorets", provider_team_id=651),
     ]
     db_session.add_all(existing)
     db_session.commit()
@@ -599,6 +602,18 @@ def test_ucl_cross_provider_names_reuse_existing_api_teams(db_session, monkeypat
             3002,
             "FK Bodø/Glimt",
             "Fenerbahçe SK",
+            round_label="LEAGUE_STAGE",
+        ),
+        _normalized_fixture(
+            3003,
+            "FC København",
+            "Red Star Belgrade",
+            round_label="LEAGUE_STAGE",
+        ),
+        _normalized_fixture(
+            3004,
+            "PFC Ludogorets 1945",
+            "Paris Saint-Germain FC",
             round_label="LEAGUE_STAGE",
         ),
     ]
@@ -617,8 +632,8 @@ def test_ucl_cross_provider_names_reuse_existing_api_teams(db_session, monkeypat
         group_round_prefixes=("League Stage",),
     )
 
-    assert result["fixtures_created"] == 2
-    assert db_session.query(Team).count() == 4
+    assert result["fixtures_created"] == 4
+    assert db_session.query(Team).count() == 7
     assert {
         team.name: team.provider_team_id for team in db_session.query(Team).all()
     } == {
@@ -626,11 +641,37 @@ def test_ucl_cross_provider_names_reuse_existing_api_teams(db_session, monkeypat
         "Inter": 505,
         "Bodo/Glimt": 327,
         "Fenerbahce": 611,
+        "FC Copenhagen": 400,
+        "FK Crvena Zvezda": 598,
+        "Ludogorets": 651,
     }
     assert {
         db_session.get(Team, match.team_home_id).name
         for match in db_session.query(Match).all()
-    } == {"Paris Saint Germain", "Bodo/Glimt"}
+    } == {
+        "Paris Saint Germain",
+        "Bodo/Glimt",
+        "FC Copenhagen",
+        "Ludogorets",
+    }
+
+
+def test_ambiguous_club_identity_remains_ambiguous_after_new_team_insert(
+    db_session,
+):
+    db_session.add_all([Team(name="FC Example"), Team(name="Example FC")])
+    db_session.flush()
+    identity_index = ls_mod._club_identity_index(db_session)
+
+    first = ls_mod._upsert_team(
+        db_session, "Example CF", None, None, identity_index
+    )
+    second = ls_mod._upsert_team(
+        db_session, "Example AFC", None, None, identity_index
+    )
+
+    assert first.id != second.id
+    assert db_session.query(Team).count() == 4
 
 
 def test_stale_or_unversioned_fixture_cannot_regress_finished_match(

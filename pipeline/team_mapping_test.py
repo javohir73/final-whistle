@@ -126,6 +126,9 @@ def test_e0_hull_alias_resolves_to_the_live_api_football_spelling():
         ("SSC Napoli", "Napoli"),
         ("PSV", "PSV Eindhoven"),
         ("Como 1907", "Como"),
+        ("FC København", "FC Copenhagen"),
+        ("Red Star Belgrade", "FK Crvena Zvezda"),
+        ("PFC Ludogorets 1945", "Ludogorets"),
     ],
 )
 def test_football_data_org_club_names_resolve_to_existing_roster_names(
