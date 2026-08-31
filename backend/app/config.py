@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     api_football_league: int = 1   # API-Football league id for the FIFA World Cup
     api_football_season: int = 2026
 
+    # Scheduled league fixture/result source. Kept separate from live_provider:
+    # the fallback is delayed and must never be presented as an in-play feed.
+    league_fixture_provider: str = "api_football"
+
     # Which provider serves /api/internal/refresh-live: "football_data" (default,
     # free tier → estimated minute) or "api_football" (real live minute).
     live_provider: str = "football_data"
@@ -83,6 +87,18 @@ class Settings(BaseSettings):
         if self.live_provider == "api_football":
             return self.api_football_api_key
         return self.football_data_api_key
+
+    @property
+    def league_fixture_api_key(self) -> str:
+        """API key for the selected scheduled league fixture provider."""
+        if self.league_fixture_provider == "api_football":
+            return self.api_football_api_key
+        if self.league_fixture_provider == "football_data":
+            return self.football_data_api_key
+        raise ValueError(
+            "unsupported league fixture provider: "
+            f"{self.league_fixture_provider}"
+        )
 
     @property
     def live_updates_active(self) -> bool:

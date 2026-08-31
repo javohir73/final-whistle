@@ -13,12 +13,20 @@ from __future__ import annotations
 import logging
 import sys
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s [pipeline] %(message)s"
 )
 log = logging.getLogger(__name__)
+
+
+class PartialLeagueRefreshError(RuntimeError):
+    def __init__(self, failures: list[dict]):
+        self.failures = failures
+        names = ", ".join(row["competition_code"] for row in failures)
+        super().__init__(f"league fixture refresh failed for: {names}")
 
 
 def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
@@ -50,16 +58,15 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
     step-naming sense (club_elo's REPLAY is now looped per league below --
     see its own comment -- but the summary still reports under one key).
 
-    Per-league ingest isolation (League Score Predictions Phase 2): once more
-    than one league is configured, one league's structure/results-sync
-    failure is logged and that league is skipped, but the rest still run --
-    a bad API-Football response for one league must not take the others down
-    with it. With exactly one league configured (Phase 1, and every
-    pre-Phase-2 test) this is a no-op: a solo failure still propagates and
-    fails the whole run, exactly as it always has.
+    Per-league ingest isolation: each structure/results-sync pair commits in
+    its own transaction. A failed competition is recorded and skipped while
+    healthy competitions continue through predictions; after their downstream
+    work completes, PartialLeagueRefreshError makes the overall run non-zero.
+    API-Football auth/quota failures still abort immediately because every
+    competition shares that credential.
     """
     from app.config import settings
-    from app.models import Tournament
+    from app.models import Match, Tournament
     from pipeline.compute_club_elo import (
         club_elo_ratings,
         compute_and_store_club_elo,
@@ -67,6 +74,11 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
     )
     from pipeline.generate_predictions import generate_predictions
     from pipeline.ingest.club_results import sync_finished_matches_to_history
+    from pipeline.ingest.fixture_feed_status import (
+        record_attempt,
+        record_failure,
+        record_success,
+    )
     from pipeline.ingest.league_structure import load_league_structure
     from pipeline.ingest.provider_errors import ProviderAuthError, ProviderQuotaError
     from pipeline.league_activation import ensure_club_history
@@ -97,45 +109,75 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
     def _prefix(code: str) -> str:
         return "" if len(configured) == 1 else f"{code}_"
 
-    isolate_failures = len(configured) > 1
+    fixture_provider = settings.league_fixture_provider
+    fixture_api_key = settings.league_fixture_api_key
+    failures: list[dict] = []
     leagues_run: list[tuple[str, Tournament]] = []
     for code, cfg in configured:
         try:
+            record_attempt(
+                db, code, cfg["tournament_name"], fixture_provider
+            )
             step(
                 f"{_prefix(code)}historical_backfill",
                 lambda cfg=cfg: ensure_club_history(db, cfg),
             )
-            league_summary = step(
-                f"{_prefix(code)}league_structure",
-                lambda cfg=cfg: load_league_structure(
-                    db, teams_file=cfg["teams_file"], tournament_name=cfg["tournament_name"],
-                    group_name=cfg["group_name"], league_id=cfg["league_id"], season=cfg["season"],
-                    group_round_prefixes=cfg.get("group_round_prefixes"),
-                    preserve_stopped_statuses=settings.preserve_match_stop_statuses,
-                ),
+            league_summary = load_league_structure(
+                db,
+                teams_file=cfg["teams_file"],
+                api_key=fixture_api_key,
+                tournament_name=cfg["tournament_name"],
+                group_name=cfg["group_name"],
+                league_id=cfg["league_id"],
+                season=cfg["season"],
+                group_round_prefixes=cfg.get("group_round_prefixes"),
+                preserve_stopped_statuses=settings.preserve_match_stop_statuses,
+                fixture_source=fixture_provider,
+                competition_code=cfg["football_data_code"],
+                commit=False,
             )
             tournament = db.get(Tournament, league_summary["tournament_id"])
-            step(
-                f"{_prefix(code)}league_results_sync",
-                lambda t=tournament, cfg=cfg: sync_finished_matches_to_history(
-                    db, t, competition=cfg["club_competition"],
-                ),
+            history_summary = sync_finished_matches_to_history(
+                db,
+                tournament,
+                competition=cfg["club_competition"],
+                commit=False,
             )
-        except (ProviderQuotaError, ProviderAuthError):
-            # Every configured league shares this credential. A systemic
-            # failure cannot be isolated per league: retrying only burns more
-            # calls, and swallowing all of them lets a zero-ingest run exit 0.
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 - per-competition isolation
             db.rollback()
-            raise
-        except Exception:  # noqa: BLE001 - isolation boundary, see docstring
-            if not isolate_failures:
+            record_failure(
+                db, code, cfg["tournament_name"], fixture_provider, exc
+            )
+            failure = {
+                "competition_code": code,
+                "provider": fixture_provider,
+                "error_kind": getattr(exc, "kind", "error"),
+                "error": str(exc)[:500],
+            }
+            failures.append(failure)
+            if fixture_provider == "api_football" and isinstance(
+                exc, (ProviderQuotaError, ProviderAuthError)
+            ):
                 raise
             log.exception(
                 "league pipeline: %s ingest FAILED -- skipping this league, "
                 "continuing with the rest", code,
             )
-            db.rollback()  # discard this league's partial (uncommitted) flush
             continue
+        step(f"{_prefix(code)}league_structure", lambda: league_summary)
+        step(f"{_prefix(code)}league_results_sync", lambda: history_summary)
+        latest_upstream = db.query(
+            func.max(Match.provider_last_updated)
+        ).filter(Match.tournament_id == tournament.id).scalar()
+        record_success(
+            db,
+            code,
+            cfg["tournament_name"],
+            fixture_provider,
+            fixture_count=league_summary["total_matches"],
+            latest_upstream_updated_at=latest_upstream,
+        )
         leagues_run.append((code, tournament))
 
     # Per-league club Elo replay (recon item 3: with >1 league sharing
@@ -287,6 +329,8 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
             return {"graded": 0, "error": True}
 
     step("score_predictions_grading", _score_predictions_grading)
+    if failures:
+        raise PartialLeagueRefreshError(failures)
     log.info("league pipeline complete")
 
 

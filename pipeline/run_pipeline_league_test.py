@@ -9,6 +9,7 @@ import pytest
 from app.config import settings
 from app.models import (
     Group,
+    FixtureFeedStatus,
     HistoricalMatch,
     LeagueScorePrediction,
     Match,
@@ -21,7 +22,7 @@ from app.models import (
 from pipeline import leagues as leagues_mod
 from pipeline.leagues import CLUB_MODEL_VERSION
 from pipeline.ingest import league_structure as ls_mod
-from pipeline.run_pipeline import run_pipeline
+from pipeline.run_pipeline import PartialLeagueRefreshError, run_pipeline
 
 
 @pytest.fixture(autouse=True)
@@ -426,16 +427,9 @@ def test_league_pipeline_one_leagues_ingest_failure_does_not_kill_the_others(db_
 
     monkeypatch.setattr(ls_mod, "fetch_fixtures", _flaky_fetch)
 
-    summary = run_pipeline(db_session, n_sims=50)
-
-    assert "laliga_league_structure" not in summary
-    assert "laliga_league_results_sync" not in summary
-    assert "laliga_predictions" not in summary
-    for code in ("epl", "bundesliga"):
-        for step_name in ("league_structure", "league_results_sync", "predictions"):
-            assert f"{code}_{step_name}" in summary, f"missing {code}_{step_name}"
-    for shared_key in ("club_elo", "learning_loop", "score_predictions_grading"):
-        assert shared_key in summary
+    with pytest.raises(PartialLeagueRefreshError) as excinfo:
+        run_pipeline(db_session, n_sims=50)
+    assert excinfo.value.failures[0]["competition_code"] == "laliga"
 
     tournaments = {t.name for t in db_session.query(Tournament).all()}
     assert tournaments == {"Premier League 2026-27", "Bundesliga 2026-27"}
@@ -516,3 +510,72 @@ def test_league_injuries_failure_never_blocks_predictions(db_session, monkeypatc
     summary = run_pipeline(db_session, n_sims=50)
     assert summary["predictions"]["matches_predicted"] == 1
     assert summary["injuries"]["error"] is True
+
+
+def test_football_data_partial_failure_commits_and_predicts_other_leagues(
+    db_session, monkeypatch,
+):
+    from pipeline.ingest.fixture_contract import NormalizedFixture
+
+    monkeypatch.setattr(settings, "pipeline_target", "league")
+    monkeypatch.setattr(settings, "league_fixture_provider", "football_data")
+    monkeypatch.setattr(settings, "football_data_api_key", "free-key")
+    monkeypatch.setattr(settings, "api_football_api_key", "")
+    monkeypatch.setattr(
+        leagues_mod, "ACTIVE_LEAGUES", ["epl", "laliga", "bundesliga", "ucl"]
+    )
+    names = {
+        "PL": ("Arsenal FC", "Chelsea FC"),
+        "BL1": ("FC Bayern München", "Borussia Dortmund"),
+        "CL": ("Paris Saint-Germain FC", "FC Internazionale Milano"),
+    }
+
+    def _fallback_fixtures(_key, *, competition_code, **_kwargs):
+        if competition_code == "PD":
+            raise RuntimeError("La Liga fallback failed")
+        home, away = names[competition_code]
+        return [NormalizedFixture(
+            provider="football_data",
+            fixture_id={"PL": 9101, "BL1": 9102, "CL": 9103}[competition_code],
+            home_name=home,
+            away_name=away,
+            kickoff_utc=datetime(2026, 9, 10, 19, 0, tzinfo=timezone.utc),
+            status="scheduled",
+            score_home=None,
+            score_away=None,
+            matchweek=1,
+            score_home_90=None,
+            score_away_90=None,
+            venue_name=None,
+            venue_city=None,
+            round_label="LEAGUE_STAGE" if competition_code == "CL" else None,
+            upstream_updated_at=datetime(2026, 8, 29, tzinfo=timezone.utc),
+            home_provider_id=None,
+            away_provider_id=None,
+        )]
+
+    monkeypatch.setattr(ls_mod, "fetch_league_fixtures", _fallback_fixtures)
+
+    with pytest.raises(PartialLeagueRefreshError) as excinfo:
+        run_pipeline(db_session, n_sims=10)
+
+    assert "laliga" in str(excinfo.value)
+    assert excinfo.value.failures[0]["competition_code"] == "laliga"
+    assert {
+        row.name for row in db_session.query(Tournament).all()
+    } == {
+        "Premier League 2026-27",
+        "Bundesliga 2026-27",
+        "UEFA Champions League 2026-27",
+    }
+    assert db_session.query(Prediction).filter_by(is_shadow=False).count() == 3
+    statuses = {
+        row.competition_code: row
+        for row in db_session.query(FixtureFeedStatus).all()
+    }
+    assert set(statuses) == {"epl", "laliga", "bundesliga", "ucl"}
+    assert statuses["laliga"].last_error == "La Liga fallback failed"
+    assert all(
+        statuses[code].last_success_at is not None
+        for code in ("epl", "bundesliga", "ucl")
+    )
