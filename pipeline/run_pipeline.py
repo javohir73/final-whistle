@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 logging.basicConfig(
@@ -115,12 +115,19 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
     leagues_run: list[tuple[str, Tournament]] = []
     for code, cfg in configured:
         try:
-            record_attempt(
-                db, code, cfg["tournament_name"], fixture_provider
-            )
             step(
                 f"{_prefix(code)}historical_backfill",
                 lambda cfg=cfg: ensure_club_history(db, cfg),
+            )
+        except Exception:  # noqa: BLE001 - history must not block fixture repair
+            db.rollback()
+            log.exception(
+                "league pipeline: %s historical backfill FAILED -- "
+                "continuing with fixture refresh", code,
+            )
+        try:
+            record_attempt(
+                db, code, cfg["tournament_name"], fixture_provider
             )
             league_summary = load_league_structure(
                 db,
@@ -167,15 +174,29 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
             continue
         step(f"{_prefix(code)}league_structure", lambda: league_summary)
         step(f"{_prefix(code)}league_results_sync", lambda: history_summary)
+        provider_filter = Match.fixture_provider == fixture_provider
+        if fixture_provider == "api_football":
+            # Rows created before provenance was added belong to API-Football.
+            provider_filter = or_(
+                Match.fixture_provider == "api_football",
+                Match.fixture_provider.is_(None),
+            )
         latest_upstream = db.query(
             func.max(Match.provider_last_updated)
-        ).filter(Match.tournament_id == tournament.id).scalar()
+        ).filter(
+            Match.tournament_id == tournament.id,
+            provider_filter,
+        ).scalar()
+        fixture_count = db.query(Match).filter(
+            Match.tournament_id == tournament.id,
+            provider_filter,
+        ).count()
         record_success(
             db,
             code,
             cfg["tournament_name"],
             fixture_provider,
-            fixture_count=league_summary["total_matches"],
+            fixture_count=fixture_count,
             latest_upstream_updated_at=latest_upstream,
         )
         leagues_run.append((code, tournament))
