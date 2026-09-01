@@ -9,10 +9,36 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.data_freshness import coverage_gaps, data_status, stuck_matches
-from app.models import Match, Tournament
+from app.data_freshness import (
+    coverage_gaps,
+    data_status,
+    fixture_feed_health,
+    stuck_matches,
+)
+from app.models import FixtureFeedStatus, Match, Tournament
+from pipeline.ingest.fixture_contract import capabilities_for
+from pipeline.leagues import LEAGUES
 
 NOW = datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def healthy_fixture_feeds(db_session):
+    for code, cfg in LEAGUES.items():
+        db_session.add(FixtureFeedStatus(
+            competition_code=code,
+            tournament_name=cfg["tournament_name"],
+            provider="football_data",
+            last_attempt_at=NOW,
+            last_success_at=NOW,
+            last_error_at=None,
+            last_error_kind=None,
+            last_error=None,
+            fixture_count=10,
+            latest_upstream_updated_at=NOW,
+            capabilities=capabilities_for("football_data"),
+        ))
+    db_session.commit()
 
 
 @pytest.fixture
@@ -162,3 +188,65 @@ def test_matches_beyond_the_window_are_not_counted(db_session, epl):
     # A fixture three weeks out has no venue yet for ordinary reasons.
     _match(db_session, epl, status="scheduled", hours_ago=-24 * 21)
     assert coverage_gaps(db_session, now=NOW)["upcoming_matches"] == 0
+
+
+def test_fixture_feed_health_reports_all_codes_and_delayed_capabilities(db_session):
+    rows = {
+        row["competition_code"]: row
+        for row in fixture_feed_health(db_session, now=NOW)
+    }
+    assert set(rows) == {"epl", "laliga", "bundesliga", "ucl"}
+    assert rows["epl"]["status"] == "ok"
+    assert rows["epl"]["provider"] == "football_data"
+    assert rows["epl"]["mode"] == "delayed_results"
+    assert rows["epl"]["capabilities"]["lineups"] is False
+
+
+def test_fixture_feed_health_classifies_never_run_empty_failed_and_stale(db_session):
+    db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="epl"
+    ).delete()
+    laliga = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="laliga"
+    ).one()
+    laliga.fixture_count = 0
+    bundesliga = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="bundesliga"
+    ).one()
+    bundesliga.last_success_at = NOW - timedelta(hours=37)
+    ucl = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="ucl"
+    ).one()
+    ucl.last_success_at = NOW - timedelta(hours=1)
+    ucl.last_error_at = NOW
+    ucl.last_error_kind = "error"
+    ucl.last_error = "upstream unavailable"
+    db_session.commit()
+
+    rows = {
+        row["competition_code"]: row
+        for row in fixture_feed_health(db_session, now=NOW)
+    }
+    assert rows["epl"]["status"] == "never_run"
+    assert rows["laliga"]["status"] == "empty"
+    assert rows["bundesliga"]["status"] == "stale"
+    assert rows["ucl"]["status"] == "failed"
+    assert rows["ucl"]["error"] == "upstream unavailable"
+
+
+def test_non_ok_fixture_feeds_add_one_data_status_degradation(db_session):
+    row = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="laliga"
+    ).one()
+    row.fixture_count = 0
+    db_session.commit()
+
+    out = data_status(db_session, now=NOW)
+
+    assert out["status"] == "degraded"
+    feed_degradations = [
+        item for item in out["degradations"]
+        if item["kind"] == "fixture_feed"
+    ]
+    assert len(feed_degradations) == 1
+    assert feed_degradations[0]["competitions"] == ["laliga"]
