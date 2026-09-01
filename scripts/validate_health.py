@@ -22,18 +22,25 @@ def validate(payload: dict[str, Any]) -> list[str]:
 
     coverage = payload.get("prediction_coverage")
     missing = coverage.get("missing") if isinstance(coverage, dict) else None
-    if missing != 0:
+    if type(missing) is not int or missing != 0:
         errors.append(
             f"prediction coverage has {missing} missing fixture(s) (expected 0)"
         )
 
     raw_feeds = payload.get("fixture_feeds")
     feeds = raw_feeds if isinstance(raw_feeds, list) else []
-    by_code = {
-        row.get("competition_code"): row
-        for row in feeds
-        if isinstance(row, dict) and isinstance(row.get("competition_code"), str)
-    }
+    by_code: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(feeds):
+        if not isinstance(row, dict) or not isinstance(
+            row.get("competition_code"), str
+        ):
+            errors.append(f"malformed fixture feed at index {index}")
+            continue
+        code = row["competition_code"]
+        if code in by_code:
+            errors.append(f"duplicate fixture feed: {code}")
+            continue
+        by_code[code] = row
     for code in EXPECTED_COMPETITIONS:
         row = by_code.get(code)
         if row is None:

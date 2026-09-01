@@ -65,6 +65,28 @@ def test_validator_reports_missing_predictions():
     ]
 
 
+def test_validator_rejects_boolean_prediction_count():
+    payload = _healthy_payload()
+    payload["prediction_coverage"]["missing"] = False
+    assert validate(payload) == [
+        "prediction coverage has False missing fixture(s) (expected 0)"
+    ]
+
+
+def test_validator_rejects_duplicate_fixture_feed_rows():
+    payload = _healthy_payload()
+    payload["fixture_feeds"].append(
+        {"competition_code": "epl", "status": "failed"}
+    )
+    assert validate(payload) == ["duplicate fixture feed: epl"]
+
+
+def test_validator_rejects_malformed_fixture_feed_rows():
+    payload = _healthy_payload()
+    payload["fixture_feeds"].append("not-an-object")
+    assert validate(payload) == ["malformed fixture feed at index 4"]
+
+
 def test_cli_reads_stdin_prints_exact_errors_and_exits_one():
     payload = _healthy_payload()
     payload["data_status"] = "unknown"
