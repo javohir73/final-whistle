@@ -536,13 +536,23 @@ def load_league_structure(
                 if current_provider != fixture.provider:
                     # Provider ownership may change even when the incoming
                     # source has no comparable version stamp. Adopt only its
-                    # identity; keep the fresher lifecycle, score and watermark.
+                    # identity and lifecycle. The old provider's watermark must
+                    # not poison every later unversioned update from the new
+                    # source.
                     match.fixture_provider = fixture.provider
                     match.provider_fixture_id = fixture.fixture_id
+                    match.provider_last_updated = fixture.upstream_updated_at
                     updated += 1
                     continue
                 log.warning(
                     "league fixture %s: ignoring stale or unversioned update",
+                    fixture.fixture_id,
+                )
+                skipped += 1
+                continue
+            if match.status == "finished" and status != "finished":
+                log.warning(
+                    "league fixture %s: refusing to regress a finished match",
                     fixture.fixture_id,
                 )
                 skipped += 1

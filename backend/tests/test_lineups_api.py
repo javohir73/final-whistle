@@ -197,7 +197,13 @@ def test_football_data_owned_id_never_calls_api_football_lineups(env, monkeypatc
 
     response = client.get("/api/matches/1/lineups")
     assert response.status_code == 200
-    assert response.json()["available"] is False
+    assert response.json() == {
+        "available": False,
+        "message": "Lineups are unavailable from the selected fixture provider.",
+        "home": None,
+        "away": None,
+        "fetched_at": None,
+    }
 
 
 def test_resolves_fixture_id_by_team_pair_then_fetches(env, monkeypatch):

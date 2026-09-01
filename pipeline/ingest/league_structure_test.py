@@ -784,7 +784,44 @@ def test_unversioned_provider_reactivation_adopts_identity_without_regressing_st
     assert match.fixture_provider == "api_football"
     assert match.provider_fixture_id == 1996
     assert (match.status, match.score_home, match.score_away) == ("finished", 2, 1)
-    assert match.provider_last_updated is not None
+    assert match.provider_last_updated is None
+
+    # Clearing the old provider's watermark must not make a later unversioned
+    # scheduled snapshot able to un-finish the match.
+    result = load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        fixture_source="api_football",
+    )
+    match = db_session.query(Match).one()
+    assert result["fixtures_skipped"] == 1
+    assert (match.status, match.score_home, match.score_away) == ("finished", 2, 1)
+
+    refreshed_api_fixture = replace(
+        api_fixture,
+        status="finished",
+        score_home=3,
+        score_away=0,
+        score_home_90=3,
+        score_away_90=0,
+    )
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_league_fixtures",
+        lambda *a, **k: [refreshed_api_fixture],
+    )
+    result = load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        fixture_source="api_football",
+    )
+
+    match = db_session.query(Match).one()
+    assert result["fixtures_updated"] == 1
+    assert result["fixtures_skipped"] == 0
+    assert (match.status, match.score_home, match.score_away) == ("finished", 3, 0)
 
 
 def test_duplicate_fixture_in_one_payload_reconciles_to_one_match(
