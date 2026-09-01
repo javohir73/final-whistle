@@ -119,8 +119,12 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
                 f"{_prefix(code)}historical_backfill",
                 lambda cfg=cfg: ensure_club_history(db, cfg),
             )
-        except Exception:  # noqa: BLE001 - history must not block fixture repair
+        except Exception as exc:  # noqa: BLE001 - source-specific boundary
             db.rollback()
+            if fixture_provider == "api_football" and isinstance(
+                exc, (ProviderQuotaError, ProviderAuthError)
+            ):
+                raise
             log.exception(
                 "league pipeline: %s historical backfill FAILED -- "
                 "continuing with fixture refresh", code,

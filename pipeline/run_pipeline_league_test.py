@@ -634,6 +634,36 @@ def test_history_failure_does_not_block_or_poison_fallback_fixture_attempt(
     assert status.last_error is None
 
 
+def test_api_football_history_auth_failure_short_circuits_before_fixture_fetch(
+    db_session, monkeypatch,
+):
+    from pipeline import league_activation as activation_mod
+    from pipeline.ingest.provider_errors import ProviderAuthError
+
+    monkeypatch.setattr(settings, "pipeline_target", "league")
+    monkeypatch.setattr(settings, "league_fixture_provider", "api_football")
+    monkeypatch.setattr(settings, "api_football_api_key", "dead-key")
+    monkeypatch.setattr(leagues_mod, "ACTIVE_LEAGUES", ["ucl"])
+    monkeypatch.setattr(
+        activation_mod,
+        "ensure_club_history",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            ProviderAuthError("history auth failed", endpoint="/fixtures")
+        ),
+    )
+    fixture_calls = []
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *_a, **_k: fixture_calls.append(True) or [],
+    )
+
+    with pytest.raises(ProviderAuthError, match="history auth failed"):
+        run_pipeline(db_session, n_sims=10)
+
+    assert fixture_calls == []
+
+
 def test_feed_success_metrics_ignore_unmatched_previous_provider_rows(
     db_session, monkeypatch,
 ):
