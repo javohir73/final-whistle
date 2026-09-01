@@ -14,6 +14,15 @@ jobs:
       SITE: https://fifa-wc26-prediction.vercel.app
       API: https://pitchprophet-api.onrender.com
     steps:
+      - uses: actions/checkout@v6
+      - name: Validate API data health
+        run: |
+          health_json=$(mktemp)
+          trap 'rm -f "$health_json"' EXIT
+          curl --fail --silent --show-error \
+            --retry 4 --retry-delay 12 --retry-all-errors --max-time 40 \
+            "$API/api/health" -o "$health_json"
+          python scripts/validate_health.py "$health_json"
       - name: Check critical paths
         run: |
           set -u
@@ -74,31 +83,6 @@ jobs:
             echo "✗ FAILED redirect: $url (last: $out, expected -> $want)"
             fail=1
           }
-
-          # ---- API ------------------------------------------------------------
-          # health carries its own outage signal in the payload, so assert on it
-          # rather than on "the endpoint answered".
-          #
-          # Deliberately NOT asserted here: learning_chain.last_error. It is
-          # sticky — never cleared on a later success — so it still holds the
-          # IndexError from the 2026-08-02 incident that #225 fixed, and
-          # asserting null would fail on arrival. A last_success_at recency
-          # bound is no good either: the chain is legitimately quiet whenever no
-          # match has finished (verified — a 2-day gap between NRL rounds is
-          # healthy). Making that field assertable needs a backend change to
-          # clear it on success; until then it is a dashboard field, not a probe.
-          check "$API/api/health" "application/json" '"status":"ok"'
-          check "$API/api/health" "application/json" '"missing":0'
-
-          # Freshness + finality (app/data_freshness.py). `status` is liveness
-          # and stays "ok" while the API answers, so it CANNOT see a dead feed
-          # — the pre-season incident ran for weeks with every probe green
-          # because nothing errored, there was just no new data. data_status
-          # goes "degraded" when a match is still in_play (or still scheduled)
-          # more than 4h after kickoff, which is impossible unless ingestion
-          # stopped reaching us. This one needle covers every competition at
-          # once, and unlike a club-name needle it cannot rot.
-          check "$API/api/health" "application/json" '"data_status":"ok"'
 
           # Non-empty payload assertions: each needle is a per-row field, so an
           # empty array (200 []) no longer passes as healthy.
