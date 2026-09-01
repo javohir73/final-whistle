@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.match_status import AWAITING_KICKOFF, IN_PLAY, SCHEDULED
@@ -129,10 +130,24 @@ def fixture_feed_health(
     """Project durable fixture-feed status for every active competition."""
     from app.config import settings
     from pipeline.ingest.fixture_contract import capabilities_for
+    from pipeline.ingest.fixture_feed_status import public_error_message
     from pipeline.leagues import ACTIVE_LEAGUES, LEAGUES
 
     _now = now or datetime.now(timezone.utc)
     codes = [code for code in ACTIVE_LEAGUES if code in LEAGUES]
+    _, stale_cutoff = _horizon(_now, MATCH_MAX_DURATION_HOURS)
+    stale_scheduled = dict(
+        db.query(Tournament.name, func.count(Match.id))
+        .join(Match, Match.tournament_id == Tournament.id)
+        .filter(
+            Tournament.name.in_([LEAGUES[code]["tournament_name"] for code in codes]),
+            Match.status == SCHEDULED,
+            Match.kickoff_utc.isnot(None),
+            Match.kickoff_utc < stale_cutoff,
+        )
+        .group_by(Tournament.name)
+        .all()
+    )
     stored = {
         row.competition_code: row
         for row in db.query(FixtureFeedStatus).filter(
@@ -174,8 +189,14 @@ def fixture_feed_health(
             "last_success_at": _iso(success),
             "last_error_at": _iso(error_at),
             "error_kind": row.last_error_kind if row else None,
-            "error": row.last_error if row else None,
+            "error": (
+                public_error_message(row.last_error_kind)
+                if row and row.last_error_at is not None else None
+            ),
             "fixture_count": row.fixture_count if row else 0,
+            "stale_scheduled_match_count": int(
+                stale_scheduled.get(cfg["tournament_name"], 0)
+            ),
             "latest_upstream_updated_at": _iso(
                 row.latest_upstream_updated_at if row else None
             ),

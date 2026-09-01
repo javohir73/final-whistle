@@ -74,7 +74,7 @@ def test_success_clears_current_error_and_stores_feed_freshness(db_session):
     assert row.capabilities["mode"] == "delayed_results"
 
 
-def test_failure_preserves_prior_success_and_truncates_typed_error(db_session):
+def test_failure_preserves_prior_success_and_stores_safe_typed_error(db_session):
     record_success(
         db_session,
         "ucl",
@@ -102,5 +102,6 @@ def test_failure_preserves_prior_success_and_truncates_typed_error(db_session):
     assert row.fixture_count == 189
     assert _utc(row.last_error_at) == later
     assert row.last_error_kind == "quota"
-    assert row.last_error == "x" * 500
+    assert row.last_error == "provider quota or rate limit exhausted"
+    assert "x" * 20 not in row.last_error
     assert row.capabilities["mode"] == "delayed_results"

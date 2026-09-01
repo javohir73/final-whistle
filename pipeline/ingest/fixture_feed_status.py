@@ -1,13 +1,30 @@
 """Durable per-competition fixture-feed refresh telemetry."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import FixtureFeedStatus
 from pipeline.ingest.fixture_contract import FixtureProvider, capabilities_for
 from pipeline.ingest.provider_errors import ProviderError
+
+log = logging.getLogger(__name__)
+
+_PUBLIC_ERROR_MESSAGES = {
+    "quota": "provider quota or rate limit exhausted",
+    "auth": "provider authentication or entitlement failed",
+    "storage": "fixture feed storage failed",
+    "input": "fixture refresh input unavailable",
+    "error": "fixture refresh failed",
+}
+
+
+def public_error_message(kind: str | None) -> str:
+    """Safe public detail for a stored failure classification."""
+    return _PUBLIC_ERROR_MESSAGES.get(kind or "error", "fixture refresh failed")
 
 
 def _utc_now() -> datetime:
@@ -40,6 +57,14 @@ def _upsert(
         )
         db.add(row)
     else:
+        if row.provider != provider:
+            row.last_attempt_at = None
+            row.last_success_at = None
+            row.last_error_at = None
+            row.last_error_kind = None
+            row.last_error = None
+            row.fixture_count = 0
+            row.latest_upstream_updated_at = None
         row.tournament_name = tournament_name
         row.provider = provider
         row.capabilities = capabilities
@@ -93,9 +118,19 @@ def record_failure(
 ) -> FixtureFeedStatus:
     row = _upsert(db, competition_code, tournament_name, provider)
     row.last_error_at = now or _utc_now()
-    row.last_error_kind = (
-        error.kind if isinstance(error, ProviderError) else "error"
+    if isinstance(error, ProviderError):
+        kind = error.kind
+    elif isinstance(error, SQLAlchemyError):
+        kind = "storage"
+    elif isinstance(error, OSError):
+        kind = "input"
+    else:
+        kind = "error"
+    log.error(
+        "fixture feed failure for %s via %s (%s): %s",
+        competition_code, provider, kind, error,
     )
-    row.last_error = str(error)[:500]
+    row.last_error_kind = kind
+    row.last_error = public_error_message(kind)
     db.commit()
     return row
