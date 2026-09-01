@@ -62,6 +62,7 @@ def test_football_data_fixture_normalizes_current_result():
         "lastUpdated": "2026-08-28T21:02:03Z",
         "homeTeam": {"id": 5, "name": "Borussia Dortmund"},
         "awayTeam": {"id": 11, "name": "FC Bayern München"},
+        "venue": "Signal Iduna Park",
         "score": {
             "duration": "REGULAR",
             "fullTime": {"home": 2, "away": 1},
@@ -74,6 +75,7 @@ def test_football_data_fixture_normalizes_current_result():
     assert (got.status, got.score_home, got.score_away) == ("finished", 2, 1)
     assert got.matchweek == 1
     assert got.round_label == "REGULAR_SEASON"
+    assert (got.venue_name, got.venue_city) == ("Signal Iduna Park", None)
     assert got.upstream_updated_at.isoformat() == "2026-08-28T21:02:03+00:00"
 
 
@@ -293,7 +295,7 @@ def test_football_data_nested_nonobjects_are_rejected(path):
         "lastUpdated": "2026-08-28T21:02:03Z",
         "homeTeam": {"id": 5, "name": "Borussia Dortmund"},
         "awayTeam": {"id": 11, "name": "FC Bayern München"},
-        "venue": {"name": "Signal Iduna Park", "city": "Dortmund"},
+        "venue": "Signal Iduna Park",
         "score": {"duration": "REGULAR", "fullTime": {"home": 2, "away": 1}, "regularTime": {"home": 2, "away": 1}},
     }
     malformed = deepcopy(raw)
@@ -624,7 +626,7 @@ def test_football_data_honors_retry_after_http_date():
     assert sleeps == [20.0]
 
 
-def test_football_data_clamps_retry_after_to_thirty_seconds():
+def test_football_data_honors_long_retry_after_seconds():
     request_get = _SequenceGet(
         _Response(429, {"message": "too many requests"}, {"Retry-After": "120"}),
         _Response(200, _success_payload()),
@@ -633,7 +635,22 @@ def test_football_data_clamps_retry_after_to_thirty_seconds():
     fetch_football_data_fixtures(
         "token", "BL1", 2026, request_get=request_get, sleeper=sleeps.append,
     )
-    assert sleeps == [30.0]
+    assert sleeps == [120.0]
+
+
+def test_football_data_rejects_a_response_for_the_wrong_season():
+    payload = deepcopy(_success_payload())
+    payload["filters"]["season"] = "2025"
+    payload["matches"][0]["utcDate"] = "2025-08-28T18:30:00Z"
+    request_get = _SequenceGet(_Response(200, payload))
+
+    with pytest.raises(ProviderError, match="expected season 2026"):
+        fetch_football_data_fixtures(
+            "token", "BL1", 2026,
+            request_get=request_get,
+            sleeper=lambda _: None,
+        )
+    assert len(request_get.calls) == 1
 
 
 @pytest.mark.parametrize("status_code", [401, 403])

@@ -27,7 +27,6 @@ from pipeline.ingest.provider_errors import (
 BASE_URL = "https://api.football-data.org/v4"
 MAX_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 6.5
-MAX_RETRY_DELAY_SECONDS = 30.0
 
 _STATUS_TO_INTERNAL = {
     "SCHEDULED": SCHEDULED,
@@ -141,9 +140,8 @@ def normalize_fixture(
             return None
 
     venue = raw.get("venue")
-    if venue is not None and not isinstance(venue, dict):
+    if venue is not None and not isinstance(venue, str):
         return None
-    venue = venue or {}
     last_updated = raw.get("lastUpdated")
     upstream_updated_at = _parse_datetime(last_updated)
     if last_updated is not None and upstream_updated_at is None:
@@ -160,8 +158,8 @@ def normalize_fixture(
         matchweek=matchweek,
         score_home_90=score_home_90,
         score_away_90=score_away_90,
-        venue_name=_optional_text(venue.get("name")),
-        venue_city=_optional_text(venue.get("city")),
+        venue_name=_optional_text(venue),
+        venue_city=None,
         round_label=_optional_text(raw.get("stage")),
         upstream_updated_at=upstream_updated_at,
         home_provider_id=home_provider_id,
@@ -192,8 +190,8 @@ def _retry_delay(response, *, clock: Callable[[], datetime]) -> float:
                 ).total_seconds()
             except (TypeError, ValueError, OverflowError):
                 delay = RETRY_DELAY_SECONDS
-        return min(MAX_RETRY_DELAY_SECONDS, max(0.0, delay))
-    return min(MAX_RETRY_DELAY_SECONDS, RETRY_DELAY_SECONDS)
+        return max(0.0, delay)
+    return RETRY_DELAY_SECONDS
 
 
 def _provider_error(message: str, *, endpoint: str, detail=None) -> ProviderError:
@@ -285,6 +283,18 @@ def fetch_football_data_fixtures(
         if returned_code != competition_code:
             raise _provider_error(
                 f"{endpoint}: expected competition {competition_code}, got {returned_code!r}",
+                endpoint=endpoint,
+            )
+        filters = payload.get("filters")
+        returned_season = (
+            filters.get("season") if isinstance(filters, dict) else None
+        )
+        if (
+            type(returned_season) not in (str, int)
+            or str(returned_season) != str(season)
+        ):
+            raise _provider_error(
+                f"{endpoint}: expected season {season}, got {returned_season!r}",
                 endpoint=endpoint,
             )
         matches = payload.get("matches")
