@@ -574,7 +574,7 @@ def test_football_data_partial_failure_commits_and_predicts_other_leagues(
         for row in db_session.query(FixtureFeedStatus).all()
     }
     assert set(statuses) == {"epl", "laliga", "bundesliga", "ucl"}
-    assert statuses["laliga"].last_error == "La Liga fallback failed"
+    assert statuses["laliga"].last_error == "fixture refresh failed"
     assert all(
         statuses[code].last_success_at is not None
         for code in ("epl", "bundesliga", "ucl")
