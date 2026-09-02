@@ -234,16 +234,25 @@ def assign_knockout_teams(db: Session, api_matches: list[dict]) -> dict:
     }
 
 
-def _index_by_pair(db: Session) -> dict[frozenset, Match]:
+def _index_by_pair(
+    db: Session,
+    tournament_id: int | None = None,
+) -> dict[frozenset, Match]:
     """Map {normalized {home,away} pair -> Match} for fixtures with known teams.
     Group pairings are unique, so the unordered pair is an unambiguous key."""
-    index: dict[frozenset, Match] = {}
-    for m in db.query(Match).filter(Match.team_home_id.isnot(None)).all():
+    candidates: dict[frozenset, list[Match]] = {}
+    query = db.query(Match).filter(Match.team_home_id.isnot(None))
+    if tournament_id is not None:
+        query = query.filter(Match.tournament_id == tournament_id)
+    for m in query.all():
         home = db.get(Team, m.team_home_id)
         away = db.get(Team, m.team_away_id)
         if home and away and home.name != away.name:
-            index[frozenset((home.name, away.name))] = m
-    return index
+            key = frozenset((home.name, away.name))
+            candidates.setdefault(key, []).append(m)
+    # Pair fallback is safe only when it identifies exactly one row. Repeated
+    # European legs or the same clubs in multiple competitions must use an ID.
+    return {key: rows[0] for key, rows in candidates.items() if len(rows) == 1}
 
 
 def estimate_minute(kickoff: datetime | None, now: datetime | None = None) -> int | None:
@@ -333,16 +342,26 @@ def update_live_scores(
     api_matches: list[dict],
     *,
     preserve_stopped_statuses: bool = True,
+    tournament_id: int | None = None,
 ) -> dict:
     """Apply fetched match states to our DB. Returns a small summary."""
-    index = _index_by_pair(db)
+    index = _index_by_pair(db, tournament_id)
     # Secondary index keyed on provider_fixture_id for KO rows that have been
     # assigned a fixture id. This lets KO live ingestion resolve by id first,
     # eliminating the cross-stage pair-collision hazard (same two teams in both
     # a group row and a KO row share the same frozenset key; the id is unique).
+    fid_query = db.query(Match).filter(
+        Match.provider_fixture_id.isnot(None),
+        or_(
+            Match.fixture_provider.is_(None),
+            Match.fixture_provider == "api_football",
+        ),
+    )
+    if tournament_id is not None:
+        fid_query = fid_query.filter(Match.tournament_id == tournament_id)
     fid_index: dict[int, Match] = {
         m.provider_fixture_id: m
-        for m in db.query(Match).filter(Match.provider_fixture_id.isnot(None)).all()
+        for m in fid_query.all()
     }
     updated = live = finished = newly_finished = 0
 
@@ -531,7 +550,12 @@ def _league_live_targets(db: Session, now: datetime | None = None) -> list[dict]
         )
         if in_window:
             targets.append(
-                {"code": code, "league_id": cfg["league_id"], "season": cfg["season"]}
+                {
+                    "code": code,
+                    "league_id": cfg["league_id"],
+                    "season": cfg["season"],
+                    "tournament_id": tournament.id,
+                }
             )
     return targets
 
@@ -610,6 +634,7 @@ def _refresh_league_live(db: Session, now: datetime | None = None) -> dict:
             db,
             feed,
             preserve_stopped_statuses=settings.preserve_match_stop_statuses,
+            tournament_id=target["tournament_id"],
         )
         total["leagues"][target["code"]] = summary
         for k in ("updated", "live", "finished", "newly_finished"):

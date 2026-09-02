@@ -8,11 +8,39 @@ errored, there was simply no new data.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.data_freshness import coverage_gaps, data_status, stuck_matches
-from app.models import Match, Tournament
+from app.data_freshness import (
+    coverage_gaps,
+    data_status,
+    fixture_feed_health,
+    stuck_matches,
+)
+from app.models import FixtureFeedStatus, Match, Tournament
+from pipeline.ingest.fixture_contract import capabilities_for
+from pipeline.ingest.fixture_feed_status import record_attempt, record_failure
+from pipeline.leagues import LEAGUES
 
 NOW = datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def healthy_fixture_feeds(db_session):
+    for code, cfg in LEAGUES.items():
+        db_session.add(FixtureFeedStatus(
+            competition_code=code,
+            tournament_name=cfg["tournament_name"],
+            provider="football_data",
+            last_attempt_at=NOW,
+            last_success_at=NOW,
+            last_error_at=None,
+            last_error_kind=None,
+            last_error=None,
+            fixture_count=10,
+            latest_upstream_updated_at=NOW,
+            capabilities=capabilities_for("football_data"),
+        ))
+    db_session.commit()
 
 
 @pytest.fixture
@@ -162,3 +190,140 @@ def test_matches_beyond_the_window_are_not_counted(db_session, epl):
     # A fixture three weeks out has no venue yet for ordinary reasons.
     _match(db_session, epl, status="scheduled", hours_ago=-24 * 21)
     assert coverage_gaps(db_session, now=NOW)["upcoming_matches"] == 0
+
+
+def test_fixture_feed_health_reports_all_codes_and_delayed_capabilities(db_session):
+    rows = {
+        row["competition_code"]: row
+        for row in fixture_feed_health(db_session, now=NOW)
+    }
+    assert set(rows) == {"epl", "laliga", "bundesliga", "ucl"}
+    assert rows["epl"]["status"] == "ok"
+    assert rows["epl"]["provider"] == "football_data"
+    assert rows["epl"]["mode"] == "delayed_results"
+    assert rows["epl"]["capabilities"]["lineups"] is False
+
+
+def test_killed_first_attempt_after_provider_switch_is_never_healthy(db_session):
+    row = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="epl"
+    ).one()
+    row.provider = "api_football"
+    row.last_attempt_at = NOW - timedelta(hours=2)
+    row.last_success_at = NOW - timedelta(hours=2)
+    row.fixture_count = 380
+    row.latest_upstream_updated_at = NOW - timedelta(hours=3)
+    row.capabilities = capabilities_for("api_football")
+    db_session.commit()
+
+    # Simulate a cutover process that committed its attempt, then was killed
+    # before it could record either success or failure.
+    record_attempt(
+        db_session,
+        "epl",
+        "Premier League 2026-27",
+        "football_data",
+        now=NOW,
+    )
+
+    feed = next(
+        item for item in fixture_feed_health(db_session, now=NOW)
+        if item["competition_code"] == "epl"
+    )
+    assert feed["provider"] == "football_data"
+    assert feed["status"] == "never_run"
+    assert feed["last_success_at"] is None
+    assert feed["fixture_count"] == 0
+    assert feed["latest_upstream_updated_at"] is None
+
+
+def test_fixture_feed_health_never_exposes_private_failure_details(
+    db_session, caplog,
+):
+    private_detail = (
+        "SELECT * FROM accounts WHERE password='hunter2'; "
+        "/private/secrets/provider-token.txt token=super-secret"
+    )
+    record_failure(
+        db_session,
+        "ucl",
+        "UEFA Champions League 2026-27",
+        "football_data",
+        SQLAlchemyError(private_detail),
+        now=NOW + timedelta(minutes=1),
+    )
+
+    feed = next(
+        item for item in fixture_feed_health(db_session, now=NOW + timedelta(minutes=1))
+        if item["competition_code"] == "ucl"
+    )
+    assert feed["error_kind"] == "storage"
+    assert feed["error"] == "fixture feed storage failed"
+    assert private_detail not in repr(feed)
+    assert private_detail in caplog.text
+
+
+def test_fixture_feed_health_counts_stale_scheduled_matches_per_competition(
+    db_session, epl,
+):
+    _match(db_session, epl, status="scheduled", hours_ago=9)
+    _match(db_session, epl, status="scheduled", hours_ago=3)
+    _match(db_session, epl, status="in_play", hours_ago=9)
+    _match(db_session, epl, status="finished", hours_ago=9)
+
+    rows = {
+        item["competition_code"]: item
+        for item in fixture_feed_health(db_session, now=NOW)
+    }
+    assert rows["epl"]["stale_scheduled_match_count"] == 1
+    assert rows["laliga"]["stale_scheduled_match_count"] == 0
+
+
+def test_fixture_feed_health_classifies_never_run_empty_failed_and_stale(db_session):
+    db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="epl"
+    ).delete()
+    laliga = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="laliga"
+    ).one()
+    laliga.fixture_count = 0
+    bundesliga = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="bundesliga"
+    ).one()
+    bundesliga.last_success_at = NOW - timedelta(hours=37)
+    ucl = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="ucl"
+    ).one()
+    ucl.last_success_at = NOW - timedelta(hours=1)
+    ucl.last_error_at = NOW
+    ucl.last_error_kind = "error"
+    ucl.last_error = "upstream unavailable"
+    db_session.commit()
+
+    rows = {
+        row["competition_code"]: row
+        for row in fixture_feed_health(db_session, now=NOW)
+    }
+    assert rows["epl"]["status"] == "never_run"
+    assert rows["laliga"]["status"] == "empty"
+    assert rows["bundesliga"]["status"] == "stale"
+    assert rows["ucl"]["status"] == "failed"
+    assert rows["ucl"]["error"] == "fixture refresh failed"
+
+
+def test_non_ok_fixture_feeds_add_one_data_status_degradation(db_session):
+    row = db_session.query(FixtureFeedStatus).filter_by(
+        competition_code="laliga"
+    ).one()
+    row.fixture_count = 0
+    db_session.commit()
+
+    out = data_status(db_session, now=NOW)
+
+    assert out["status"] == "degraded"
+    feed_degradations = [
+        item for item in out["degradations"]
+        if item["kind"] == "fixture_feed"
+    ]
+    assert len(feed_degradations) == 1
+    assert feed_degradations[0]["competitions"] == ["laliga"]

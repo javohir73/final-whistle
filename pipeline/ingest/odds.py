@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from statistics import median
 
 import requests
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app.models import Match, Odds
 from ml.models.odds_blend import remove_margin
@@ -116,6 +116,8 @@ def median_prices(response: list[dict]) -> dict | None:
 def _fixture_id(db: Session, match: Match, api_key: str) -> int | None:
     """Provider fixture id: the stored one, else the lineups path's cached
     resolver (team pair + kickoff date). Indirection point for tests."""
+    if match.fixture_provider not in (None, "api_football"):
+        return None
     if match.provider_fixture_id is not None:
         return match.provider_fixture_id
     from app.lineups import _resolve_fixture_id
@@ -183,6 +185,7 @@ def refresh_odds(db: Session, api_key: str, window_hours: float = WINDOW_HOURS) 
     try:
         matches = (
             db.query(Match)
+            .options(undefer(Match.fixture_provider))
             .filter(
                 Match.status == "scheduled",
                 Match.team_home_id.isnot(None),
@@ -256,6 +259,7 @@ def snapshot_phased_odds(db: Session, api_key: str, budget: int = MAX_FETCHES_PE
     try:
         matches = (
             db.query(Match)
+            .options(undefer(Match.fixture_provider))
             .filter(
                 Match.status == "scheduled",
                 Match.team_home_id.isnot(None),
@@ -334,6 +338,7 @@ def backfill_finished_odds(db: Session, api_key: str,
         )
         matches = (
             db.query(Match)
+            .options(undefer(Match.fixture_provider))
             .filter(
                 Match.status == "finished",
                 Match.team_home_id.isnot(None),

@@ -104,6 +104,14 @@ class Match(Base):
     """A scheduled WC2026 match (group or knockout)."""
 
     __tablename__ = "matches"
+    __table_args__ = (
+        UniqueConstraint(
+            "tournament_id",
+            "fixture_provider",
+            "provider_fixture_id",
+            name="uq_matches_fixture_provider_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
@@ -160,6 +168,11 @@ class Match(Base):
     # Feed's per-match version stamp (lastUpdated). A lagging cache node must not
     # overwrite a fresher record we already applied (see live_scores.update).
     provider_last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Scheduled fixture feed that owns provider_fixture_id. Deferred so the
+    # application remains readable during the migration-first rollout window.
+    fixture_provider: Mapped[str | None] = mapped_column(
+        String(32), deferred=True
+    )
     # API-Football fixture id, resolved on demand by the display-only lineups
     # endpoint (team-pair + kickoff date) and cached here so it can fetch
     # /fixtures/lineups without re-resolving each time.
@@ -187,6 +200,31 @@ class Match(Base):
     lineups: Mapped[list[MatchLineup]] = relationship(
         back_populates="match", cascade="all, delete-orphan"
     )
+
+
+class FixtureFeedStatus(Base):
+    __tablename__ = "fixture_feed_status"
+    __table_args__ = (
+        UniqueConstraint(
+            "competition_code",
+            name="uq_fixture_feed_status_competition",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_code: Mapped[str] = mapped_column(String(24))
+    tournament_name: Mapped[str] = mapped_column(String(120))
+    provider: Mapped[str] = mapped_column(String(32))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_kind: Mapped[str | None] = mapped_column(String(32))
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    fixture_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    latest_upstream_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    capabilities: Mapped[dict] = mapped_column(JSON)
 
 
 class MatchLineup(Base):

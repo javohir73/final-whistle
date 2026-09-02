@@ -179,6 +179,33 @@ def test_fetches_persists_and_returns_when_in_window(env, monkeypatch):
     db.close()
 
 
+def test_football_data_owned_id_never_calls_api_football_lineups(env, monkeypatch):
+    client, Session = env
+    monkeypatch.setattr(settings, "api_football_api_key", "test-key")
+    db = Session()
+    match = db.get(Match, 1)
+    match.fixture_provider = "football_data"
+    match.provider_fixture_id = 555
+    db.commit()
+    db.close()
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("football-data fixture must not call API-Football")
+
+    monkeypatch.setattr("pipeline.ingest.api_football.fetch_fixtures", unexpected)
+    monkeypatch.setattr("pipeline.ingest.api_football.fetch_lineups", unexpected)
+
+    response = client.get("/api/matches/1/lineups")
+    assert response.status_code == 200
+    assert response.json() == {
+        "available": False,
+        "message": "Lineups are unavailable from the selected fixture provider.",
+        "home": None,
+        "away": None,
+        "fetched_at": None,
+    }
+
+
 def test_resolves_fixture_id_by_team_pair_then_fetches(env, monkeypatch):
     client, Session = env
     monkeypatch.setattr(settings, "api_football_api_key", "test-key")

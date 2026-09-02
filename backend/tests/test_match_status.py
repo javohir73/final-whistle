@@ -25,9 +25,30 @@ from app.match_status import (
     is_deliberate_stop,
     is_locked,
 )
-from app.models import Match, Tournament
+from app.models import FixtureFeedStatus, Match, Tournament
+from pipeline.ingest.fixture_contract import capabilities_for
+from pipeline.leagues import LEAGUES
 
 NOW = datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def healthy_fixture_feeds(db_session):
+    for code, cfg in LEAGUES.items():
+        db_session.add(FixtureFeedStatus(
+            competition_code=code,
+            tournament_name=cfg["tournament_name"],
+            provider="football_data",
+            last_attempt_at=NOW,
+            last_success_at=NOW,
+            last_error_at=None,
+            last_error_kind=None,
+            last_error=None,
+            fixture_count=10,
+            latest_upstream_updated_at=NOW,
+            capabilities=capabilities_for("football_data"),
+        ))
+    db_session.commit()
 
 
 @pytest.fixture

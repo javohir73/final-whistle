@@ -38,6 +38,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
           API_FOOTBALL_API_KEY: ${{ secrets.API_FOOTBALL_API_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          LEAGUE_FIXTURE_PROVIDER: ${{ vars.LEAGUE_FIXTURE_PROVIDER || 'api_football' }}
           # The pipeline runs here, not on Render, so the wc26->league cutover is
           # controlled by the PIPELINE_TARGET repo variable (defaults to wc26).
           PIPELINE_TARGET: ${{ vars.PIPELINE_TARGET || 'wc26' }}

@@ -43,6 +43,9 @@ _PLACEHOLDER_UPCOMING = "Lineups are announced ~40 minutes before kickoff."
 # say so plainly rather than implying a future kickoff (honesty over a misleading
 # "before kickoff" line on a match that's already over).
 _PLACEHOLDER_UNAVAILABLE = "No official lineup was published for this match."
+_PLACEHOLDER_UNSUPPORTED_PROVIDER = (
+    "Lineups are unavailable from the selected fixture provider."
+)
 
 
 def _placeholder_message(match: Match) -> str:
@@ -166,6 +169,10 @@ def _resolve_fixture_id(db: Session, match: Match, api_key: str) -> int | None:
     resolved by the normalized home/away team pair against the season's fixtures
     (disambiguated by kickoff date when a pair recurs) and cached on the match.
     Returns None if it can't be resolved."""
+    # A stored id is meaningful to this API only when API-Football owns it.
+    # NULL is the legacy pre-provenance spelling for API-Football.
+    if match.fixture_provider not in (None, "api_football"):
+        return None
     if match.provider_fixture_id is not None:
         return match.provider_fixture_id
 
@@ -260,6 +267,14 @@ def _resolve_lineups(db: Session, match: Match) -> schemas.MatchLineupsOut:
         result = _serialize_stored(db, match)
         if result is not None:
             return result
+
+    # A fallback-owned fixture ID has no meaning to API-Football. Preserve any
+    # cached lineup data, but never imply that the selected provider was checked
+    # and returned an empty team sheet.
+    if match.fixture_provider not in (None, PROVIDER):
+        return _serialize_stored(db, match) or _unavailable(
+            _PLACEHOLDER_UNSUPPORTED_PROVIDER
+        )
 
     # 2. Can't fetch (out of window, or no key) -> serve whatever partial cache we
     #    have rather than hiding it; otherwise a state-honest placeholder, NO call.

@@ -34,10 +34,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.match_status import AWAITING_KICKOFF, IN_PLAY, SCHEDULED
-from app.models import Match, Tournament
+from app.models import FixtureFeedStatus, Match, Tournament
 
 #: Hours after kickoff past which a match cannot still be running. 90' + HT +
 #: stoppage is ~2h; extra time and penalties push a knockout to ~3h. The extra
@@ -109,6 +110,100 @@ def stuck_matches(
 #: the odds/injuries ingest window, so a gap here means an enrichment pass that
 #: should already have run has not.
 COVERAGE_WINDOW_HOURS = 48.0
+FIXTURE_FEED_STALE_HOURS = 36.0
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def fixture_feed_health(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    stale_hours: float = FIXTURE_FEED_STALE_HOURS,
+) -> list[dict]:
+    """Project durable fixture-feed status for every active competition."""
+    from app.config import settings
+    from pipeline.ingest.fixture_contract import capabilities_for
+    from pipeline.ingest.fixture_feed_status import public_error_message
+    from pipeline.leagues import ACTIVE_LEAGUES, LEAGUES
+
+    _now = now or datetime.now(timezone.utc)
+    codes = [code for code in ACTIVE_LEAGUES if code in LEAGUES]
+    _, stale_cutoff = _horizon(_now, MATCH_MAX_DURATION_HOURS)
+    stale_scheduled = dict(
+        db.query(Tournament.name, func.count(Match.id))
+        .join(Match, Match.tournament_id == Tournament.id)
+        .filter(
+            Tournament.name.in_([LEAGUES[code]["tournament_name"] for code in codes]),
+            Match.status == SCHEDULED,
+            Match.kickoff_utc.isnot(None),
+            Match.kickoff_utc < stale_cutoff,
+        )
+        .group_by(Tournament.name)
+        .all()
+    )
+    stored = {
+        row.competition_code: row
+        for row in db.query(FixtureFeedStatus).filter(
+            FixtureFeedStatus.competition_code.in_(codes)
+        ).all()
+    }
+    out: list[dict] = []
+    for code in codes:
+        cfg = LEAGUES[code]
+        row = stored.get(code)
+        provider = row.provider if row else settings.league_fixture_provider
+        capabilities = (
+            row.capabilities if row else capabilities_for(provider)
+        )
+        success = row.last_success_at if row else None
+        error_at = row.last_error_at if row else None
+        if success is None:
+            status = "never_run"
+        elif (row.fixture_count if row else 0) <= 0:
+            status = "empty"
+        elif error_at is not None and error_at > success:
+            status = "failed"
+        else:
+            comparable_success = (
+                success.replace(tzinfo=timezone.utc)
+                if success.tzinfo is None else success
+            )
+            status = (
+                "stale"
+                if _now - comparable_success > timedelta(hours=stale_hours)
+                else "ok"
+            )
+        out.append({
+            "competition_code": code,
+            "tournament_name": cfg["tournament_name"],
+            "provider": provider,
+            "mode": capabilities.get("mode"),
+            "last_attempt_at": _iso(row.last_attempt_at if row else None),
+            "last_success_at": _iso(success),
+            "last_error_at": _iso(error_at),
+            "error_kind": row.last_error_kind if row else None,
+            "error": (
+                public_error_message(row.last_error_kind)
+                if row and row.last_error_at is not None else None
+            ),
+            "fixture_count": row.fixture_count if row else 0,
+            "stale_scheduled_match_count": int(
+                stale_scheduled.get(cfg["tournament_name"], 0)
+            ),
+            "latest_upstream_updated_at": _iso(
+                row.latest_upstream_updated_at if row else None
+            ),
+            "capabilities": capabilities,
+            "status": status,
+        })
+    return out
 
 
 def coverage_gaps(
@@ -186,6 +281,7 @@ def data_status(
     assert on ``data_status``; the browser keeps using ``status``.
     """
     stuck = stuck_matches(db, now=now, grace_hours=grace_hours)
+    feeds = fixture_feed_health(db, now=now)
     degradations: list[dict] = []
     if stuck:
         # Split the two causes: a stuck in_play row is a live-feed fault, a
@@ -207,6 +303,16 @@ def data_status(
                           f"{grace_hours:g}h after kickoff — results ingest is behind",
                 "matches": scheduled,
             })
+    unhealthy_feeds = [
+        row["competition_code"] for row in feeds if row["status"] != "ok"
+    ]
+    if unhealthy_feeds:
+        degradations.append({
+            "kind": "fixture_feed",
+            "detail": "fixture feed is not healthy for "
+                      + ", ".join(unhealthy_feeds),
+            "competitions": unhealthy_feeds,
+        })
     return {
         "status": "degraded" if degradations else "ok",
         "degradations": degradations,
@@ -214,4 +320,5 @@ def data_status(
         # quality gap, not an outage, and conflating the two would make the
         # degraded signal fire so often that nobody reads it.
         "coverage": coverage_gaps(db, now=now),
+        "fixture_feeds": feeds,
     }

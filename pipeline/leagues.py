@@ -41,6 +41,7 @@ class LeagueConfig(TypedDict):
     group_name: str
     league_id: int
     season: int
+    football_data_code: str
     # None means "no curated JSON for this league" -- league_structure.py
     # derives teams from the fixtures payload instead (Phase 2: La Liga/
     # Bundesliga's 2026-27 rosters, including promoted clubs, aren't
@@ -120,6 +121,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         "group_name": _epl.GROUP_NAME,
         "league_id": _epl.LEAGUE_ID,
         "season": _epl.SEASON,
+        "football_data_code": "PL",
         "teams_file": _epl.DEFAULT_TEAMS_FILE,
         "club_competition": _epl_club_competition,
         "club_division": _epl_club_division,
@@ -146,6 +148,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         "group_name": "La Liga",
         "league_id": 140,
         "season": 2026,
+        "football_data_code": "PD",
         "teams_file": None,
         "club_competition": "La Liga",
         "club_division": "SP1",
@@ -164,6 +167,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         "group_name": "Bundesliga",
         "league_id": 78,
         "season": 2026,
+        "football_data_code": "BL1",
         "teams_file": None,
         "club_competition": "Bundesliga",
         "club_division": "D1",
@@ -184,6 +188,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         # parameter is the starting calendar year, hence 2026 for 2026-27.
         "league_id": 2,
         "season": 2026,
+        "football_data_code": "CL",
         "teams_file": None,
         "club_competition": "UEFA Champions League",
         "club_division": None,
@@ -237,7 +242,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         "cold_start_teams": (),
         "allow_unrated_roster": True,
         "standings_advance_count": 24,
-        "group_round_prefixes": ("League Stage",),
+        "group_round_prefixes": ("League Stage", "LEAGUE_STAGE"),
     },
 }
 

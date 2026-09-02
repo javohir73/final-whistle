@@ -81,3 +81,51 @@ commercial licence. Until such a feed is available, the model can only be
 benchmarked against the **closing line** (the 90-minute snapshot, Phase 0/2).
 When a live feed is obtained, capture in-play snapshots (minute-stamped) and
 compare the re-priced W/D/L at minute *m* against the market at minute *m*.
+
+## Scheduled league fixture fallback
+
+The daily pipeline can source fixtures and results for all active club
+competitions from football-data.org when API-Football is unavailable:
+
+| Internal code | football-data.org code |
+|---|---|
+| `epl` | `PL` |
+| `laliga` | `PD` |
+| `bundesliga` | `BL1` |
+| `ucl` | `CL` |
+
+This is a `delayed_results` fallback, not a real-time enrichment source. It does
+not provide this application's odds, injuries, lineups, events, or authoritative
+live minute. Those capabilities are reported as unsupported, never as successful
+empty data.
+
+The free plan is limited to 10 requests per minute. The pipeline stays within
+that envelope by fetching competitions sequentially, making one fixture request
+per competition, and using bounded retry/backoff that honours `Retry-After`.
+Each competition commits independently, so one failed feed is visible in health
+without discarding successful competitions.
+
+### Activation and rollback
+
+The safe default is `LEAGUE_FIXTURE_PROVIDER=api_football`. To activate the
+fallback, add the GitHub Actions secret `FOOTBALL_DATA_API_KEY`, then set the
+repository variable `LEAGUE_FIXTURE_PROVIDER=football_data`. The refresh workflow
+passes both values to the pipeline. Do not put either credential in source or
+logs.
+
+The provenance/status migration (`a9b4c7d2e601`) must reach production before
+code that writes fixture-feed status is served. Because Render has no pre-deploy
+step, the guarded order is: merge the migration, explicitly dispatch
+`refresh.yml` and confirm `alembic upgrade head`, then deploy dependent code.
+Never activate the provider before that sequence completes.
+
+Rollback is configuration-only: set `LEAGUE_FIXTURE_PROVIDER=api_football` after
+confirming its entitlement is restored, run the refresh, and require `/api/health`
+to return liveness `ok`, `data_status: ok`, zero missing predictions, and `ok`
+fixture feeds for all four competition codes. Keep the stored provenance and
+status rows; provider-aware reconciliation switches existing matches back without
+discarding history.
+
+Changing production secrets or repository variables, dispatching the production
+refresh/migration, merging, and deploying are stop-gated operations. They require
+an explicit human `go`; local validation must not perform them.

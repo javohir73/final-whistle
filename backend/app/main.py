@@ -193,12 +193,14 @@ def health(db: Session = Depends(get_db)) -> dict:
         out["data_status"] = freshness["status"]
         out["degradations"] = freshness["degradations"]
         out["coverage"] = freshness["coverage"]
+        out["fixture_feeds"] = freshness["fixture_feeds"]
     except Exception:  # noqa: BLE001 — health must answer even without a DB
         # "unknown", never "ok": an unreadable DB is precisely when a monitor
         # must not be told the data is fine.
         out["data_status"] = "unknown"
         out["degradations"] = []
         out["coverage"] = {"status": "unavailable"}
+        out["fixture_feeds"] = {"status": "unavailable"}
     try:
         from app.chain_status import chain_pending, get_chain_status
 

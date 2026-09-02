@@ -49,6 +49,33 @@ def _client_with_db():
     return TestClient(app), TestingSession
 
 
+def _seed_healthy_fixture_feeds(session_factory):
+    from datetime import datetime, timezone
+
+    from app.models import FixtureFeedStatus
+    from pipeline.ingest.fixture_contract import capabilities_for
+    from pipeline.leagues import LEAGUES
+
+    s = session_factory()
+    now = datetime.now(timezone.utc)
+    for code, cfg in LEAGUES.items():
+        s.add(FixtureFeedStatus(
+            competition_code=code,
+            tournament_name=cfg["tournament_name"],
+            provider="football_data",
+            last_attempt_at=now,
+            last_success_at=now,
+            last_error_at=None,
+            last_error_kind=None,
+            last_error=None,
+            fixture_count=10,
+            latest_upstream_updated_at=now,
+            capabilities=capabilities_for("football_data"),
+        ))
+    s.commit()
+    s.close()
+
+
 def test_health_reports_learning_chain_heartbeat():
     """Silent chain deaths are invisible in responses by design — /api/health
     must surface the last attempt/success/error and whether work is owed."""
@@ -194,12 +221,35 @@ def test_live_ping_is_tiny_and_triggers_refresh(monkeypatch):
 def test_health_reports_data_status_ok_on_clean_data():
     """`status` is liveness; `data_status` is whether what we serve is current.
     Kept separate on purpose — see the health() docstring."""
-    c, _ = _client_with_db()
+    c, session_factory = _client_with_db()
     try:
+        _seed_healthy_fixture_feeds(session_factory)
         body = c.get("/api/health").json()
         assert body["status"] == "ok"
         assert body["data_status"] == "ok"
         assert body["degradations"] == []
+        assert {
+            row["competition_code"] for row in body["fixture_feeds"]
+        } == {"epl", "laliga", "bundesliga", "ucl"}
+        assert all(row["status"] == "ok" for row in body["fixture_feeds"])
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_health_keeps_liveness_but_marks_feed_status_unavailable_before_migration():
+    from app.models import FixtureFeedStatus
+
+    c, session_factory = _client_with_db()
+    try:
+        s = session_factory()
+        FixtureFeedStatus.__table__.drop(bind=s.get_bind())
+        s.close()
+
+        body = c.get("/api/health").json()
+
+        assert body["status"] == "ok"
+        assert body["data_status"] == "unknown"
+        assert body["fixture_feeds"] == {"status": "unavailable"}
     finally:
         app.dependency_overrides.clear()
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app.models import Match, Team
 from pipeline.ingest.api_football import fetch_injuries, parse_injuries
@@ -27,6 +27,8 @@ WINDOW_HOURS = 48.0
 def _fixture_id(db: Session, match: Match, api_key: str) -> int | None:
     """Provider fixture id: the stored one, else the lineups path's resolver
     (team pair + kickoff date). Mirrors pipeline.ingest.odds._fixture_id."""
+    if match.fixture_provider not in (None, "api_football"):
+        return None
     if match.provider_fixture_id is not None:
         return match.provider_fixture_id
     from app.lineups import _resolve_fixture_id
@@ -47,6 +49,7 @@ def refresh_injuries(db: Session, api_key: str, window_hours: float = WINDOW_HOU
     try:
         matches = (
             db.query(Match)
+            .options(undefer(Match.fixture_provider))
             .filter(
                 Match.status == "scheduled",
                 Match.team_home_id.isnot(None),

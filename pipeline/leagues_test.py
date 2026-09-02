@@ -66,7 +66,7 @@ def test_ucl_config_uses_verified_cross_border_provider_identity():
     # load-bearing rather than cosmetic).
     assert cfg["history_seasons"] == (2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025)
     assert cfg["club_division"] is None
-    assert cfg["group_round_prefixes"] == ("League Stage",)
+    assert cfg["group_round_prefixes"] == ("League Stage", "LEAGUE_STAGE")
     assert cfg["standings_advance_count"] == 24
 
 
@@ -307,3 +307,44 @@ def test_engine_switch_fingerprint_matches_the_served_version():
         "engine params moved without a CLUB_MODEL_VERSION bump — see docstring"
     )
     assert leagues_mod.CLUB_MODEL_VERSION == "poisson-elo-club-v0.3"
+
+
+def test_football_data_codes_cover_every_active_league():
+    assert {
+        code: leagues_mod.LEAGUES[code]["football_data_code"]
+        for code in ("epl", "laliga", "bundesliga", "ucl")
+    } == {
+        "epl": "PL",
+        "laliga": "PD",
+        "bundesliga": "BL1",
+        "ucl": "CL",
+    }
+
+
+def test_league_fixture_provider_defaults_to_api_football_and_selects_key():
+    from app.config import Settings
+
+    default = Settings(
+        _env_file=None,
+        api_football_api_key="api-key",
+        football_data_api_key="free-key",
+    )
+    fallback = Settings(
+        _env_file=None,
+        league_fixture_provider="football_data",
+        api_football_api_key="api-key",
+        football_data_api_key="free-key",
+    )
+
+    assert default.league_fixture_provider == "api_football"
+    assert default.league_fixture_api_key == "api-key"
+    assert fallback.league_fixture_api_key == "free-key"
+
+
+def test_invalid_league_fixture_provider_is_rejected_at_key_boundary():
+    from app.config import Settings
+    import pytest
+
+    configured = Settings(_env_file=None, league_fixture_provider="unknown")
+    with pytest.raises(ValueError, match="unsupported league fixture provider"):
+        _ = configured.league_fixture_api_key
