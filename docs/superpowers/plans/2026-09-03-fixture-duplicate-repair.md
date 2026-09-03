@@ -68,6 +68,7 @@ Run: `git add pipeline/repair_fixture_duplicates.py pipeline/repair_fixture_dupl
 
 **Files:**
 - Create: `.github/workflows/repair-fixture-duplicates.yml`
+- Modify: `.github/workflows/refresh.yml`
 - Create: `pipeline/repair_fixture_duplicates_workflow_test.py`
 
 **Interfaces:**
@@ -76,7 +77,7 @@ Run: `git add pipeline/repair_fixture_duplicates.py pipeline/repair_fixture_dupl
 
 - [ ] **Step 1: Write a failing workflow contract test**
 
-Parse the YAML and assert `workflow_dispatch.inputs.apply.default` is `false`, the job has no schedule/push trigger, the command omits `--apply` when false, includes it only when true, and uses the existing `DATABASE_URL` secret.
+Parse both YAML files and assert `workflow_dispatch.inputs.apply.default` is `false`, the repair job has no schedule/push trigger, the command omits `--apply` when false, includes it only when true, uses the existing `DATABASE_URL` secret, and both workflows share a non-cancelling `production-database` concurrency group.
 
 - [ ] **Step 2: Run the workflow test and verify RED**
 
@@ -86,7 +87,7 @@ Expected: failure because the workflow file does not exist.
 
 - [ ] **Step 3: Add the manual workflow**
 
-Create a single-job workflow using checkout and setup-python, install the same backend requirements as `refresh.yml`, run the repair in dry-run mode by default, and gate the `--apply` command with `${{ inputs.apply }}`. Do not run the full pipeline in this workflow.
+Create a single-job workflow using checkout and setup-python, install the same backend requirements as `refresh.yml`, run the repair in dry-run mode by default, and gate the `--apply` command with `${{ inputs.apply }}`. Do not run the full pipeline in this workflow. Add the same `production-database` concurrency group with `cancel-in-progress: false` to both repair and refresh workflows.
 
 - [ ] **Step 4: Verify workflow GREEN and parse YAML**
 
@@ -96,7 +97,7 @@ Expected: pass.
 
 - [ ] **Step 5: Commit the workflow**
 
-Run: `git add .github/workflows/repair-fixture-duplicates.yml pipeline/repair_fixture_duplicates_workflow_test.py && git commit -m "ci: add guarded fixture repair workflow"`
+Run: `git add .github/workflows/repair-fixture-duplicates.yml .github/workflows/refresh.yml pipeline/repair_fixture_duplicates_workflow_test.py && git commit -m "ci: add guarded fixture repair workflow"`
 
 ### Task 3: Full verification, review, and guarded rollout
 
