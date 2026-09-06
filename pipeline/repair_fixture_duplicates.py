@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, select, update
@@ -11,12 +11,33 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, undefer
 
 from app.db import Base, SessionLocal
-from app.models import Match, Team
+from app.models import Match, Team, Tournament
 from pipeline.team_mapping import normalize_team_name
 
 
 class DuplicateRepairError(RuntimeError):
     """The repair cannot prove that a proposed merge is safe."""
+
+
+@dataclass(frozen=True)
+class TeamMerge:
+    donor_team_id: int
+    donor_name: str
+    survivor_team_id: int
+    survivor_name: str
+
+
+@dataclass(frozen=True)
+class MatchMerge:
+    tournament_id: int
+    tournament_name: str
+    kickoff_utc: str
+    donor_match_id: int
+    survivor_match_id: int
+    donor_fixture_id: int | None
+    survivor_fixture_id: int | None
+    home: str
+    away: str
 
 
 @dataclass(frozen=True)
@@ -26,6 +47,9 @@ class RepairReport:
     teams_merged: int
     survivor_match_ids: tuple[int, ...]
     removed_match_ids: tuple[int, ...]
+    team_mappings: tuple[TeamMerge, ...]
+    match_mappings: tuple[MatchMerge, ...]
+    tournament_counts: dict[str, int]
 
 
 _REPAIR_TEAM_NAMES = {
@@ -193,7 +217,47 @@ def _apply_repair(
 ) -> RepairReport:
     survivor_ids: list[int] = []
     removed_ids: list[int] = []
+    team_details: list[TeamMerge] = []
+    for donor_id, survivor_id in sorted(team_merges.items()):
+        donor_team = db.get(Team, donor_id)
+        survivor_team = db.get(Team, survivor_id)
+        if donor_team is None or survivor_team is None:
+            raise DuplicateRepairError(
+                f"team merge disappeared during repair: {donor_id}->{survivor_id}"
+            )
+        team_details.append(TeamMerge(
+            donor_team_id=donor_id,
+            donor_name=donor_team.name,
+            survivor_team_id=survivor_id,
+            survivor_name=survivor_team.name,
+        ))
+
+    match_details: list[MatchMerge] = []
+    tournament_counts: dict[str, int] = {}
     for survivor, donor in match_merges:
+        tournament = db.get(Tournament, survivor.tournament_id)
+        home_id = team_merges.get(donor.team_home_id, donor.team_home_id)
+        away_id = team_merges.get(donor.team_away_id, donor.team_away_id)
+        home = db.get(Team, home_id)
+        away = db.get(Team, away_id)
+        if tournament is None or home is None or away is None:
+            raise DuplicateRepairError(
+                f"fixture identity disappeared during repair: {donor.id}"
+            )
+        match_details.append(MatchMerge(
+            tournament_id=tournament.id,
+            tournament_name=tournament.name,
+            kickoff_utc=_utc(donor.kickoff_utc).isoformat(),
+            donor_match_id=donor.id,
+            survivor_match_id=survivor.id,
+            donor_fixture_id=donor.provider_fixture_id,
+            survivor_fixture_id=survivor.provider_fixture_id,
+            home=home.name,
+            away=away.name,
+        ))
+        tournament_counts[tournament.name] = (
+            tournament_counts.get(tournament.name, 0) + 1
+        )
         _reparent_match_rows(db, donor.id, survivor.id)
         values = {field: getattr(donor, field) for field in _FIXTURE_FIELDS}
         values["team_home_id"] = team_merges.get(
@@ -228,6 +292,9 @@ def _apply_repair(
         teams_merged=len(team_merges),
         survivor_match_ids=tuple(survivor_ids),
         removed_match_ids=tuple(removed_ids),
+        team_mappings=tuple(team_details),
+        match_mappings=tuple(match_details),
+        tournament_counts=dict(sorted(tournament_counts.items())),
     )
 
 
@@ -246,7 +313,7 @@ def repair_fixture_duplicates(
         assert nested is not None
         nested.rollback()
         db.expire_all()
-        return RepairReport(**{**asdict(report), "dry_run": True})
+        return replace(report, dry_run=True)
     except (IntegrityError, DuplicateRepairError) as exc:
         if nested is not None and nested.is_active:
             nested.rollback()
@@ -267,13 +334,18 @@ def repair_fixture_duplicates(
         raise
 
 
+def report_json(report: RepairReport) -> str:
+    """Stable machine-readable evidence emitted by dry-run and apply."""
+    return json.dumps(asdict(report), sort_keys=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
     with SessionLocal() as db:
         report = repair_fixture_duplicates(db, apply=args.apply)
-    print(json.dumps(asdict(report), sort_keys=True))
+    print(report_json(report))
     return 0
 
 

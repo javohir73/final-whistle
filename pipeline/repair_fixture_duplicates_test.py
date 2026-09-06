@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -18,7 +19,10 @@ from app.models import (
 )
 from pipeline.repair_fixture_duplicates import (
     DuplicateRepairError,
+    MatchMerge,
+    TeamMerge,
     repair_fixture_duplicates,
+    report_json,
 )
 
 
@@ -101,6 +105,47 @@ def test_dry_run_reports_exact_merge_and_writes_nothing(db_session):
     assert report.teams_merged == 1
     assert report.survivor_match_ids == (legacy.id,)
     assert report.removed_match_ids == (provider.id,)
+    assert report.team_mappings == (
+        TeamMerge(
+            donor_team_id=duplicate.id,
+            donor_name="RC Deportivo La Coruña",
+            survivor_team_id=canonical.id,
+            survivor_name="Deportivo La Coruna",
+        ),
+    )
+    assert report.match_mappings == (
+        MatchMerge(
+            tournament_id=legacy.tournament_id,
+            tournament_name="La Liga 2026-27",
+            kickoff_utc="2026-08-24T19:30:00+00:00",
+            donor_match_id=provider.id,
+            survivor_match_id=legacy.id,
+            donor_fixture_id=564640,
+            survivor_fixture_id=2001,
+            home="Malaga",
+            away="Deportivo La Coruna",
+        ),
+    )
+    assert report.tournament_counts == {"La Liga 2026-27": 1}
+    payload = json.loads(report_json(report))
+    assert payload["tournament_counts"] == {"La Liga 2026-27": 1}
+    assert payload["team_mappings"] == [{
+        "donor_name": "RC Deportivo La Coruña",
+        "donor_team_id": duplicate.id,
+        "survivor_name": "Deportivo La Coruna",
+        "survivor_team_id": canonical.id,
+    }]
+    assert payload["match_mappings"][0] == {
+        "away": "Deportivo La Coruna",
+        "donor_fixture_id": 564640,
+        "donor_match_id": provider.id,
+        "home": "Malaga",
+        "kickoff_utc": "2026-08-24T19:30:00+00:00",
+        "survivor_fixture_id": 2001,
+        "survivor_match_id": legacy.id,
+        "tournament_id": legacy.tournament_id,
+        "tournament_name": "La Liga 2026-27",
+    }
     assert db_session.get(Match, legacy.id).status == "scheduled"
     assert db_session.get(Match, provider.id).status == "finished"
     assert db_session.get(Prediction, served.id).match_id == provider.id
