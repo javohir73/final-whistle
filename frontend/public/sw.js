@@ -24,9 +24,10 @@
  *
  * Versioning — how caches get replaced:
  *   - Every deploy: components/ServiceWorker.tsx registers this file as
- *     /sw.js?v=<SW_VERSION>, a build-time constant (schema + the commit SHA
- *     Vercel exposes at build, else the model version). A new URL installs a
- *     new worker; activate then deletes the previous deploy's shell and page
+ *     /sw.js?v=<SW_VERSION>, a build-time constant (schema + the per-build
+ *     stamp next.config.mjs injects as NEXT_PUBLIC_BUILD_ID: deployment id,
+ *     else commit SHA, else build timestamp). A new URL installs a new
+ *     worker; activate then deletes the previous deploy's shell and page
  *     caches, whose HTML points at the old build's chunks. No manual bump.
  *   - Contract changes: bump SCHEMA below AND SW_SCHEMA in
  *     components/ServiceWorker.tsx. That also retires the long-lived static

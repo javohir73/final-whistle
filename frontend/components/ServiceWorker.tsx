@@ -6,16 +6,20 @@ import { useEffect } from "react";
  *  (a test keeps the two in step). */
 const SW_SCHEMA = "4";
 
-/** The worker's cache version, fixed at build time: the schema plus this
- *  deploy's commit (Vercel exposes NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA to the
- *  build), else the model version. sw.js reads it from ?v= and names its
- *  per-deploy caches with it, so every deploy retires the last one's cached
- *  pages without anyone remembering to bump "fw-vN". */
-export const SW_VERSION = `${SW_SCHEMA}-${
-  (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 12) ||
-  process.env.NEXT_PUBLIC_MODEL_VERSION ||
-  "dev"
-}`;
+/** The worker's cache version: the schema plus a per-build stamp. */
+export function swVersion(buildId: string | undefined): string {
+  return `${SW_SCHEMA}-${buildId || "dev"}`;
+}
+
+/** Fixed at build time from NEXT_PUBLIC_BUILD_ID, which next.config.mjs
+ *  injects on every build (deployment id, else commit SHA, else the build's
+ *  timestamp). sw.js reads it from ?v= and names its per-deploy caches with
+ *  it, so every deploy retires the last one's cached pages without anyone
+ *  remembering to bump "fw-vN". Deliberately never the model version: that
+ *  barely changes, and a page cache that outlives its deploy serves HTML
+ *  pointing at chunks the new deployment no longer has. "dev" only appears
+ *  where the config never ran (jest). */
+export const SW_VERSION = swVersion(process.env.NEXT_PUBLIC_BUILD_ID);
 
 /** Registers the service worker (production only) so the app is installable and
  *  works offline. No-op in dev to avoid stale-cache headaches during HMR.

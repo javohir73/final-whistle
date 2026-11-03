@@ -60,6 +60,18 @@ const nextConfig = {
   reactStrictMode: true,
   env: {
     NEXT_PUBLIC_MODEL_VERSION: MODEL_VERSION,
+    // Per-build stamp, inlined at build time: the service worker's cache
+    // version (components/ServiceWorker.tsx -> /sw.js?v=). It must change on
+    // every deploy so the previous deploy's cached HTML (pointing at chunk
+    // hashes the new deployment no longer serves) is retired. Deployment id
+    // first (unique per deployment, even a redeploy of the same commit with
+    // new env), then the commit SHA, then the build's own timestamp -- read
+    // here in the build process, so it doesn't depend on Vercel exposing
+    // system env vars to the browser. Never the model version.
+    NEXT_PUBLIC_BUILD_ID:
+      process.env.VERCEL_DEPLOYMENT_ID ||
+      process.env.VERCEL_GIT_COMMIT_SHA ||
+      Date.now().toString(36),
   },
   eslint: {
     // Linting runs as its own CI step (`npm run lint`); don't re-run it during
