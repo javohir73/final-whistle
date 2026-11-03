@@ -20,8 +20,8 @@ const fmt = (w: number) => share(w).toFixed(2);
  *  ~98 kB gzip of recharts + lodash on the match page's critical path to draw
  *  five bars. No hooks and no "use client", so it renders on the server and
  *  ships no JS. The bars are decorative (aria-hidden); assistive tech gets the
- *  same numbers from an sr-only table. Values print as relative weights, not
- *  "%", which read as a win probability. */
+ *  same numbers from a visually hidden table. Values print as relative
+ *  weights, not "%", which read as a win probability. */
 export function FeatureImportanceChart({ features }: { features: FeatureWeight[] }) {
   if (!features.length) return null;
   const rows = [...features]
@@ -48,23 +48,28 @@ export function FeatureImportanceChart({ features }: { features: FeatureWeight[]
         ))}
       </div>
       <p className="mt-2 text-label text-muted">Relative weight · the factors sum to 1</p>
-      <table className="sr-only">
-        <caption>What drove this prediction: relative weight of each factor (they sum to 1)</caption>
-        <thead>
-          <tr>
-            <th scope="col">Factor</th>
-            <th scope="col">Relative weight</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.key}>
-              <th scope="row">{r.label}</th>
-              <td>{fmt(r.weight)}</td>
+      {/* sr-only on a wrapping div, never on the <table>: table layout ignores
+          width:1px and grows to its content, so a "hidden" table still widened
+          the page (scrollWidth 555px at a 390px viewport). */}
+      <div className="sr-only">
+        <table>
+          <caption>What drove this prediction: relative weight of each factor (they sum to 1)</caption>
+          <thead>
+            <tr>
+              <th scope="col">Factor</th>
+              <th scope="col">Relative weight</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <th scope="row">{r.label}</th>
+                <td>{fmt(r.weight)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

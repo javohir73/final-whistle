@@ -19,7 +19,12 @@ describe("FeatureImportanceChart", () => {
   it("gives assistive tech a labelled table of factor and relative weight", () => {
     render(<FeatureImportanceChart features={FEATURES} />);
     const table = screen.getByRole("table", { name: /relative weight/i });
-    expect(table).toHaveClass("sr-only");
+    // Visually hidden by a wrapping div, never by sr-only on the <table>
+    // itself: table layout ignores the 1px width and grows to its content,
+    // which made the 390px match page scroll sideways (scrollWidth 555).
+    expect(table).not.toHaveClass("sr-only");
+    expect(table.parentElement).toHaveClass("sr-only");
+    expect(table.parentElement?.tagName).toBe("DIV");
     expect(within(table).getAllByRole("columnheader").map((c) => c.textContent)).toEqual([
       "Factor",
       "Relative weight",

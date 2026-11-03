@@ -33,7 +33,12 @@ it("reserves the chart's 300px box with a skeleton, then swaps in the chart", as
 it("exposes every bin to assistive tech as an sr-only table", () => {
   render(<CalibrationChartLazy bins={BINS} />);
   const table = screen.getByRole("table", { name: /calibration/i });
-  expect(table).toHaveClass("sr-only");
+  // sr-only lives on a wrapping div: on the <table> itself it didn't clip
+  // (table layout ignores width:1px), so /methodology and /record scrolled
+  // sideways at 390px.
+  expect(table).not.toHaveClass("sr-only");
+  expect(table.parentElement).toHaveClass("sr-only");
+  expect(table.parentElement?.tagName).toBe("DIV");
   expect(within(table).getAllByRole("columnheader").map((c) => c.textContent)).toEqual([
     "Predicted",
     "Actually happened",

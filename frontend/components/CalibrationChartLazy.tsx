@@ -24,7 +24,7 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
  *  /methodology is an async server page, where ssr:false isn't allowed.
  *
  *  The SVG is decorative for assistive tech; the bins are rendered into the
- *  server HTML as an sr-only table, so the data is readable before (and
+ *  server HTML as a visually hidden table, so the data is readable before (and
  *  without) the chart's JavaScript. */
 export function CalibrationChartLazy({ bins }: { bins: ReliabilityBin[] }) {
   return (
@@ -32,25 +32,30 @@ export function CalibrationChartLazy({ bins }: { bins: ReliabilityBin[] }) {
       <div aria-hidden="true">
         <CalibrationChart bins={bins} />
       </div>
-      <table className="sr-only">
-        <caption>Calibration: how often each predicted probability actually happened</caption>
-        <thead>
-          <tr>
-            <th scope="col">Predicted</th>
-            <th scope="col">Actually happened</th>
-            <th scope="col">Forecasts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bins.map((b) => (
-            <tr key={`${b.mean_predicted}-${b.count}`}>
-              <td>{pct(b.mean_predicted)}</td>
-              <td>{pct(b.empirical_freq)}</td>
-              <td>{b.count}</td>
+      {/* sr-only on a wrapping div, never on the <table>: table layout ignores
+          width:1px and grows to its content, so a "hidden" table still widened
+          the page (scrollWidth 528px at a 390px viewport). */}
+      <div className="sr-only">
+        <table>
+          <caption>Calibration: how often each predicted probability actually happened</caption>
+          <thead>
+            <tr>
+              <th scope="col">Predicted</th>
+              <th scope="col">Actually happened</th>
+              <th scope="col">Forecasts</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {bins.map((b) => (
+              <tr key={`${b.mean_predicted}-${b.count}`}>
+                <td>{pct(b.mean_predicted)}</td>
+                <td>{pct(b.empirical_freq)}</td>
+                <td>{b.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
