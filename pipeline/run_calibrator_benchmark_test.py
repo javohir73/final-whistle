@@ -37,11 +37,16 @@ def _mk(db, idx, score, *, prod_probs, var_probs=None, prod_version=PROD,
     db.flush()
 
     def row(version, probs, shadow):
+        # Pin created_at BEFORE kickoff. The benchmark only admits rows frozen
+        # pre-kickoff (_frozen), and the column defaults to the wall clock, so
+        # once the calendar passed KO (Sept 2026) every seeded row became
+        # inadmissible and the whole file failed with n_pairs == 0.
         db.add(Prediction(match_id=m.id, model_version=version, is_shadow=shadow,
                           prob_home_win=probs[0], prob_draw=probs[1],
                           prob_away_win=probs[2], lambda_home=lam[0],
                           lambda_away=lam[1], rho=rho,
-                          predicted_score_home=ps[0], predicted_score_away=ps[1]))
+                          predicted_score_home=ps[0], predicted_score_away=ps[1],
+                          created_at=m.kickoff_utc - timedelta(hours=6)))
 
     row(prod_version, prod_probs, False)
     if var_probs is not None:
