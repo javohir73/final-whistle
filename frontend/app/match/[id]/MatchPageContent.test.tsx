@@ -217,14 +217,25 @@ describe("why", () => {
 });
 
 describe("the pick", () => {
-  it("is the scored scoreline game on a league match page", async () => {
+  it("is the scored scoreline game on a league match page, looked up in the payload's matchweek", async () => {
+    mockGet.mockResolvedValue({ ...prediction, matchweek: 11 });
+    mockSummaryServer.mockResolvedValue(summary({ matchweek: 11 }));
     await renderPage("epl");
     const pick = screen.getByRole("region", { name: "Your pick" });
     expect(await within(pick).findByRole("button", { name: "Lock in 0–0" })).toBeInTheDocument();
     expect(within(pick).getByText(/^Locks at kickoff · /)).toBeInTheDocument();
-    expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", undefined);
+    // One request, straight to the match's own week -- no walking.
+    expect(mockMine).toHaveBeenCalledTimes(1);
+    expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", 11);
     // No browser-only W/D/L on a league page.
     expect(within(pick).queryByRole("button", { name: "Draw" })).not.toBeInTheDocument();
+  });
+
+  it("still finds the week from an older backend that omits matchweek", async () => {
+    await renderPage("epl");
+    const pick = screen.getByRole("region", { name: "Your pick" });
+    expect(await within(pick).findByRole("button", { name: "Lock in 0–0" })).toBeInTheDocument();
+    expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", undefined);
   });
 
   it("keeps the W/D/L pick for the World Cup", async () => {

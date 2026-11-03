@@ -110,6 +110,17 @@ it("offers the scored scoreline stepper before kickoff and locks the pick in", a
   expect(screen.queryByRole("group", { name: "Arsenal goals" })).not.toBeInTheDocument();
 });
 
+it("looks the pick up in the payload's matchweek with a single request", async () => {
+  mockMine.mockResolvedValue(mine(row({
+    model: MODEL,
+    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+  })));
+  renderPick(summary({ matchweek: 11 }));
+  expect(await screen.findByText("You 2–1 · Model 1–0")).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(1);
+  expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", 11);
+});
+
 it("caps the stepper at 0–9 goals", async () => {
   mockMine.mockResolvedValue(mine());
   renderPick();

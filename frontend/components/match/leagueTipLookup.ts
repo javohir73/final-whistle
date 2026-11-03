@@ -1,11 +1,12 @@
 /** Finding one match's row in the league scoreline-tips game.
  *
- *  /tips/mine is matchweek-scoped and neither the match summary nor the
- *  prediction carries a matchweek, so a match page has to find the week its
- *  fixture is in. Cheapest first: a remembered week (this page's own hint, or
- *  the /play picker's cache, which is keyed by week), then the server's current
- *  week, then a short walk guided by kickoff dates. Usually one or two
- *  requests; never more than `maxRequests`.
+ *  /tips/mine is matchweek-scoped. The match summary and prediction payloads
+ *  carry the match's `matchweek`, so the lookup is one request for that week
+ *  (and none at all for a match with no league matchweek). Only when the field
+ *  is absent -- an older backend -- does it fall back to finding the week:
+ *  a remembered week (this page's own hint, or the /play picker's cache,
+ *  which is keyed by week), then the server's current week, then a short walk
+ *  guided by kickoff dates, never more than `maxRequests`.
  *
  *  Replicates the minimal contract of components/leagueTips/LeagueTipsPicker
  *  (same device id, same cache format) without importing it, so a pick made
@@ -33,6 +34,18 @@ export interface FoundTip {
   row: LeagueTipsMineMatch | null;
   /** The device's tip_players handle, once it has played anything. */
   handle: string | null;
+}
+
+export interface LookupHints {
+  /** The match's matchweek from the summary / prediction payload. A number
+   *  goes straight to that week; null means the match has no league matchweek
+   *  (nothing to look up); undefined -- an older backend omits the field --
+   *  falls back to the walk. */
+  matchweek?: number | null;
+  /** Kickoff (UTC ISO), which guides the fallback walk. */
+  kickoffUtc?: string | null;
+  /** Request budget for the fallback walk. */
+  maxRequests?: number;
 }
 
 /** The league has no tips data at all (unknown code, not loaded, no weeks). */
@@ -123,8 +136,7 @@ export async function findMyLeagueTip(
   league: string,
   deviceId: string,
   matchId: number,
-  kickoffUtc: string | null | undefined,
-  maxRequests = 5,
+  { matchweek, kickoffUtc, maxRequests = 5 }: LookupHints = {},
 ): Promise<FoundTip> {
   const visited = new Set<number>();
   let requests = 0;
@@ -153,6 +165,15 @@ export async function findMyLeagueTip(
     return { matchweek: week.matchweek, row, handle };
   };
 
+  // The payload knows the week: one request, no walking. A week that turns
+  // out not to list the match is a data mismatch, not a reason to crawl. (A
+  // value that is not a real matchweek number is read as absent.)
+  if (matchweek === null) return { matchweek: null, row: null, handle };
+  if (typeof matchweek === "number" && Number.isInteger(matchweek) && matchweek >= 1) {
+    return found(await fetchWeek(matchweek)) ?? { matchweek: null, row: null, handle };
+  }
+
+  // Older backends: find the week.
   const hint = readMatchweekHint(league, matchId);
   let week = hint != null ? await fetchWeek(hint) : null;
   const fromHint = found(week);

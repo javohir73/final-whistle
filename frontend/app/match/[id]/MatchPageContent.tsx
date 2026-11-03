@@ -164,6 +164,7 @@ export async function renderMatchDetailPage(
           home={home}
           away={away}
           kickoffUtc={p.kickoff_utc}
+          matchweek={p.matchweek}
         />
       </MatchLiveProvider>
 
@@ -342,6 +343,7 @@ function PredictionPending({
           home={home}
           away={away}
           kickoffUtc={summary.kickoff_utc}
+          matchweek={summary.matchweek}
         />
       </MatchLiveProvider>
 

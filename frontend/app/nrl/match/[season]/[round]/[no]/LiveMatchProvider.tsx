@@ -25,13 +25,6 @@ function withinPollWindow(kickoffUtc: string | null, now: number = Date.now()): 
   return elapsedMin >= -POLL_LEAD_MIN && elapsedMin <= POLL_TAIL_MIN;
 }
 type LiveMatchState = FetchState<NrlLive> & { retry: () => void };
-
-// The finished-match seed has no real probability: the closing one arrives
-// with the persisted payload. Every consumer renders live_home_prob through
-// pct(), which prints "—" for null. NrlLive still types the field as a bare
-// number, so the honest null needs this one documented widening until the
-// type itself admits null (handoff: lib/types.ts NrlLive.live_home_prob).
-const NO_PROBABILITY_YET = null as unknown as NrlLive["live_home_prob"];
 const LiveMatchContext = createContext<LiveMatchState | null>(null);
 
 export function LiveMatchProvider({ match, children }: { match: NrlMatch; children: ReactNode }) {
@@ -39,8 +32,9 @@ export function LiveMatchProvider({ match, children }: { match: NrlMatch; childr
   // First-paint seed for a finished match: built from the core match row so
   // the hero renders a final score with no loading flash. It is PARTIAL (empty
   // timeline, no probability -- never a fabricated 1/0, which read "0%" for a
-  // drawn game) and must not be the last word: the single fetch below replaces
-  // it with the persisted closing probability and the try-by-try timeline.
+  // drawn game; consumers print null as "—") and must not be the last word:
+  // the single fetch below replaces it with the persisted closing probability
+  // (itself null when no poller closed the match) and the try timeline.
   const initial = useMemo<NrlLive | undefined>(
     () => finished && match.score_home != null && match.score_away != null
       ? {
@@ -48,7 +42,7 @@ export function LiveMatchProvider({ match, children }: { match: NrlMatch; childr
           minute: 80,
           score_home: match.score_home,
           score_away: match.score_away,
-          live_home_prob: NO_PROBABILITY_YET,
+          live_home_prob: null,
           events: [],
         }
       : undefined,

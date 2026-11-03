@@ -82,6 +82,7 @@ export function MatchPick({
   home,
   away,
   kickoffUtc,
+  matchweek,
 }: {
   competition: CompetitionId;
   matchId: number;
@@ -89,6 +90,9 @@ export function MatchPick({
   away: string;
   /** The prediction's kickoff, used until the live summary says otherwise. */
   kickoffUtc: string | null;
+  /** The match's league matchweek from the page payload (null: none;
+   *  undefined: an older backend that does not send it). */
+  matchweek?: number | null;
 }) {
   const live = useMatchLive();
   const { tz } = useTimezone();
@@ -96,6 +100,8 @@ export function MatchPick({
   const now = live?.now ?? fallbackNow;
   const summary = live?.summary ?? null;
   const kickoff = summary?.kickoff_utc ?? kickoffUtc;
+  // The polled summary carries the field too; whichever payload has it wins.
+  const week = summary?.matchweek !== undefined ? summary.matchweek : matchweek;
   const status = summary?.status ?? "scheduled";
   const phase = matchPhase({ status, kickoff_utc: kickoff ?? null }, now);
 
@@ -115,6 +121,7 @@ export function MatchPick({
           home={home}
           away={away}
           kickoffUtc={kickoff ?? null}
+          matchweek={week}
           liveStatus={summary?.status ?? null}
           liveScore={summary ? { home: summary.score_home, away: summary.score_away } : null}
           phase={phase}
@@ -204,6 +211,7 @@ function LeagueScorePick({
   home,
   away,
   kickoffUtc,
+  matchweek,
   liveStatus,
   liveScore,
   phase,
@@ -216,6 +224,7 @@ function LeagueScorePick({
   home: string;
   away: string;
   kickoffUtc: string | null;
+  matchweek?: number | null;
   /** The polled summary's status (fresher than the tips row), if any. */
   liveStatus: string | null;
   liveScore: { home: number | null; away: number | null } | null;
@@ -241,7 +250,7 @@ function LeagueScorePick({
     }
     let alive = true;
     setLoad((prev) => (prev.kind === "ready" ? prev : { kind: "loading" }));
-    findMyLeagueTip(league, deviceId, matchId, kickoffUtc)
+    findMyLeagueTip(league, deviceId, matchId, { matchweek, kickoffUtc })
       .then((found) => {
         if (alive) setLoad({ kind: "ready", found });
       })
@@ -251,15 +260,16 @@ function LeagueScorePick({
     return () => {
       alive = false;
     };
-  }, [deviceId, league, matchId, kickoffUtc, attempt]);
+  }, [deviceId, league, matchId, matchweek, kickoffUtc, attempt]);
 
   const found = load.kind === "ready" ? load.found : null;
   const row = found?.row ?? null;
-  const matchweek = found?.matchweek ?? null;
+  // The week the row was actually found in (null when it was not found).
+  const foundWeek = found?.matchweek ?? null;
   // Merge-on-load parity with /play: a confirmed submit cached locally before
   // the server row reflects it still counts as the device's pick.
   const cached =
-    !row?.your_prediction && matchweek != null ? cachedPrediction(league, matchweek, matchId) : null;
+    !row?.your_prediction && foundWeek != null ? cachedPrediction(league, foundWeek, matchId) : null;
   const your: LeagueTipsMineYourPrediction | null =
     submitted?.your ??
     row?.your_prediction ??
@@ -304,8 +314,8 @@ function LeagueScorePick({
         model: res.model,
         handle: res.handle,
       });
-      if (matchweek != null) {
-        writePickerCache(league, matchweek, matchId, {
+      if (foundWeek != null) {
+        writePickerCache(league, foundWeek, matchId, {
           predicted_home: res.prediction.predicted_home,
           predicted_away: res.prediction.predicted_away,
         });
