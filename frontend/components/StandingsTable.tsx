@@ -78,15 +78,18 @@ export const FULL_LEAGUE_COLUMNS: StandingsColumn[] = [
  *  out of the squeezed rowheader over P/W/D. Now the club column is the only
  *  flexible one and truncates instead. Widths step down below sm so a 360px
  *  phone still has room for a club name, and `wideOnly` columns (GF/GA -- GD
- *  already nets them) drop out below sm. sm and up keep the original widths. */
+ *  already nets them) drop out below sm. Below 360px (320px phones) the
+ *  `xsHidden` tiebreak columns go too -- GD, the ladder's Diff -- which takes
+ *  the club name from ~3 characters to 8+. sm and up keep the original
+ *  widths. */
 const NUMERIC_HEADERS: Record<
   StandingsColumn,
-  { label: string; width: string; gloss?: string; wideOnly?: boolean }
+  { label: string; width: string; gloss?: string; wideOnly?: boolean; xsHidden?: boolean }
 > = {
-  gd: { label: "GD", width: "w-7 sm:w-10", gloss: "Goal difference" },
+  gd: { label: "GD", width: "w-7 sm:w-10", gloss: "Goal difference", xsHidden: true },
   pts: { label: "Pts", width: "w-7 sm:w-10", gloss: "Points" },
   wl: { label: "W–L", width: "w-11 sm:w-12", gloss: "Wins–losses" },
-  diff: { label: "Diff", width: "w-9 sm:w-10", gloss: "Points difference" },
+  diff: { label: "Diff", width: "w-9 sm:w-10", gloss: "Points difference", xsHidden: true },
   played: { label: "P", width: "w-6 sm:w-10", gloss: "Games played" },
   won: { label: "W", width: "w-5 sm:w-8", gloss: "Won" },
   drawn: { label: "D", width: "w-5 sm:w-8", gloss: "Drawn" },
@@ -103,8 +106,8 @@ const NUMERIC_HEADERS: Record<
 /** The box a numeric column occupies -- identical for its header cell and
  *  every body cell, which is what keeps the two rows on one grid. */
 function colClass(key: StandingsColumn): string {
-  const { width, wideOnly } = NUMERIC_HEADERS[key];
-  return cn("shrink-0", width, wideOnly && "hidden sm:block");
+  const { width, wideOnly, xsHidden } = NUMERIC_HEADERS[key];
+  return cn("shrink-0", width, wideOnly && "hidden sm:block", xsHidden && "max-[359px]:hidden");
 }
 
 /** Shared right-aligned value-cell class (matches the existing GD cell). */

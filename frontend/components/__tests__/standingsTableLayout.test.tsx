@@ -24,7 +24,7 @@ import { COMPETITIONS } from "@/lib/sports";
 
 /** The classes that decide a column's box: width, responsive visibility and
  *  flex behaviour. Typography/colour may differ between header and cell. */
-const GEOMETRY = /^((sm|max-sm):)?(w-|min-w-|hidden$|block$|shrink-0$|flex-1$)/;
+const GEOMETRY = /^((sm|max-sm|max-\[\d+px\]):)?(w-|min-w-|hidden$|block$|shrink-0$|flex-1$)/;
 const geometry = (el: Element) =>
   [...el.classList].filter((c) => GEOMETRY.test(c)).sort().join(" ");
 
@@ -149,4 +149,39 @@ describe("default football path and the WC26 group shape", () => {
       for (const row of body) expect(columnsOf(row)).toHaveLength(columnsOf(header).length);
     });
   }
+});
+
+describe("320px phones", () => {
+  // At 320px the six numeric columns left the club name ~51px (football) and
+  // the ladder's four ~35px (about three characters). Below 360px the
+  // tiebreak column goes -- GD on the football table, Diff on the ladder --
+  // in the header and every row alike; the reading columns stay.
+  const xsHidden = (cols: Element[]) => cols.map((c) => c.classList.contains("max-[359px]:hidden"));
+
+  it("drops GD below 360px and keeps P/W/D/L/Pts", () => {
+    render(
+      <StandingsTable standings={eplRows} zones={[]} badge="club" columns={FULL_LEAGUE_COLUMNS} />,
+    );
+    const [header, ...body] = screen.getAllByRole("row");
+    // Team, P, W, D, L, GF, GA, GD, Pts
+    const expected = [false, false, false, false, false, false, false, true, false];
+    expect(xsHidden(columnsOf(header))).toEqual(expected);
+    for (const row of body) expect(xsHidden(columnsOf(row))).toEqual(expected);
+  });
+
+  it("drops Diff below 360px on the ladder and keeps W–L/Pts/Top 8%", () => {
+    render(
+      <StandingsTable standings={nrlRows} zones={[]} badge="club" columns={["wl", "diff", "pts", "top8"]} />,
+    );
+    const [header, ...body] = screen.getAllByRole("row");
+    const expected = [false, false, true, false, false];
+    expect(xsHidden(columnsOf(header))).toEqual(expected);
+    for (const row of body) expect(xsHidden(columnsOf(row))).toEqual(expected);
+  });
+
+  it("drops GD from the default GD/Pts table too, never Pts", () => {
+    render(<StandingsTable standings={eplRows} zones={[]} />);
+    const header = screen.getAllByRole("row")[0];
+    expect(xsHidden(columnsOf(header))).toEqual([false, true, false]);
+  });
 });

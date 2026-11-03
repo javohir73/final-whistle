@@ -2,10 +2,16 @@
  *  by its heading, a visible password label, focus moved in on open, Tab
  *  trapped inside, Escape to close (not mid-deletion), focus restored to the
  *  opener on close, and errors announced. */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
-import { ApiError } from "@/lib/session";
+import { AccountMenu } from "@/components/AccountMenu";
+import { ApiError, type SessionUser } from "@/lib/session";
+
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 function Harness({ onConfirm = jest.fn() }: { onConfirm?: (pw: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
@@ -96,4 +102,63 @@ it("announces a failed confirmation through role=alert", async () => {
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("Wrong password.");
   expect(alert).toHaveClass("text-loss-ink");
+});
+
+describe("opened from the account menu", () => {
+  // The menu item that opens the dialog closes the menu in the same click, so
+  // by the time the dialog mounts the focused element has unmounted and
+  // document.activeElement is <body>. Focus must go back to the account
+  // button that owns the menu, not nowhere.
+  const user: SessionUser = {
+    id: 1,
+    email: "pat@example.com",
+    display_name: "Pat",
+    avatar_url: null,
+    premium: false,
+  };
+
+  it("returns focus to the account button after the menu item unmounts", async () => {
+    render(<AccountMenu user={user} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+    const trigger = screen.getByRole("button", { name: /account: pat/i });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const item = screen.getByRole("menuitem", { name: "Delete account" });
+    item.focus();
+    fireEvent.click(item);
+
+    await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus());
+    fireEvent.keyDown(screen.getByLabelText("Password"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("prefers an explicit returnFocusRef when the caller provides one", async () => {
+    function WithRef() {
+      const [open, setOpen] = useState(false);
+      const target = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button type="button" ref={target}>
+            Settings
+          </button>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open delete
+          </button>
+          <DeleteAccountModal
+            open={open}
+            onClose={() => setOpen(false)}
+            onConfirm={jest.fn()}
+            returnFocusRef={target}
+          />
+        </>
+      );
+    }
+    render(<WithRef />);
+    const opener = screen.getByRole("button", { name: "Open delete" });
+    opener.focus();
+    fireEvent.click(opener);
+    await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Settings" })).toHaveFocus();
+  });
 });
