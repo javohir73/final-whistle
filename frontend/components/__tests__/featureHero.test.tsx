@@ -46,12 +46,17 @@ describe("FeatureHero", () => {
     const bar = screen.getByRole("img");
     expect(bar).toHaveAttribute("aria-label", expect.stringContaining("62%"));
 
-    // Two equal CTAs, both into the full match page.
-    const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(2);
-    links.forEach((link) => expect(link).toHaveAttribute("href", "/match/101"));
-    expect(screen.getByText("Make your pick")).toBeInTheDocument();
-    expect(screen.getByText("Why 62%?")).toBeInTheDocument();
+    // Two CTAs into the competition-scoped match page, each landing on its
+    // own section: the pick and the "why". The legacy /match/<id> default
+    // 308s into the World Cup and soft-404s for every club match.
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
+      "href",
+      "/football/wc26/match/101#pick",
+    );
+    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute(
+      "href",
+      "/football/wc26/match/101#why",
+    );
 
     // The league accent chip carries the competition's short label.
     expect(screen.getByText("WC26")).toBeInTheDocument();
@@ -67,14 +72,45 @@ describe("FeatureHero", () => {
     expect(screen.queryByText(/%/)).toBeNull();
   });
 
-  it("routes both CTAs through the href override", () => {
+  it("routes both CTAs through the href override, onto the sections that exist", () => {
+    render(
+      <FeatureHero match={makeMatch()} comp="epl" tz="UTC" href="/football/epl/match/101" />,
+    );
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
+      "href",
+      "/football/epl/match/101#pick",
+    );
+    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute(
+      "href",
+      "/football/epl/match/101#why",
+    );
+  });
+
+  it("points NRL's 'Why' at the NRL match page's model section (it has no #why or #pick)", () => {
     render(
       <FeatureHero match={makeMatch()} comp="nrl" tz="UTC" href="/nrl/match/2026/19/3" />,
     );
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
+      "href",
+      "/nrl/match/2026/19/3",
+    );
+    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute(
+      "href",
+      "/nrl/match/2026/19/3#model",
+    );
+  });
 
-    const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(2);
-    links.forEach((link) => expect(link).toHaveAttribute("href", "/nrl/match/2026/19/3"));
+  it("dates the kickoff and names its zone, not a bare clock time", () => {
+    render(
+      <FeatureHero
+        match={makeMatch({ kickoff_utc: "2026-11-08T15:00:00Z" })}
+        comp="epl"
+        tz="Europe/London"
+      />,
+    );
+    // Sun 8 Nov · 3:00 PM GMT — the tz label form is ICU-dependent, so only
+    // require that a non-empty zone label follows the clock time.
+    expect(screen.getByText(/^Sun 8 Nov · 3:00 PM \S+$/)).toBeInTheDocument();
   });
 
   it("accepts truthful feature copy when the match is not tonight", () => {

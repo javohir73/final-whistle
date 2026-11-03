@@ -157,3 +157,73 @@ it("keeps postponed predictions editable but removes the stale kickoff countdown
   expect(screen.getByRole("button", { name: "Brazil" })).toBeEnabled();
   expect(screen.queryByText(/21 August|19:00/)).not.toBeInTheDocument();
 });
+
+it("locks the pick buttons at kickoff even before the feed flips to in_play", () => {
+  const onPick = jest.fn();
+  const now = new Date("2026-06-20T19:05:00Z");
+  render(
+    <UserPredictionCard
+      match={{ ...match(), status: "scheduled", kickoff_utc: "2026-06-20T19:00:00Z" }}
+      country="Brazil"
+      pick={undefined}
+      onPick={onPick}
+      tz="UTC"
+      now={now}
+    />,
+  );
+
+  for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Brazil" }));
+  expect(onPick).not.toHaveBeenCalled();
+});
+
+it("says 'Result pending' -- not FT, no verdict -- for an in_play match stranded past the live window", () => {
+  const now = new Date("2026-06-21T03:00:00Z");
+  render(
+    <UserPredictionCard
+      match={{
+        ...match(),
+        status: "in_play",
+        kickoff_utc: "2026-06-20T19:00:00Z",
+        score_home: 2,
+        score_away: 0,
+        minute: 90,
+        period: "second_half",
+      }}
+      country="Brazil"
+      pick={undefined}
+      onPick={jest.fn()}
+      tz="UTC"
+      now={now}
+    />,
+  );
+
+  expect(screen.getByText("Result pending")).toBeInTheDocument();
+  expect(screen.queryByText("FT")).not.toBeInTheDocument();
+  // 2–0 is the model's predicted score too, but nothing grades it yet.
+  expect(screen.queryByText("Exact score predicted")).not.toBeInTheDocument();
+});
+
+it("marks a live minute as estimated", () => {
+  const now = new Date("2026-06-20T20:00:00Z");
+  render(
+    <UserPredictionCard
+      match={{
+        ...match(),
+        status: "in_play",
+        kickoff_utc: "2026-06-20T19:00:00Z",
+        score_home: 1,
+        score_away: 0,
+        minute: 57,
+        period: "second_half",
+      }}
+      country="Brazil"
+      pick={undefined}
+      onPick={jest.fn()}
+      tz="UTC"
+      now={now}
+    />,
+  );
+  expect(screen.getByText("57' est.")).toBeInTheDocument();
+  expect(screen.getByLabelText("Live, 57' (estimated)")).toBeInTheDocument();
+});

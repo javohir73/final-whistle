@@ -11,11 +11,16 @@ jest.mock("@/lib/api");
 const mockGetMatchSummary = api.getMatchSummary as jest.Mock;
 const mockGetProbHistory = api.getProbHistory as jest.Mock;
 
+const HREF = "/football/wc26/match/1";
+// An upcoming fixture: a scheduled row whose kickoff is long past reads
+// "Result pending" (matchPhase), so the pre-match fixture is dated ahead.
+const FUTURE_KICKOFF = new Date(Date.now() + 3 * 24 * 60 * 60_000).toISOString();
+
 const base: MatchSummary = {
   match_id: 1,
   stage: "group",
   group: "Group A",
-  kickoff_utc: "2026-06-11T19:00:00+00:00",
+  kickoff_utc: FUTURE_KICKOFF,
   venue: "Estadio Azteca",
   venue_city: "Mexico City",
   venue_country: "Mexico",
@@ -39,7 +44,10 @@ const base: MatchSummary = {
 // A live match must have a recent kickoff (isLiveNow bounds the live window),
 // so derive it relative to now rather than a fixed date that goes stale.
 const RECENT_KICKOFF = new Date(Date.now() - 60 * 60_000).toISOString();
-const finished: MatchSummary = { ...base, status: "finished", score_home: 2, score_away: 0 };
+const PAST_KICKOFF = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+const finished: MatchSummary = {
+  ...base, kickoff_utc: PAST_KICKOFF, status: "finished", score_home: 2, score_away: 0,
+};
 const live: MatchSummary = {
   ...base, kickoff_utc: RECENT_KICKOFF, status: "in_play",
   score_home: 1, score_away: 0, minute: 63, period: "second_half",
@@ -64,7 +72,7 @@ afterEach(() => {
 
 describe("MatchCard", () => {
   it("shows a plain-language call before kickoff (no result yet)", () => {
-    render(<MatchCard match={base} />);
+    render(<MatchCard match={base} href={HREF} />);
     // home_win 0.6 clears 55% → "Mexico favoured".
     expect(screen.getByText("Mexico favoured")).toBeInTheDocument();
     // ML-model-labelled predicted scoreline, no promoted actual score.
@@ -73,7 +81,7 @@ describe("MatchCard", () => {
   });
 
   it("at full time shows actual score, ML-model-labelled prediction, and a verdict", () => {
-    render(<MatchCard match={finished} />);
+    render(<MatchCard match={finished} href={HREF} />);
     // Actual score per team row…
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
@@ -89,13 +97,13 @@ describe("MatchCard", () => {
 
   it("shows an amber kickoff-time pill (not a confidence badge) before kickoff", () => {
     // tz is required for the time pill to render in the user's local time.
-    render(<MatchCard match={base} tz="UTC" />);
+    render(<MatchCard match={{ ...base, kickoff_utc: "2099-06-11T19:00:00+00:00" }} tz="UTC" href={HREF} />);
     expect(screen.getByText("7:00 PM")).toBeInTheDocument();
     expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
   });
 
   it("calls out a miss when the favoured side lost", () => {
-    render(<MatchCard match={{ ...finished, score_home: 0, score_away: 2 }} />);
+    render(<MatchCard match={{ ...finished, score_home: 0, score_away: 2 }} href={HREF} />);
     expect(screen.getByText("Upset — we missed it")).toBeInTheDocument();
   });
 });

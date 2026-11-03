@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import type { MatchSummary } from "@/lib/types";
-import type { CompetitionId } from "@/lib/sports";
+import { COMPETITIONS, footballMatchHref, type CompetitionId } from "@/lib/sports";
 import { Eyebrow, CompEyebrowChip } from "@/components/Eyebrow";
 import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { ClubBadge } from "@/components/ClubBadge";
 import { TeamBadge } from "@/components/TeamBadge";
 import { formatScore, topOutcome } from "@/lib/format";
 import { isLiveNow } from "@/lib/liveLabel";
-import { kickoffTime } from "@/lib/datetime";
+import { kickoffDate, kickoffTime, tzAbbrev } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+
+/** Where each CTA lands on the match page. Football match pages carry
+ *  `#pick` (the scored pick, under the model's call) and `#why`; the NRL page
+ *  has no pick section yet and calls its "why" section `#model`. */
+const ANCHORS: Record<"football" | "nrl", { pick: string; why: string }> = {
+  football: { pick: "#pick", why: "#why" },
+  nrl: { pick: "", why: "#model" },
+};
 
 /** The P1 confidence -> color mapping. MEDIUM is amber, so its word is printed
  *  at 12px bold (`text-xs font-bold`) to clear the "amber text only >= 12px
@@ -84,11 +92,23 @@ export function FeatureHero({
           ? "Draw"
           : "";
   const conf = confidence ? CONFIDENCE[confidence] : null;
-  // NRL callers can override the football detail link, or drop it with `null`
-  // (a fixture whose round is still TBC has no detail page) — mirrors the shared
-  // MatchCard's guard so the CTAs never fall through to the football /match/<id>
-  // route and mis-navigate to an unrelated match.
-  const target = href === undefined ? `/match/${match.match_id}` : href;
+  // NRL callers pass their own (season/round/no) link, or drop it with `null`
+  // (a fixture whose round is still TBC has no detail page). The default is the
+  // competition-scoped football page -- never the legacy /match/<id>, which
+  // 308s into the World Cup and soft-404s for club matches. A non-football
+  // competition with no href gets no link rather than a guessed one.
+  const sport = COMPETITIONS[comp].sport;
+  const target =
+    href !== undefined
+      ? href
+      : sport === "football"
+        ? footballMatchHref(comp, match.match_id)
+        : null;
+  const anchors = ANCHORS[sport];
+  const kickoffLabel =
+    match.kickoff_utc && tz
+      ? `${kickoffDate(match.kickoff_utc, tz)} · ${kickoffTime(match.kickoff_utc, tz)} ${tzAbbrev(match.kickoff_utc, tz)}`.trim()
+      : null;
   // The side the margin favours: leader by win probability, draw ignored.
   const favoured = (probs?.home_win ?? 0) >= (probs?.away_win ?? 0) ? teams.home : teams.away;
 
@@ -103,9 +123,11 @@ export function FeatureHero({
           <Eyebrow tone="lime">{eyebrow}</Eyebrow>
           {live ? (
             <span className="ml-auto text-label font-bold uppercase tracking-wide text-loss">Live</span>
-          ) : match.kickoff_utc && tz ? (
+          ) : kickoffLabel ? (
+            // Date · time · zone: a bare "3:00 PM" on a "Next up" card days
+            // away never said which day, or in whose zone.
             <span className="ml-auto text-label font-semibold tabular-nums text-muted">
-              {kickoffTime(match.kickoff_utc, tz)}
+              {kickoffLabel}
             </span>
           ) : null}
         </div>
@@ -168,22 +190,23 @@ export function FeatureHero({
           </div>
         )}
 
-        {/* Two equal CTAs, both into the match page. Lime primary, outline
-            secondary; both 44px tap targets. When there's no detail page yet
-            (`target === null`, an NRL round still TBC) they degrade to
-            non-interactive labels rather than mis-navigating to the football
-            /match/<id> route — the hero's analogue of MatchCard's plain card. */}
+        {/* Two equal CTAs into the match page, each landing on its own
+            section (the pick under the model's call; the "why"). Lime primary,
+            outline secondary; both 44px tap targets. When there's no detail
+            page yet (`target === null`, an NRL round still TBC) they degrade to
+            non-interactive labels rather than mis-navigating — the hero's
+            analogue of MatchCard's plain card. */}
         <div className="mt-4 flex gap-2.5">
           {target !== null ? (
             <>
               <Link
-                href={target}
+                href={`${target}${anchors.pick}`}
                 className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink transition hover:brightness-[1.06]"
               >
                 Make your pick
               </Link>
               <Link
-                href={target}
+                href={`${target}${anchors.why}`}
                 className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground transition hover:border-win hover:text-lime-deep"
               >
                 {heroPct != null ? `Why ${heroPct}%?` : "See the prediction"}

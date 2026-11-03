@@ -4,11 +4,11 @@ import { TeamBadge } from "@/components/TeamBadge";
 import type { Pick } from "@/lib/useMatchPicks";
 import type { MatchSummary } from "@/lib/types";
 import { kickoffTime, dayHeading, tzAbbrev } from "@/lib/datetime";
-import { liveLabel, isLiveNow } from "@/lib/liveLabel";
+import { liveLabel, liveLabelSpoken } from "@/lib/liveLabel";
 import { predictionVerdict } from "@/lib/verdict";
 import { ShootoutNote, BasisTag } from "@/components/ShootoutNote";
 import { cn } from "@/lib/utils";
-import { isPickable, stoppedLabel } from "@/lib/matchStatus";
+import { isPickable, matchPhase, RESULT_PENDING, stoppedLabel } from "@/lib/matchStatus";
 
 type Outcome = "home" | "draw" | "away";
 
@@ -68,7 +68,14 @@ function Bar({ label, value, highlight }: { label: string; value: number; highli
 
 /**
  * One upcoming fixture for the followed country: pick the winner, then see an
- * animated comparison of your call against the AI's lean. Anonymous + local.
+ * animated comparison of your call against the AI's lean. Anonymous + local
+ * (the World Cup W/D/L adapter -- league matches use the scored scoreline
+ * pick instead).
+ *
+ * `now` is the caller's ticking clock (the match page's live provider), so the
+ * buttons lock the moment kickoff passes on an open tab, before the feed even
+ * flips to in_play. Status comes from matchPhase: "FT" only when the feed
+ * confirms it; a stranded in_play reads "Result pending" with no verdict.
  */
 export function UserPredictionCard({
   match,
@@ -76,12 +83,14 @@ export function UserPredictionCard({
   pick,
   onPick,
   tz,
+  now,
 }: {
   match: MatchSummary;
   country: string;
   pick: Pick | undefined;
   onPick: (pick: Pick) => void;
   tz: string;
+  now?: Date;
 }) {
   const countryIsHome = match.teams.home === country;
   const opponent = countryIsHome ? match.teams.away : match.teams.home;
@@ -99,12 +108,20 @@ export function UserPredictionCard({
   const labelFor = (s: Outcome) =>
     s === "home" ? match.teams.home : s === "away" ? match.teams.away : "Draw";
 
-  const live = isLiveNow(match);
-  const finished = match.status === "finished" || (match.status === "in_play" && !live);
+  const clock = now ?? new Date();
+  const phase = matchPhase(match, clock);
+  const live = phase === "live";
+  const finished = phase === "finished";
+  const stale = phase === "stale";
   const hasScore = match.score_home != null && match.score_away != null;
   const matchVerdict = finished ? predictionVerdict(match) : null;
   const stopped = stoppedLabel(match.status);
-  const pickable = isPickable(match.status);
+  const kickedOff =
+    match.kickoff_utc != null && clock.getTime() >= new Date(match.kickoff_utc).getTime();
+  // Status first (the server's OPEN_FOR_PICKS), then the clock: a scheduled
+  // fixture locks at kickoff even if the feed has not flipped it yet.
+  // Postponed stays open past its original date, exactly as the server does.
+  const pickable = isPickable(match.status) && !(match.status === "scheduled" && kickedOff);
 
   return (
     <div
@@ -119,7 +136,7 @@ export function UserPredictionCard({
           <TeamBadge team={match.teams.home} size={24} />
           <span className="truncate text-sm font-semibold">{match.teams.home}</span>
         </div>
-        {(live || finished) && hasScore ? (
+        {(live || finished || stale) && hasScore ? (
           <span className="flex shrink-0 flex-col items-center">
             <span className="font-display text-lg font-extrabold leading-none tabular-nums">
               {match.score_home}
@@ -129,10 +146,14 @@ export function UserPredictionCard({
             {live ? (
               <span
                 className="mt-1 inline-flex items-center gap-1 text-note font-bold uppercase tracking-wide text-loss-ink"
-                aria-label={`Live, ${liveLabel(match)}`}
+                aria-label={`Live, ${liveLabelSpoken(match)}`}
               >
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-loss" aria-hidden />
                 {liveLabel(match)}
+              </span>
+            ) : stale ? (
+              <span className="mt-1 text-note font-semibold uppercase tracking-wide text-muted">
+                {RESULT_PENDING}
               </span>
             ) : (
               <span className="mt-1 text-note font-semibold uppercase tracking-wide text-muted">FT</span>
@@ -150,9 +171,16 @@ export function UserPredictionCard({
       <div className="mt-1.5 flex items-center justify-center gap-1.5 text-label text-muted">
         {/* match.group is already "Group A" from the API — no extra prefix */}
         {match.group && <span>{match.group}</span>}
-        {/* Live/FT status sits under the score above; here we only add the
-            kickoff for upcoming fixtures. */}
-        {!live && !finished &&
+        {/* Live/FT/pending status sits under the score above; here we only add
+            the kickoff for upcoming fixtures (and "Result pending" when a
+            stranded fixture has no score to sit under). */}
+        {stale && !hasScore && (
+          <>
+            {match.group && <span aria-hidden>·</span>}
+            <span className="font-semibold">{RESULT_PENDING}</span>
+          </>
+        )}
+        {!live && !finished && !stale &&
           (stopped ? (
             <>
               {match.group && <span aria-hidden>·</span>}

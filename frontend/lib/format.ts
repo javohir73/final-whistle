@@ -6,6 +6,30 @@ export function pct(value: number | null | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
+/** Whole-number percentages for a W/D/L triple that always add up to exactly
+ *  100. Rounding each outcome on its own (pct) can print 52 · 27 · 22 = 101 on
+ *  a legend; this uses largest-remainder rounding instead: floor every value,
+ *  then hand the spare points to the largest remainders (ties go home, draw,
+ *  away, so the result is deterministic). A feed triple that does not quite sum
+ *  to 1 is normalised first. */
+export function pctTriple(p: Probabilities): { home: number; draw: number; away: number } {
+  const raw = [p.home_win, p.draw, p.away_win].map((v) => (Number.isFinite(v) && v > 0 ? v : 0));
+  const total = raw[0] + raw[1] + raw[2];
+  if (total <= 0) return { home: 0, draw: 0, away: 0 };
+  const scaled = raw.map((v) => (v / total) * 100);
+  const whole = scaled.map((v) => Math.floor(v));
+  let spare = 100 - (whole[0] + whole[1] + whole[2]);
+  const byRemainder = [0, 1, 2].sort(
+    (a, b) => scaled[b] - whole[b] - (scaled[a] - whole[a]) || a - b,
+  );
+  for (const i of byRemainder) {
+    if (spare <= 0) break;
+    whole[i] += 1;
+    spare -= 1;
+  }
+  return { home: whole[0], draw: whole[1], away: whole[2] };
+}
+
 export type Outcome = "home" | "draw" | "away";
 
 export function topOutcome(p: Probabilities): Outcome {
