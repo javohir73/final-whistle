@@ -1,6 +1,6 @@
 # FinalWhistle — UX rebuild plan (November 2026)
 
-Status: ACTIVE · Branch: `fable/ux-rebuild` · Author: Claude (Fable 5.1) for Javo · Date: 2026-11-03
+Status: ACTIVE (Phase 0 implemented, awaiting merge) · Branch: `fable/ux-rebuild` · Author: Claude (Fable 5.1) for Javo · Date: 2026-11-03
 
 Evidence: six parallel audits (live screenshots at 390 px and 1440 px, information
 architecture, core match flow, design system, code health, engagement loop) run on
@@ -176,68 +176,68 @@ tab); poll only while something is live or within 10 minutes of a kickoff.
 Effort: S ≤ 1 day · M 2–5 days · L > 1 week (Claude-compressed, calendar time is less).
 Each phase is a PR or a small set of PRs behind the stop gate.
 
-### Phase 0 — Unbreak the loop and the leaks (this branch, in progress)
+### Phase 0 — Unbreak the loop and the leaks (SHIPPED on `fable/ux-rebuild`, PR pending)
 Backend
-- [ ] `_current_matchweek` / `_current_round`: ignore `scheduled` rows whose kickoff is
+- [x] `_current_matchweek` / `_current_round`: ignore `scheduled` rows whose kickoff is
       in the past (status lag or ghost); choose the earliest matchweek with an
       in-play or not-yet-kicked-off match; fall back to the latest played. Tests. (S)
-- [ ] `_LEADERBOARD_MIN_PARTICIPANTS` → 1 in both tips APIs, and the model is always
+- [x] `_LEADERBOARD_MIN_PARTICIPANTS` → 1 in both tips APIs, and the model is always
       a ranked row (`is_model: true`) so one player still gets "You #1 of 2". (S)
-- [ ] `competition` field on match summary and team profile responses so the
+- [x] `competition` field on match summary and team profile responses so the
       frontend can resolve `/match/:id` and `/team/:id` to the right competition. (S)
-- [ ] Pipeline follow-up (separate PR, stop-gated because it touches prod data):
+- [ ] (NOT in this PR, stop-gated) Pipeline follow-up (separate PR, stop-gated because it touches prod data):
       dedupe the ghost fixtures and team aliases; fail the refresh when any
       `scheduled` row is > 3 h past kickoff. (S)
 
 Frontend — navigation and leaks
-- [ ] One template-driven 5-tab bar (§3.1), icons looked up by id, chip on every route. (M)
-- [ ] `DEFAULT_COMPETITION` → `epl`; `fw_comp` cookie + geo default; middleware writes
+- [x] One template-driven 5-tab bar (§3.1), icons looked up by id, chip on every route. (M)
+- [x] `DEFAULT_COMPETITION` → `epl`; `fw_comp` cookie + geo default; middleware writes
       the cookie on competition routes; overlay star = "Set as default". (S)
-- [ ] `/match/:id`, `/team/:id` become competition lookups (redirect to the right
+- [x] `/match/:id`, `/team/:id` become competition lookups (redirect to the right
       `/football/{comp}/…`, WC26 fallback), replacing the static redirects. Default
       card/hero/embed links use `footballMatchHref()`. (S)
-- [ ] `/football/{comp}/bracket` and `/groups` 404 unless the competition has them;
+- [x] `/football/{comp}/bracket` and `/groups` 404 unless the competition has them;
       `/nrl/leaderboard` renders the NRL board; `/tips` → `/play`; `/leaderboard`
       defaults to the current competition; `/football` hub page; `/retention` noindex. (S)
-- [ ] Competition overlay: focus trap, labelled star, no repeated codes. (S)
+- [x] Competition overlay: focus trap, labelled star, no repeated codes. (S)
 
 Frontend — the loop
-- [ ] Picker safety net: if the loaded matchweek has no pickable match, jump to the
+- [x] Picker safety net: if the loaded matchweek has no pickable match, jump to the
       next one and say so. (S)
-- [ ] League match pages get the **real scoreline pick** (`POST /tips/submit`) under
+- [x] League match pages get the **real scoreline pick** (`POST /tips/submit`) under
       the model's call; browser-only W/D/L retired for leagues (kept for knockouts). (M)
-- [ ] Leaderboards render the model row; weekly/season boards never hide. (S)
-- [ ] Tips submit counts as engagement (install prompt); device claim runs on every
+- [x] Leaderboards render the model row; weekly/season boards never hide. (S)
+- [x] Tips submit counts as engagement (install prompt); device claim runs on every
       sign-in from `AuthProvider`. (S)
-- [ ] Stale state: NRL off-season home ("2026 season complete · back March 2027 ·
+- [x] Stale state: NRL off-season home ("2026 season complete · back March 2027 ·
       play EPL meanwhile"); manifest/OG/install-prompt copy platform-neutral; World
       Cup under "Past tournaments" in Play and the switcher; `RetentionBridge` and the
       fake "AI calculating" reveal removed; EPL hub "Also on" shows the current window. (S)
 
 Frontend — match centre honesty (P0 subset of §3.4)
-- [ ] Predicted score out of the real-score slot; one labelled bar summing to 100;
+- [x] Predicted score out of the real-score slot; one labelled bar summing to 100;
       ring → tier chip; "KO" → "Latest · date" before kickoff; "Result pending"
       instead of inferred FT; estimated minutes say "est."; this match's own
       `generated_at`; NRL `stage` fix (no "90 MIN" on every row); postponed mapped
       through. (S–M)
 
 Frontend — visual and platform quick wins
-- [ ] Mobile standings/ladder table layout fix. (S)
-- [ ] Contrast: ConfidenceBadge Low → muted; LIVE wash ink; daylight `text-loss` /
+- [x] Mobile standings/ladder table layout fix. (S)
+- [x] Contrast: ConfidenceBadge Low → muted; LIVE wash ink; daylight `text-loss` /
       `text-gold` / `text-win` → ink variants; no `text-muted/50`. (S)
-- [ ] Forms: visible labels and `role="alert"` on auth/reset; focus trap on
+- [x] Forms: visible labels and `role="alert"` on auth/reset; focus trap on
       DeleteAccountModal; toast above the tab bar. (S)
-- [ ] Security bumps (next 15.5.28, Capacitor 8.6, Sentry 10.78, sharp) and a real
+- [x] Security bumps (next 15.5.28, Capacitor 8.6, Sentry 10.78, sharp) and a real
       `npm audit --audit-level=high` gate in CI. (S)
-- [ ] Sentry capture in `error.tsx` / `global-error.tsx` + `instrumentation.ts`; Web
+- [x] Sentry capture in `error.tsx` / `global-error.tsx` + `instrumentation.ts`; Web
       Vitals via `@vercel/speed-insights`; loop events (`tips_submit`, `pick_submit`,
       `competition_switch`, `recap_viewed`, `share`). (S)
-- [ ] recharts off the critical path (CSS bars for feature importance; dynamic
+- [x] recharts off the critical path (CSS bars for feature importance; dynamic
       CalibrationChart). Match page 240 kB → ~130 kB. (S)
-- [ ] Capacitor: suppress the install prompt in the native shell; background colour
+- [x] Capacitor: suppress the install prompt in the native shell; background colour
       = `#0a1410`. Service worker: 4 s network timeout with cache fallback, bounded
       caches. (S)
-- [ ] ISR on `/football/[comp]/fixtures|standings|team|match` (`revalidate` 60 s). (S)
+- [x] ISR on `/football/[comp]/fixtures|standings|team|match` (`revalidate` 60 s). (S)
 
 Acceptance: La Liga/Bundesliga Play opens on the current matchweek; a club match
 shared as `/match/:id` resolves; the same five tabs on `/`, `/play`, `/football/epl/…`,
@@ -333,6 +333,11 @@ the leaderboard with the model row; mobile table readable; `npm audit` clean at 
    "your league has started" email, or delete the list.
 5. Keep-warm for the Render API (cron ping is free; a paid instance is a spend).
 6. Domain purchase, which also unblocks email reminders and the store re-skin.
+7. "First pick reveals the model's scoreline" is now cosmetic on league match pages,
+   because the hero chip (and fixture cards) already show the most likely score.
+   Either hide the chip until the user picks, or drop the reveal framing.
+8. Ghost fixtures (duplicate team rows) still sit in the database: the API and the
+   picker now ignore them, but standings/health need the stop-gated pipeline dedupe.
 
 ## 8. Sequencing and ownership (this branch)
 Five parallel tracks, each with exclusive file ownership, each running its own
@@ -341,6 +346,25 @@ tests and committing only its own paths:
   honesty + real pick · **C2** play loop, leaderboards, stale state · **D** visual,
   a11y, security, perf, PWA.
 Then a fresh-context review, the full test gate, and a PR with this plan.
+
+**Outcome (2026-11-03):** all five tracks landed; two fresh-context reviews
+(backend/routing/SW and match-centre/loop/visual) found no blockers, 5 Highs and
+8 Mediums, all fixed on the branch (notably: the model's leaderboard row now
+waits for human grading and picks grade in the post-results chain; an archived
+competition is never persisted as the default; ISR-cached match pages re-ask for
+a result; the render clock is shared between server and client; tips resolve to
+the signed-in account on every device). Gate at HEAD: backend 859 passed; frontend
+typecheck + lint clean, 1,930 jest tests passed, `npm audit --omit=dev
+--audit-level=high` clean, production build green with `/football/[comp]/
+{fixtures,standings,match,team}` as ISR; match page 240 kB → ~148 kB first-load JS.
+Pre-existing failures in `pipeline/run_calibrator_benchmark_test.py` reproduce on
+a clean `main` and are untouched here.
+
+**Deploy sequencing note:** the frontend's `/match/:id` and `/team/:id` lookups
+read the new `competition` field; until the Render backend is deployed they fall
+back to a temporary (307) WC26 guess, so deploy or let both auto-deploy from
+`main` together and verify `GET /api/matches/198/summary` carries
+`"competition": "epl"` before trusting the lookups.
 
 ## 9. Evidence
 Audit reports (local, not committed): `scratchpad/audit/{live-ux,ia-nav,match-flow,
