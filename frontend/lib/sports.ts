@@ -519,3 +519,16 @@ export function accentInkVar(comp: CompetitionId): string {
 export function isCompetitionId(v: string): v is CompetitionId {
   return v in COMPETITIONS;
 }
+
+/** Canonical, competition-scoped hrefs for football content. Every default
+ *  link that used to be `/match/${id}` (card, hero, intel panel, embed
+ *  backlink) 308s to the WC26 path and lands a club match on a soft 404, so
+ *  callers that know the competition must build the href from its basePath.
+ *  NRL matches use a composite (season/round/no) key and are not covered here. */
+export function footballMatchHref(comp: CompetitionId, matchId: number | string): string {
+  return `${COMPETITIONS[comp].basePath}/match/${matchId}`;
+}
+
+export function footballTeamHref(comp: CompetitionId, teamId: number | string): string {
+  return `${COMPETITIONS[comp].basePath}/team/${teamId}`;
+}
