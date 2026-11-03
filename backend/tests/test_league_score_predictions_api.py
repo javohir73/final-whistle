@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import league_score_predictions as lsp
+from app.data_freshness import MATCH_MAX_DURATION_HOURS, stuck_matches
 from app.db import Base, get_db
 from app.main import app
 from app.models import LeagueScorePrediction, Match, Prediction, SportMatch, SportTeam, Team, Tournament, TipPlayer, UserTip
@@ -558,6 +559,56 @@ def test_current_matchweek_in_play_match_keeps_its_matchweek(client):
     db.commit()
 
     assert lsp._current_matchweek(db, epl.id, now=_NOW) == 7
+
+
+@pytest.mark.parametrize("age, still_open", [
+    (timedelta(minutes=30), True),
+    (timedelta(hours=MATCH_MAX_DURATION_HOURS), True),
+    (timedelta(hours=MATCH_MAX_DURATION_HOURS, seconds=1), False),
+    (timedelta(hours=6), False),
+])
+def test_current_matchweek_in_play_is_open_only_until_the_health_checks_impossible_line(client, age, still_open):
+    """An in_play row is open only while a match could still be running.
+    Past MATCH_MAX_DURATION_HOURS after kickoff /api/health already calls it
+    impossible -- a feed that stopped reaching us, not a match -- so it must
+    not pin Play either. Both draw the same line: a row is stuck there
+    exactly when it is not open here."""
+    _, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    in_play = _match(db, epl, ars, che, 7, _NOW - age, status="in_play", score_home=1, score_away=0)
+    _match(db, epl, bha, whu, 8, _NOW + timedelta(days=6))
+    db.commit()
+
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == (7 if still_open else 8)
+    stuck_ids = {row["match_id"] for row in stuck_matches(db, now=_NOW)}
+    assert (in_play.id in stuck_ids) is (not still_open)
+
+
+def test_mine_default_skips_a_stuck_in_play_row_but_keeps_a_live_one(client):
+    """End to end on the server clock: a row left in_play six hours after
+    kickoff no longer pins Play, while a match thirty minutes in keeps its
+    matchweek."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    now = datetime.now(timezone.utc)
+    _match(db, epl, ars, che, 9, now - timedelta(hours=6), status="in_play", score_home=2, score_away=2)
+    _match(db, epl, bha, whu, 10, now + timedelta(days=3))
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A})
+    assert r.status_code == 200, r.text
+    assert r.json()["matchweek"] == 10
+
+    _match(db, epl, ars, bha, 9, now - timedelta(minutes=30), status="in_play", score_home=0, score_away=0)
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A})
+    assert r.status_code == 200, r.text
+    assert r.json()["matchweek"] == 9
 
 
 def test_current_matchweek_nothing_open_falls_back_to_latest_matchweek(client):

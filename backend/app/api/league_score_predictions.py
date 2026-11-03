@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import random
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import and_, or_
@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session, aliased, load_only, undefer
 
 from app import schemas
 from app.api.auth import _email_action_rate_limited
+from app.data_freshness import MATCH_MAX_DURATION_HOURS
 from app.db import get_db
 from app.match_status import FINISHED, IN_PLAY, SCHEDULED, is_locked
 from app.models import EmailActionAttempt, LeagueScorePrediction, Match, Prediction, Team, TipPlayer, Tournament
@@ -305,13 +306,18 @@ def _current_matchweek(db: Session, tournament_id: int, now: datetime | None = N
     _current_round, scoped to tournament_id instead of (sport, season) since
     one Tournament row already IS one season for a football league.
 
-    Open means in play, or scheduled and not yet kicked off. A `scheduled`
-    row whose kickoff has passed is a status the feed never caught up on --
-    a duplicate-team ghost fixture from August, or a played match the refresh
-    hasn't flipped yet -- and it pinned Play to a matchweek nobody can play
-    (UX rebuild plan 2026-11 §1.2: La Liga on matchweek 2 and Bundesliga on
-    matchweek 1 in November, EPL on an all-played matchweek 9). An undated
-    scheduled fixture is still open, but sorts after every dated one.
+    Open means scheduled and not yet kicked off, or in play and within
+    MATCH_MAX_DURATION_HOURS of kickoff. A `scheduled` row whose kickoff has
+    passed is a status the feed never caught up on -- a duplicate-team ghost
+    fixture from August, or a played match the refresh hasn't flipped yet --
+    and it pinned Play to a matchweek nobody can play (UX rebuild plan
+    2026-11 §1.2: La Liga on matchweek 2 and Bundesliga on matchweek 1 in
+    November, EPL on an all-played matchweek 9). An `in_play` row past
+    /api/health's own line (app.data_freshness) is just as impossible: nobody
+    is still playing, the feed that should have finished it stopped reaching
+    us. The cutoff uses >=, the exact complement of stuck_matches' `<`, so a
+    row is never both stuck there and open here. An undated fixture is still
+    open, but sorts after every dated one.
 
     Postponed/suspended fixtures are intentionally excluded until the provider
     gives them a new playable state. Otherwise an old stopped fixture pins the
@@ -319,13 +325,15 @@ def _current_matchweek(db: Session, tournament_id: int, now: datetime | None = N
 
     `now` defaults to the server clock; tests pin it."""
     now = to_aware_utc(now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    in_play_cutoff = now - timedelta(hours=MATCH_MAX_DURATION_HOURS)
     upcoming = (
         db.query(Match.matchweek)
         .filter(
             Match.tournament_id == tournament_id,
             Match.matchweek.isnot(None),
             or_(
-                Match.status == IN_PLAY,
+                and_(Match.status == IN_PLAY,
+                     or_(Match.kickoff_utc.is_(None), Match.kickoff_utc >= in_play_cutoff)),
                 and_(Match.status == SCHEDULED,
                      or_(Match.kickoff_utc.is_(None), Match.kickoff_utc > now)),
             ),

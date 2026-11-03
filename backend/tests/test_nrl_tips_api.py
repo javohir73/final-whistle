@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import nrl_tips
+from app.api.nrl_live import _LIVE_STATE_GRACE, _MATCH_DURATION, live_state_is_stale
 from app.db import Base, get_db
 from app.main import app
 from app.models import SportMatch, SportPrediction, SportPredictionResult, SportTeam
@@ -321,6 +322,57 @@ def test_current_round_in_play_match_keeps_its_round(client):
     db.commit()
 
     assert nrl_tips._current_round(db, 2026, now=_NOW) == 12
+
+
+# NRL's own line for a live claim (app.api.nrl_live.live_state_is_stale): the
+# poller's 110' window plus a golden-point grace, past which "live" is frozen.
+_NRL_LIVE_LIMIT = _MATCH_DURATION + _LIVE_STATE_GRACE
+
+
+@pytest.mark.parametrize("age, still_open", [
+    (timedelta(minutes=30), True),
+    (_NRL_LIVE_LIMIT, True),
+    (_NRL_LIVE_LIMIT + timedelta(seconds=1), False),
+    (timedelta(hours=6), False),
+])
+def test_current_round_in_play_is_open_only_while_nrl_live_still_believes_it(client, age, still_open):
+    """An in_play row is open only while it could still be a game in
+    progress: past the line every NRL surface draws for a live claim, it is
+    frozen data, so it must not pin the round. Both draw the same line."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kickoff = _NOW - age
+    _nrl_match(db, 12, 1, storm, eels, kickoff, status="in_play")
+    _nrl_match(db, 13, 1, storm, eels, _NOW + timedelta(days=4))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == (12 if still_open else 13)
+    assert live_state_is_stale(kickoff, _NOW) is (not still_open)
+
+
+def test_tipsheet_default_round_skips_a_stuck_in_play_row_but_keeps_a_live_one(client):
+    """End to end on the server clock: a row left in_play six hours after
+    kickoff no longer pins the round, while a match thirty minutes in keeps
+    its round."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    _nrl_match(db, 20, 1, storm, eels, now - timedelta(hours=6), status="in_play")
+    _nrl_match(db, 21, 1, storm, eels, now + timedelta(days=3))
+    db.commit()
+
+    r = c.get("/api/nrl/tips", params={"season": 2026})
+    assert r.status_code == 200, r.text
+    assert r.json()["round"] == 21
+
+    _nrl_match(db, 20, 2, storm, eels, now - timedelta(minutes=30), status="in_play")
+    db.commit()
+
+    r = c.get("/api/nrl/tips", params={"season": 2026})
+    assert r.status_code == 200, r.text
+    assert r.json()["round"] == 20
 
 
 def test_current_round_nothing_open_falls_back_to_latest_round(client):
