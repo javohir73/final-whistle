@@ -725,3 +725,107 @@ it("re-reads the server after a claim and drops a cached pick the server no long
   expect(screen.queryByText(/You predicted/)).not.toBeInTheDocument();
   expect(mockMine).toHaveBeenCalledTimes(2);
 });
+
+// ---- Stop rule: a pick kicking off soon, else the first week with any pick ---
+
+const daysAhead = (d: number) => future(60 * 24 * d);
+
+it("walks past a week whose only open pick is weeks away, to one kicking off soon", async () => {
+  const onMatchweekChange = jest.fn();
+  // Live La Liga: MW8 is all played bar one postponed game moved to 9 December.
+  serveWeeks(8, {
+    8: [fullTime(801), fullTime(802), fullTime(803), fixture(804, { status: "postponed", kickoff_utc: daysAhead(36) })],
+    9: [fullTime(901)],
+    10: [fullTime(1001)],
+    11: [fullTime(1100), fixture(1101, { kickoff_utc: daysAhead(3) }), fixture(1102, { kickoff_utc: daysAhead(3) })],
+  });
+
+  render(<LeagueTipsPicker league="laliga" onMatchweekChange={onMatchweekChange} />);
+
+  expect(
+    await screen.findByText("Matchweeks 8–10 are done — showing Matchweek 11 · 2 open fixtures"),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: /Home 1101 vs Away 1101/ })).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(4);
+  expect(onMatchweekChange).toHaveBeenCalledTimes(1);
+  expect(onMatchweekChange).toHaveBeenCalledWith(11);
+});
+
+it("falls back to the first week with any open pick when nothing kicks off soon before the end", async () => {
+  const onMatchweekChange = jest.fn();
+  serveWeeks(2, {
+    2: [fullTime(201)],
+    3: [fullTime(301), fullTime(302), fixture(303, { kickoff_utc: daysAhead(36) })],
+    4: [fullTime(401)],
+    5: [fullTime(501)],
+  });
+
+  render(<LeagueTipsPicker league="laliga" onMatchweekChange={onMatchweekChange} />);
+
+  expect(
+    await screen.findByText("Matchweek 2 is done — showing Matchweek 3 · 1 open fixture"),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Matchweek 3")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: /Home 303 vs Away 303/ })).toBeInTheDocument();
+  // The end of the fixtures lies beyond the fallback: no boundary message, and
+  // "next" still works from here.
+  expect(screen.queryByText(/No laliga matches loaded/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Matchweek 4/ })).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(6); // 2, 3, 4, 5, 6 (404), back to 3
+  expect(mockMine).toHaveBeenLastCalledWith("laliga", "device-1", 3);
+  expect(onMatchweekChange).toHaveBeenCalledTimes(1);
+  expect(onMatchweekChange).toHaveBeenCalledWith(3);
+});
+
+it("falls back the same way when the hop cap is reached first", async () => {
+  const weeks: Record<number, LeagueTipsMineMatch[]> = {};
+  for (let mw = 2; mw <= 30; mw += 1) weeks[mw] = [fullTime(mw * 100 + 1)];
+  weeks[5] = [fullTime(501), fixture(502, { kickoff_utc: daysAhead(36) })];
+  serveWeeks(2, weeks);
+
+  render(<LeagueTipsPicker league="laliga" />);
+
+  expect(
+    await screen.findByText("Matchweeks 2–4 are done — showing Matchweek 5 · 1 open fixture"),
+  ).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(14); // the first load, 12 hops, back to 5
+  expect(mockMine).toHaveBeenLastCalledWith("laliga", "device-1", 5);
+});
+
+it("can fall back to the starting week itself, and says how many picks are open there", async () => {
+  serveWeeks(8, {
+    8: [fullTime(801), fullTime(802), fixture(803, { kickoff_utc: daysAhead(36) })],
+    9: [fullTime(901)],
+    10: [fullTime(1001)],
+  });
+
+  render(<LeagueTipsPicker league="laliga" />);
+
+  expect(await screen.findByText("1 open fixture in Matchweek 8")).toBeInTheDocument();
+  expect(screen.getByText("Matchweek 8")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: /Home 803 vs Away 803/ })).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(5); // 8, 9, 10, 11 (404), back to 8
+});
+
+it("doesn't walk away from open picks whose kickoff time is still TBC", async () => {
+  mockMine.mockResolvedValue(mine({ matchweek: 12, matches: [fullTime(1201), fixture(1202, { kickoff_utc: null })] }));
+
+  render(<LeagueTipsPicker league="epl" />);
+
+  expect(await screen.findByText("Matchweek 12")).toBeInTheDocument();
+  await act(async () => {});
+  expect(mockMine).toHaveBeenCalledTimes(1);
+});
+
+it("after falling back to the week on screen at the end of the fixtures, 'next' still works", async () => {
+  serveWeeks(38, { 38: [fullTime(3801), fixture(3802, { kickoff_utc: daysAhead(36) })] });
+
+  render(<LeagueTipsPicker league="epl" />);
+
+  expect(await screen.findByText("1 open fixture in Matchweek 38")).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(3); // 38, 39 (404), back to 38
+
+  fireEvent.click(screen.getByRole("button", { name: /Matchweek 39/ }));
+  expect(await screen.findByText(/No epl matches loaded for that matchweek yet\./)).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(4);
+});

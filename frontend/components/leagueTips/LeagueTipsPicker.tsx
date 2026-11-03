@@ -75,18 +75,34 @@ function isLocked(match: LeagueTipsMineMatch, now: number): boolean {
  *  than "some row is editable": a postponed fixture keeps its ORIGINAL
  *  kickoff, so one postponed weeks ago must not anchor the picker to a
  *  matchweek that is otherwise over. */
+function isOpenFixture(m: LeagueTipsMineMatch, now: number): boolean {
+  return !isLocked(m, now) && (m.kickoff_utc == null || new Date(m.kickoff_utc).getTime() > now);
+}
+
 function hasOpenFixture(matches: LeagueTipsMineMatch[], now: number): boolean {
+  return matches.some((m) => isOpenFixture(m, now));
+}
+
+/** How far ahead an open pick still makes a matchweek worth landing on. */
+const SOON_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** An open pick kicking off within two weeks -- or with its kickoff time
+ *  still TBC, which is no reason to walk away from it. A week whose only
+ *  open row is a postponed game moved a month out (La Liga MW8 in November)
+ *  is not where a player should land while next weekend's matchweek is open. */
+function hasSoonFixture(matches: LeagueTipsMineMatch[], now: number): boolean {
   return matches.some(
     (m) =>
-      !isLocked(m, now) &&
-      (m.kickoff_utc == null || new Date(m.kickoff_utc).getTime() > now),
+      isOpenFixture(m, now) &&
+      (m.kickoff_utc == null || new Date(m.kickoff_utc).getTime() - now <= SOON_MS),
   );
 }
 
-/** "done" only when every fixture is settled; anything still in play or
- *  awaiting a result is "locked" -- the same word the rows use. */
-function weekIsDone(matches: LeagueTipsMineMatch[]): boolean {
-  return matches.every((m) => m.status === "finished" || m.status === "cancelled");
+/** A row that is locked but not settled: in play, suspended, or kicked off
+ *  with its status lagging. A skipped week with one reads "locked" in the
+ *  notice -- the same word the rows use -- instead of "done". */
+function hasUnsettledLock(matches: LeagueTipsMineMatch[], now: number): boolean {
+  return matches.some((m) => isLocked(m, now) && m.status !== "finished" && m.status !== "cancelled");
 }
 
 /** A row the provider still calls "scheduled" a day after its kickoff is a
@@ -108,14 +124,40 @@ function isGhost(match: LeagueTipsMineMatch, now: number): boolean {
  *  matchweek before it gives up and shows where it got to. */
 const MAX_AUTO_ADVANCE_HOPS = 12;
 
-/** The one line explaining an auto-advance from `from` to `shown`. */
-function advanceNoticeText(from: number, shown: number, allDone: boolean): string | null {
-  if (shown <= from) return null;
-  const last = shown - 1;
-  const state = allDone ? "done" : "locked";
-  return last === from
-    ? `Matchweek ${from} is ${state} — showing Matchweek ${shown}`
-    : `Matchweeks ${from}–${last} are ${state} — showing Matchweek ${shown}`;
+/** One safety-net walk, spanning several loads: where it started, how many
+ *  requests it has made, each week it passed over, the first week that had
+ *  anything open at all (the fallback), and -- once it has given up on
+ *  finding a pick soon -- the fallback week it is going back to. */
+interface AdvanceRun {
+  from: number;
+  hops: number;
+  weeks: { matchweek: number; unsettled: boolean }[];
+  fallback: number | null;
+  landOn: number | null;
+}
+
+/** The one line explaining where the walk landed: the weeks it passed over,
+ *  and -- when the week shown also has finished games, so its open picks are
+ *  easy to miss -- how many are open. */
+function advanceNoticeText(
+  from: number,
+  shown: number,
+  allDone: boolean,
+  openCount: number,
+  hasFinished: boolean,
+): string | null {
+  let skipped: string | null = null;
+  if (shown > from) {
+    const last = shown - 1;
+    const state = allDone ? "done" : "locked";
+    skipped =
+      last === from
+        ? `Matchweek ${from} is ${state} — showing Matchweek ${shown}`
+        : `Matchweeks ${from}–${last} are ${state} — showing Matchweek ${shown}`;
+  }
+  if (!hasFinished || openCount === 0) return skipped;
+  const open = `${openCount} open fixture${openCount === 1 ? "" : "s"}`;
+  return skipped ? `${skipped} · ${open}` : `${open} in Matchweek ${shown}`;
 }
 
 /** "Beat the model's scoreline" (design doc: League Score Predictions,
@@ -171,18 +213,22 @@ export function LeagueTipsPicker({
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [draftHome, setDraftHome] = useState<Record<number, string>>({});
   const [draftAway, setDraftAway] = useState<Record<number, string>>({});
-  // Safety net: the server's "current" matchweek can be one with nothing left
-  // to pick (a status update lagging after kickoff, ghost fixtures keeping an
-  // August matchweek "current"). The initial, server-resolved load then walks
+  // Safety net: the server's "current" matchweek can be one with nothing to
+  // pick soon (a status update lagging after kickoff, ghost fixtures keeping
+  // an August matchweek "current", a played week whose one open game was
+  // postponed a month out). The initial, server-resolved load then walks
   // forward, one matchweek per request through the same path as the "next"
-  // button, until a matchweek has something to pick -- at most
-  // MAX_AUTO_ADVANCE_HOPS requests, once per league, never after the
-  // player's own prev/next, and only while the server keeps moving forward,
-  // so it cannot loop. The run lives in a ref (it spans several loads);
-  // `advancing` keeps the skipped weeks off screen and away from
-  // onMatchweekChange until it ends; `advanceNotice` is the one-line "why".
+  // button, and stops at the first week with an open pick kicking off within
+  // 14 days. If the hop cap or the end of the loaded fixtures comes first, it
+  // goes back to the first week that had any open pick at all. At most
+  // MAX_AUTO_ADVANCE_HOPS requests (plus that one step back), once per
+  // league, never after the player's own prev/next, and only while the
+  // server keeps moving forward, so it cannot loop. The run lives in a ref
+  // (it spans several loads); `advancing` keeps the passed-over weeks off
+  // screen and away from onMatchweekChange until it ends; `advanceNotice` is
+  // the one-line "why".
   const autoAdvancedFor = useRef<string | null>(null);
-  const advanceRun = useRef<{ from: number; hops: number; allDone: boolean } | null>(null);
+  const advanceRun = useRef<AdvanceRun | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [advanceNotice, setAdvanceNotice] = useState<string | null>(null);
 
@@ -191,6 +237,23 @@ export function LeagueTipsPicker({
     let live = true;
     setLoadError(null);
     setNavError(null);
+    // Ends a safety-net walk on `shown`: the one notice, then the week is
+    // announced as the one on screen.
+    const finish = (run: AdvanceRun, shown: number, shownMatches: LeagueTipsMineMatch[]) => {
+      advanceRun.current = null;
+      const at = Date.now();
+      setAdvanceNotice(
+        advanceNoticeText(
+          run.from,
+          shown,
+          !run.weeks.some((w) => w.matchweek < shown && w.unsettled),
+          shownMatches.filter((m) => isOpenFixture(m, at)).length,
+          shownMatches.some((m) => m.status === "finished"),
+        ),
+      );
+      setAdvancing(false);
+      onMatchweekChange?.(shown);
+    };
     getMyLeagueTips(league, deviceId, requested ?? undefined)
       .then((res) => {
         if (!live) return;
@@ -215,32 +278,49 @@ export function LeagueTipsPicker({
         setSeasonNotStarted(false);
         setBoundary({ prev: false, next: false });
         const open = hasOpenFixture(matches, loadedAt);
+        const soon = hasSoonFixture(matches, loadedAt);
         const run = advanceRun.current;
-        if (requested == null && autoAdvancedFor.current !== league && !open) {
+        if (run && run.landOn != null) {
+          // Back on the remembered week: nothing kicked off soon further on.
+          finish(run, res.matchweek, matches);
+          return;
+        }
+        if (requested == null && autoAdvancedFor.current !== league && !soon) {
           // Start a run from the server-resolved week.
           autoAdvancedFor.current = league;
-          advanceRun.current = { from: res.matchweek, hops: 1, allDone: weekIsDone(matches) };
+          advanceRun.current = {
+            from: res.matchweek,
+            hops: 1,
+            weeks: [{ matchweek: res.matchweek, unsettled: hasUnsettledLock(matches, loadedAt) }],
+            fallback: open ? res.matchweek : null,
+            landOn: null,
+          };
           setAdvancing(true);
           setRequested(res.matchweek + 1); // same request path as the "next" button
           return;
         }
-        if (
-          run &&
-          !open &&
-          run.hops < MAX_AUTO_ADVANCE_HOPS &&
-          requested != null &&
-          res.matchweek >= requested // the server is still moving forward
-        ) {
-          run.hops += 1;
-          run.allDone = run.allDone && weekIsDone(matches);
-          setRequested(res.matchweek + 1);
-          return;
-        }
         if (run) {
-          // The run ends here: something to pick, the hop cap, or a server
-          // that stopped moving forward.
-          advanceRun.current = null;
-          setAdvanceNotice(advanceNoticeText(run.from, res.matchweek, run.allDone));
+          const movingForward = requested != null && res.matchweek >= requested;
+          if (movingForward && !soon) {
+            run.weeks.push({ matchweek: res.matchweek, unsettled: hasUnsettledLock(matches, loadedAt) });
+            if (open && run.fallback == null) run.fallback = res.matchweek;
+            if (run.hops < MAX_AUTO_ADVANCE_HOPS) {
+              run.hops += 1;
+              setRequested(res.matchweek + 1);
+              return;
+            }
+            if (run.fallback != null && run.fallback !== res.matchweek) {
+              // The cap, with nothing kicking off soon: go back to the first
+              // week that had anything open.
+              run.landOn = run.fallback;
+              setRequested(run.fallback);
+              return;
+            }
+          }
+          // The run ends here: a pick kicking off soon, the hop cap, or a
+          // server that stopped moving forward.
+          finish(run, res.matchweek, matches);
+          return;
         }
         setAdvancing(false);
         onMatchweekChange?.(res.matchweek);
@@ -252,19 +332,24 @@ export function LeagueTipsPicker({
           return;
         }
         if (err instanceof ApiError && err.code === "matchweek_not_found" && requested != null && current) {
+          const run = advanceRun.current;
+          if (run && run.landOn == null && run.fallback != null) {
+            // The walk reached the end of the loaded fixtures without a pick
+            // kicking off soon: go back to the first week that had anything
+            // open -- through the request path even when it is the week on
+            // screen, so `requested` matches what is shown and "next" still
+            // works. No boundary flag: that week has a next one.
+            run.landOn = run.fallback;
+            setRequested(run.fallback);
+            return;
+          }
           // Nav ran off the end of the loaded fixtures -- keep showing the
           // last good matchweek and just flag that direction as exhausted.
           setBoundary((b) => ({ ...b, [requested < current.matchweek ? "prev" : "next"]: true }));
           setNavError(`No ${league} matches loaded for that matchweek yet.`);
-          const run = advanceRun.current;
-          if (run) {
-            // The run walked off the end of the loaded fixtures: stay on the
-            // last week it loaded, now announced as the week on screen.
-            advanceRun.current = null;
-            setAdvanceNotice(advanceNoticeText(run.from, current.matchweek, run.allDone));
-            setAdvancing(false);
-            onMatchweekChange?.(current.matchweek);
-          }
+          // A walk with nothing open anywhere stays on the last week it
+          // loaded, now announced as the week on screen.
+          if (run) finish(run, current.matchweek, current.matches);
           return;
         }
         setLoadError(err instanceof ApiError ? err.message : "Couldn't load this matchweek's tips.");
