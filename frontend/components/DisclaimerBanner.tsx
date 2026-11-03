@@ -50,6 +50,18 @@ export function DisclaimerBanner() {
         className="flex h-8 items-center gap-1 border-b border-border bg-surface pl-4 pr-1 text-label text-muted"
       >
         <p className="min-w-0 flex-1 truncate text-center">
+          {/* The caution cue, in the AA-safe draw ink (an SVG, not an emoji). */}
+          <svg
+            viewBox="0 0 24 24"
+            className="mr-1.5 inline-block h-3 w-3 -translate-y-px align-middle text-draw-ink"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            aria-hidden="true"
+          >
+            <path d="M12 3 2 20h20L12 3Z" strokeLinejoin="round" />
+            <path d="M12 10v4M12 17h.01" strokeLinecap="round" />
+          </svg>
           For analytics and entertainment only.{" "}
           <strong className="font-semibold text-foreground">Not betting advice.</strong>
           <span className="hidden sm:inline"> Predictions are probabilistic and never guaranteed.</span>
