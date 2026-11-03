@@ -86,19 +86,6 @@ describe("FeatureHero", () => {
     );
   });
 
-  it("points NRL's 'Why' at the NRL match page's model section (it has no #why or #pick)", () => {
-    render(
-      <FeatureHero match={makeMatch()} comp="nrl" tz="UTC" href="/nrl/match/2026/19/3" />,
-    );
-    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
-      "href",
-      "/nrl/match/2026/19/3",
-    );
-    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute(
-      "href",
-      "/nrl/match/2026/19/3#model",
-    );
-  });
 
   it("dates the kickoff and names its zone, not a bare clock time", () => {
     render(
@@ -165,5 +152,71 @@ describe("FeatureHero", () => {
       "src",
       "/clubs/nrl/eels.svg",
     );
+  });
+});
+
+/** M2: the primary call to action only says "Make your pick" where a pick can
+ *  actually be made. */
+describe("FeatureHero primary call to action", () => {
+  const live = () =>
+    makeMatch({
+      kickoff_utc: new Date(Date.now() - 30 * 60_000).toISOString(),
+      status: "in_play", score_home: 1, score_away: 0, minute: 30, period: "first_half",
+    });
+
+  it("sends a pre-kickoff league fixture to the pick", () => {
+    render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" />);
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
+      "href",
+      "/football/epl/match/101#pick",
+    );
+  });
+
+  it("offers a Preview -- no #pick -- where picks are not open (Champions League)", () => {
+    render(<FeatureHero match={makeMatch()} comp="ucl" tz="UTC" />);
+    expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Preview" })).toHaveAttribute("href", "/football/ucl/match/101");
+  });
+
+  it("says Live now for a live featured match, without the closed pick anchor", () => {
+    render(<FeatureHero match={live()} comp="epl" tz="UTC" />);
+    expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Live now" })).toHaveAttribute("href", "/football/epl/match/101");
+  });
+
+  it("says Match centre once the match is over", () => {
+    render(
+      <FeatureHero
+        match={makeMatch({ status: "finished", score_home: 2, score_away: 0, kickoff_utc: new Date(Date.now() - 2 * 86_400_000).toISOString() })}
+        comp="epl"
+        tz="UTC"
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Match centre" })).toHaveAttribute("href", "/football/epl/match/101");
+  });
+
+  it("sends an NRL pick to the NRL tips game, which is where NRL picks are made", () => {
+    render(<FeatureHero match={makeMatch()} comp="nrl" tz="UTC" href="/nrl/match/2026/19/3" />);
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute("href", "/nrl/tips");
+    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute("href", "/nrl/match/2026/19/3#model");
+  });
+
+  it("prints the bar's own rounded share as the giant number (L6)", () => {
+    // Rounded alone 0.456 is 46%; the bar's sum-to-100 split gives home 45.
+    render(
+      <FeatureHero
+        match={makeMatch({ probabilities: { home_win: 0.456, draw: 0.267, away_win: 0.277 } })}
+        comp="epl"
+        tz="UTC"
+      />,
+    );
+    expect(screen.getByText("45")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Why 45%?" })).toBeInTheDocument();
+    expect(screen.getByRole("img")).toHaveAttribute("aria-label", expect.stringContaining("Brazil win 45%"));
+  });
+
+  it("paints the Live label in the AA-safe live ink (L11)", () => {
+    render(<FeatureHero match={live()} comp="epl" tz="UTC" />);
+    expect(screen.getByText("Live")).toHaveClass("text-loss-ink");
   });
 });

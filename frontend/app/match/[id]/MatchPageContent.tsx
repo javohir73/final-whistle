@@ -44,7 +44,8 @@ export async function generateMatchMetadata(
   if (!p) return { title: `Match — ${APP_NAME}` };
   const title = `${p.teams.home} vs ${p.teams.away} — prediction | ${APP_NAME}`;
   const t = pctTriple(p.probabilities);
-  const description = `ML model prediction for ${p.teams.home} vs ${p.teams.away}: ${p.teams.home} ${t.home}%, draw ${t.draw}%, ${p.teams.away} ${t.away}%. Most likely score ${formatScore(p.predicted_score.home, p.predicted_score.away)}.`;
+  const split = t ? `: ${p.teams.home} ${t.home}%, draw ${t.draw}%, ${p.teams.away} ${t.away}%` : "";
+  const description = `ML model prediction for ${p.teams.home} vs ${p.teams.away}${split}. Most likely score ${formatScore(p.predicted_score.home, p.predicted_score.away)}.`;
   return {
     title, description,
     // The served, competition-scoped URL -- never /match/<id>, which redirects.
@@ -135,12 +136,15 @@ export async function renderMatchDetailPage(
       />
 
       {/* One live feed for the hero and the pick: the pick locks the moment
-          the hero shows kickoff, on an open tab, without a reload. */}
+          the hero shows kickoff, on an open tab, without a reload. It renders
+          its first client pass with this page's render instant, so the cached
+          (ISR) HTML hydrates without a clock mismatch. */}
       <MatchLiveProvider
         matchId={p.match_id}
         competition={competition}
         kickoffUtc={p.kickoff_utc}
         initialSummary={summary}
+        serverNow={renderedAt.toISOString()}
       >
         <MatchScoreboard
           matchId={p.match_id}
@@ -280,10 +284,11 @@ function LineupsSection({
 }) {
   return (
     <section id="lineups" aria-labelledby="lineups-heading" className="scroll-mt-24 space-y-3">
-      <h2 id="lineups-heading" className="px-0.5 font-display text-lg font-bold text-foreground">
+      {/* Focusable so "Show lineups" can hand focus here when it unmounts. */}
+      <h2 id="lineups-heading" tabIndex={-1} className="px-0.5 font-display text-lg font-bold text-foreground">
         Lineups
       </h2>
-      <LazyMount label="Show lineups">
+      <LazyMount label="Show lineups" focusTargetId="lineups-heading">
         <MatchLineups matchId={matchId} />
       </LazyMount>
       <AvailabilityNote availability={availability} />
@@ -324,6 +329,7 @@ function PredictionPending({
         competition={competition}
         kickoffUtc={summary.kickoff_utc}
         initialSummary={summary}
+        serverNow={new Date().toISOString()}
       >
         <MatchScoreboard
           matchId={summary.match_id}

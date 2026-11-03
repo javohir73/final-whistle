@@ -5,10 +5,10 @@
 import { getMyLeagueTips } from "@/lib/leagueTips";
 import { ApiError } from "@/lib/session";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse } from "@/lib/types";
+import { LEAGUE_TIPS_CACHE_PREFIX } from "@/components/play/tipsIdentity";
 import {
   findMyLeagueTip,
   LeagueTipsNotOpen,
-  PICKER_CACHE_PREFIX,
   readMatchweekHint,
   writePickerCache,
 } from "./leagueTipLookup";
@@ -112,7 +112,7 @@ describe("without it (an older backend omits the field): the walking fallback", 
   it("uses the /play picker's per-matchweek cache as a hint", async () => {
     serveWeeks(11);
     writePickerCache("epl", 14, 1403, { predicted_home: 2, predicted_away: 1 });
-    expect(localStorage.getItem(`${PICKER_CACHE_PREFIX}epl:14`)).not.toBeNull();
+    expect(localStorage.getItem(`${LEAGUE_TIPS_CACHE_PREFIX}epl:14`)).not.toBeNull();
     const found = await findMyLeagueTip("epl", "device-1", 1403, { kickoffUtc: kickoffOf(14, 2) });
     expect(found.matchweek).toBe(14);
     expect(mockMine).toHaveBeenCalledTimes(1);

@@ -14,10 +14,13 @@
 import { getMyLeagueTips } from "@/lib/leagueTips";
 import { ApiError } from "@/lib/session";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse } from "@/lib/types";
+import { LEAGUE_TIPS_CACHE_PREFIX } from "@/components/play/tipsIdentity";
 
-/** LeagueTipsPicker's per-(league, matchweek) cache of CONFIRMED predictions:
- *  `${prefix}${league}:${matchweek}` -> { [matchId]: { predicted_home, predicted_away } }. */
-export const PICKER_CACHE_PREFIX = "finalwhistle:league-tips:v1:";
+/** The /play picker's per-(league, matchweek) cache of CONFIRMED predictions,
+ *  `${prefix}${league}:${matchweek}` -> { [matchId]: { predicted_home, predicted_away } }.
+ *  The prefix is owned by tipsIdentity, which clears these after a sign-in
+ *  claim. */
+const PICKER_CACHE_PREFIX = LEAGUE_TIPS_CACHE_PREFIX;
 /** This page's own memo of which matchweek a match id lives in. */
 const MATCHWEEK_HINTS_PREFIX = "finalwhistle:league-tips:matchweek:v1:";
 const WEEK_MS = 7 * 24 * 60 * 60_000;

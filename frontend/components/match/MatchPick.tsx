@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TeamBadge } from "@/components/TeamBadge";
 import { Skeleton } from "@/components/Skeleton";
 import { MatchUserPrediction } from "@/components/MatchUserPrediction";
@@ -13,8 +13,9 @@ import {
   writePickerCache,
   type FoundTip,
 } from "@/components/match/leagueTipLookup";
+import { isLeagueTipsCompetition } from "@/components/match/picks";
+import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
 import { submitLeagueTip } from "@/lib/leagueTips";
-import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { recordEngagement } from "@/lib/engagement";
 import { trackEvent } from "@/lib/analytics";
@@ -29,13 +30,7 @@ import type { LeagueTipsMineModel, LeagueTipsMineYourPrediction } from "@/lib/ty
 const MIN_GOALS = 0;
 const MAX_GOALS = 9;
 
-/** Competitions whose match pages host the scored scoreline game. One source
- *  of truth with /play (lib/leagueConfig ACTIVE_LEAGUES): a league joins here
- *  the moment it joins there, so a pick made on a match page always shows up in
- *  /play and on the leaderboard. */
-export function isLeagueTipsCompetition(competition: CompetitionId): boolean {
-  return ACTIVE_LEAGUES.includes(competition);
-}
+export { isLeagueTipsCompetition };
 
 /** Server-mirrored pick window: the status must be open for picks
  *  (scheduled / postponed, as the backend's OPEN_FOR_PICKS) and a scheduled
@@ -241,6 +236,22 @@ function LeagueScorePick({
   const [draft, setDraft] = useState({ home: 0, away: 0 });
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // The server said "kicked off": close the stepper now, not on the next tick
+  // of the 30 s clock (each further tap would only spend the rate limit).
+  const [serverLocked, setServerLocked] = useState(false);
+  // The server said a pick already exists. If the re-fetch still cannot find
+  // it (the week does not list the match), never offer the stepper again.
+  const [finalized, setFinalized] = useState(false);
+  // Bumps after a sign-in claim, which can move this device's picks to an
+  // account (and drop the device's own player row): re-read the server, and
+  // forget what this card only knew locally.
+  const identityVersion = useTipsIdentityVersion();
+  const firstIdentity = useRef(identityVersion);
+  useEffect(() => {
+    if (identityVersion === firstIdentity.current) return;
+    setSubmitted(null);
+    setFinalized(false);
+  }, [identityVersion]);
 
   useEffect(() => {
     if (deviceId === undefined) return;
@@ -260,7 +271,7 @@ function LeagueScorePick({
     return () => {
       alive = false;
     };
-  }, [deviceId, league, matchId, matchweek, kickoffUtc, attempt]);
+  }, [deviceId, league, matchId, matchweek, kickoffUtc, attempt, identityVersion]);
 
   const found = load.kind === "ready" ? load.found : null;
   const row = found?.row ?? null;
@@ -276,8 +287,12 @@ function LeagueScorePick({
     (cached ? { ...cached, points: null, exact: null, graded_at: null, updated_at: null } : null);
   const model = submitted?.model ?? row?.model ?? null;
   const handle = submitted?.handle ?? found?.handle ?? null;
-  const status = liveStatus ?? row?.status ?? "scheduled";
-  const open = pickWindowOpen(status, kickoffUtc, now);
+  // A confirmed result from either source wins: the page's summary can be
+  // hours old (ISR), the tips row is never cached.
+  const status =
+    row?.status === "finished" ? "finished" : liveStatus ?? row?.status ?? "scheduled";
+  const effectivePhase: MatchPhase = status === "finished" ? "finished" : phase;
+  const open = !serverLocked && !finalized && pickWindowOpen(status, kickoffUtc, now);
   const finalScore =
     row?.score_home != null && row?.score_away != null
       ? formatScore(row.score_home, row.score_away)
@@ -325,11 +340,14 @@ function LeagueScorePick({
       pingDailyActivity().catch(() => {}); // retention instrumentation, best-effort
     } catch (err) {
       if (err instanceof ApiError && err.code === "prediction_finalized") {
-        // This device already has a pick (another tab, or /play): show it.
+        // This device already has a pick (another tab, or /play): re-fetch to
+        // show it, and stop offering the stepper either way.
         setMessage(err.message);
+        setFinalized(true);
         setAttempt((a) => a + 1);
       } else if (err instanceof ApiError && err.code === "match_locked") {
         setMessage("This match has kicked off, so picks are closed.");
+        setServerLocked(true);
         refreshLive?.();
       } else {
         setMessage(err instanceof ApiError ? err.message : "Couldn't save your pick. Try again.");
@@ -393,13 +411,19 @@ function LeagueScorePick({
       );
     }
     const progress =
-      phase === "live"
-        ? "In play · points land at full time"
-        : phase === "stale"
-          ? `${RESULT_PENDING} · points land once it's confirmed`
-          : phase === "finished"
-            ? `Full time${finalScore ? ` ${finalScore}` : ""} · points land when the result is graded`
-            : "Locked in · 5 pts for the exact score, 2 for the right result";
+      status === "postponed"
+        ? "Postponed · your pick carries over to the new date"
+        : status === "cancelled"
+          ? "Cancelled · this pick won't be scored"
+          : status === "suspended"
+            ? "Suspended · points wait on the outcome"
+            : effectivePhase === "live"
+              ? "In play · points land at full time"
+              : effectivePhase === "stale"
+                ? `${RESULT_PENDING} · points land once it's confirmed`
+                : effectivePhase === "finished"
+                  ? `Full time${finalScore ? ` ${finalScore}` : ""} · points land when the result is graded`
+                  : "Locked in · 5 pts for the exact score, 2 for the right result";
     return (
       <Card>
         <p className="font-display text-lg font-extrabold tabular-nums text-foreground">
@@ -408,6 +432,20 @@ function LeagueScorePick({
         <p className="mt-1 text-sm text-muted">{progress}</p>
         <Link href={playHref} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
           Pick the rest of the matchweek →
+        </Link>
+        {note}
+      </Card>
+    );
+  }
+
+  if (finalized) {
+    return (
+      <Card>
+        <p className="font-display text-base font-bold text-foreground">
+          Your pick for this match is already locked in
+        </p>
+        <Link href={playHref} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
+          See it in Play →
         </Link>
         {note}
       </Card>

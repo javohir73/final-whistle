@@ -6,8 +6,11 @@ import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { trackEvent } from "@/lib/analytics";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse, MatchSummary } from "@/lib/types";
+import { MatchScoreboard } from "@/components/MatchScoreboard";
 import { MatchLiveProvider } from "./MatchLiveProvider";
 import { MatchPick, pickLockLine } from "./MatchPick";
+import { hydrateAcrossTime } from "./hydrate.testutil";
+import { announceTipsIdentityChanged } from "@/components/play/tipsIdentity";
 
 jest.mock("@/lib/api");
 jest.mock("@/lib/leagueTips");
@@ -212,6 +215,106 @@ it("locks the stepper at kickoff on an open tab, without a reload", async () => 
   expect(screen.getByText("Locked at kickoff")).toBeInTheDocument();
 });
 
+// --- Review fixes --------------------------------------------------------
+
+it("lets 'finished' from the tips row win over a stale page seed (H1)", async () => {
+  // A cached page still says in_play hours later and the refresh failed; the
+  // never-cached tips row already knows the match finished.
+  const strandedSeed = summary({
+    kickoff_utc: at(-8 * 60), status: "in_play", score_home: 1, score_away: 0, minute: 90, period: "second_half",
+  });
+  mockMine.mockResolvedValue(mine(row({
+    kickoff_utc: strandedSeed.kickoff_utc, status: "finished", score_home: 3, score_away: 1, model: MODEL,
+    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+  })));
+  renderPick(strandedSeed);
+  mockSummary.mockRejectedValue(new Error("cold start"));
+  expect(await screen.findByText("Full time 3–1 · points land when the result is graded")).toBeInTheDocument();
+  expect(screen.queryByText(/Result pending/)).not.toBeInTheDocument();
+});
+
+it("closes the stepper at once when the server says the match is locked (L3)", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockRejectedValue(new ApiError(422, "match_locked", "Match 501 has kicked off and is locked."));
+  renderPick();
+  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
+
+  // No waiting for the 30 s clock, and nothing left to tap into the rate limit.
+  expect(await screen.findByText("Picks closed at kickoff")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("This match has kicked off, so picks are closed.");
+  expect(mockSubmit).toHaveBeenCalledTimes(1);
+});
+
+it("stops offering the stepper when the server has a pick the lookup cannot find (L4)", async () => {
+  // The payload's week does not list the match: no row, so the stepper shows.
+  mockMine.mockResolvedValue({ ...mine(), matches: [] });
+  mockSubmit.mockRejectedValue(
+    new ApiError(409, "prediction_finalized", "Your prediction is final because the model score has been revealed."),
+  );
+  renderPick(summary({ matchweek: 11 }));
+  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
+
+  expect(await screen.findByText("Your pick for this match is already locked in")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /See it in Play/ })).toHaveAttribute("href", "/play?competition=epl");
+  // It re-fetched once to look for the pick, then stopped -- no loop.
+  await waitFor(() => expect(mockMine).toHaveBeenCalledTimes(2));
+});
+
+it.each([
+  ["postponed", "Postponed · your pick carries over to the new date"],
+  ["cancelled", "Cancelled · this pick won't be scored"],
+  ["suspended", "Suspended · points wait on the outcome"],
+] as const)("tells a %s match's existing pick what happens to it (L5)", async (status, copy) => {
+  mockMine.mockResolvedValue(mine(row({
+    status, model: MODEL,
+    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+  })));
+  renderPick(summary({ status }));
+  expect(await screen.findByText(copy)).toBeInTheDocument();
+  expect(screen.queryByText(/Locked in · 5 pts/)).not.toBeInTheDocument();
+});
+
+it("re-reads the pick once when a sign-in claim changes whose tips this device shows", async () => {
+  mockMine.mockResolvedValue(mine(row({
+    model: MODEL,
+    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+  })));
+  renderPick(summary({ matchweek: 11 }));
+  expect(await screen.findByText("You 2–1 · Model 1–0")).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(1);
+
+  // After the claim the account's pick (made on another device) is the one that counts.
+  mockMine.mockResolvedValue(mine(row({
+    model: MODEL,
+    your_prediction: { predicted_home: 1, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+  })));
+  act(() => announceTipsIdentityChanged());
+  expect(await screen.findByText("You 1–1 · Model 1–0")).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(2);
+});
+
+it("forgets a pick it only knew locally when the identity changes", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockResolvedValue({
+    ok: true, handle: "SwiftStriker42", model: MODEL,
+    prediction: { match_id: 501, predicted_home: 3, predicted_away: 1, updated_at: "2026-11-03T10:00:00+00:00" },
+  });
+  renderPick(summary({ matchweek: 11 }));
+  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
+  expect(await screen.findByText("You 3–1 · Model 1–0")).toBeInTheDocument();
+
+  // The claim merged this device away and the server kept another pick.
+  mockMine.mockResolvedValue(mine(row({
+    model: MODEL,
+    your_prediction: { predicted_home: 1, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+  })));
+  act(() => announceTipsIdentityChanged());
+  expect(await screen.findByText("You 1–1 · Model 1–0")).toBeInTheDocument();
+  expect(screen.queryByText("You 3–1 · Model 1–0")).not.toBeInTheDocument();
+});
+
 it("keeps the World Cup's W/D/L pick as its knockout adapter", () => {
   renderPick(summary(), "wc26");
   const group = screen.getByRole("group", { name: /Your prediction for Arsenal vs Chelsea/ });
@@ -236,5 +339,68 @@ describe("pickLockLine", () => {
     expect(pickLockLine("in_play", "2026-11-08T09:00:00Z", now, "UTC")).toBe("Locked at kickoff");
     expect(pickLockLine("postponed", "2026-11-01T09:00:00Z", now, "UTC")).toBe("Postponed · picks stay open");
     expect(pickLockLine("cancelled", "2026-11-08T15:00:00Z", now, "UTC")).toBe("Cancelled · picks closed");
+  });
+});
+
+// --- H2: cached HTML hydrates against a later clock ----------------------
+// The page is ISR: HTML rendered before kickoff (or the evening before) is
+// hydrated after it. With the server's render instant passed in, the first
+// client pass matches the HTML exactly; the browser clock takes over after.
+
+describe("hydrating cached HTML (H2)", () => {
+  const KO = "2026-11-08T15:00:00+00:00";
+  const seedAt = summary({ kickoff_utc: KO, matchweek: 11 });
+  function HeroAndPick({ serverNow }: { serverNow: string }) {
+    return (
+      <MatchLiveProvider matchId={501} competition="epl" kickoffUtc={KO} initialSummary={seedAt} serverNow={serverNow}>
+        <MatchScoreboard
+          matchId={501}
+          home="Arsenal"
+          away="Chelsea"
+          kickoffUtc={KO}
+          probabilities={{ home_win: 0.5, draw: 0.27, away_win: 0.23 }}
+          predicted={{ home: 1, away: 0, probability: 0.11 }}
+          competition="epl"
+        />
+        <MatchPick competition="epl" matchId={501} home="Arsenal" away="Chelsea" kickoffUtc={KO} matchweek={11} />
+      </MatchLiveProvider>
+    );
+  }
+  function tree(serverNow: string) {
+    return function HeroAndPickAt() {
+      return <HeroAndPick serverNow={serverNow} />;
+    };
+  }
+
+  beforeEach(() => {
+    localStorage.setItem("pp:timezone", JSON.stringify({ tz: "UTC", confirmed: true }));
+    mockSummary.mockResolvedValue(seedAt);
+    mockMine.mockResolvedValue(mine(row({ kickoff_utc: KO })));
+  });
+
+  it("rendered a minute before kickoff, hydrated a minute after: no mismatch, then locked", async () => {
+    const serverNow = "2026-11-08T14:59:00.000Z";
+    jest.useFakeTimers({ now: new Date(serverNow) });
+    const { html, container, errors } = await hydrateAcrossTime(
+      tree(serverNow),
+      new Date(serverNow),
+      new Date("2026-11-08T15:01:00Z"),
+    );
+    expect(html).toContain("Locks at kickoff · 3:00 PM UTC");
+    expect(errors).toEqual([]);
+    expect(container).toHaveTextContent("Locked at kickoff");
+  });
+
+  it("rendered the evening before, hydrated the next morning: no Tomorrow/Today mismatch", async () => {
+    const serverNow = "2026-11-07T22:00:00.000Z";
+    jest.useFakeTimers({ now: new Date(serverNow) });
+    const { html, container, errors } = await hydrateAcrossTime(
+      tree(serverNow),
+      new Date(serverNow),
+      new Date("2026-11-08T08:00:00Z"),
+    );
+    expect(html).toContain("Locks at kickoff · Tomorrow, 3:00 PM UTC");
+    expect(errors).toEqual([]);
+    expect(container).toHaveTextContent("Locks at kickoff · 3:00 PM UTC");
   });
 });

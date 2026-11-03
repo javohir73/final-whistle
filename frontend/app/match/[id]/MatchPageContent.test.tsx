@@ -5,9 +5,10 @@
  *  real-score slot, the W/D/L split is drawn once, the footer timestamp is this
  *  prediction's own, and nothing is called KO / LIVE / FULL TIME that the feed
  *  has not confirmed. */
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { generateMatchMetadata, renderMatchDetailPage } from "./MatchPageContent";
 import {
+  getMatchLineups,
   getMatchServer,
   getMatchSummary,
   getMatchSummaryServer,
@@ -39,6 +40,7 @@ const mockGoalscorers = getMatchGoalscorersServer as jest.MockedFunction<typeof 
 const mockHistory = getProbHistoryServer as jest.MockedFunction<typeof getProbHistoryServer>;
 const mockRecord = getModelRecordServer as jest.MockedFunction<typeof getModelRecordServer>;
 const mockMine = getMyLeagueTips as jest.MockedFunction<typeof getMyLeagueTips>;
+const mockLineups = getMatchLineups as jest.MockedFunction<typeof getMatchLineups>;
 const mockDevice = getOrCreateDeviceId as jest.MockedFunction<typeof getOrCreateDeviceId>;
 
 // Recharts (the feature chart) needs a non-zero layout size in jsdom.
@@ -164,6 +166,17 @@ describe("section order", () => {
     // No Overview/Lineups tab split any more: lineups are a section.
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(within(container.querySelector("#lineups") as HTMLElement).getByRole("heading", { name: "Lineups" })).toBeInTheDocument();
+  });
+
+  it("hands focus to the Lineups heading when the reader loads them", async () => {
+    mockLineups.mockResolvedValue({
+      available: false, message: "Lineups are announced ~40 minutes before kickoff.",
+      home: null, away: null, fetched_at: null,
+    });
+    await renderPage("wc26");
+    fireEvent.click(screen.getByRole("button", { name: "Show lineups" }));
+    expect(screen.getByRole("heading", { name: "Lineups" })).toHaveFocus();
+    expect(await screen.findByText(/announced ~40 minutes before kickoff/)).toBeInTheDocument();
   });
 });
 
