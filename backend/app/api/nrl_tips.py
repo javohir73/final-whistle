@@ -19,12 +19,16 @@ tipsheet shows always matches what the ledger grades.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, aliased
 
 from app.api.sports import _latest_season, _ledger_record
 from app.db import get_db
 from app.models import SportMatch, SportPrediction, SportPredictionResult, SportTeam
+from app.security import to_aware_utc
 
 router = APIRouter(prefix="/api/nrl", tags=["nrl"])
 
@@ -41,13 +45,33 @@ def _model_pick(pred: SportPrediction) -> tuple[str, float]:
     return ("home", "draw", "away")[idx], probs[idx]
 
 
-def _current_round(db: Session, season: int) -> int | None:
-    """Round containing the earliest still-scheduled match; if the whole
-    season is finished, the latest round that has any matches at all."""
+def _current_round(db: Session, season: int, now: datetime | None = None) -> int | None:
+    """Round containing the earliest OPEN match; if nothing is open (the
+    whole season is played), the latest round that has any matches at all.
+    Same rule as league_score_predictions._current_matchweek.
+
+    Open means in play, or scheduled and not yet kicked off (an undated
+    scheduled fixture still counts, sorting after every dated one). This was
+    `status != "finished"`, which let a row that will never finish -- a
+    postponed/cancelled one, or a played match nrl-refresh's twice-weekly
+    ingest hasn't flipped yet (it can lag by days) -- pin the round. NRL
+    ingest never writes "in_play" (live state is time-based, see
+    pipeline.sports.nrl_live_poll), so a match being played right now reads
+    as not open; the round still moves on only once nothing in it is left
+    to tip. "in_play" stays in the rule so it holds if the feed ever does.
+
+    `now` defaults to the server clock; tests pin it."""
+    now = to_aware_utc(now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     upcoming = (
         db.query(SportMatch.round)
-        .filter(SportMatch.sport == "nrl", SportMatch.season == season,
-                SportMatch.status != "finished")
+        .filter(
+            SportMatch.sport == "nrl", SportMatch.season == season,
+            or_(
+                SportMatch.status == "in_play",
+                and_(SportMatch.status == "scheduled",
+                     or_(SportMatch.kickoff_utc.is_(None), SportMatch.kickoff_utc > now)),
+            ),
+        )
         .order_by(SportMatch.kickoff_utc.is_(None), SportMatch.kickoff_utc.asc(),
                   SportMatch.match_no.asc())
         .first()

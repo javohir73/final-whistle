@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session, aliased, load_only
 
 from app import schemas
 from app.api.auth import _email_action_rate_limited
@@ -73,7 +73,17 @@ _DEVICE_ID_RE = re.compile(
 _SUBMIT_MAX = 120
 _SUBMIT_WINDOW_MIN = 60
 
-_LEADERBOARD_MIN_PARTICIPANTS = 10
+# Human entries are revealed from the first participant. This was 10, which
+# meant no NRL board ever rendered a row (3 season players live, UX rebuild
+# plan 2026-11 §1.2); with the model always a ranked row, one tipper already
+# has someone to beat ("You #1 of 2").
+_LEADERBOARD_MIN_PARTICIPANTS = 1
+
+# The model's ranked row on both boards. Not a TipPlayer: it never counts
+# toward participant_count, and `is_model` -- not this string -- is what marks
+# the row. Generated handles never contain a space, so it can't collide with
+# one. Same name as league_score_predictions._MODEL_HANDLE.
+_MODEL_HANDLE = "FinalWhistle model"
 
 _HANDLE_ADJECTIVES = (
     "Swift", "Brave", "Clutch", "Steady", "Fearless", "Rugged", "Sharp",
@@ -112,6 +122,63 @@ def _scores_point(pick: str, outcome: str) -> bool:
     graded ledger's `winner_correct` is a strict pick match and does not
     apply the draw rule, so it isn't the same number."""
     return outcome == "draw" or pick == outcome
+
+
+def _graded(m: SportMatch) -> bool:
+    """Whether the (pipeline-owned) grading pass scores tips on `m`: finished,
+    with a kickoff to lock against and a final score -- the same conditions
+    pipeline.sports.nrl_user_tips.grade() applies, so the model's
+    leaderboard row only ever counts a match a tipper's row can be graded on
+    too."""
+    return m.status == "finished" and m.kickoff_utc is not None and _actual_outcome(m) is not None
+
+
+def _model_predictions_by_match(db: Session, match_ids: list[int]) -> dict[int, list[SportPrediction]]:
+    """Every SportPrediction row for `match_ids`, grouped per match in the
+    created_at desc, id desc order nrl_tips._kickoff_locked_prediction
+    expects. load_only: a season leaderboard reads the rows for every graded
+    match of the season, so fetch only what the pick and its margin need,
+    never preview_text."""
+    if not match_ids:
+        return {}
+    preds = (
+        db.query(SportPrediction)
+        .options(load_only(SportPrediction.match_id, SportPrediction.created_at, SportPrediction.p_home,
+                           SportPrediction.p_draw, SportPrediction.p_away, SportPrediction.expected_margin))
+        .filter(SportPrediction.match_id.in_(match_ids))
+        .order_by(SportPrediction.created_at.desc(), SportPrediction.id.desc())
+        .all()
+    )
+    preds_by_match: dict[int, list[SportPrediction]] = {}
+    for p in preds:
+        preds_by_match.setdefault(p.match_id, []).append(p)
+    return preds_by_match
+
+
+def _model_scores(preds_by_match: dict[int, list[SportPrediction]],
+                  matches: list[SportMatch]) -> list[tuple[SportMatch, int]]:
+    """(match, points) for each of `matches` the model's kickoff-locked pick
+    can be scored on, under the same _scores_point draw rule a tipper's row is
+    graded under. The one computation behind the model's side of /summary,
+    /share and both leaderboards. A match with no eligible prediction or no
+    final score is skipped, not scored zero."""
+    scores = []
+    for m in matches:
+        pred = _kickoff_locked_prediction(preds_by_match, m)
+        outcome = _actual_outcome(m)
+        if pred is None or outcome is None:
+            continue
+        pick, _ = _model_pick(pred)
+        scores.append((m, 1 if _scores_point(pick, outcome) else 0))
+    return scores
+
+
+def _model_leaderboard_scores(db: Session, matches: list[SportMatch]) -> list[tuple[SportMatch, int]]:
+    """_model_scores over the GRADED subset of a leaderboard's matches: the
+    model tips every fixture, so its row is scored on each one the grading
+    pass has a result for, whether or not anyone else tipped it."""
+    graded = [m for m in matches if _graded(m)]
+    return _model_scores(_model_predictions_by_match(db, [m.id for m in graded]), graded)
 
 
 def _tip_streaks(items: list[tuple[UserTip, SportMatch]]) -> tuple[int, int]:
@@ -308,15 +375,7 @@ def my_tips(device_id: str, season: int | None = None, round: int | None = None,
     featured_id = rows[0][0].id  # same ordering as _featured_match_id, no extra query
 
     match_ids = [m.id for m, _, _ in rows]
-    preds = (
-        db.query(SportPrediction)
-        .filter(SportPrediction.match_id.in_(match_ids))
-        .order_by(SportPrediction.created_at.desc(), SportPrediction.id.desc())
-        .all()
-    )
-    preds_by_match: dict[int, list[SportPrediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
+    preds_by_match = _model_predictions_by_match(db, match_ids)
 
     player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
     tips_by_match: dict[int, UserTip] = {}
@@ -408,29 +467,13 @@ def tips_summary(device_id: str, db: Session = Depends(get_db)):
     for t, m in rows:
         by_round.setdefault((m.season, m.round), []).append((t, m))
 
-    match_ids = [m.id for _, m in rows]
-    preds = (
-        db.query(SportPrediction)
-        .filter(SportPrediction.match_id.in_(match_ids))
-        .order_by(SportPrediction.created_at.desc(), SportPrediction.id.desc())
-        .all()
-    )
-    preds_by_match: dict[int, list[SportPrediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
+    preds_by_match = _model_predictions_by_match(db, [m.id for _, m in rows])
 
     rounds_out = []
     total_your = total_model = 0
     for (season, rnd), items in sorted(by_round.items()):
         your_points = sum(t.points or 0 for t, _ in items)
-        model_points = 0
-        for t, m in items:
-            pred = _kickoff_locked_prediction(preds_by_match, m)
-            outcome = _actual_outcome(m)
-            if pred is not None and outcome is not None:
-                pick, _ = _model_pick(pred)
-                if _scores_point(pick, outcome):
-                    model_points += 1
+        model_points = sum(points for _, points in _model_scores(preds_by_match, [m for _, m in items]))
         rounds_out.append({
             "season": season, "round": rnd,
             "your_points": your_points, "model_points": model_points,
@@ -467,20 +510,25 @@ def tips_summary(device_id: str, db: Session = Depends(get_db)):
 
 @router.get("/tips/leaderboard")
 def tips_leaderboard(season: int, round: int, db: Session = Depends(get_db)):
-    """Weekly (per-round) leaderboard. Hidden below _LEADERBOARD_MIN_PARTICIPANTS
-    -- participant_count is always returned so the UI can show "N players so
-    far", but individual entries (and every device_id) stay unexposed until
-    the round has a real crowd. Never returns a device_id."""
-    match_ids = [
-        mid for (mid,) in db.query(SportMatch.id)
+    """Weekly (per-round) leaderboard. Tipper entries show from
+    _LEADERBOARD_MIN_PARTICIPANTS (1) and the model is ALWAYS a ranked row
+    (`is_model: true`, scored on every graded match of the round -- see
+    _model_leaderboard_scores), so even a lone tipper has a rank against it.
+    The model never enters a margin guess, so its round_margin is None and
+    sorts last among equal points, like a tipper who skipped the margin; on a
+    full tie the tipper ranks above it. participant_count counts tippers
+    only, never the model. Never returns a device_id."""
+    matches = (
+        db.query(SportMatch)
         .filter(SportMatch.sport == "nrl", SportMatch.season == season, SportMatch.round == round)
         .all()
-    ]
-    if not match_ids:
+    )
+    if not matches:
         raise HTTPException(status_code=404, detail={
             "code": "round_not_found",
             "message": f"No matches for round {round} in season {season}",
         })
+    match_ids = [m.id for m in matches]
 
     rows = (
         db.query(UserTip, TipPlayer)
@@ -500,8 +548,16 @@ def tips_leaderboard(season: int, round: int, db: Session = Depends(get_db)):
         for player_id, tips in by_player.items():
             points = sum(t.points or 0 for t in tips)
             round_margin = next((t.round_margin for t in tips if t.round_margin is not None), None)
-            entries.append({"handle": handles[player_id], "points": points, "round_margin": round_margin})
-        entries.sort(key=lambda e: (-e["points"], e["round_margin"] if e["round_margin"] is not None else float("inf")))
+            entries.append({"handle": handles[player_id], "points": points, "round_margin": round_margin,
+                            "is_model": False})
+    entries.append({
+        "handle": _MODEL_HANDLE,
+        "points": sum(points for _, points in _model_leaderboard_scores(db, matches)),
+        "round_margin": None,
+        "is_model": True,
+    })
+    entries.sort(key=lambda e: (-e["points"], e["round_margin"] if e["round_margin"] is not None else float("inf"),
+                                e["is_model"]))
 
     return {
         "season": season, "round": round,
@@ -514,8 +570,11 @@ def tips_leaderboard(season: int, round: int, db: Session = Depends(get_db)):
 def tips_leaderboard_season(season: int, db: Session = Depends(get_db)):
     """Season-long leaderboard (Slice 2.5): per-player totals across every
     graded round in the season, not just one round's featured match. Same
-    reveal gate and no-device_id rule as the weekly board (tips_leaderboard)
-    -- only the ranking key and the time window differ. Unlike the weekly
+    reveal rule, model row and no-device_id rule as the weekly board
+    (tips_leaderboard) -- only the ranking key and the time window differ.
+    The model's row covers every graded match of the season, its
+    rounds_played counts the rounds it was scored in, and its total_margin is
+    None (it never enters a margin guess). Unlike the weekly
     board (which counts anyone who's SUBMITTED a tip in the round, graded or
     not, since "N players so far" is meaningful pre-grade), the population
     here is players with at least one GRADED tip this season -- a running
@@ -570,8 +629,23 @@ def tips_leaderboard_season(season: int, db: Session = Depends(get_db)):
             entries.append({
                 "handle": handles[player_id], "points": points,
                 "total_margin": total_margin, "rounds_played": rounds_played,
+                "is_model": False,
             })
-        entries.sort(key=lambda e: (-e["points"], e["total_margin"] if e["total_margin"] is not None else float("inf")))
+    finished = (
+        db.query(SportMatch)
+        .filter(SportMatch.sport == "nrl", SportMatch.season == season, SportMatch.status == "finished")
+        .all()
+    )
+    model_scores = _model_leaderboard_scores(db, finished)
+    entries.append({
+        "handle": _MODEL_HANDLE,
+        "points": sum(points for _, points in model_scores),
+        "total_margin": None,
+        "rounds_played": len({m.round for m, _ in model_scores}),
+        "is_model": True,
+    })
+    entries.sort(key=lambda e: (-e["points"], e["total_margin"] if e["total_margin"] is not None else float("inf"),
+                                e["is_model"]))
 
     return {
         "season": season,
@@ -631,29 +705,13 @@ def tips_share(season: int, round: int, handle: str, db: Session = Depends(get_d
     items = by_player[chosen_id]
     handle_display = next(p.handle for p in candidates if p.id == chosen_id)
 
-    match_ids = [m.id for _, m in items]
-    preds = (
-        db.query(SportPrediction)
-        .filter(SportPrediction.match_id.in_(match_ids))
-        .order_by(SportPrediction.created_at.desc(), SportPrediction.id.desc())
-        .all()
-    )
-    preds_by_match: dict[int, list[SportPrediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
+    preds_by_match = _model_predictions_by_match(db, [m.id for _, m in items])
 
     # Same live-scoring pattern as tips_summary, over the SAME per-round tip
     # set, so this number never disagrees with what /summary shows this
     # player for this round.
     player_points = sum(t.points or 0 for t, _ in items)
-    model_points = 0
-    for t, m in items:
-        pred = _kickoff_locked_prediction(preds_by_match, m)
-        outcome = _actual_outcome(m)
-        if pred is not None and outcome is not None:
-            pick, _ = _model_pick(pred)
-            if _scores_point(pick, outcome):
-                model_points += 1
+    model_points = sum(points for _, points in _model_scores(preds_by_match, [m for _, m in items]))
 
     featured_tip = next((t for t, _ in items if t.round_margin is not None), None)
     margin_note = (

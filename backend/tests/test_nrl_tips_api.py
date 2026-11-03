@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import nrl_tips
 from app.db import Base, get_db
 from app.main import app
 from app.models import SportMatch, SportPrediction, SportPredictionResult, SportTeam
@@ -57,8 +58,11 @@ def test_defaults_to_current_round_with_scheduled_matches(client):
                      kickoff_utc=datetime(2026, 3, 5, tzinfo=timezone.utc),
                      home_team_id=storm.id, away_team_id=eels.id,
                      status="finished", score_home=20, score_away=10)
+    # Relative, not a fixed date: a scheduled kickoff that has already passed
+    # is no longer "open" (see the _current_round tests below), so a fixed
+    # date would quietly turn this into a test of the latest-round fallback.
     r2 = SportMatch(sport="nrl", season=2026, round=2, match_no=1,
-                     kickoff_utc=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                     kickoff_utc=datetime.now(timezone.utc) + timedelta(days=7),
                      venue="AAMI Park", home_team_id=storm.id, away_team_id=eels.id,
                      status="scheduled")
     db.add_all([r1, r2])
@@ -263,6 +267,93 @@ def test_finished_season_falls_back_to_latest_round(client):
     body = r.json()
     assert body["round"] == 2
     assert body["record"]["evaluated_matches"] == 0  # no SportPredictionResult rows seeded
+
+
+# _current_round is stale-aware (UX rebuild plan 2026-11, Phase 0): a match is
+# open iff it is in play, or scheduled and not yet kicked off. These pin the
+# clock through the injectable `now` so the dates can be read literally.
+_NOW = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+
+
+def _nrl_match(db, rnd, match_no, home, away, kickoff, status="scheduled", **kw):
+    m = SportMatch(sport="nrl", season=2026, round=rnd, match_no=match_no, kickoff_utc=kickoff,
+                   home_team_id=home.id, away_team_id=away.id, status=status, **kw)
+    db.add(m)
+    db.flush()
+    return m
+
+
+def test_current_round_skips_a_scheduled_row_whose_kickoff_has_passed(client):
+    """nrl-refresh can lag a played match's status by days; the old
+    `status != "finished"` rule pinned the round to it until it caught up."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 20, 1, storm, eels, _NOW - timedelta(days=2))  # played, still "scheduled"
+    _nrl_match(db, 20, 2, storm, eels, _NOW - timedelta(days=3), status="finished",
+               score_home=10, score_away=6)
+    _nrl_match(db, 21, 1, storm, eels, _NOW + timedelta(days=2))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 21
+    # Same rows a week earlier: round 20 hadn't kicked off, so it was open.
+    assert nrl_tips._current_round(db, 2026, now=_NOW - timedelta(days=7)) == 20
+
+
+def test_current_round_ignores_postponed_and_cancelled_rows(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 3, 1, storm, eels, _NOW - timedelta(days=10), status="postponed")
+    _nrl_match(db, 3, 2, storm, eels, _NOW + timedelta(days=1), status="cancelled")  # never tippable
+    _nrl_match(db, 4, 1, storm, eels, _NOW + timedelta(days=5))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 4
+
+
+def test_current_round_in_play_match_keeps_its_round(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 12, 1, storm, eels, _NOW - timedelta(minutes=30), status="in_play")
+    _nrl_match(db, 13, 1, storm, eels, _NOW + timedelta(days=4))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 12
+
+
+def test_current_round_nothing_open_falls_back_to_latest_round(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 1, 1, storm, eels, _NOW - timedelta(days=200), status="finished",
+               score_home=20, score_away=10)
+    _nrl_match(db, 2, 1, storm, eels, _NOW - timedelta(days=190))  # stale "scheduled": not open
+    _nrl_match(db, 27, 1, storm, eels, _NOW - timedelta(days=30), status="finished",
+               score_home=14, score_away=26)
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 27
+
+
+def test_current_round_undated_scheduled_fixture_is_open_but_sorts_after_dated(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 5, 1, storm, eels, None)  # kickoff not announced yet: still tippable
+    _nrl_match(db, 9, 1, storm, eels, _NOW - timedelta(days=2), status="finished",
+               score_home=8, score_away=4)
+    db.commit()
+
+    # The undated fixture is open, so it wins over the latest-round fallback (9).
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 5
+
+    _nrl_match(db, 10, 1, storm, eels, _NOW + timedelta(days=3))
+    db.commit()
+
+    # Any dated open fixture sorts ahead of the undated one, even a later round's.
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 10
 
 
 def test_record_is_all_time_not_scoped_to_the_requested_season(client):

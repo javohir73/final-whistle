@@ -501,6 +501,98 @@ def test_postponed_old_matchweek_does_not_pin_the_default_current_week(client):
     assert r.json()["matches"][0]["id"] == upcoming.id
 
 
+# _current_matchweek is stale-aware (UX rebuild plan 2026-11, Phase 0): a match
+# is open iff it is in play, or scheduled and not yet kicked off. These pin the
+# clock through the injectable `now` so the dates can be read literally.
+_NOW = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+
+
+def test_mine_default_skips_a_stale_scheduled_ghost_fixture(client):
+    """The live bug, end to end: a duplicate-team ghost fixture from August
+    still marked `scheduled` pinned La Liga's Play page to matchweek 2, and
+    one stale `scheduled` row that kicked off yesterday pinned EPL to an
+    all-played matchweek 9. Neither can be played, so the default must be
+    the matchweek of the next fixture that can."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    now = datetime.now(timezone.utc)
+    _match(db, epl, ars, che, 2, now - timedelta(days=70))  # ghost, never updated
+    _match(db, epl, bha, whu, 9, now - timedelta(days=1))  # played, status never flipped
+    _match(db, epl, ars, bha, 9, now - timedelta(days=2), status="finished", score_home=1, score_away=0)
+    upcoming = _match(db, epl, che, whu, 10, now + timedelta(days=3))
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["matchweek"] == 10
+    assert [row["id"] for row in r.json()["matches"]] == [upcoming.id]
+
+
+def test_current_matchweek_skips_stale_scheduled_row_for_next_matchweek(client):
+    _, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    _match(db, epl, ars, che, 4, _NOW - timedelta(days=3))  # stale: kicked off, still "scheduled"
+    _match(db, epl, bha, whu, 4, _NOW - timedelta(days=3), status="finished", score_home=0, score_away=0)
+    _match(db, epl, ars, bha, 5, _NOW + timedelta(days=4))
+    _match(db, epl, che, whu, 6, _NOW + timedelta(days=11))
+    db.commit()
+
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 5
+    # Same rows one week earlier: matchweek 4 hadn't kicked off yet, so it was open.
+    assert lsp._current_matchweek(db, epl.id, now=_NOW - timedelta(days=7)) == 4
+
+
+def test_current_matchweek_in_play_match_keeps_its_matchweek(client):
+    _, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    _match(db, epl, ars, che, 7, _NOW - timedelta(hours=3), status="finished", score_home=2, score_away=0)
+    _match(db, epl, bha, whu, 7, _NOW - timedelta(minutes=40), status="in_play", score_home=0, score_away=1)
+    _match(db, epl, ars, bha, 8, _NOW + timedelta(days=6))
+    db.commit()
+
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 7
+
+
+def test_current_matchweek_nothing_open_falls_back_to_latest_matchweek(client):
+    _, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    _match(db, epl, ars, che, 1, _NOW - timedelta(days=21))  # stale scheduled row: not open
+    _match(db, epl, bha, whu, 2, _NOW - timedelta(days=14), status="cancelled")
+    _match(db, epl, ars, bha, 3, _NOW - timedelta(days=7), status="finished", score_home=1, score_away=1)
+    _match(db, epl, che, whu, 38, _NOW - timedelta(days=1), status="finished", score_home=3, score_away=2)
+    db.commit()
+
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 38
+
+
+def test_current_matchweek_undated_scheduled_fixture_is_open_but_sorts_after_dated(client):
+    _, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
+    _match(db, epl, ars, che, 3, None)  # kickoff not announced yet: still playable
+    _match(db, epl, bha, whu, 7, _NOW - timedelta(days=2), status="finished", score_home=0, score_away=2)
+    db.commit()
+
+    # The undated fixture is open, so it wins over the latest-played fallback (7).
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 3
+
+    _match(db, epl, bha, ars, 9, _NOW + timedelta(days=5))
+    db.commit()
+
+    # Any dated open fixture sorts ahead of the undated one, even a later matchweek's.
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 9
+
+
 def test_mine_matchweek_not_found_404(client):
     c, TestingSession = client
     db = TestingSession()
@@ -635,8 +727,10 @@ def test_summary_model_points_parity_with_score_prediction_rule(client):
 
 
 # ---------------------------------------------------------------------------
-# leaderboard: matchweek + season -- gate and exact-count tiebreak
+# leaderboard: matchweek + season -- never hidden, exact-count tiebreak
 # ---------------------------------------------------------------------------
+
+MODEL_HANDLE = "FinalWhistle model"
 
 def _seed_leaderboard_players(db, epl, match, n, points_and_exact):
     """n players with predictions on `match`; points_and_exact maps player
@@ -656,7 +750,10 @@ def _seed_leaderboard_players(db, epl, match, n, points_and_exact):
     return players
 
 
-def test_leaderboard_below_gate_hides_entries_but_shows_count(client):
+def test_leaderboard_never_hides_entries_below_the_old_reveal_gate(client):
+    """The old >=10 reveal gate meant no league board ever rendered a row (4/0/1
+    players live in November 2026). Five players now see all five rows, plus
+    the model's -- which never counts as a participant."""
     c, TestingSession = client
     db = TestingSession()
     epl = _epl(db)
@@ -671,10 +768,10 @@ def test_leaderboard_below_gate_hides_entries_but_shows_count(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["participant_count"] == 5
-    assert body["entries"] == []
+    assert [e["handle"] for e in body["entries"]] == [f"Player{i}" for i in range(5)] + [MODEL_HANDLE]
 
 
-def test_leaderboard_gate_and_exact_count_tiebreak(client):
+def test_leaderboard_exact_count_tiebreak(client):
     """Two players tie on total points (10) across multiple matches but
     differ in exact-hit count: ZebraExactTwo reaches 10 via two exact scores
     (exact_count=2), AlphaResultFive reaches the SAME 10 via five
@@ -718,10 +815,10 @@ def test_leaderboard_gate_and_exact_count_tiebreak(client):
     for m in matches:
         _pred(result_player, m, 2, False)
 
-    # 8 more players clear the >=10 gate with zero points -- they must rank
-    # below both and never touch the comparison above. They're all fully
-    # tied on points+exact, so their relative order still proves the
-    # handle-asc fallback for a genuine full tie.
+    # 8 more players with zero points -- they must rank below both and never
+    # touch the comparison above. They're all fully tied on points+exact, so
+    # their relative order still proves the handle-asc fallback for a genuine
+    # full tie.
     for i in range(2, 10):
         p = _player(i, f"Filler{i}")
         _pred(p, matches[0], 0, False)
@@ -752,7 +849,8 @@ def test_leaderboard_matchweek_not_found_404(client):
 def test_leaderboard_season_only_counts_graded_players(client):
     """Season board population is GRADED-only (mirrors NRL's
     submitted-vs-graded distinction) -- a player who only ever submitted an
-    ungraded prediction must not count toward the season gate."""
+    ungraded prediction is not a season participant. The model's row is
+    still there, at zero: nothing in the season has been graded yet."""
     c, TestingSession = client
     db = TestingSession()
     epl = _epl(db)
@@ -773,11 +871,13 @@ def test_leaderboard_season_only_counts_graded_players(client):
     r = c.get("/api/leagues/epl/tips/leaderboard/season")
     assert r.status_code == 200, r.text
     assert r.json()["participant_count"] == 0
-    assert r.json()["entries"] == []
+    assert r.json()["entries"] == [
+        {"handle": MODEL_HANDLE, "points": 0, "exact_count": 0, "matchweeks_played": 0, "is_model": True},
+    ]
 
 
-def test_leaderboard_season_gate_and_exact_count_tiebreak(client):
-    """Same tiebreak proof as test_leaderboard_gate_and_exact_count_tiebreak,
+def test_leaderboard_season_exact_count_tiebreak(client):
+    """Same tiebreak proof as test_leaderboard_exact_count_tiebreak,
     for /leaderboard/season -- which had NO tiebreak coverage at all before
     (the design doc's "points desc, then exact-count desc" applies here too,
     scored across every graded matchweek in the tournament instead of one)."""
@@ -828,6 +928,185 @@ def test_leaderboard_season_gate_and_exact_count_tiebreak(client):
     assert body["participant_count"] == 10
     top_two = [(e["handle"], e["points"], e["exact_count"]) for e in body["entries"][:2]]
     assert top_two == [("ZebraExactTwo", 10, 2), ("AlphaResultFive", 10, 0)]
+
+
+# ---------------------------------------------------------------------------
+# leaderboard: the model is always a ranked row (UX rebuild 2026-11, Phase 0)
+# ---------------------------------------------------------------------------
+
+def test_leaderboard_single_player_is_ranked_against_the_model(client):
+    """One player still gets a real board ("You #1 of 2"): their own row and
+    the model's, which participant_count never counts."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    now = datetime.now(timezone.utc)
+    m = _match(db, epl, ars, che, 1, now - timedelta(days=1), status="finished", score_home=2, score_away=1)
+    _prediction(db, m, pred_home=1, pred_away=0)  # right result, wrong score -> 2
+    player = TipPlayer(device_id=DEVICE_A, handle="SoloPlayer")
+    db.add(player)
+    db.flush()
+    db.add(LeagueScorePrediction(
+        tournament_id=epl.id, match_id=m.id, player_id=player.id,
+        predicted_home=2, predicted_away=1, updated_at=now - timedelta(days=2),
+        points=5, exact=True, graded_at=now,
+    ))
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 1})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["participant_count"] == 1
+    assert body["entries"] == [
+        {"handle": "SoloPlayer", "points": 5, "exact_count": 1, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 2, "exact_count": 0, "is_model": True},
+    ]
+    assert DEVICE_A not in r.text  # human rows still never expose a device_id
+
+
+def test_leaderboard_model_row_scores_kickoff_locked_picks_on_graded_matches_only(client):
+    """The model's row is _score_prediction applied to its kickoff-locked
+    scoreline on every GRADED match of the matchweek -- finished, with a
+    kickoff and a final score, the grading pass's own conditions. A
+    post-kickoff write or a shadow twin is never its pick, a live score is
+    not a result, and a match it never predicted earns nothing."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    now = datetime.now(timezone.utc)
+    ko = now - timedelta(days=1)
+
+    exact = _match(db, epl, ars, che, 6, ko, status="finished", score_home=2, score_away=1)
+    _prediction(db, exact, 2, 1, created_at=ko - timedelta(hours=2))  # exact -> 5
+    # Same created_at, written after the production row: wins the id tiebreak
+    # unless shadow rows are excluded.
+    _prediction(db, exact, 0, 3, created_at=ko - timedelta(hours=2), is_shadow=True)
+    _prediction(db, exact, 0, 0, created_at=ko + timedelta(minutes=30))  # after kickoff: never its pick
+    drawn = _match(db, epl, ars, che, 6, ko, status="finished", score_home=0, score_away=0)
+    _prediction(db, drawn, 1, 1)  # right result -> 2
+    missed = _match(db, epl, ars, che, 6, ko, status="finished", score_home=3, score_away=0)
+    _prediction(db, missed, 0, 2)  # wrong result -> 0
+    live = _match(db, epl, ars, che, 6, now - timedelta(minutes=30), status="in_play", score_home=1, score_away=0)
+    _prediction(db, live, 1, 0)  # would be exact, but a live score isn't a result
+    upcoming = _match(db, epl, ars, che, 6, now + timedelta(days=2))
+    _prediction(db, upcoming, 1, 0)
+    late_only = _match(db, epl, ars, che, 6, ko, status="finished", score_home=1, score_away=1)
+    _prediction(db, late_only, 1, 1, created_at=ko + timedelta(hours=1))  # no eligible pick at all
+    _match(db, epl, ars, che, 6, ko, status="finished", score_home=4, score_away=4)  # never predicted
+    db.commit()
+
+    body = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 6}).json()
+
+    assert body["participant_count"] == 0
+    assert body["entries"] == [{"handle": MODEL_HANDLE, "points": 7, "exact_count": 1, "is_model": True}]
+
+
+def test_leaderboard_ungraded_matchweek_gives_the_model_zero(client):
+    """Nothing graded yet: the model sits at zero, and a player level with it
+    on every key ranks above it -- the tie goes to the human."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    m = _match(db, epl, ars, che, 8, datetime.now(timezone.utc) + timedelta(days=2))
+    _prediction(db, m, 1, 0)
+    db.commit()
+
+    empty = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 8}).json()
+    assert empty["participant_count"] == 0
+    assert empty["entries"] == [{"handle": MODEL_HANDLE, "points": 0, "exact_count": 0, "is_model": True}]
+
+    submitted = c.post("/api/leagues/epl/tips/submit", json={
+        "device_id": DEVICE_A, "match_id": m.id, "predicted_home": 1, "predicted_away": 0,
+    })
+    assert submitted.status_code == 200, submitted.text
+    handle = submitted.json()["handle"]
+
+    body = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 8}).json()
+    assert body["participant_count"] == 1
+    assert body["entries"] == [
+        {"handle": handle, "points": 0, "exact_count": 0, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 0, "exact_count": 0, "is_model": True},
+    ]
+
+
+def test_leaderboard_model_points_equal_the_summary_model_points(client):
+    """One computation, not two: for a player who predicted every graded
+    match of a matchweek, the board's model row and /summary's model_points
+    for that matchweek are the same number."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    now = datetime.now(timezone.utc)
+    ko = now - timedelta(days=1)
+    player = TipPlayer(device_id=DEVICE_A, handle="ParityPlayer")
+    db.add(player)
+    db.flush()
+    for (home_goals, away_goals), (model_home, model_away) in (
+        ((2, 1), (2, 1)), ((0, 0), (1, 0)), ((1, 3), (0, 2)),
+    ):
+        m = _match(db, epl, ars, che, 4, ko, status="finished", score_home=home_goals, score_away=away_goals)
+        _prediction(db, m, model_home, model_away)
+        db.add(LeagueScorePrediction(
+            tournament_id=epl.id, match_id=m.id, player_id=player.id,
+            predicted_home=0, predicted_away=0, updated_at=ko - timedelta(hours=1),
+            points=0, exact=False, graded_at=now,
+        ))
+    db.commit()
+
+    summary = c.get("/api/leagues/epl/tips/summary", params={"device_id": DEVICE_A}).json()
+    board = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 4}).json()
+
+    model_row = next(e for e in board["entries"] if e["is_model"])
+    assert summary["matchweeks"][0]["model_points"] == model_row["points"] == 7
+
+
+def test_season_leaderboard_ranks_a_player_against_the_models_season_total(client):
+    """The season row is the model's points across every graded match in this
+    league's tournament: another league's match, or one still to be played,
+    never counts. matchweeks_played counts matchweeks the model was scored
+    in, a zero-point one included -- the same rule a player's row follows."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    laliga = _tournament(db, "La Liga 2026-27")
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    rma, fcb = _team(db, "Real Madrid"), _team(db, "Barcelona")
+    now = datetime.now(timezone.utc)
+    mw1 = _match(db, epl, ars, che, 1, now - timedelta(days=21), status="finished", score_home=2, score_away=1)
+    _prediction(db, mw1, 2, 1)  # exact -> 5
+    mw2 = _match(db, epl, che, ars, 2, now - timedelta(days=14), status="finished", score_home=0, score_away=1)
+    _prediction(db, mw2, 1, 1)  # wrong result -> 0, but a matchweek the model played
+    mw3 = _match(db, epl, ars, che, 3, now - timedelta(days=7), status="finished", score_home=1, score_away=1)
+    _prediction(db, mw3, 0, 0)  # right result -> 2
+    mw4 = _match(db, epl, che, ars, 4, now + timedelta(days=7))
+    _prediction(db, mw4, 3, 0)  # not played yet
+    other = _match(db, laliga, rma, fcb, 1, now - timedelta(days=21), status="finished", score_home=3, score_away=3)
+    _prediction(db, other, 3, 3)  # another league's exact hit
+    player = TipPlayer(device_id=DEVICE_A, handle="SeasonSolo")
+    db.add(player)
+    db.flush()
+    db.add(LeagueScorePrediction(
+        tournament_id=epl.id, match_id=mw1.id, player_id=player.id,
+        predicted_home=1, predicted_away=0, updated_at=now - timedelta(days=22),
+        points=2, exact=False, graded_at=now,
+    ))
+    db.commit()
+
+    r = c.get("/api/leagues/epl/tips/leaderboard/season")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["participant_count"] == 1
+    assert body["entries"] == [
+        {"handle": MODEL_HANDLE, "points": 7, "exact_count": 1, "matchweeks_played": 3, "is_model": True},
+        {"handle": "SeasonSolo", "points": 2, "exact_count": 0, "matchweeks_played": 1, "is_model": False},
+    ]
+    assert DEVICE_A not in r.text
 
 
 # ---------------------------------------------------------------------------
@@ -902,9 +1181,10 @@ def test_share_returns_graded_summary(client):
 # ---------------------------------------------------------------------------
 
 def _fill_graded_players(db, tournament, match, n, offset):
-    """n more graded (points=0, exact=False) players on `match`, so a
-    leaderboard's >=_LEADERBOARD_MIN_PARTICIPANTS reveal gate can be cleared
-    without the real test subject's own row. Distinct `offset` per league
+    """n more graded (points=0, exact=False) players on `match`, so each
+    league's boards carry a crowd beyond the real test subject's own row
+    (originally to clear the old >=10 reveal gate; now it proves one league's
+    crowd never inflates another's participant_count). Distinct `offset` per league
     keeps device_id unique across the three leagues seeded in the same test
     (unlike _seed_leaderboard_players, which is single-tournament and reuses
     the same device_id family every call). graded_at is always set (unlike
@@ -960,8 +1240,8 @@ def test_three_league_isolation_matrix(client):
             predicted_home=2, predicted_away=1, updated_at=now - timedelta(days=2),
             points=5, exact=True, graded_at=now,
         ))
-    # 9 more graded players per league clear both leaderboards' reveal gate
-    # (>=10 total) without inflating another league's count.
+    # 9 more graded players per league (10 each), none of which may inflate
+    # another league's count.
     for code, _, _, _, offset in fixtures:
         _fill_graded_players(db, leagues[code]["tournament"], leagues[code]["match"], 9, offset)
     db.commit()
@@ -978,9 +1258,12 @@ def test_three_league_isolation_matrix(client):
         weekly = c.get(f"/api/leagues/{code}/tips/leaderboard", params={"matchweek": 1}).json()
         assert weekly["league"] == code
         assert weekly["participant_count"] == 10  # this league's 10, never the other leagues' 20 more
+        assert len(weekly["entries"]) == 11  # this league's 10 plus exactly one model row
+        assert sum(e["is_model"] for e in weekly["entries"]) == 1
 
         season = c.get(f"/api/leagues/{code}/tips/leaderboard/season").json()
         assert season["participant_count"] == 10
+        assert sum(e["is_model"] for e in season["entries"]) == 1
 
         share = c.get(f"/api/leagues/{code}/tips/share/1/TriLeagueTester").json()
         assert share["league"] == code
