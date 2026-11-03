@@ -11,7 +11,12 @@
  *  Replaces the CompetitionOverlay's localStorage pin (`fw_pinned_comp`),
  *  which only reordered the switcher list and was invisible to the server;
  *  migratePinnedCompetition() carries an existing pin over once. */
-import { DEFAULT_COMPETITION, isCompetitionId, type CompetitionId } from "@/lib/sports";
+import {
+  COMPETITIONS,
+  DEFAULT_COMPETITION,
+  isCompetitionId,
+  type CompetitionId,
+} from "@/lib/sports";
 
 export const COMPETITION_COOKIE = "fw_comp";
 /** One year, in seconds. */
@@ -40,6 +45,22 @@ export function parseCompetition(value: string | null | undefined): CompetitionI
 export function competitionForCountry(country: string | null | undefined): CompetitionId {
   const code = country?.trim().toUpperCase();
   return code === "AU" || code === "NZ" ? "nrl" : DEFAULT_COMPETITION;
+}
+
+/** What a URL should make the remembered competition, or null when it should
+ *  change nothing. The competition a path names -- unless the registry marks
+ *  it archived: old World Cup shares and four months of search traffic land on
+ *  /football/wc26/..., and browsing an archive is not choosing it (one visit
+ *  used to scope the whole shell to the finished tournament for a year). An
+ *  explicit `?competition=` on an unscoped route is a choice and counts, as do
+ *  the switcher and its "Set as default" star (they write the cookie
+ *  themselves). Shared by middleware.ts and CompetitionProvider. */
+export function competitionToRemember(
+  fromPath: CompetitionId | null,
+  fromQuery: CompetitionId | null,
+): CompetitionId | null {
+  if (fromPath) return COMPETITIONS[fromPath].archived ? null : fromPath;
+  return fromQuery;
 }
 
 /** Everything after the URL: cookie -> country -> EPL. Callers check the URL

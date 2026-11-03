@@ -11,6 +11,7 @@ import {
   type CompetitionId,
 } from "@/lib/sports";
 import {
+  competitionToRemember,
   migratePinnedCompetition,
   parseCompetition,
   readCompetitionCookie,
@@ -59,9 +60,10 @@ const CompetitionContext = createContext<CompetitionId | null>(null);
 
 /** Mirrors middleware.ts for client-side navigations: a competition the URL
  *  names -- the path, else `?competition=` on an unscoped route -- becomes the
- *  remembered one. Renders nothing; isolated in its own Suspense boundary
- *  because useSearchParams() would otherwise opt prerendered pages out of
- *  static rendering. */
+ *  remembered one, except an archived competition reached by its path
+ *  (competitionToRemember). Renders nothing; isolated in its own Suspense
+ *  boundary because useSearchParams() would otherwise opt prerendered pages
+ *  out of static rendering. */
 function UrlCompetitionSync() {
   const pathname = normalizePathname(usePathname());
   const query = useSearchParams().get("competition");
@@ -70,19 +72,22 @@ function UrlCompetitionSync() {
   const migrated = useRef(false);
 
   useEffect(() => {
-    const fromUrl = competitionInPathname(pathname) ?? parseCompetition(query);
+    const remember = competitionToRemember(
+      competitionInPathname(pathname),
+      parseCompetition(query),
+    );
     if (!migrated.current) {
       migrated.current = true;
-      migratePinnedCompetition(fromUrl);
+      migratePinnedCompetition(remember);
     }
-    if (!fromUrl) return;
+    if (!remember) return;
     const current = readCompetitionCookie();
-    if (current === fromUrl) return; // middleware (page loads) already did it
-    writeCompetitionCookie(fromUrl);
+    if (current === remember) return; // middleware (page loads) already did it
+    writeCompetitionCookie(remember);
     // A switch, not a first visit: with cookies blocked `current` stays null
     // and nothing is reported on every navigation.
     if (current) {
-      trackEvent("competition_switch", { from: current, to: fromUrl, source: "navigation" });
+      trackEvent("competition_switch", { from: current, to: remember, source: "navigation" });
     }
   }, [pathname, query]);
 

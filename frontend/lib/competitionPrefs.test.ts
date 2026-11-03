@@ -3,6 +3,7 @@ import {
   COMPETITION_COOKIE,
   clearCompetitionCookie,
   competitionForCountry,
+  competitionToRemember,
   migratePinnedCompetition,
   parseCompetition,
   readCompetitionCookie,
@@ -71,6 +72,28 @@ describe("resolveCompetition: cookie -> country -> EPL, never WC26", () => {
 
   it("still honours WC26 when the visitor chose it (cookie)", () => {
     expect(resolveCompetition({ cookie: "wc26", country: "GB" })).toBe("wc26");
+  });
+});
+
+describe("competitionToRemember: what a URL makes the remembered competition", () => {
+  it("remembers a live competition named by the path, over any query", () => {
+    expect(competitionToRemember("laliga", null)).toBe("laliga");
+    expect(competitionToRemember("nrl", "epl")).toBe("nrl");
+  });
+
+  it("never remembers an archived competition reached by its path", () => {
+    expect(competitionToRemember("wc26", null)).toBeNull();
+    // The path scopes the page, so its query is not a choice either.
+    expect(competitionToRemember("wc26", "laliga")).toBeNull();
+  });
+
+  it("remembers an explicit ?competition= on an unscoped route, archive included", () => {
+    expect(competitionToRemember(null, "wc26")).toBe("wc26");
+    expect(competitionToRemember(null, "ucl")).toBe("ucl");
+  });
+
+  it("changes nothing on an unscoped route without a query", () => {
+    expect(competitionToRemember(null, null)).toBeNull();
   });
 });
 

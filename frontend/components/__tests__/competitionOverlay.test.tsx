@@ -138,6 +138,12 @@ describe("Set as default (fw_comp cookie)", () => {
     expect(screen.getByRole("button", { name: "LaLiga" })).toBeInTheDocument();
   });
 
+  it("lets the star choose the archived World Cup explicitly", () => {
+    const dialog = openAt("/", "EPL");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Set World Cup 2026 as default" }));
+    expect(readCompetitionCookie()).toBe("wc26");
+  });
+
   it("clears the default when the pressed star is pressed again", () => {
     writeCompetitionCookie("nrl");
     const dialog = openAt("/", "NRL");

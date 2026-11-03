@@ -75,6 +75,19 @@ it("does not report a first visit (no previous competition) as a switch", () => 
   expect(mockTrack).not.toHaveBeenCalled();
 });
 
+it("does not remember an archived competition reached by path (old WC26 shares)", () => {
+  writeCompetitionCookie("epl");
+  mount("/football/wc26/match/45");
+  expect(readCompetitionCookie()).toBe("epl");
+  expect(mockTrack).not.toHaveBeenCalled();
+});
+
+it("does remember an archived competition chosen explicitly via ?competition=", () => {
+  writeCompetitionCookie("epl");
+  mount("/play", "competition=wc26");
+  expect(readCompetitionCookie()).toBe("wc26");
+});
+
 it("ignores a bogus ?competition=", () => {
   writeCompetitionCookie("epl");
   mount("/play", "competition=toString");
@@ -90,6 +103,13 @@ describe("old localStorage star", () => {
     expect(window.localStorage.getItem("fw_pinned_comp")).toBeNull();
     // A migration is not a user switch.
     expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("still migrates on an archived page (browsing it is not a choice)", () => {
+    writeCompetitionCookie("epl");
+    window.localStorage.setItem("fw_pinned_comp", "nrl");
+    mount("/football/wc26");
+    expect(readCompetitionCookie()).toBe("nrl");
   });
 
   it("never beats a competition the URL names -- path or query", () => {

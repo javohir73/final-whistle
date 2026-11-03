@@ -3,7 +3,7 @@
  *  exposed to the server as x-fw-comp and persisted in fw_comp. */
 import { NextRequest } from "next/server";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
-import { config, middleware } from "./middleware";
+import { NOT_FOUND_PATH, config, middleware } from "./middleware";
 import { LEGACY_SEARCH_HEADER } from "@/lib/competitionPrefs";
 
 const ORIGIN = "https://fifa-wc26-prediction.vercel.app";
@@ -93,9 +93,36 @@ describe("fw_comp cookie", () => {
     expect(setCookie(middleware(request("/", { country: "AU" })))).toMatch(/^fw_comp=nrl;/);
   });
 
-  it("follows ?competition= on unscoped routes", () => {
+  it("follows ?competition= on unscoped routes, including an explicit archive choice", () => {
     const res = middleware(request("/leaderboard?competition=wc26", { cookie: "epl" }));
     expect(setCookie(res)).toMatch(/^fw_comp=wc26;/);
+  });
+
+  describe("archived competitions reached by PATH are browsing, not a choice", () => {
+    // Old World Cup shares and search traffic land on /football/wc26/...; one
+    // visit must not scope the whole shell to a finished tournament for a year.
+    it("does not remember WC26 from a /football/wc26/... page load", () => {
+      const res = middleware(request("/football/wc26/match/45", { cookie: "epl" }));
+      expect(setCookie(res)).toBeNull();
+      // ...while that page itself is still scoped to the World Cup.
+      expect(exposed(res)).toBe("wc26");
+    });
+
+    it("keeps an AU visitor's NRL default", () => {
+      const res = middleware(request("/football/wc26/groups", { cookie: "nrl", country: "AU" }));
+      expect(setCookie(res)).toBeNull();
+    });
+
+    it("still seeds the geo default on a first visit that lands on the archive", () => {
+      const res = middleware(request("/football/wc26/match/45", { country: "AU" }));
+      expect(setCookie(res)).toMatch(/^fw_comp=nrl;/);
+      expect(exposed(res)).toBe("wc26");
+    });
+
+    it("leaves the remembered competition in charge of the next unscoped page", () => {
+      middleware(request("/football/wc26/match/45", { cookie: "epl" }));
+      expect(exposed(middleware(request("/play", { cookie: "epl" })))).toBe("epl");
+    });
   });
 
   it.each<Record<string, string>>([
@@ -129,8 +156,16 @@ describe("fw_comp cookie", () => {
   });
 });
 
-it("never redirects or rewrites", () => {
-  for (const path of ["/", "/match/198", "/team/7", "/tips?league=laliga", "/football/epl"]) {
+it("never redirects, and rewrites nothing but junk NRL club ids", () => {
+  for (const path of [
+    "/",
+    "/match/198",
+    "/team/7",
+    "/tips?league=laliga",
+    "/football/epl",
+    "/nrl/team/12",
+    "/nrl/team/12/opengraph",
+  ]) {
     const res = middleware(request(path));
     expect(res.headers.get("location")).toBeNull();
     expect(res.headers.get("x-middleware-rewrite")).toBeNull();
@@ -138,7 +173,38 @@ it("never redirects or rewrites", () => {
   }
 });
 
-it("forwards a legacy lookup's query string so the 308 can keep it", () => {
+describe("junk NRL club ids are real 404s", () => {
+  // app/nrl/loading.tsx wraps every /nrl/* segment, so even a layout's
+  // notFound() for /nrl/team/<junk> streams as HTTP 200 (and ISR caches it
+  // per junk path). Middleware sends those to a path no route matches, which
+  // renders the app's not-found page with a real 404.
+  it.each(["/nrl/team/abc", "/nrl/team/12abc", "/nrl/team/brisbane-broncos"])(
+    "rewrites %s to the not-found route",
+    (path) => {
+      const res = middleware(request(path));
+      const target = res.headers.get("x-middleware-rewrite");
+      expect(target).not.toBeNull();
+      expect(new URL(target!).pathname).toBe(NOT_FOUND_PATH);
+      expect(res.headers.get("location")).toBeNull();
+      expect(setCookie(res)).toBeNull();
+    },
+  );
+});
+
+it("never forwards a client-supplied legacy-search header", () => {
+  // Only middleware may set it: a client could otherwise append any query to
+  // the lookup's redirect target.
+  const res = middleware(
+    request("/match/198", { headers: { ...DOCUMENT, [LEGACY_SEARCH_HEADER]: "?injected=1" } }),
+  );
+  expect(res.headers.get(`x-middleware-request-${LEGACY_SEARCH_HEADER}`)).toBeNull();
+  const elsewhere = middleware(
+    request("/play", { headers: { ...DOCUMENT, [LEGACY_SEARCH_HEADER]: "?injected=1" } }),
+  );
+  expect(elsewhere.headers.get(`x-middleware-request-${LEGACY_SEARCH_HEADER}`)).toBeNull();
+});
+
+it("forwards a legacy lookup's query string so the redirect can keep it", () => {
   const res = middleware(request("/match/198?utm_source=embed"));
   expect(res.headers.get(`x-middleware-request-${LEGACY_SEARCH_HEADER}`)).toBe(
     "?utm_source=embed",
