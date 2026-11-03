@@ -103,7 +103,7 @@ it("lets an anonymous user choose a country and go straight to its dashboard", a
   fireEvent.click(screen.getByRole("button", { name: /Show my team/ }));
 
   // No fake "AI calculating" stage: the dashboard swaps straight in.
-  expect(screen.queryByText(/Preparing your ML model forecast/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Preparing your Model forecast/i)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Skip/ })).not.toBeInTheDocument();
   await waitFor(() => expect(screen.getByText(/Following Brazil/)).toBeInTheDocument());
 

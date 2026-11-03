@@ -184,7 +184,7 @@ function MatchHero({
         />
       ) : (
         <div className="px-5 pb-5 pt-4 text-center">
-          <h2 className="font-display text-base font-bold text-foreground">ML model prediction on the way</h2>
+          <h2 className="font-display text-base font-bold text-foreground">Model prediction on the way</h2>
           <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted">
             The model generates this match&apos;s prediction shortly after both teams are
             confirmed. Check back soon for the full breakdown.

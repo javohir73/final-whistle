@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { CompEyebrowChip } from "@/components/Eyebrow";
 import { getUpcomingMatches } from "@/lib/api";
 import { kickoffDate, kickoffTime, relativeDayLabel } from "@/lib/datetime";
-import { pct, topOutcome } from "@/lib/format";
+import { pctTriple, topOutcome } from "@/lib/format";
 import { isLiveNow } from "@/lib/liveLabel";
 import { COMPETITIONS, footballMatchHref, type CompetitionId } from "@/lib/sports";
 import type { MatchSummary } from "@/lib/types";
@@ -31,9 +31,12 @@ function modelCall(m: MatchSummary): string | null {
   const p = m.probabilities;
   if (!p) return null;
   const side = topOutcome(p);
-  const value = side === "home" ? p.home_win : side === "away" ? p.away_win : p.draw;
+  // Same largest-remainder rounding as the probability bar, so the strip and
+  // the match page never disagree by a point.
+  const triple = pctTriple(p);
+  if (!triple) return null;
   const who = side === "home" ? m.teams.home : side === "away" ? m.teams.away : "Draw";
-  return `${who} ${pct(value)}`;
+  return `${who} ${triple[side]}%`;
 }
 
 /** A compact "Next up" strip for the platform home: the next fixtures with

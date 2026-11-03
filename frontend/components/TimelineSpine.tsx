@@ -2,6 +2,7 @@
 
 import type { MatchSummary } from "@/lib/types";
 import { isLiveNow } from "@/lib/liveLabel";
+import { useRenderNow } from "@/components/match/clock";
 import { Eyebrow } from "@/components/Eyebrow";
 import { MatchCard } from "@/components/MatchCard";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,8 @@ export function TimelineSpine({
   cardHref?: Record<number, string | null>;
   cardMargin?: Record<number, number | null>;
 }) {
+  // Null until hydrated: classify by the feed's own status, never the server clock.
+  const now = useRenderNow();
   return (
     <div className="space-y-6">
       {days.map((day) => (
@@ -47,7 +50,7 @@ export function TimelineSpine({
                   aria-hidden
                   className={cn(
                     "absolute left-[-23px] top-4 h-3 w-3 rounded-full border-2 bg-background",
-                    isLiveNow(m) ? "border-loss" : "border-border",
+                    isLiveNow(m, now ?? undefined) ? "border-loss" : "border-border",
                   )}
                 />
                 <MatchCard

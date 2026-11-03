@@ -215,14 +215,14 @@ export function MatchesClient({
         />
       </div>
 
-      {/* Beat the AI entry point (design doc: League Score Predictions,
+      {/* Beat the model entry point (design doc: League Score Predictions,
        *  2026-07-24) -- same glass teaser-card idiom as /nrl/tips's "Finals
        *  race" card and /nrl's "State of Origin" card. */}
       <Link href="/play" className="glass mb-6 block rounded-2xl p-4 transition hover:bg-white/5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-              Beat the AI
+              Beat the model
             </p>
             <p className="mt-1 font-display text-lg font-extrabold">Predict this week&apos;s scorelines</p>
           </div>

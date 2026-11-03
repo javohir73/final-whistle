@@ -18,6 +18,10 @@ export async function renderMatchesPage(competition: CompetitionId = "wc26") {
     <MatchesClient
       initialMatches={initialMatches ?? undefined}
       competition={competition}
+      // The server's clock for the first (hydrating) render: day labels and the
+      // stuck-live check agree with the browser instead of mismatching on a
+      // cached page (see components/match/clock.ts).
+      renderedAt={new Date().toISOString()}
     />
   );
 }

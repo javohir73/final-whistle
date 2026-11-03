@@ -93,7 +93,7 @@ function FixtureRow({
         </span>
       ) : predicted_score && willBePlayed(match.status) ? (
         <span className="inline-flex shrink-0 items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-sm font-bold tabular-nums text-foreground">
-          <span className="mr-1.5 text-note font-semibold uppercase tracking-wide text-muted">ML model</span>
+          <span className="mr-1.5 text-note font-semibold uppercase tracking-wide text-muted">Model</span>
           {formatScore(predicted_score.home, predicted_score.away)}
         </span>
       ) : null}

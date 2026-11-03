@@ -191,7 +191,7 @@ export function FeatureHero({
           <span className="text-label font-semibold leading-relaxed text-muted">
             <span className="uppercase tracking-wide">{leaderLabel}</span>
             <br />
-            AI most likely:{" "}
+            Model most likely:{" "}
             {margin != null && !predicted_score
               ? `${favoured} by ${Math.abs(margin).toFixed(1)}`
               : formatScore(predicted_score?.home ?? null, predicted_score?.away ?? null)}

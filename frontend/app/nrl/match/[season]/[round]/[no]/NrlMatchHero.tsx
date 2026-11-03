@@ -115,7 +115,7 @@ export function NrlMatchHero({
           {p.expected_margin != null && !isLive && !isFinal && (
             <p className="mt-4 text-center">
               <span className="rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-bold tabular-nums text-foreground">
-                <span className="mr-1.5 font-semibold text-muted">ML model margin</span>
+                <span className="mr-1.5 font-semibold text-muted">Model margin</span>
                 {expectedMarginLabel(p.expected_margin, home, away)}
               </span>
             </p>

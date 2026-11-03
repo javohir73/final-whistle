@@ -45,7 +45,7 @@ export async function generateMatchMetadata(
   const title = `${p.teams.home} vs ${p.teams.away} — prediction | ${APP_NAME}`;
   const t = pctTriple(p.probabilities);
   const split = t ? `: ${p.teams.home} ${t.home}%, draw ${t.draw}%, ${p.teams.away} ${t.away}%` : "";
-  const description = `ML model prediction for ${p.teams.home} vs ${p.teams.away}${split}. Most likely score ${formatScore(p.predicted_score.home, p.predicted_score.away)}.`;
+  const description = `Model prediction for ${p.teams.home} vs ${p.teams.away}${split}. Most likely score ${formatScore(p.predicted_score.home, p.predicted_score.away)}.`;
   return {
     title, description,
     // The served, competition-scoped URL -- never /match/<id>, which redirects.

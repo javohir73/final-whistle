@@ -54,7 +54,7 @@ it("links to the shared Play slate", async () => {
   mockGet.mockResolvedValue([match(1, "Brazil", "Scotland", "Group C")]);
   render(<MatchesPage />);
   await waitFor(() => expect(screen.getByText(/Scotland/)).toBeInTheDocument());
-  expect(screen.getByRole("link", { name: /Beat the AI/i })).toHaveAttribute("href", "/play");
+  expect(screen.getByRole("link", { name: /Beat the model/i })).toHaveAttribute("href", "/play");
 });
 
 it("shows an error state when the API fails", async () => {

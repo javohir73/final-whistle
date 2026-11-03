@@ -74,7 +74,7 @@ it("calls onPick and shows the AI comparison when a side is chosen", () => {
   expect(drawBtn.className).toContain("[background:hsl(var(--surface-2))]");
 
   // Agreement line reads the agree copy in lime (model also leans home).
-  const agree = screen.getByText("You agree with the ML model");
+  const agree = screen.getByText("You agree with the model");
   expect(agree).toBeInTheDocument();
   expect(agree).toHaveClass("text-lime-deep", "font-semibold");
   // This card already lives on the full match page. It must not offer a

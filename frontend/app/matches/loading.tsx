@@ -13,7 +13,7 @@ export default function MatchesLoading() {
         <Skeleton className="h-9 w-52 rounded" />
         <Skeleton className="mt-2 h-4 w-36 rounded" />
       </div>
-      {/* Search field, "Beat the AI" promo, and the Upcoming/Live/Finished
+      {/* Search field, "Beat the model" promo, and the Upcoming/Live/Finished
        *  filter tabs all sit above the grid in MatchesClient — reserve them so
        *  the fixtures don't jump down when the client hydrates (no CLS). */}
       <Skeleton className="mb-4 h-12 w-full rounded-2xl" />

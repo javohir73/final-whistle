@@ -118,7 +118,7 @@ function advanceNoticeText(from: number, shown: number, allDone: boolean): strin
     : `Matchweeks ${from}–${last} are ${state} — showing Matchweek ${shown}`;
 }
 
-/** "Beat the AI's scoreline" (design doc: League Score Predictions,
+/** "Beat the model's scoreline" (design doc: League Score Predictions,
  *  2026-07-24) -- the football-league port of components/nrl/PlayRound.tsx.
  *  Unlike NRL there is no separate public tipsheet endpoint: /tips/mine is
  *  device-scoped (no-store) and carries both the AI's frozen scoreline and

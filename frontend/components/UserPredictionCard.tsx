@@ -24,7 +24,7 @@ function argmax(p: { home_win: number; draw: number; away_win: number }): Outcom
 /** A short, human read on how the user's pick lines up with the model. */
 function verdict(pick: Outcome, p: { home_win: number; draw: number; away_win: number }) {
   const ai = argmax(p);
-  if (pick === ai) return { label: "You agree with the ML model", tone: "win" as const };
+  if (pick === ai) return { label: "You agree with the model", tone: "win" as const };
 
   const vals = [p.home_win, p.draw, p.away_win].sort((a, b) => b - a);
   const picked = pick === "home" ? p.home_win : pick === "away" ? p.away_win : p.draw;
@@ -50,7 +50,7 @@ function Bar({ label, value, highlight }: { label: string; value: number; highli
           {label}
           {highlight && (
             <span className="rounded bg-surface-2 px-1 text-mini font-bold uppercase tracking-wide text-muted">
-              {highlight === "both" ? "You · ML model" : highlight === "ai" ? "ML model" : "You"}
+              {highlight === "both" ? "You · Model" : highlight === "ai" ? "Model" : "You"}
             </span>
           )}
         </span>
@@ -259,7 +259,7 @@ export function UserPredictionCard({
             </span>
             {aiPick && (
               <>
-                {" · ML model leans "}
+                {" · Model leans "}
                 <span className="font-semibold text-foreground">
                   {aiPick === "draw" ? "a draw" : labelFor(aiPick)}
                 </span>
@@ -282,7 +282,7 @@ export function UserPredictionCard({
         </div>
       ) : pick && !p ? (
         <p className="mt-3 border-t border-border/60 pt-3 text-center text-xs text-muted">
-          ML model forecast for this fixture is coming soon.
+          Model forecast for this fixture is coming soon.
         </p>
       ) : null}
     </div>

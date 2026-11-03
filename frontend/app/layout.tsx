@@ -44,7 +44,7 @@ export async function generateMetadata(): Promise<Metadata> {
     // guess on their behalf.
     title: `${APP_NAME} — Sports predictions, clearly explained`,
     description:
-      "Explainable football and NRL predictions from FinalWhistle's in-house ML model, " +
+      "Explainable football and NRL predictions from FinalWhistle's in-house model, " +
       "published with their uncertainty. For analytics and entertainment only.",
     applicationName: APP_NAME,
     twitter: { card: "summary_large_image" },

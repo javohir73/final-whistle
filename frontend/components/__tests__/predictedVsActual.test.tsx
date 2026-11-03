@@ -80,7 +80,7 @@ describe("MatchCard", () => {
     // home_win 0.6 clears 55% → "Mexico favoured".
     expect(screen.getByText("Mexico favoured")).toBeInTheDocument();
     // ML-model-labelled predicted scoreline, no promoted actual score.
-    expect(screen.getByText("ML model")).toBeInTheDocument();
+    expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.getByText("1–0")).toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe("MatchCard", () => {
     expect(screen.getByText("Full time")).toBeInTheDocument();
     expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
     // …prediction explicitly labelled as the model's call…
-    expect(screen.getByText("ML model")).toBeInTheDocument();
+    expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.getByText("1–0")).toBeInTheDocument();
     // …and the plain-language scorecard.
     expect(screen.getByText("Called it")).toBeInTheDocument();

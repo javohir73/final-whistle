@@ -1088,7 +1088,7 @@ export interface RetentionStats {
 }
 
 /** /api/leagues/{league}/tips/{submit,mine,summary,leaderboard,share} --
- *  "Beat the AI's scoreline" (design doc: 2026-07-24-league-score-predictions
+ *  "Beat the model's scoreline" (design doc: 2026-07-24-league-score-predictions
  *  -design.md), the football-league port of the NRL tips types above.
  *  `league` is a short code (Phase 1: "epl"); device_id is not auth -- see
  *  lib/leagueTips.ts. Scoring is 5pts exact score / 2pts correct result (not

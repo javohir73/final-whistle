@@ -124,7 +124,7 @@ export async function renderTeamPage(
       {teamOdds && (
         <section className="glass rounded-2xl p-6">
           <span className="font-display text-label font-semibold uppercase tracking-wider text-lime-deep">
-            ML model outlook
+            Model outlook
           </span>
           <p className="mb-4 mt-2 font-display text-lg font-bold leading-snug tracking-tight">
             {outlookSentence(teamOdds.make_knockout, teamOdds.reach_final, teamOdds.win_title)}

@@ -56,7 +56,7 @@ function legacyHref(matchId: number): string {
  *  (several of them server components) can render this same card without
  *  forking a variant: `badge="club"` swaps the country crest for a `ClubBadge`
  *  club crest, `href` is the card's link (`null` drops it), and `margin` prints
- *  the ML model's expected margin chip.
+ *  the model's expected margin chip.
  *
  *  `href` should always be passed (football: `footballMatchHref(comp, id)`).
  *  The old `/match/<id>` default 308'd into the World Cup and landed every club
@@ -219,7 +219,7 @@ export function MatchCard({
             {showPrediction && predicted_score ? (
               <span className="inline-flex items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-sm font-bold tabular-nums text-foreground">
                 <span className="mr-1.5 align-middle text-note font-semibold uppercase tracking-wide text-muted">
-                  ML model
+                  Model
                 </span>
                 {formatScore(predicted_score.home, predicted_score.away)}
               </span>
@@ -232,7 +232,7 @@ export function MatchCard({
               margin != null &&
               !finished && (
                 <span className="rounded-lg bg-surface-2 px-2 py-0.5 font-bold tabular-nums text-foreground">
-                  <span className="mr-1 font-semibold text-muted">ML model</span>
+                  <span className="mr-1 font-semibold text-muted">Model</span>
                   {expectedMarginLabel(margin, teams.home, teams.away)}
                 </span>
               )
@@ -394,7 +394,7 @@ function CompactRow({
         // Same humane form as the full card: favoured side, not a signed number.
         <div className="mt-2">
           <span className="rounded-lg bg-surface-2 px-2 py-0.5 font-bold tabular-nums text-foreground">
-            <span className="mr-1 font-semibold text-muted">ML model</span>
+            <span className="mr-1 font-semibold text-muted">Model</span>
             {expectedMarginLabel(margin, teams.home, teams.away)}
           </span>
         </div>

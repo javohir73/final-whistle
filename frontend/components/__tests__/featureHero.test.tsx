@@ -131,7 +131,7 @@ describe("FeatureHero", () => {
       />,
     );
 
-    expect(screen.getByText(/AI most likely: Brazil by 5\.5/)).toBeInTheDocument();
+    expect(screen.getByText(/Model most likely: Brazil by 5\.5/)).toBeInTheDocument();
   });
 
   it("badge=\"club\" swaps the country crests for self-hosted club logos", () => {
