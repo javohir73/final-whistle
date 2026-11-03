@@ -94,6 +94,8 @@ it("shares the player's own league share-page URL for a graded matchweek", async
   render(<LeagueYouVsAi league="epl" />);
   const shareButton = await screen.findByRole("button");
   shareButton.click();
+  // Desktop: the explicit targets menu (Copy link / WhatsApp / Telegram).
+  (await screen.findByRole("menuitem", { name: "Copy link" })).click();
 
   await screen.findByText("Link copied!");
   expect(writeText).toHaveBeenCalledWith(

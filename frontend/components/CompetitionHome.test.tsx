@@ -1,5 +1,6 @@
-/** CompetitionHome: the hero leads with the next fixture and sends "Make your
- *  pick" to the match's #pick anchor; "Also on" is the window around that
+/** CompetitionHome: the hero leads with the next fixture on its own
+ *  competition-scoped match page (FeatureHero itself lands "Make your pick" on
+ *  that page's #pick section); "Also on" is the window around that
  *  kickoff (never the season's opening fixtures); a played match is never
  *  featured. FeatureHero / MatchCard / StandingsTable are stubbed -- their
  *  own rendering is covered elsewhere and owned by the match-centre work. */
@@ -74,12 +75,14 @@ const season = [
   match(300, 16), match(301, 17),
 ];
 
-it("features the next fixture and sends 'Make your pick' to its #pick anchor", () => {
+it("features the next fixture, linked to its competition-scoped match page", () => {
   renderHome(season);
 
   const feature = screen.getByTestId("feature");
   expect(feature).toHaveTextContent("feature-200");
-  expect(feature).toHaveAttribute("data-href", "/football/epl/match/200#pick");
+  // Bare page href: FeatureHero appends #pick / #why per CTA, so passing an
+  // anchor here would double it.
+  expect(feature).toHaveAttribute("data-href", "/football/epl/match/200");
 });
 
 it("'Also on' is the window around the next kickoff, not the season's opening fixtures", () => {

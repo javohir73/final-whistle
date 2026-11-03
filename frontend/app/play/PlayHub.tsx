@@ -8,12 +8,9 @@ import { NrlTipsPlaySection } from "@/components/nrl/NrlTipsPlaySection";
 import { PlayBracketCard, type BracketChampion } from "@/components/play/PlayBracketCard";
 import { PlayLeaderboard } from "@/components/play/PlayLeaderboard";
 import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
+import type { NrlSeasonState } from "@/lib/nrlTips";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 import type { NrlTipsheet } from "@/lib/types";
-
-/** "open": a round with something left to tip; "between-rounds": nothing to
- *  tip until the next round's draw; "complete": the season is over. */
-export type NrlSeasonState = "open" | "between-rounds" | "complete";
 
 interface PlayHubProps {
   /** Competition requested by `?competition=`: listed first and opened on
@@ -23,8 +20,8 @@ interface PlayHubProps {
    *  season/round. Null when the endpoint has no data -- the section still
    *  renders, just as an honest empty state. */
   nrlTipsheet: NrlTipsheet | null;
-  /** Where the NRL season stands (see app/play/page.tsx); null without a
-   *  tipsheet. */
+  /** Where the NRL season stands (lib/nrlTips.ts nrlSeasonState); null
+   *  without a tipsheet. */
   nrlState: NrlSeasonState | null;
   /** Whether the World Cup has a knockout bracket to link to. */
   hasBrackets: boolean;

@@ -91,8 +91,9 @@ export function YouVsAi() {
                       {shareUrl && (
                         <ShareButton
                           label="Share"
-                          title={`${handle} went ${r.your_points}/${r.matches_played} vs the AI — NRL Round ${r.round}`}
+                          title={`${handle} went ${r.your_points}/${r.matches_played} vs the model — NRL Round ${r.round}`}
                           url={shareUrl}
+                          surface="nrl_tips_recap"
                           className="gap-1 px-2 py-1 text-label"
                         />
                       )}

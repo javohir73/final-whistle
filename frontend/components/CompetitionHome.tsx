@@ -183,7 +183,9 @@ export function CompetitionHome({
           comp={competition}
           tz={tz}
           badge="club"
-          href={feature ? `${footballMatchHref(competition, feature.match_id)}#pick` : null}
+          // Competition-scoped match page; FeatureHero lands its "Make your
+          // pick" CTA on the page's #pick section (and "Why" on #why) itself.
+          href={feature ? footballMatchHref(competition, feature.match_id) : null}
           eyebrow="Next up"
         />
       </div>

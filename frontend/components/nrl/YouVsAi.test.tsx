@@ -97,6 +97,8 @@ it("shares the player's own share-page URL for a graded round", async () => {
   // page"), not the visible `label` text -- same as ShareButton.test.tsx.
   const shareButton = await screen.findByRole("button");
   shareButton.click();
+  // Desktop: the explicit targets menu (Copy link / WhatsApp / Telegram).
+  (await screen.findByRole("menuitem", { name: "Copy link" })).click();
 
   await screen.findByText("Link copied!");
   expect(writeText).toHaveBeenCalledWith(

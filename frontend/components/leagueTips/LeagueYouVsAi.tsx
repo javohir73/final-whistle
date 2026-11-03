@@ -93,8 +93,9 @@ export function LeagueYouVsAi({ league }: { league: string }) {
                       {shareUrl && (
                         <ShareButton
                           label="Share"
-                          title={`${handle} went ${w.your_points}/${w.matches_played} vs the AI — Matchweek ${w.matchweek}`}
+                          title={`${handle} went ${w.your_points}/${w.matches_played} vs the model — Matchweek ${w.matchweek}`}
                           url={shareUrl}
+                          surface="league_tips_recap"
                           className="gap-1 px-2 py-1 text-label"
                         />
                       )}

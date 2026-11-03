@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { getKnockoutOddsServer, getNrlTipsheetServer } from "@/lib/api";
+import { nrlSeasonState } from "@/lib/nrlTips";
 import { getCompetitionTournament } from "@/lib/tournament";
-import type { NrlTipsheet, TournamentOdds } from "@/lib/types";
+import type { TournamentOdds } from "@/lib/types";
 import type { BracketChampion } from "@/components/play/PlayBracketCard";
-import { PlayHub, type NrlSeasonState } from "./PlayHub";
+import { PlayHub } from "./PlayHub";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 // Same ISR posture as /nrl/tips and /tips -- the shell is evergreen (nothing
@@ -28,28 +29,6 @@ function topChampion(odds: TournamentOdds[]): BracketChampion | null {
     .filter((o) => o.win_title != null)
     .sort((a, b) => (b.win_title ?? 0) - (a.win_title ?? 0))[0];
   return top ? { team: top.team, winTitle: top.win_title as number } : null;
-}
-
-const SEASON_OVER_AFTER_DAYS = 21;
-
-/** Where the NRL season stands, from the current-round tipsheet alone: a
- *  round with something still to tip is open; nothing to tip after a single
- *  decided final (the Grand Final), or weeks after the last kickoff, is a
- *  finished season; anything else is the gap between two rounds. */
-function nrlSeasonState(tipsheet: NrlTipsheet, now: Date = new Date()): NrlSeasonState {
-  const t = now.getTime();
-  const open = tipsheet.matches.some(
-    (m) =>
-      m.status === "in_play" ||
-      (m.status === "scheduled" && (m.kickoff_utc == null || Date.parse(m.kickoff_utc) > t)),
-  );
-  if (open) return "open";
-  const final = tipsheet.matches.length === 1 && tipsheet.matches[0].status === "finished";
-  const kickoffs = tipsheet.matches
-    .map((m) => (m.kickoff_utc ? Date.parse(m.kickoff_utc) : NaN))
-    .filter((x) => !Number.isNaN(x));
-  const stale = kickoffs.length > 0 && t - Math.max(...kickoffs) > SEASON_OVER_AFTER_DAYS * 86_400_000;
-  return final || stale ? "complete" : "between-rounds";
 }
 
 /** The Play hub ("Beat the model"): every competition you can play against
@@ -85,7 +64,7 @@ export default async function PlayPage({ searchParams }: PlayPageProps) {
     <PlayHub
       selectedCompetition={selectedCompetition}
       nrlTipsheet={nrlTipsheet}
-      nrlState={nrlTipsheet ? nrlSeasonState(nrlTipsheet) : null}
+      nrlState={nrlTipsheet ? nrlSeasonState(nrlTipsheet.matches) : null}
       hasBrackets={hasBrackets}
       champion={champion}
     />

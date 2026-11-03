@@ -2,27 +2,26 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { CountryOnboarding } from "@/components/CountryOnboarding";
-import { AICalculationReveal } from "@/components/AICalculationReveal";
 import { TeamSearch } from "@/components/TeamSearch";
 import { Flag } from "@/components/Flag";
 import { Eyebrow } from "@/components/Eyebrow";
 import { FeatureHero } from "@/components/FeatureHero";
 import { MatchCard } from "@/components/MatchCard";
 import { IntelPanel } from "@/components/IntelPanel";
-import { RetentionBridge } from "@/components/RetentionBridge";
 import { useSelectedCountry } from "@/lib/useSelectedCountry";
 import { useFetch } from "@/lib/useFetch";
 import { useTimezone } from "@/lib/useTimezone";
 import { getTeams, getGroups, getUpcomingMatches, getKnockoutOdds, getModelRecord } from "@/lib/api";
 import { isLiveNow } from "@/lib/liveLabel";
 import { relativeDayLabel } from "@/lib/datetime";
-import { competitionFromPathname, type CompetitionId } from "@/lib/sports";
+import { footballMatchHref, type CompetitionId } from "@/lib/sports";
 import type { Group, MatchSummary, Team, TournamentOdds } from "@/lib/types";
 
-/** Country-first home. Decides between the chooser, the AI-forecast reveal, and
- *  the personalized hub from locally-stored selection state — all anonymous.
+/** Country-first home for the World Cup hub (/football/wc26). Decides between
+ *  the chooser and the personalized hub from locally-stored selection state —
+ *  all anonymous. Choosing a team goes straight to its dashboard: the forecast
+ *  is precomputed, so there is no "AI calculating" stage to sit through.
  *  Server-seeded data paints instantly; the hooks refresh it in the background. */
 export function HomeExperience({
   initialTeams,
@@ -37,8 +36,7 @@ export function HomeExperience({
   initialOdds?: TournamentOdds[];
   competition?: CompetitionId;
 }) {
-  const { selection, hydrated, select, reveal, clear } = useSelectedCountry();
-  const [calculating, setCalculating] = useState(false);
+  const { selection, hydrated, select, reveal } = useSelectedCountry();
   const [changing, setChanging] = useState(false);
 
   const teamsState = useFetch(
@@ -83,63 +81,41 @@ export function HomeExperience({
 
   const selectedTeam = selection ? teams.find((t) => t.id === selection.team_id) : undefined;
 
-  if (calculating && selection) {
-    return (
-      <AICalculationReveal
-        team={selection.team}
-        onComplete={() => {
-          // Root cause of the "loads pre-scrolled" bug: the AI-forecast reveal
-          // is a tall (~700-900px) layout whose dismiss controls (the whole
-          // section is clickable, plus an explicit "Skip" button) sit well
-          // down the page — scrolling to reach them is the normal way to
-          // interact with it. Reset scroll exactly once, right here at the
-          // reveal→dashboard transition, so the much-shorter dashboard that
-          // swaps in doesn't inherit that scrollY. Doing it here (rather than
-          // on every HomeDashboard mount) means a returning user whose
-          // `prediction_revealed` is already persisted — e.g. navigating away
-          // from "/" and hitting Back — remounts straight into the dashboard
-          // without this firing and stomping the browser's native scroll
-          // restoration.
-          window.scrollTo(0, 0);
-          reveal();
-          setCalculating(false);
-        }}
-      />
-    );
-  }
-
   // Returning user with a revealed forecast: the Daylight home dashboard —
   // greeting, today's movers, match of the day, and the rest of today.
   if (!changing && selection?.prediction_revealed && selectedTeam) {
     return (
-      <>
-        <RetentionBridge matches={matches} />
-        <HomeDashboard
-          team={selectedTeam}
-          teams={teams}
-          groups={groups}
-          odds={odds}
-          matches={matches}
-          onChangeCountry={() => setChanging(true)}
-        />
-      </>
+      <HomeDashboard
+        competition={competition}
+        team={selectedTeam}
+        teams={teams}
+        groups={groups}
+        odds={odds}
+        matches={matches}
+        onChangeCountry={() => setChanging(true)}
+      />
     );
   }
 
   return (
-    <>
-      <RetentionBridge matches={matches} />
-      <CountryOnboarding
-        teams={teams}
-        selection={changing ? null : selection}
-        onSelect={(t) => {
-          select(t.id, t.name);
-          setChanging(false);
-        }}
-        onPredict={() => setCalculating(true)}
-        onChangeCountry={() => setChanging(true)}
-      />
-    </>
+    <CountryOnboarding
+      teams={teams}
+      selection={changing ? null : selection}
+      onSelect={(t) => {
+        select(t.id, t.name);
+        setChanging(false);
+      }}
+      onPredict={() => {
+        // The team preview sits mid-page; reset scroll exactly once, at the
+        // preview→dashboard transition, so the shorter dashboard doesn't
+        // inherit that scrollY. Not on every HomeDashboard mount: a returning
+        // user remounting straight into the dashboard (Back from a match page)
+        // keeps the browser's native scroll restoration.
+        window.scrollTo(0, 0);
+        reveal();
+      }}
+      onChangeCountry={() => setChanging(true)}
+    />
   );
 }
 
@@ -159,6 +135,7 @@ function greeting(name?: string | null): string {
  * already-loaded data.
  */
 function HomeDashboard({
+  competition,
   team,
   teams,
   groups,
@@ -166,6 +143,7 @@ function HomeDashboard({
   matches,
   onChangeCountry,
 }: {
+  competition: CompetitionId;
   team: Team;
   teams: Team[];
   groups: Group[];
@@ -174,16 +152,12 @@ function HomeDashboard({
   onChangeCountry: () => void;
 }) {
   const { tz } = useTimezone();
-  // Which competition's terms/accent the hero wears. "/" resolves to WC26 (the
-  // only enabled competition today); the /football/[comp] wrappers resolve their
-  // own once P2 enables the leagues.
-  const comp = competitionFromPathname(usePathname());
 
-  // NOTE: scroll reset for the reveal→dashboard transition lives in
-  // HomeExperience's AICalculationReveal onComplete, not here — see the
-  // comment there. A mount effect here would also fire on a plain remount
-  // (e.g. navigating away from "/" and Back, with `prediction_revealed`
-  // already persisted), stomping the browser's native scroll restoration.
+  // NOTE: scroll reset for the preview→dashboard transition lives in
+  // HomeExperience's onPredict, not here — see the comment there. A mount
+  // effect here would also fire on a plain remount (e.g. navigating away and
+  // Back, with `prediction_revealed` already persisted), stomping the
+  // browser's native scroll restoration.
 
   // The model's verified track record, for the honest footer line. Background
   // fetch — only rendered once at least one match has been scored.
@@ -247,9 +221,15 @@ function HomeDashboard({
 
       <IntelPanel sport="football" />
 
-      {/* ===== Tonight's feature (Floodlight FeatureHero) ===== */}
+      {/* ===== Next up (Floodlight FeatureHero) ===== */}
       <div className="mt-7">
-        <FeatureHero match={feature} comp={comp} tz={tz} />
+        <FeatureHero
+          match={feature}
+          comp={competition}
+          tz={tz}
+          href={feature ? footballMatchHref(competition, feature.match_id) : null}
+          eyebrow="Next up"
+        />
       </div>
 
       {/* ===== Also on ===== */}
@@ -260,7 +240,13 @@ function HomeDashboard({
           </div>
           <div className="flex flex-col gap-2.5">
             {alsoToday.map((m) => (
-              <MatchCard key={m.match_id} match={m} tz={tz} variant="compact" />
+              <MatchCard
+                key={m.match_id}
+                match={m}
+                tz={tz}
+                variant="compact"
+                href={footballMatchHref(competition, m.match_id)}
+              />
             ))}
           </div>
         </section>
@@ -273,14 +259,14 @@ function HomeDashboard({
         </p>
       )}
 
-      {/* ===== Beat the AI entry point (design doc: League Score Predictions,
-       *  2026-07-24) -- same glass-card teaser idiom as /nrl/tips's "Finals
-       *  race" card and /nrl's "State of Origin" card. ===== */}
-      <Link href="/tips" className="card-hover glass mt-7 block rounded-2xl p-4 transition">
+      {/* ===== Beat the model entry point -- the World Cup is over, so this is
+       *  the way into a live competition. Same glass-card teaser idiom as
+       *  /nrl's "State of Origin" card. ===== */}
+      <Link href="/play?competition=epl" className="card-hover glass mt-7 block rounded-2xl p-4 transition">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-              Beat the AI
+              Beat the model
             </p>
             <p className="mt-1 font-display text-lg font-extrabold">Predict the Premier League scoreline</p>
             <p className="mt-1 text-xs text-muted">Score picks, matchweek leaderboards, share your record.</p>

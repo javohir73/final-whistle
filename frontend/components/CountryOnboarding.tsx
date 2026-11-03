@@ -19,9 +19,11 @@ function suggestions(teams: Team[]): Team[] {
 }
 
 /**
- * Country-first entry point. With no selection it shows the chooser; once a
- * country is picked it shows a focused preview with the "Predict my team" CTA
- * that kicks off the AI-forecast reveal. Fully anonymous.
+ * Country-first entry point for the World Cup hub (a past tournament). With no
+ * selection it shows the chooser; once a country is picked it shows a focused
+ * preview whose CTA (`onPredict`) opens that team's dashboard straight away —
+ * the model's numbers are precomputed, so there is no progress theatre.
+ * Fully anonymous.
  */
 export function CountryOnboarding({
   teams,
@@ -71,8 +73,8 @@ export function CountryOnboarding({
         </div>
 
         <p className="mx-auto mt-6 max-w-sm text-muted">
-          Build {name}&rsquo;s World Cup outlook — matches, odds, strengths, and where
-          your calls differ from the FinalWhistle ML model.
+          {name}&rsquo;s World Cup — matches, results, strengths, and how the FinalWhistle
+          model called them.
         </p>
 
         <div className="mt-8 flex flex-col items-center gap-3">
@@ -84,7 +86,7 @@ export function CountryOnboarding({
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2">
               <path d="M5 3l14 9-14 9V3z" strokeLinejoin="round" />
             </svg>
-            Predict my team
+            Show my team
           </button>
           <button
             type="button"
@@ -104,13 +106,13 @@ export function CountryOnboarding({
       <div className="text-center">
         <div className="mb-5 inline-flex items-center gap-2 rounded-full chip px-3 py-1 text-xs font-medium text-muted">
           <span className="h-1.5 w-1.5 rounded-full bg-win" />
-          FIFA World Cup 2026 · USA · Canada · Mexico
+          World Cup 2026 · Past tournament
         </div>
         <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
           Choose your <span className="text-lime-deep">World Cup team</span>
         </h1>
         <p className="mx-auto mt-4 max-w-md text-lg text-muted">
-          Follow their matches, make your predictions, and compare your picks with the FinalWhistle ML model.
+          Their matches, the model&rsquo;s calls, and how those calls held up.
         </p>
       </div>
 

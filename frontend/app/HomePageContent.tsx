@@ -7,9 +7,11 @@ import {
 import { HomeExperience } from "./HomeExperience";
 import type { CompetitionId } from "@/lib/sports";
 
-/** Country-first home: the first useful action is choosing a nation to follow.
- *  Data is server-rendered (ISR) so the chooser and any returning user's hub
- *  paint with real content; the interactive flow lives in a client island.
+/** Country-first World Cup hub (/football/wc26, a past tournament; the
+ *  platform home is components/PlatformHome.tsx): the first useful action is
+ *  choosing a nation, which opens its dashboard straight away. Data is
+ *  server-rendered (ISR) so the chooser and any returning user's hub paint
+ *  with real content; the interactive flow lives in a client island.
  *  No fw_sport cookie redirect here -- that logic belonged to the deleted
  *  SportSwitcher and was dropped, not carried forward, when the
  *  CompetitionOverlay became the one switcher surface (see

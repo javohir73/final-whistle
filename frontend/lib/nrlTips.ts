@@ -10,10 +10,42 @@ import type {
   NrlMyTipsResponse,
   NrlSeasonLeaderboardResponse,
   NrlTipClaimResponse,
+  NrlTipsheetMatch,
   NrlTipsLeaderboardResponse,
   NrlTipSubmitResponse,
   NrlTipsSummaryResponse,
 } from "./types";
+
+/** "open": the current round still has something to tip; "between-rounds":
+ *  nothing to tip until the next round's draw lands; "complete": the season
+ *  is over. */
+export type NrlSeasonState = "open" | "between-rounds" | "complete";
+
+const SEASON_OVER_AFTER_DAYS = 21;
+
+/** Where the NRL season stands, from the current round's matches alone (the
+ *  tipsheet resolves "current" server-side). Nothing left to tip after a
+ *  single decided final (the Grand Final), or weeks after the last kickoff,
+ *  is a finished season; anything else is just the gap between two rounds --
+ *  the few days before the finals draw must never read as "season complete". */
+export function nrlSeasonState(
+  matches: Pick<NrlTipsheetMatch, "status" | "kickoff_utc">[],
+  now: Date = new Date(),
+): NrlSeasonState {
+  const t = now.getTime();
+  const open = matches.some(
+    (m) =>
+      m.status === "in_play" ||
+      (m.status === "scheduled" && (m.kickoff_utc == null || Date.parse(m.kickoff_utc) > t)),
+  );
+  if (open) return "open";
+  const decidedFinal = matches.length === 1 && matches[0].status === "finished";
+  const kickoffs = matches
+    .map((m) => (m.kickoff_utc ? Date.parse(m.kickoff_utc) : NaN))
+    .filter((x) => !Number.isNaN(x));
+  const longOver = kickoffs.length > 0 && t - Math.max(...kickoffs) > SEASON_OVER_AFTER_DAYS * 86_400_000;
+  return decidedFinal || longOver ? "complete" : "between-rounds";
+}
 
 export const submitNrlTip = (body: {
   device_id: string;
