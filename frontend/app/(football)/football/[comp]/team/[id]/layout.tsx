@@ -1,13 +1,8 @@
-import { notFound } from "next/navigation";
-import { getTeamServer } from "@/lib/api";
-import { isWiredFootballCompetition } from "@/lib/sports";
+import { guardScopedTeam } from "@/lib/competitionServer";
 
-/** Real 404s for /football/{comp}/team/{id}: decided here, before the
- *  segment's loading.tsx boundary starts streaming (a page-level notFound()
- *  behind it is a soft 404 -- see ../../match/[id]/layout.tsx). Same rule as
- *  the page: 404 when the backend says the team is not in this competition;
- *  an error defers to the page. The page's identical getTeamServer call is
- *  answered from this one (request memoisation). */
+/** Real 404s (and moves) for /football/{comp}/team/{id}, decided before the
+ *  segment's loading.tsx boundary streams -- see ../../match/[id]/layout.tsx
+ *  and lib/competitionServer.ts guardScopedTeam. */
 export default async function CompTeamLayout({
   children,
   params,
@@ -16,8 +11,6 @@ export default async function CompTeamLayout({
   params: Promise<{ comp: string; id: string }>;
 }) {
   const { comp, id } = await params;
-  if (!isWiredFootballCompetition(comp) || !/^\d+$/.test(id)) notFound();
-  const profile = await getTeamServer(id, comp).catch(() => undefined);
-  if (profile === null) notFound();
+  await guardScopedTeam(comp, id);
   return children;
 }

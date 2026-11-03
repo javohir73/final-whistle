@@ -10,8 +10,18 @@ jest.mock("next/navigation", () => ({
   notFound: jest.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
+  permanentRedirect: jest.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT 308 ${url}`);
+  }),
+  redirect: jest.fn(),
 }));
-jest.mock("@/lib/api", () => ({ getTeamServer: jest.fn() }));
+jest.mock("next/headers", () => ({ headers: jest.fn(), cookies: jest.fn() }));
+jest.mock("@/lib/api", () => ({
+  getMatchServer: jest.fn(),
+  getMatchSummaryServer: jest.fn(),
+  getTeamServer: jest.fn(),
+}));
+jest.mock("@/lib/tournament", () => ({ getCompetitionTournament: jest.fn(async () => ({})) }));
 
 const mockTeam = getTeamServer as jest.MockedFunction<typeof getTeamServer>;
 
@@ -26,8 +36,17 @@ it("renders the page for a team in this competition", async () => {
   expect(mockTeam).toHaveBeenCalledWith("7", "laliga");
 });
 
-it("404s a team the backend says is not in this competition", async () => {
-  mockTeam.mockResolvedValue(null);
+it("308s a club requested under /football/wc26/ to its own competition", async () => {
+  mockTeam.mockImplementation(async (_id, comp) =>
+    comp ? null : ({ team: { id: 339 }, competition: "epl" } as TeamProfile),
+  );
+  await expect(layout("wc26", "339")).rejects.toThrow("NEXT_REDIRECT 308 /football/epl/team/339");
+});
+
+it("404s a team the backend has in no competition we serve", async () => {
+  mockTeam.mockImplementation(async (_id, comp) =>
+    comp ? null : ({ team: { id: 7 }, competition: null } as TeamProfile),
+  );
   await expect(layout("wc26", "7")).rejects.toThrow("NEXT_NOT_FOUND");
 });
 

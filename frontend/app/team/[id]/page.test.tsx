@@ -15,14 +15,25 @@ jest.mock("next/navigation", () => ({
   permanentRedirect: jest.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT 308 ${url}`);
   }),
+  redirect: jest.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT 307 ${url}`);
+  }),
 }));
-jest.mock("@/lib/api", () => ({ getMatchSummaryServer: jest.fn(), getTeamServer: jest.fn() }));
+jest.mock("@/lib/api", () => ({
+  getMatchServer: jest.fn(),
+  getMatchSummaryServer: jest.fn(),
+  getTeamServer: jest.fn(),
+}));
+jest.mock("@/lib/tournament", () => ({ getCompetitionTournament: jest.fn() }));
 
 const mockTeam = getTeamServer as jest.MockedFunction<typeof getTeamServer>;
 const mockHeaders = headers as jest.MockedFunction<typeof headers>;
 
-const profile = (competition?: string) =>
-  ({ team: { id: 7, name: "Arsenal" }, competition }) as unknown as TeamProfile;
+/** With no argument the payload lacks the field (an older backend). */
+const profile = (competition?: string | null) =>
+  (competition === undefined
+    ? { team: { id: 7, name: "Arsenal" } }
+    : { team: { id: 7, name: "Arsenal" }, competition }) as unknown as TeamProfile;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
 beforeEach(() => {
@@ -45,15 +56,21 @@ it("keeps national teams on the World Cup archive", async () => {
   );
 });
 
-it("falls back to the WC26 path when the backend can't say", async () => {
+it("guesses the WC26 path only temporarily (307) when the backend can't say", async () => {
   mockTeam.mockResolvedValue(profile(undefined));
   await expect(LegacyTeamLookupPage(params("10"))).rejects.toThrow(
-    "NEXT_REDIRECT 308 /football/wc26/team/10",
+    "NEXT_REDIRECT 307 /football/wc26/team/10",
   );
   mockTeam.mockRejectedValue(new Error("API 500"));
   await expect(LegacyTeamLookupPage(params("10"))).rejects.toThrow(
-    "NEXT_REDIRECT 308 /football/wc26/team/10",
+    "NEXT_REDIRECT 307 /football/wc26/team/10",
   );
+  expect(permanentRedirect).not.toHaveBeenCalled();
+});
+
+it("is a real 404 when the backend says the team has no competition", async () => {
+  mockTeam.mockResolvedValue(profile(null));
+  await expect(LegacyTeamLookupPage(params("10"))).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
 it("is a real 404 for a missing or non-numeric team", async () => {

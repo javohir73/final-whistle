@@ -21,14 +21,25 @@ jest.mock("next/navigation", () => ({
   permanentRedirect: jest.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT 308 ${url}`);
   }),
+  redirect: jest.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT 307 ${url}`);
+  }),
 }));
-jest.mock("@/lib/api", () => ({ getMatchSummaryServer: jest.fn(), getTeamServer: jest.fn() }));
+jest.mock("@/lib/tournament", () => ({ getCompetitionTournament: jest.fn() }));
+jest.mock("@/lib/api", () => ({
+  getMatchServer: jest.fn(),
+  getMatchSummaryServer: jest.fn(),
+  getTeamServer: jest.fn(),
+}));
 
 const mockSummary = getMatchSummaryServer as jest.MockedFunction<typeof getMatchSummaryServer>;
 const mockHeaders = headers as jest.MockedFunction<typeof headers>;
 
+/** With no argument the payload lacks the field (an older backend). */
 const summary = (competition?: string) =>
-  ({ match_id: 198, competition }) as unknown as MatchSummary;
+  (competition === undefined
+    ? { match_id: 198 }
+    : { match_id: 198, competition }) as unknown as MatchSummary;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 const layoutProps = (id: string) => ({ children: null, ...params(id) });
 
@@ -62,18 +73,24 @@ it("keeps the embed's utm_source across the redirect", async () => {
   );
 });
 
-it("falls back to today's WC26 path when the backend has no competition field", async () => {
+it("guesses the WC26 path only temporarily (307) when the backend has no competition field", async () => {
   mockSummary.mockResolvedValue(summary(undefined));
   await expect(LegacyMatchLookupLayout(layoutProps("1"))).rejects.toThrow(
-    "NEXT_REDIRECT 308 /football/wc26/match/1",
+    "NEXT_REDIRECT 307 /football/wc26/match/1",
+  );
+  expect(permanentRedirect).not.toHaveBeenCalled();
+});
+
+it("guesses the WC26 path only temporarily (307) when the lookup fails", async () => {
+  mockSummary.mockRejectedValue(new Error("API 502"));
+  await expect(LegacyMatchLookupLayout(layoutProps("1"))).rejects.toThrow(
+    "NEXT_REDIRECT 307 /football/wc26/match/1",
   );
 });
 
-it("falls back to the WC26 path when the lookup fails", async () => {
-  mockSummary.mockRejectedValue(new Error("API 502"));
-  await expect(LegacyMatchLookupLayout(layoutProps("1"))).rejects.toThrow(
-    "NEXT_REDIRECT 308 /football/wc26/match/1",
-  );
+it("is a real 404 when the backend says the match has no competition", async () => {
+  mockSummary.mockResolvedValue({ match_id: 5, competition: null } as unknown as MatchSummary);
+  await expect(LegacyMatchLookupLayout(layoutProps("5"))).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
 it("is a real 404 when the backend has no such match", async () => {

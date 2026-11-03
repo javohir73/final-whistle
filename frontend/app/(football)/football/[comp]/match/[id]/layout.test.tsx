@@ -13,11 +13,18 @@ jest.mock("next/navigation", () => ({
   notFound: jest.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
+  permanentRedirect: jest.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT 308 ${url}`);
+  }),
+  redirect: jest.fn(),
 }));
+jest.mock("next/headers", () => ({ headers: jest.fn(), cookies: jest.fn() }));
 jest.mock("@/lib/api", () => ({
   getMatchServer: jest.fn(),
   getMatchSummaryServer: jest.fn(),
+  getTeamServer: jest.fn(),
 }));
+jest.mock("@/lib/tournament", () => ({ getCompetitionTournament: jest.fn(async () => ({})) }));
 
 const mockPrediction = getMatchServer as jest.MockedFunction<typeof getMatchServer>;
 const mockSummary = getMatchSummaryServer as jest.MockedFunction<typeof getMatchSummaryServer>;
@@ -44,10 +51,20 @@ it("keeps a just-drawn tie with no prediction yet (the page's pending view)", as
   await expect(layout("wc26", "76")).resolves.toBe("match centre");
 });
 
-it("404s a club match requested under /football/wc26/ (both lookups 404)", async () => {
+it("308s a club match requested under /football/wc26/ to its own competition", async () => {
+  // Months of links point here: the old static /match/:id redirect sent every
+  // id to the World Cup space. The right page is one lookup away.
+  mockPrediction.mockResolvedValue(null);
+  mockSummary.mockImplementation(async (_id, comp) =>
+    comp ? null : ({ match_id: 198, competition: "epl" } as MatchSummary),
+  );
+  await expect(layout("wc26", "198")).rejects.toThrow("NEXT_REDIRECT 308 /football/epl/match/198");
+});
+
+it("404s an id the backend has nowhere (all lookups 404)", async () => {
   mockPrediction.mockResolvedValue(null);
   mockSummary.mockResolvedValue(null);
-  await expect(layout("wc26", "198")).rejects.toThrow("NEXT_NOT_FOUND");
+  await expect(layout("wc26", "999999")).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
 it("does not turn a backend error into a 404 (the page decides)", async () => {
