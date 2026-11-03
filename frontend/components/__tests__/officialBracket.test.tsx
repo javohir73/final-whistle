@@ -22,8 +22,8 @@ function tie(over: Partial<KnockoutTie>): KnockoutTie {
 it("renders label-only ties as non-links with slot labels", () => {
   render(<OfficialBracket ties={buildTree(null)} />);
   expect(screen.getByText("Winner 74")).toBeInTheDocument();
-  // a label-only tie has no /match link
-  expect(document.querySelector('a[href^="/match/"]')).toBeNull();
+  // a label-only tie has no match link
+  expect(document.querySelector('a[href*="/match/"]')).toBeNull();
 });
 
 it("renders a finished tie with score, pens text, winner highlight, and a link", () => {
@@ -40,7 +40,8 @@ it("renders a finished tie with score, pens text, winner highlight, and a link",
   });
   render(<OfficialBracket ties={ties} />);
   expect(screen.getByText("(4-2 pens)")).toBeInTheDocument();
-  const link = document.querySelector('a[href="/match/312"]');
+  // Scoped to the World Cup (the only bracket), not the /match/:id lookup hop.
+  const link = document.querySelector('a[href="/football/wc26/match/312"]');
   expect(link).not.toBeNull();
   // Argentina won #89, so they also advance into their QF slot — scope the
   // winner-highlight assertion to the lime-deep (winner) instance.

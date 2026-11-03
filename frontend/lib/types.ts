@@ -221,6 +221,11 @@ export interface MatchSummary {
   /** In-play win probability given the live score and time left; present only
    *  while the match is live (else use the pre-match `probabilities`). */
   live_probabilities?: Probabilities | null;
+  /** The competition this match belongs to ("epl", "wc26", ...). Optional:
+   *  older backends omit it. Untrusted -- read it through
+   *  asFootballCompetition (lib/sports.ts), never cast it. The /match/:id
+   *  lookup (lib/competitionServer.ts) uses it to pick the scoped URL. */
+  competition?: string | null;
 }
 
 export interface Team {
@@ -296,6 +301,9 @@ export interface TeamProfile {
   recent_form: FormResult[];
   strengths: string[];
   weaknesses: string[];
+  /** The team's competition ("epl", "wc26", ...). Optional and untrusted,
+   *  exactly like MatchSummary.competition; the /team/:id lookup uses it. */
+  competition?: string | null;
 }
 
 // ---- Accounts / leaderboard ----

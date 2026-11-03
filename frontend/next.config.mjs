@@ -98,13 +98,16 @@ const nextConfig = {
       // /football/wc26/... scheme (lib/sports.ts's COMPETITIONS.wc26.basePath).
       // Only WC26-specific content routes move -- the cross-cutting routes
       // (/, /leaderboard, /tips, /about etc.) and the entire /nrl space stay
-      // put, per the slice's architect ruling.
+      // put, per the slice's architect ruling. Each is one hop to a final URL.
+      //
+      // /match/:id and /team/:id are NOT here any more: ids are shared across
+      // competitions, and a static WC26 destination soft-404'd every club
+      // match and team. app/match/[id] and app/team/[id] now look the id up
+      // and 308 to its own competition (lib/competitionServer.ts).
       { source: "/matches", destination: "/football/wc26/fixtures", permanent: true },
-      { source: "/match/:id", destination: "/football/wc26/match/:id", permanent: true },
       { source: "/groups", destination: "/football/wc26/groups", permanent: true },
       { source: "/groups/:id", destination: "/football/wc26/groups/:id", permanent: true },
       { source: "/brackets", destination: "/football/wc26/bracket", permanent: true },
-      { source: "/team/:id", destination: "/football/wc26/team/:id", permanent: true },
     ];
   },
   // Same-origin proxy to the backend. Client-side API calls go to /backend-api/*

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getIntel } from "@/lib/api";
 import type { IntelMatch, IntelResponse, IntelStoryline } from "@/lib/types";
 import { MoversPanel } from "@/components/MoversPanel";
+import { footballMatchHrefOrLookup } from "@/lib/sports";
 
 const pct = (p: number) => `${Math.round(p * 100)}%`;
 
@@ -53,10 +54,13 @@ function MatchRow({ m, sport }: { m: IntelMatch; sport: "football" | "nrl" }) {
     m.disagreement !== null && Math.abs(m.disagreement) >= DISAGREE_PTS;
   // NRL match pages are keyed by (season, round, match_no) — not by the
   // sport_matches id this payload carries — so only football rows link out.
+  // The football feed spans competitions without saying which, so the link
+  // goes through the /match/:id lookup (it 308s to the right competition)
+  // rather than guessing WC26.
   const Body = sport === "football" ? Link : "div";
   return (
     <li className="border-t border-white/10 py-2.5 first:border-t-0">
-      <Body href={`/match/${m.match_id}`} className="block">
+      <Body href={footballMatchHrefOrLookup(m.match_id)} className="block">
         <span className="font-display text-lead font-semibold text-white">
           {m.home?.name ?? "TBD"} vs {m.away?.name ?? "TBD"}
         </span>

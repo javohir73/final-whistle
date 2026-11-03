@@ -1,6 +1,7 @@
 "use client";
 
 import type { StandingRow } from "@/lib/types";
+import { COMPETITIONS } from "@/lib/sports";
 import { StandingsTable } from "./StandingsTable";
 
 /** Thin wrapper over StandingsTable so the WC26 group tables and the league
@@ -14,7 +15,9 @@ export function GroupTable({
   standings,
   highlightTeamId,
   mode = "group",
-  teamBasePath = "/team",
+  // Group tables are a World Cup surface (hasGroups), so team links default
+  // to its scoped team pages, not the /team/:id lookup's extra hop.
+  teamBasePath = `${COMPETITIONS.wc26.basePath}/team`,
 }: {
   standings: StandingRow[];
   highlightTeamId?: number;

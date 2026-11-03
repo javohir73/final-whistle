@@ -8,12 +8,20 @@ import { isLiveNow, liveLabel } from "@/lib/liveLabel";
 import { kickoffTime, tzAbbrev } from "@/lib/datetime";
 import type { MatchSummary } from "@/lib/types";
 import { stoppedLabel, willBePlayed } from "@/lib/matchStatus";
+import { footballMatchHref, type CompetitionId } from "@/lib/sports";
 
 /** Client island: the group's fixtures as compact light rows in the user's
  *  timezone (kickoff time is client-only; the rest of the group page is
  *  server-rendered). Each row links to the match and surfaces the model's
  *  predicted scoreline as an "AI: {score}" hint. */
-export function GroupFixtureList({ matches }: { matches: MatchSummary[] }) {
+export function GroupFixtureList({
+  matches,
+  competition = "wc26",
+}: {
+  matches: MatchSummary[];
+  /** Groups only exist where the registry says hasGroups -- the World Cup. */
+  competition?: CompetitionId;
+}) {
   const { tz } = useTimezone();
   if (matches.length === 0) {
     return <p className="text-sm text-muted">Fixtures will appear once the draw is finalized.</p>;
@@ -21,13 +29,21 @@ export function GroupFixtureList({ matches }: { matches: MatchSummary[] }) {
   return (
     <div className="space-y-2.5">
       {matches.map((m) => (
-        <FixtureRow key={m.match_id} match={m} tz={tz} />
+        <FixtureRow key={m.match_id} match={m} tz={tz} competition={competition} />
       ))}
     </div>
   );
 }
 
-function FixtureRow({ match, tz }: { match: MatchSummary; tz: string }) {
+function FixtureRow({
+  match,
+  tz,
+  competition,
+}: {
+  match: MatchSummary;
+  tz: string;
+  competition: CompetitionId;
+}) {
   const { teams, predicted_score } = match;
   const live = isLiveNow(match);
   const finished = match.status === "finished" || (match.status === "in_play" && !live);
@@ -36,7 +52,7 @@ function FixtureRow({ match, tz }: { match: MatchSummary; tz: string }) {
 
   return (
     <Link
-      href={`/match/${match.match_id}`}
+      href={footballMatchHref(competition, match.match_id)}
       className={`card-hover glass group flex items-center gap-3 rounded-2xl p-3.5 ${
         live ? "ring-1 ring-loss/40" : ""
       }`}
