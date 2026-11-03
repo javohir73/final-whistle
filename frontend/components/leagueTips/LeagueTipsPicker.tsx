@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { TeamBadge } from "@/components/TeamBadge";
 import { Empty, ErrorState, Loading } from "@/components/States";
 import { reportViewerHandle } from "@/components/play/viewerHandle";
+import { LEAGUE_TIPS_CACHE_PREFIX, useTipsIdentityVersion } from "@/components/play/tipsIdentity";
 import { trackEvent } from "@/lib/analytics";
 import { recordEngagement } from "@/lib/engagement";
 import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
@@ -26,8 +27,9 @@ function clampGoals(n: number): number {
 // instantly on a repeat visit instead of waiting on /tips/mine. Only ever
 // written from a CONFIRMED (server-accepted) submit -- see submit() below --
 // so a stale/rejected optimistic value never persists. Mirrors PlayRound's
-// CACHE_PREFIX idiom (components/nrl/PlayRound.tsx).
-const CACHE_PREFIX = "finalwhistle:league-tips:v1:";
+// CACHE_PREFIX idiom (components/nrl/PlayRound.tsx). Shared with the match
+// page's pick card, and cleared after a sign-in claim (tipsIdentity.ts).
+const CACHE_PREFIX = LEAGUE_TIPS_CACHE_PREFIX;
 
 interface CachedPrediction {
   predicted_home: number;
@@ -160,6 +162,11 @@ export function LeagueTipsPicker({
   const [navError, setNavError] = useState<string | null>(null);
   const [boundary, setBoundary] = useState({ prev: false, next: false });
   const [attempt, setAttempt] = useState(0);
+  // Bumps when a sign-in claim may have changed whose picks this device
+  // shows; the load below re-reads the server on it.
+  const identityVersion = useTipsIdentityVersion();
+  // Rows hidden as ghosts in the week on screen (said, never silent).
+  const [hiddenCount, setHiddenCount] = useState(0);
   const [pending, setPending] = useState<Record<number, boolean>>({});
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [draftHome, setDraftHome] = useState<Record<number, string>>({});
@@ -203,6 +210,7 @@ export function LeagueTipsPicker({
           return { ...m, your_prediction };
         });
         setCurrent({ ...res, matches: merged });
+        setHiddenCount(res.matches.length - matches.length);
         reportViewerHandle(res.handle);
         setSeasonNotStarted(false);
         setBoundary({ prev: false, next: false });
@@ -265,7 +273,7 @@ export function LeagueTipsPicker({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId, league, requested, attempt]);
+  }, [deviceId, league, requested, attempt, identityVersion]);
 
   const submit = useCallback(
     async (matchId: number, predicted_home: number, predicted_away: number) => {
@@ -333,7 +341,25 @@ export function LeagueTipsPicker({
         recordEngagement("pick");
         trackEvent("tips_submit", { competition: league, matchweek: current.matchweek, match_id: matchId });
       } catch (err) {
-        setCurrent((cur) => cur && { ...cur, matches: prevMatches }); // never claim a rejected score was saved
+        // Never claim a rejected score was saved.
+        setCurrent((cur) => cur && { ...cur, matches: prevMatches });
+        if (err instanceof ApiError && err.code === "prediction_finalized") {
+          // Already picked (another tab, the match page, another device):
+          // show the server's pick for this week instead of an error.
+          setDraftHome((d) => {
+            const next = { ...d };
+            delete next[matchId];
+            return next;
+          });
+          setDraftAway((d) => {
+            const next = { ...d };
+            delete next[matchId];
+            return next;
+          });
+          setRequested(current.matchweek);
+          setAttempt((a) => a + 1);
+          return;
+        }
         setDraftHome((d) => {
           const next = { ...d };
           delete next[matchId];
@@ -425,6 +451,14 @@ export function LeagueTipsPicker({
       {open ? (
         <p className="mb-3 text-center text-xs text-muted">
           Make your prediction to reveal the model&apos;s frozen scoreline. Locked fixtures reveal it automatically.
+        </p>
+      ) : null}
+
+      {hiddenCount > 0 ? (
+        <p className="mb-3 text-center text-xs text-muted">
+          {hiddenCount === 1
+            ? "1 fixture awaiting results isn't shown."
+            : `${hiddenCount} fixtures awaiting results aren't shown.`}
         </p>
       ) : null}
 

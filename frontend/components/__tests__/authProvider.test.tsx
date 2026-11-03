@@ -34,6 +34,7 @@ function Probe() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   mockLoadHint.mockReturnValue(null);
   (session.logout as jest.Mock).mockResolvedValue(undefined);
 });
@@ -209,4 +210,46 @@ it("skips the claim when this browser has no device id (storage blocked)", async
 
   await act(async () => {});
   expect(mockClaim).not.toHaveBeenCalled();
+});
+
+// ---- After a claim the server's picks win over this device's cache (H3) ----
+
+it("clears this device's tips caches and tells tips surfaces to re-read after a claim", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockClaim.mockResolvedValue({ ok: true, handle: "AccountHandle", claimed_tips: 2 });
+  localStorage.setItem("finalwhistle:league-tips:v1:epl:11", JSON.stringify({ 501: { predicted_home: 3, predicted_away: 1 } }));
+  localStorage.setItem("finalwhistle:nrl-tips:v1:2026:27", JSON.stringify({ 9: { pick: "home", margin: null } }));
+  localStorage.setItem("keep-me", "1");
+  const listener = jest.fn();
+  window.addEventListener("finalwhistle:tips-identity-changed", listener);
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+  window.removeEventListener("finalwhistle:tips-identity-changed", listener);
+  expect(localStorage.getItem("finalwhistle:league-tips:v1:epl:11")).toBeNull();
+  expect(localStorage.getItem("finalwhistle:nrl-tips:v1:2026:27")).toBeNull();
+  expect(localStorage.getItem("keep-me")).toBe("1");
+});
+
+it("leaves the caches alone when the claim fails", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockClaim.mockRejectedValue(new Error("500"));
+  localStorage.setItem("finalwhistle:league-tips:v1:epl:11", "{}");
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await waitFor(() => expect(mockClaim).toHaveBeenCalled());
+  await act(async () => {});
+  expect(localStorage.getItem("finalwhistle:league-tips:v1:epl:11")).toBe("{}");
 });

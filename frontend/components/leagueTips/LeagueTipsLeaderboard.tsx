@@ -240,7 +240,7 @@ function WeeklyTable({ entries, viewerHandle }: { entries: WeeklyEntry[]; viewer
           {entries.map((row, i) => (
             <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
               <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold" : "text-muted")}
+                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
               >
                 {i + 1}
               </td>
@@ -273,7 +273,7 @@ function SeasonTable({ entries, viewerHandle }: { entries: SeasonEntry[]; viewer
           {entries.map((row, i) => (
             <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
               <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold" : "text-muted")}
+                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
               >
                 {i + 1}
               </td>

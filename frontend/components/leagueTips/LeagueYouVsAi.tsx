@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Empty, ErrorState, Loading } from "@/components/States";
 import { ShareButton } from "@/components/ShareButton";
 import { reportViewerHandle } from "@/components/play/viewerHandle";
+import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
 import { SITE_URL } from "@/lib/constants";
 import { getLeagueTipsSummary } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId } from "@/lib/session";
@@ -23,6 +24,8 @@ type State =
 export function LeagueYouVsAi({ league }: { league: string }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // Re-read after a sign-in claim (see components/play/tipsIdentity.ts).
+  const identityVersion = useTipsIdentityVersion();
 
   useEffect(() => {
     const deviceId = getOrCreateDeviceId();
@@ -49,7 +52,7 @@ export function LeagueYouVsAi({ league }: { league: string }) {
     return () => {
       live = false;
     };
-  }, [league, attempt]);
+  }, [league, attempt, identityVersion]);
 
   return (
     <section>

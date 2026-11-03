@@ -5,6 +5,7 @@ import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session"
 import { trackEvent } from "@/lib/analytics";
 import { loadEngagement } from "@/lib/engagement";
 import { resetViewerHandleForTests, useViewerHandle } from "@/components/play/viewerHandle";
+import { announceTipsIdentityChanged, clearLocalTipsCaches } from "@/components/play/tipsIdentity";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse } from "@/lib/types";
 
 jest.mock("@/lib/leagueTips");
@@ -639,4 +640,88 @@ it("calls it 'Beat the model' and labels the reveal chip 'Model'", async () => {
   expect(await screen.findByRole("heading", { name: "Beat the model" })).toBeInTheDocument();
   expect(screen.getByText("Model")).toBeInTheDocument();
   expect(screen.queryByText(/ML model|Beat the AI/i)).not.toBeInTheDocument();
+});
+
+// ---- Ghost rows are never hidden silently (L1) -------------------------------
+
+it("says how many fixtures awaiting results it isn't showing", async () => {
+  mockMine.mockResolvedValue(
+    mine({
+      matchweek: 11,
+      matches: [
+        fixture(1101, { kickoff_utc: past(60 * 26) }),
+        fixture(1102, { kickoff_utc: past(60 * 30) }),
+        fixture(1103),
+      ],
+    }),
+  );
+
+  render(<LeagueTipsPicker league="laliga" />);
+
+  expect(await screen.findByText("2 fixtures awaiting results aren't shown.")).toBeInTheDocument();
+});
+
+it("uses the singular for one hidden fixture, and says nothing when none are hidden", async () => {
+  mockMine.mockResolvedValueOnce(
+    mine({ matchweek: 11, matches: [fixture(1101, { kickoff_utc: past(60 * 26) }), fixture(1103)] }),
+  );
+  const { unmount } = render(<LeagueTipsPicker league="laliga" />);
+  expect(await screen.findByText("1 fixture awaiting results isn't shown.")).toBeInTheDocument();
+  unmount();
+
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 11, matches: [fixture(1103)] }));
+  render(<LeagueTipsPicker league="laliga" />);
+  await screen.findByText("Matchweek 11");
+  expect(screen.queryByText(/awaiting results/)).not.toBeInTheDocument();
+});
+
+// ---- Already picked elsewhere: show the server's pick (L2) ------------------
+
+it("re-reads the matchweek when the server says this pick already exists", async () => {
+  mockMine.mockResolvedValueOnce(mine());
+  mockMine.mockResolvedValueOnce(
+    mine({
+      matches: [{
+        id: 501, home: "Arsenal", away: "Chelsea", kickoff_utc: future(60), status: "scheduled",
+        score_home: null, score_away: null,
+        model: { predicted_home: 2, predicted_away: 1, model_version: "poisson-elo-club-v0.1" },
+        your_prediction: {
+          predicted_home: 1, predicted_away: 1, points: null, exact: null,
+          graded_at: null, updated_at: "2026-11-03T08:00:00Z",
+        },
+      }],
+    }),
+  );
+  mockSubmit.mockRejectedValue(new ApiError(409, "prediction_finalized", "You already locked a prediction for this match."));
+
+  render(<LeagueTipsPicker league="epl" />);
+  await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
+  fireEvent.click(screen.getByRole("button", { name: /Lock prediction and reveal model/i }));
+
+  expect(await screen.findByText(/1–1/)).toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(2);
+  expect(mockMine).toHaveBeenLastCalledWith("epl", "device-1", 3);
+  expect(screen.queryByText(/already locked/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: /Arsenal vs Chelsea/i })).not.toBeInTheDocument();
+});
+
+// ---- After a sign-in claim, the server's picks win over the cache (H3) -------
+
+it("re-reads the server after a claim and drops a cached pick the server no longer holds", async () => {
+  // A cached "3–1" this device made before the claim merged it into the
+  // account (where the phone's pick won): the server now has nothing here.
+  localStorage.setItem("finalwhistle:league-tips:v1:epl:3", JSON.stringify({ 501: { predicted_home: 3, predicted_away: 1 } }));
+  mockMine.mockResolvedValue(mine());
+
+  render(<LeagueTipsPicker league="epl" />);
+  expect(await screen.findByText(/You predicted/)).toBeInTheDocument();
+
+  act(() => {
+    clearLocalTipsCaches();
+    announceTipsIdentityChanged();
+  });
+
+  expect(await screen.findByRole("group", { name: /Arsenal vs Chelsea/i })).toBeInTheDocument();
+  expect(screen.queryByText(/You predicted/)).not.toBeInTheDocument();
+  expect(mockMine).toHaveBeenCalledTimes(2);
 });

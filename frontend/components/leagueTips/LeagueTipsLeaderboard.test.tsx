@@ -251,3 +251,19 @@ it("names the model's tally on an empty season board", async () => {
   render(<LeagueTipsLeaderboard league="bundesliga" seasonOnly />);
   expect(await screen.findByText(/The model has 21 pts so far\./)).toBeInTheDocument();
 });
+
+it("prints rank #1 in the Daylight-safe gold ink", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 1,
+    entries: [
+      { handle: "SoloPlayer", points: 5, exact_count: 1, is_model: false },
+      { handle: MODEL, points: 2, exact_count: 0, is_model: true },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} />);
+  const rows = (await screen.findAllByRole("row")).slice(1);
+  const rank = within(rows[0]).getByText("1", { selector: "td:first-child" });
+  expect(rank).toHaveClass("text-gold-ink");
+  expect(rank).not.toHaveClass("text-gold");
+});

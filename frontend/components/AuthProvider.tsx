@@ -13,6 +13,7 @@ import {
 } from "@/lib/session";
 import { trackEvent } from "@/lib/analytics";
 import { claimNrlTips } from "@/lib/nrlTips";
+import { announceTipsIdentityChanged, clearLocalTipsCaches } from "@/components/play/tipsIdentity";
 import { AuthModal } from "@/components/AuthModal";
 import { AuthToast } from "@/components/AuthToast";
 import { VerifyEmailBanner } from "@/components/VerifyEmailBanner";
@@ -67,6 +68,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // confirmed by /me at load (anonymous picks this device made since the last
   // merge get folded in). Idempotent server-side; failures are swallowed and
   // simply retried on the next sign-in or page load.
+  //
+  // A claim can move this device's picks to the account's player and delete
+  // the device's own row (a second device), while tips lookups are still
+  // device-keyed. So after any successful claim the device's local tips
+  // caches are dropped and every mounted tips surface re-reads the server --
+  // never a locally cached pick the server no longer scores for this device.
   const claimedForRef = useRef<number | null>(null);
   const claimDeviceTips = useCallback((account: SessionUser, trigger: "signin" | "session") => {
     if (claimedForRef.current === account.id) return;
@@ -75,7 +82,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     claimedForRef.current = account.id;
     Promise.resolve()
       .then(() => claimNrlTips(deviceId))
-      .then((res) => trackEvent("tips_claim", { claimed_tips: res.claimed_tips, trigger }))
+      .then((res) => {
+        clearLocalTipsCaches();
+        announceTipsIdentityChanged();
+        trackEvent("tips_claim", { claimed_tips: res.claimed_tips, trigger });
+      })
       .catch(() => {
         if (claimedForRef.current === account.id) claimedForRef.current = null;
       });
