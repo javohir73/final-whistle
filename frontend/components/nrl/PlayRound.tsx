@@ -5,6 +5,7 @@ import { ClubBadge } from "@/components/ClubBadge";
 import { ConfidenceRing } from "@/components/ConfidenceRing";
 import { ErrorState, Loading } from "@/components/States";
 import { kickoffLabel } from "@/components/nrl/TipsheetBlock";
+import { reportViewerHandle } from "@/components/play/viewerHandle";
 import { trackEvent } from "@/lib/analytics";
 import { confidenceTier } from "@/lib/confidenceTier";
 import { recordEngagement } from "@/lib/engagement";
@@ -112,6 +113,7 @@ export function PlayRound({
         });
         setMatches(merged);
         setHandle(res.handle);
+        reportViewerHandle(res.handle);
       })
       .catch((err) => {
         if (!live) return;
@@ -157,6 +159,7 @@ export function PlayRound({
         );
         writeCache(season, round, matchId, { pick: res.tip.pick, margin: res.tip.margin });
         setHandle(res.handle);
+        reportViewerHandle(res.handle);
         // Retention instrumentation (design doc: "tips-locked ... ride the
         // existing activity-ping client") -- reuse the same best-effort call
         // ActivityPing fires on every page load, not a new analytics path.

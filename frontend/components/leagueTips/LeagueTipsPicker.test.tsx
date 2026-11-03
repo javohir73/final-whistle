@@ -4,6 +4,7 @@ import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { trackEvent } from "@/lib/analytics";
 import { loadEngagement } from "@/lib/engagement";
+import { resetViewerHandleForTests, useViewerHandle } from "@/components/play/viewerHandle";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse } from "@/lib/types";
 
 jest.mock("@/lib/leagueTips");
@@ -499,4 +500,21 @@ it("neither counts nor tracks a rejected submit", async () => {
   expect(await screen.findByText("Match 501 has kicked off and is locked.")).toBeInTheDocument();
   expect(mockTrack).not.toHaveBeenCalledWith("tips_submit", expect.anything());
   expect(loadEngagement().picks).toBe(0);
+});
+
+it("reports the device's handle so leaderboards on the page can find the viewer's row", async () => {
+  function Probe() {
+    return <p data-testid="viewer">{useViewerHandle() ?? "none"}</p>;
+  }
+  mockMine.mockResolvedValue(mine({ handle: "SwiftStriker42" }));
+
+  render(
+    <>
+      <LeagueTipsPicker league="epl" />
+      <Probe />
+    </>,
+  );
+
+  await waitFor(() => expect(screen.getByTestId("viewer")).toHaveTextContent("SwiftStriker42"));
+  act(() => resetViewerHandleForTests());
 });

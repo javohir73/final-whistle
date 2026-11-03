@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Empty, ErrorState, Loading } from "@/components/States";
 import { ShareButton } from "@/components/ShareButton";
+import { reportViewerHandle } from "@/components/play/viewerHandle";
 import { SITE_URL } from "@/lib/constants";
 import { getLeagueTipsSummary } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId } from "@/lib/session";
@@ -32,7 +33,11 @@ export function LeagueYouVsAi({ league }: { league: string }) {
     let live = true;
     setState({ status: "loading" });
     getLeagueTipsSummary(league, deviceId)
-      .then((data) => live && setState({ status: "success", data }))
+      .then((data) => {
+        if (!live) return;
+        setState({ status: "success", data });
+        reportViewerHandle(data.handle);
+      })
       .catch(
         (err) =>
           live &&

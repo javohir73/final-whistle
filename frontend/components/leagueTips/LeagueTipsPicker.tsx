@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TeamBadge } from "@/components/TeamBadge";
 import { Empty, ErrorState, Loading } from "@/components/States";
+import { reportViewerHandle } from "@/components/play/viewerHandle";
 import { trackEvent } from "@/lib/analytics";
 import { recordEngagement } from "@/lib/engagement";
 import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
@@ -167,6 +168,7 @@ export function LeagueTipsPicker({
           return { ...m, your_prediction };
         });
         setCurrent({ ...res, matches: merged });
+        reportViewerHandle(res.handle);
         setSeasonNotStarted(false);
         setBoundary({ prev: false, next: false });
         if (
@@ -267,6 +269,7 @@ export function LeagueTipsPicker({
             ),
           },
         );
+        reportViewerHandle(res.handle);
         writeCache(league, current.matchweek, matchId, {
           predicted_home: res.prediction.predicted_home,
           predicted_away: res.prediction.predicted_away,
