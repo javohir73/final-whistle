@@ -110,7 +110,30 @@ def test_poll_live_matches_never_raises_on_provider_error(db_session):
         def fetch_team_list(self, *a): return []
         def fetch_live(self, *a): raise RuntimeError("feed down")
 
-    assert poll_live_matches(db_session, _Boom(), now=now) == {"candidates": 1, "polled": 0}
+    assert poll_live_matches(db_session, _Boom(), now=now) == {"candidates": 1, "polled": 0, "finished": 0}
+
+
+def test_poll_live_matches_grades_tips_only_when_a_poll_finishes_a_match(db_session, monkeypatch):
+    """Grading runs on the transition to full time, not on every poll: a
+    live update grades nothing, the poll that brings the final grades once,
+    and re-polling the finished match while it is still in the window does
+    not grade again."""
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+    _make_match(db_session, kickoff=now - timedelta(minutes=90))
+    db_session.commit()
+    grade_calls = []
+    monkeypatch.setattr("pipeline.sports.nrl_user_tips.grade", lambda db: grade_calls.append(db) or 3)
+
+    def poll(status, home, away):
+        return poll_live_matches(db_session, RecordedFixtureStatsProvider(live={
+            (2026, 1, 1): LivePayload(status=status, minute=80 if status == "final" else 70,
+                                      score_home=home, score_away=away),
+        }), now=now)
+
+    assert poll("live", 18, 12) == {"candidates": 1, "polled": 1, "finished": 0}
+    assert poll("final", 24, 12) == {"candidates": 1, "polled": 1, "finished": 1, "tips_graded": {"graded": 3}}
+    assert poll("final", 24, 12) == {"candidates": 1, "polled": 1, "finished": 0}
+    assert len(grade_calls) == 1
 
 
 # --- per-side event attribution ---------------------------------------------
