@@ -54,6 +54,10 @@ export interface Competition {
    *  under "Past tournaments" in the switcher and the /football hub, and never
    *  chosen as anyone's default competition. Its URLs keep resolving. */
   archived: boolean;
+  /** The model's graded record for this competition, where a page exists:
+   *  NRL's own ledger, and /record (the World Cup record) for WC26. Club
+   *  leagues get /football/{comp}/record in Phase 2; null until then. */
+  recordPath: string | null;
   terms: { fixtures: string; standings: string }; // page-heading vocabulary (nav labels come from navTabsFor)
   zones: StandingsZone[]; // StandingsTable input; [] where N/A
 }
@@ -91,6 +95,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasTips: true,
     enabled: true,
     archived: false,
+    recordPath: null,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: EUROPEAN_LEAGUE_ZONES,
   },
@@ -108,6 +113,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasTips: true,
     enabled: true,
     archived: false,
+    recordPath: null,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: EUROPEAN_LEAGUE_ZONES,
   },
@@ -125,6 +131,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasTips: true,
     enabled: true,
     archived: false,
+    recordPath: null,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: BUNDESLIGA_ZONES,
   },
@@ -148,6 +155,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasTips: false,
     enabled: true,
     archived: false,
+    recordPath: null,
     terms: { fixtures: "Fixtures", standings: "League phase" },
     zones: [
       { from: 1, to: 8, label: "Round of 16", tone: "cl" },
@@ -168,6 +176,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasTips: true, // tips still offered, now folded into the Play hub (P5)
     enabled: true,
     archived: true,
+    recordPath: "/record",
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: [], // World Cup standings use group tables.
   },
@@ -185,6 +194,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasTips: true,
     enabled: true,
     archived: false,
+    recordPath: "/nrl/record",
     terms: { fixtures: "Matches", standings: "Ladder" },
     // The NRL top 8 make the finals, but the top 4 get the double chance --
     // the structural line a single "Finals" band would hide, leaving positions

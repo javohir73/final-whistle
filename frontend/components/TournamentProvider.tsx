@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { ActiveTournament } from "@/lib/types";
 import { WC26_FALLBACK } from "@/lib/tournament";
 import {
@@ -46,16 +46,48 @@ export function useTournament(): ActiveTournament {
 /* ============================================================================
  * Current competition (UX rebuild plan 2026-11 §3.1): URL -> fw_comp cookie
  * -> country -> EPL, never WC26. middleware.ts resolves it on the server and
- * keeps the cookie in step with competition URLs; this provider does the same
- * for client-side navigations (which may never reach the server when the
- * route is already in the router cache) and runs the one-time migration of
- * the old localStorage star.
+ * keeps the cookie in step on page loads; this provider does the same for
+ * client-side navigations (which may never reach the server when the route
+ * is already in the router cache) and runs the one-time migration of the old
+ * localStorage star.
  * ========================================================================= */
 
 /** The server-known preference, if the layout chose to read one. null means
  *  "unknown on the server" -- the default, because reading cookies() in the
  *  root layout would make every route dynamic and switch off ISR site-wide. */
 const CompetitionContext = createContext<CompetitionId | null>(null);
+
+/** Mirrors middleware.ts for client-side navigations: a competition the URL
+ *  names -- the path, else `?competition=` on an unscoped route -- becomes the
+ *  remembered one. Renders nothing; isolated in its own Suspense boundary
+ *  because useSearchParams() would otherwise opt prerendered pages out of
+ *  static rendering. */
+function UrlCompetitionSync() {
+  const pathname = normalizePathname(usePathname());
+  const query = useSearchParams().get("competition");
+  // Only a shortcut: the migration deletes the old key, so it is one-time
+  // even if this ever remounts.
+  const migrated = useRef(false);
+
+  useEffect(() => {
+    const fromUrl = competitionInPathname(pathname) ?? parseCompetition(query);
+    if (!migrated.current) {
+      migrated.current = true;
+      migratePinnedCompetition(fromUrl);
+    }
+    if (!fromUrl) return;
+    const current = readCompetitionCookie();
+    if (current === fromUrl) return; // middleware (page loads) already did it
+    writeCompetitionCookie(fromUrl);
+    // A switch, not a first visit: with cookies blocked `current` stays null
+    // and nothing is reported on every navigation.
+    if (current) {
+      trackEvent("competition_switch", { from: current, to: fromUrl, source: "navigation" });
+    }
+  }, [pathname, query]);
+
+  return null;
+}
 
 export function CompetitionProvider({
   initial = null,
@@ -64,27 +96,14 @@ export function CompetitionProvider({
   initial?: CompetitionId | null;
   children: React.ReactNode;
 }) {
-  const pathname = normalizePathname(usePathname());
-  const migrated = useRef(false);
-
-  useEffect(() => {
-    const fromUrl = competitionInPathname(pathname);
-    if (!migrated.current) {
-      migrated.current = true;
-      migratePinnedCompetition(fromUrl);
-    }
-    if (!fromUrl) return;
-    const current = readCompetitionCookie();
-    if (current === fromUrl) return; // middleware (full loads) already did it
-    writeCompetitionCookie(fromUrl);
-    // A switch, not a first visit: with cookies blocked `current` stays null
-    // and nothing is reported on every navigation.
-    if (current) {
-      trackEvent("competition_switch", { from: current, to: fromUrl, source: "navigation" });
-    }
-  }, [pathname]);
-
-  return <CompetitionContext.Provider value={initial}>{children}</CompetitionContext.Provider>;
+  return (
+    <CompetitionContext.Provider value={initial}>
+      {children}
+      <Suspense fallback={null}>
+        <UrlCompetitionSync />
+      </Suspense>
+    </CompetitionContext.Provider>
+  );
 }
 
 /** The remembered competition. Client: the fw_comp cookie, re-read on every
