@@ -1601,3 +1601,162 @@ def test_claim_merge_conflict_degrades_gracefully_when_league_table_missing(clie
     assert db2.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None  # merged away
     assert db2.query(UserTip).filter_by(player_id=account_player.id).count() == 2  # both tips landed on the account
     db2.close()
+
+
+# ---------------------------------------------------------------------------
+# signed-in players: one account is one player on every device (review H3)
+# ---------------------------------------------------------------------------
+
+DEVICE_C = "5fa85f64-5717-4562-b3fc-2c963f66afa8"
+
+
+def _submit(c, device_id, match, home, away):
+    return c.post("/api/leagues/epl/tips/submit", json={
+        "device_id": device_id, "match_id": match.id, "predicted_home": home, "predicted_away": away,
+    })
+
+
+def _open_matchweek(db, matchweek=5, n=3):
+    epl = _epl(db)
+    home, away = _team(db, "Arsenal"), _team(db, "Chelsea")
+    kickoff = datetime.now(timezone.utc) + timedelta(days=2)
+    matches = [_match(db, epl, home, away, matchweek, kickoff + timedelta(hours=2 * i)) for i in range(n)]
+    for m in matches:
+        _prediction(db, m, 1, 0)
+    db.commit()
+    return matches
+
+
+def test_signed_in_second_device_reads_and_writes_the_accounts_picks(client):
+    """Claiming a second device merges its row into the account's player and
+    deletes it, so a device-only lookup found nothing there: no picks shown,
+    and a fresh row that let the device lock a different score for a match
+    the account had already picked (the model revealed) until the next claim
+    deleted it. Signed in, every device reads and writes the account's
+    player."""
+    c, TestingSession = client
+    db = TestingSession()
+    phone_pick, laptop_pick, unpicked = _open_matchweek(db)
+
+    assert _submit(c, DEVICE_A, phone_pick, 2, 1).status_code == 200  # anonymous, on the phone
+    assert _submit(c, DEVICE_B, laptop_pick, 0, 0).status_code == 200  # anonymous, on the laptop
+    user_id = _register(c, "two-devices@example.com")
+    assert c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A}).status_code == 200
+    assert c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_B}).status_code == 200  # merged, B deleted
+
+    check = TestingSession()
+    account = check.query(TipPlayer).filter_by(user_id=user_id).one()
+    assert check.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None
+    check.close()
+
+    mine = c.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_B, "matchweek": 5})
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["handle"] == account.handle
+    picks = {row["id"]: row["your_prediction"] for row in mine.json()["matches"]}
+    assert (picks[phone_pick.id]["predicted_home"], picks[phone_pick.id]["predicted_away"]) == (2, 1)
+    assert (picks[laptop_pick.id]["predicted_home"], picks[laptop_pick.id]["predicted_away"]) == (0, 0)
+    assert picks[unpicked.id] is None
+
+    # The phone's pick is final from every device.
+    again = _submit(c, DEVICE_B, phone_pick, 3, 1)
+    assert again.status_code == 409, again.text
+    assert again.json()["error"]["code"] == "prediction_finalized"
+
+    # A new pick from the laptop lands on the account's player, not a new device row.
+    assert _submit(c, DEVICE_B, unpicked, 1, 1).status_code == 200
+    check = TestingSession()
+    assert check.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None
+    assert check.query(LeagueScorePrediction).filter_by(match_id=unpicked.id).one().player_id == account.id
+    check.close()
+
+    summary = c.get("/api/leagues/epl/tips/summary", params={"device_id": DEVICE_B}).json()
+    assert summary["handle"] == account.handle
+
+
+def test_signed_out_requests_keep_the_device_only_identity(client):
+    """Anonymous play is unchanged: a device reads and writes its own row,
+    and a request without a session never resolves through an account --
+    even for a device whose row a claim has merged away."""
+    c, TestingSession = client
+    db = TestingSession()
+    first, second, _ = _open_matchweek(db)
+    assert _submit(c, DEVICE_A, first, 2, 1).status_code == 200
+    assert _submit(c, DEVICE_B, second, 1, 1).status_code == 200
+    _register(c, "claims-both@example.com")
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_B})
+
+    anonymous = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})  # no session cookie
+    merged_away = anonymous.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_B, "matchweek": 5}).json()
+    assert merged_away["handle"] is None
+    assert all(row["your_prediction"] is None for row in merged_away["matches"])
+
+    assert _submit(anonymous, DEVICE_C, first, 0, 0).status_code == 200
+    check = TestingSession()
+    own_row = check.query(TipPlayer).filter_by(device_id=DEVICE_C).one()
+    assert own_row.user_id is None
+    assert check.query(LeagueScorePrediction).filter_by(player_id=own_row.id).count() == 1
+    check.close()
+
+
+def test_a_signed_in_first_pick_creates_the_accounts_player(client):
+    c, TestingSession = client
+    db = TestingSession()
+    first, _, _ = _open_matchweek(db)
+    user_id = _register(c, "fresh@example.com")
+
+    assert _submit(c, DEVICE_C, first, 1, 0).status_code == 200
+
+    check = TestingSession()
+    player = check.query(TipPlayer).filter_by(user_id=user_id).one()
+    assert player.device_id == DEVICE_C
+    assert check.query(LeagueScorePrediction).filter_by(player_id=player.id).count() == 1
+    check.close()
+
+
+def test_a_signed_in_submit_takes_over_this_devices_unclaimed_row(client):
+    """No account row yet, but this device has an unclaimed one: the submit
+    links it to the account -- exactly what /claim does on the next page
+    load -- instead of creating a second player."""
+    c, TestingSession = client
+    db = TestingSession()
+    first, second, _ = _open_matchweek(db)
+    assert _submit(c, DEVICE_A, first, 2, 0).status_code == 200  # anonymous
+    user_id = _register(c, "link-me@example.com")
+
+    assert _submit(c, DEVICE_A, second, 0, 2).status_code == 200  # signed in, no claim yet
+
+    check = TestingSession()
+    players = check.query(TipPlayer).all()
+    assert [(p.device_id, p.user_id) for p in players] == [(DEVICE_A, user_id)]
+    assert check.query(LeagueScorePrediction).filter_by(player_id=players[0].id).count() == 2
+    check.close()
+
+
+def test_a_shared_device_never_shows_or_takes_another_accounts_picks(client):
+    """Signed in on a device another account has claimed: that device's row
+    is the other account's, so this account neither sees its picks nor
+    writes into it -- it gets a player of its own."""
+    c, TestingSession = client
+    db = TestingSession()
+    first, _, _ = _open_matchweek(db)
+    assert _submit(c, DEVICE_A, first, 2, 1).status_code == 200
+    owner_id = _register(c, "owner@example.com")
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
+
+    guest = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
+    guest_id = _register(guest, "guest@example.com")
+    mine = guest.get("/api/leagues/epl/tips/mine", params={"device_id": DEVICE_A, "matchweek": 5}).json()
+    assert mine["handle"] is None
+    assert all(row["your_prediction"] is None for row in mine["matches"])
+
+    assert _submit(guest, DEVICE_A, first, 0, 3).status_code == 200  # the guest's own first pick
+
+    check = TestingSession()
+    owner = check.query(TipPlayer).filter_by(user_id=owner_id).one()
+    guest_player = check.query(TipPlayer).filter_by(user_id=guest_id).one()
+    assert owner.device_id == DEVICE_A and guest_player.id != owner.id
+    picks = {p.player_id: (p.predicted_home, p.predicted_away)
+             for p in check.query(LeagueScorePrediction).filter_by(match_id=first.id).all()}
+    assert picks == {owner.id: (2, 1), guest_player.id: (0, 3)}
+    check.close()

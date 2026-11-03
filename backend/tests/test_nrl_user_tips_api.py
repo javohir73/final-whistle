@@ -1301,3 +1301,136 @@ def test_claim_requires_auth(client):
     c, _ = client
     r = c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Signed-in tippers: one account is one player on every device (review H3)
+# ---------------------------------------------------------------------------
+
+DEVICE_C = "5fa85f64-5717-4562-b3fc-2c963f66afa8"
+
+
+def _tip(c, device_id, match, pick):
+    return c.post("/api/nrl/tips/submit", json={"device_id": device_id, "match_id": match.id, "pick": pick})
+
+
+def _open_round(db, rnd=7, n=3):
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kick = datetime.now(timezone.utc) + timedelta(days=2)
+    matches = [_match(db, 2026, rnd, i + 1, storm, eels, kick + timedelta(hours=2 * i)) for i in range(n)]
+    for m in matches:
+        _prediction(db, m)
+    db.commit()
+    return matches
+
+
+def test_signed_in_second_device_reads_and_writes_the_accounts_tips(client):
+    """Claiming a second device merges its row into the account's player and
+    deletes it, so a device-only lookup found nothing there, and the next
+    tip from that device started a fresh row the following claim threw away.
+    Signed in, every device reads and writes the account's player."""
+    c, TestingSession = client
+    db = TestingSession()
+    phone_tip, laptop_tip, untipped = _open_round(db)
+    assert _tip(c, DEVICE_A, phone_tip, "home").status_code == 200  # anonymous, on the phone
+    assert _tip(c, DEVICE_B, laptop_tip, "away").status_code == 200  # anonymous, on the laptop
+    user_id = _register(c, "two-devices@example.com")
+    assert c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A}).status_code == 200
+    assert c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_B}).status_code == 200  # merged, B deleted
+
+    check = TestingSession()
+    account = check.query(TipPlayer).filter_by(user_id=user_id).one()
+    assert check.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None
+    check.close()
+
+    mine = c.get("/api/nrl/tips/mine", params={"device_id": DEVICE_B, "season": 2026, "round": 7})
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["handle"] == account.handle
+    tips = {row["id"]: row["your_tip"] for row in mine.json()["matches"]}
+    assert tips[phone_tip.id]["pick"] == "home"
+    assert tips[laptop_tip.id]["pick"] == "away"
+    assert tips[untipped.id] is None
+
+    # A tip can change until kickoff -- on the account's row, from any device.
+    assert _tip(c, DEVICE_B, phone_tip, "away").status_code == 200
+    check = TestingSession()
+    assert check.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None
+    rows = check.query(UserTip).filter_by(match_id=phone_tip.id).all()
+    assert [(t.player_id, t.pick) for t in rows] == [(account.id, "away")]
+    check.close()
+
+    summary = c.get("/api/nrl/tips/summary", params={"device_id": DEVICE_B}).json()
+    assert summary["handle"] == account.handle
+
+
+def test_signed_out_tips_keep_the_device_only_identity(client):
+    c, TestingSession = client
+    db = TestingSession()
+    first, second, _ = _open_round(db)
+    assert _tip(c, DEVICE_A, first, "home").status_code == 200
+    assert _tip(c, DEVICE_B, second, "away").status_code == 200
+    _register(c, "claims-both@example.com")
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_B})
+
+    anonymous = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})  # no session cookie
+    merged_away = anonymous.get("/api/nrl/tips/mine",
+                                params={"device_id": DEVICE_B, "season": 2026, "round": 7}).json()
+    assert merged_away["handle"] is None
+    assert all(row["your_tip"] is None for row in merged_away["matches"])
+
+    assert _tip(anonymous, DEVICE_C, first, "draw").status_code == 200
+    check = TestingSession()
+    own_row = check.query(TipPlayer).filter_by(device_id=DEVICE_C).one()
+    assert own_row.user_id is None
+    assert check.query(UserTip).filter_by(player_id=own_row.id).count() == 1
+    check.close()
+
+
+def test_a_signed_in_first_tip_creates_or_takes_over_the_accounts_player(client):
+    """No account row yet: a device with an unclaimed row has it linked to the
+    account (what /claim does on the next load); a device with none gets a
+    row created against the account."""
+    c, TestingSession = client
+    db = TestingSession()
+    first, second, _ = _open_round(db)
+    assert _tip(c, DEVICE_A, first, "home").status_code == 200  # anonymous
+    linked_id = _register(c, "link-me@example.com")
+    assert _tip(c, DEVICE_A, second, "away").status_code == 200  # signed in, no claim yet
+
+    fresh = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
+    created_id = _register(fresh, "fresh@example.com")
+    assert _tip(fresh, DEVICE_C, first, "draw").status_code == 200
+
+    check = TestingSession()
+    players = {p.user_id: p for p in check.query(TipPlayer).all()}
+    assert set(players) == {linked_id, created_id}
+    assert players[linked_id].device_id == DEVICE_A
+    assert check.query(UserTip).filter_by(player_id=players[linked_id].id).count() == 2
+    assert players[created_id].device_id == DEVICE_C
+    check.close()
+
+
+def test_a_shared_device_never_shows_or_takes_another_accounts_tips(client):
+    c, TestingSession = client
+    db = TestingSession()
+    first, _, _ = _open_round(db)
+    assert _tip(c, DEVICE_A, first, "home").status_code == 200
+    owner_id = _register(c, "owner@example.com")
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
+
+    guest = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
+    guest_id = _register(guest, "guest@example.com")
+    mine = guest.get("/api/nrl/tips/mine", params={"device_id": DEVICE_A, "season": 2026, "round": 7}).json()
+    assert mine["handle"] is None
+    assert all(row["your_tip"] is None for row in mine["matches"])
+
+    assert _tip(guest, DEVICE_A, first, "away").status_code == 200
+
+    check = TestingSession()
+    owner = check.query(TipPlayer).filter_by(user_id=owner_id).one()
+    guest_player = check.query(TipPlayer).filter_by(user_id=guest_id).one()
+    assert owner.device_id == DEVICE_A and guest_player.id != owner.id
+    tips = {t.player_id: t.pick for t in check.query(UserTip).filter_by(match_id=first.id).all()}
+    assert tips == {owner.id: "home", guest_player.id: "away"}
+    check.close()

@@ -5,7 +5,10 @@ A separate router from app.api.nrl_tips -- that file is the model's OWN round
 tipsheet (read-only, no player rows); this one is the human side. Same
 identity convention as app.api.activity: device_id is the durable key
 (TipPlayer, one row per device, mirrors DailyActivity), an account is an
-optional upgrade attached later via /claim, never required to play.
+optional upgrade attached later via /claim, never required to play. Once
+signed in, a request resolves the ACCOUNT's player first, from any device
+(_player_for_read / _player_for_submit); anonymous requests stay
+device-only.
 
 INTEGRITY: a tip is rejected once its match's kickoff_utc has passed, by the
 server clock only (never the client's) -- enforced in submit_tip, mirroring
@@ -42,7 +45,7 @@ from app import schemas
 from app.api.auth import _email_action_rate_limited
 from app.api.nrl_tips import _current_round, _kickoff_locked_prediction, _model_pick
 from app.api.sports import _latest_season
-from app.auth import get_current_user
+from app.auth import get_current_user, get_current_user_optional
 from app.db import get_db
 from app.models import (
     AppUser,
@@ -304,6 +307,63 @@ def _get_or_create_player(db: Session, device_id: str) -> TipPlayer:
     return player
 
 
+def _find_account_player(db: Session, user_id: int) -> TipPlayer | None:
+    return db.query(TipPlayer).filter_by(user_id=user_id).one_or_none()
+
+
+def _player_for_read(db: Session, device_id: str, user: AppUser | None) -> TipPlayer | None:
+    """The TipPlayer a device-scoped read (/mine, /summary) shows. Signed out:
+    this device's own row, exactly as before. Signed in: the account's row,
+    whichever device asks -- claim_device_tips merges a second device's row
+    into the account and deletes it, so a device-only lookup there found
+    nothing (review H3). With no account row yet, this device's row only
+    while no account owns it: a shared device must never show one account's
+    tips to another. Mirrors league_score_predictions._player_for_read."""
+    if user is None:
+        return _find_player(db, device_id)
+    account_player = _find_account_player(db, user.id)
+    if account_player is not None:
+        return account_player
+    device_player = _find_player(db, device_id)
+    return device_player if device_player is not None and device_player.user_id is None else None
+
+
+def _player_for_submit(db: Session, device_id: str, user: AppUser | None, *, retry: bool = True) -> TipPlayer:
+    """The TipPlayer a submit writes to. Signed out: this device's own row,
+    created on first play, exactly as before. Signed in: the account's row,
+    so a tip from any device updates the account's pick instead of starting
+    a device row the next claim throws away (review H3). With no account row
+    yet, this device's unclaimed row is linked to the account (what /claim
+    does on the next page load); otherwise the account gets a new row, keyed
+    by this device's id, or -- when another account already owns that id, a
+    shared device -- by an account-scoped key no real device sends. Never
+    written into another account's row. Mirrors
+    league_score_predictions._player_for_submit."""
+    if user is None:
+        return _get_or_create_player(db, device_id)
+    player = _find_account_player(db, user.id)
+    if player is not None:
+        return player
+    device_player = _find_player(db, device_id)
+    if device_player is not None and device_player.user_id is None:
+        device_player.user_id = user.id
+        player = device_player
+    else:
+        key = device_id if device_player is None else f"account:{user.id}"
+        player = TipPlayer(device_id=key, handle=_generate_handle(), user_id=user.id)
+        db.add(player)
+    try:
+        db.flush()
+    except IntegrityError:
+        # A concurrent request linked or created the account's row first
+        # (user_id and device_id are both unique): resolve again, once.
+        db.rollback()
+        if not retry:
+            raise
+        return _player_for_submit(db, device_id, user, retry=False)
+    return player
+
+
 def _find_tip(db: Session, match_id: int, player_id: int) -> UserTip | None:
     """Mirrors _find_player -- split out so a concurrent first-submit race on
     the same (match, player) is easy to force in tests."""
@@ -311,8 +371,10 @@ def _find_tip(db: Session, match_id: int, player_id: int) -> UserTip | None:
 
 
 @router.post("/tips/submit", dependencies=[Depends(require_same_origin)])
-def submit_tip(payload: schemas.NrlTipSubmitIn, request: Request, db: Session = Depends(get_db)):
-    """Upsert one device's pick for one match. A device may change its pick
+def submit_tip(payload: schemas.NrlTipSubmitIn, request: Request, db: Session = Depends(get_db),
+               user: AppUser | None = Depends(get_current_user_optional)):
+    """Upsert one player's pick for one match -- the device's own player, or
+    the account's when signed in (see _player_for_submit). A pick may change
     freely until the match's kickoff_utc -- checked against the server clock,
     never the client's -- after which the tip is frozen."""
     device_id = payload.device_id
@@ -364,7 +426,7 @@ def submit_tip(payload: schemas.NrlTipSubmitIn, request: Request, db: Session = 
         })
     is_featured_now = m.id == featured_id
 
-    player = _get_or_create_player(db, device_id)
+    player = _player_for_submit(db, device_id, user)
     tip = _find_tip(db, m.id, player.id)
     if tip is None:
         tip = UserTip(match_id=m.id, player_id=player.id, pick=payload.pick,
@@ -403,9 +465,10 @@ def submit_tip(payload: schemas.NrlTipSubmitIn, request: Request, db: Session = 
 
 @router.get("/tips/mine")
 def my_tips(device_id: str, season: int | None = None, round: int | None = None,
-           db: Session = Depends(get_db)):
-    """One device's tips for a round, with grading once graded, alongside the
-    model's own kickoff-locked pick per match for the same round."""
+           db: Session = Depends(get_db), user: AppUser | None = Depends(get_current_user_optional)):
+    """One player's tips for a round -- the device's, or the account's when
+    signed in (see _player_for_read) -- with grading once graded, alongside
+    the model's own kickoff-locked pick per match for the same round."""
     if not _DEVICE_ID_RE.match(device_id):
         raise HTTPException(status_code=422, detail={"code": "invalid_device_id",
                                                      "message": "device_id must be a UUID v4."})
@@ -442,7 +505,7 @@ def my_tips(device_id: str, season: int | None = None, round: int | None = None,
     match_ids = [m.id for m, _, _ in rows]
     preds_by_match = _model_predictions_by_match(db, match_ids)
 
-    player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
+    player = _player_for_read(db, device_id, user)
     tips_by_match: dict[int, UserTip] = {}
     if player is not None:
         for t in db.query(UserTip).filter(UserTip.player_id == player.id, UserTip.match_id.in_(match_ids)).all():
@@ -489,7 +552,8 @@ def my_tips(device_id: str, season: int | None = None, round: int | None = None,
 
 
 @router.get("/tips/summary")
-def tips_summary(device_id: str, db: Session = Depends(get_db)):
+def tips_summary(device_id: str, db: Session = Depends(get_db),
+                 user: AppUser | None = Depends(get_current_user_optional)):
     """Season-long you-vs-AI record: per graded round, the device's points vs
     the model's -- the model's side scored under the identical draw rule
     (_scores_point), so the two numbers are directly comparable. Also
@@ -503,7 +567,7 @@ def tips_summary(device_id: str, db: Session = Depends(get_db)):
 
     zero_totals = {"your_points": 0, "model_points": 0, "rounds_played": 0}
     zero_streaks = {"current_streak": 0, "best_streak": 0, "best_round": None}
-    player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
+    player = _player_for_read(db, device_id, user)
     if player is None:
         return {"handle": None, "rounds": [], "totals": zero_totals, **zero_streaks, "disclaimer": _DISCLAIMER}
 

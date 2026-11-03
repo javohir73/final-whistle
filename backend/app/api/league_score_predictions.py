@@ -16,7 +16,9 @@ importing them, matching how this codebase already keeps each vertical's
 copy of a shared pattern local (see nrl_tips.py's docstring on sports.py /
 nrl_intel.py / nrl_live.py, and activity.py's own _DEVICE_ID_RE). POST
 /api/nrl/tips/claim already claims a device's rows in this table too (see
-its second reassign/dedupe loop, added for this table).
+its second reassign/dedupe loop, added for this table). A signed-in request
+resolves the ACCOUNT's player first, from any device, and falls back to the
+device only when anonymous (_player_for_read / _player_for_submit).
 
 INTEGRITY: the first accepted prediction is final. Submitting it reveals the
 model's frozen scoreline, so allowing later edits would let a player copy the
@@ -48,10 +50,13 @@ from sqlalchemy.orm import Session, aliased, load_only, undefer
 
 from app import schemas
 from app.api.auth import _email_action_rate_limited
+from app.auth import get_current_user_optional
 from app.data_freshness import MATCH_MAX_DURATION_HOURS
 from app.db import get_db
 from app.match_status import FINISHED, IN_PLAY, SCHEDULED, is_locked
-from app.models import EmailActionAttempt, LeagueScorePrediction, Match, Prediction, Team, TipPlayer, Tournament
+from app.models import (
+    AppUser, EmailActionAttempt, LeagueScorePrediction, Match, Prediction, Team, TipPlayer, Tournament,
+)
 from app.security import client_ip, hash_ip, require_same_origin, to_aware_utc
 from pipeline.leagues import LEAGUES as _PIPELINE_LEAGUES
 
@@ -450,6 +455,62 @@ def _get_or_create_player(db: Session, device_id: str) -> TipPlayer:
     return player
 
 
+def _find_account_player(db: Session, user_id: int) -> TipPlayer | None:
+    return db.query(TipPlayer).filter_by(user_id=user_id).one_or_none()
+
+
+def _player_for_read(db: Session, device_id: str, user: AppUser | None) -> TipPlayer | None:
+    """The TipPlayer a device-scoped read (/mine, /summary) shows. Signed out:
+    this device's own row, exactly as before. Signed in: the account's row,
+    whichever device asks -- /claim merges a second device's row into the
+    account and deletes it, so a device-only lookup there found nothing
+    (review H3). With no account row yet, this device's row only while no
+    account owns it: a shared device must never show one account's picks to
+    another."""
+    if user is None:
+        return _find_player(db, device_id)
+    account_player = _find_account_player(db, user.id)
+    if account_player is not None:
+        return account_player
+    device_player = _find_player(db, device_id)
+    return device_player if device_player is not None and device_player.user_id is None else None
+
+
+def _player_for_submit(db: Session, device_id: str, user: AppUser | None, *, retry: bool = True) -> TipPlayer:
+    """The TipPlayer a submit writes to. Signed out: this device's own row,
+    created on first play, exactly as before. Signed in: the account's row,
+    so a pick from any device lands beside -- and is checked for finality
+    against -- the account's others (review H3). With no account row yet,
+    this device's unclaimed row is linked to the account (what /claim does
+    on the next page load); otherwise the account gets a new row, keyed by
+    this device's id, or -- when another account already owns that id, a
+    shared device -- by an account-scoped key no real device sends. Never
+    written into another account's row."""
+    if user is None:
+        return _get_or_create_player(db, device_id)
+    player = _find_account_player(db, user.id)
+    if player is not None:
+        return player
+    device_player = _find_player(db, device_id)
+    if device_player is not None and device_player.user_id is None:
+        device_player.user_id = user.id
+        player = device_player
+    else:
+        key = device_id if device_player is None else f"account:{user.id}"
+        player = TipPlayer(device_id=key, handle=_generate_handle(), user_id=user.id)
+        db.add(player)
+    try:
+        db.flush()
+    except IntegrityError:
+        # A concurrent request linked or created the account's row first
+        # (user_id and device_id are both unique): resolve again, once.
+        db.rollback()
+        if not retry:
+            raise
+        return _player_for_submit(db, device_id, user, retry=False)
+    return player
+
+
 def _find_prediction(db: Session, match_id: int, player_id: int) -> LeagueScorePrediction | None:
     """Mirrors _find_player -- split out so a concurrent first-submit race on
     the same (match, player) is easy to force in tests."""
@@ -460,8 +521,10 @@ def _find_prediction(db: Session, match_id: int, player_id: int) -> LeagueScoreP
 def submit_prediction(
     league: str, payload: schemas.LeagueScorePredictionSubmitIn, request: Request,
     db: Session = Depends(get_db),
+    user: AppUser | None = Depends(get_current_user_optional),
 ):
-    """Save one device's final scoreline guess for one match.
+    """Save one player's final scoreline guess for one match -- the device's
+    own player, or the account's when signed in (see _player_for_submit).
 
     The accepted response reveals the model score, so the first saved guess is
     immutable even before kickoff. This is enforced here, never by trusting
@@ -504,7 +567,7 @@ def submit_prediction(
             "message": f"Match {m.id} has kicked off and is locked.",
         })
 
-    player = _get_or_create_player(db, device_id)
+    player = _player_for_submit(db, device_id, user)
     pred = _find_prediction(db, m.id, player.id)
     if pred is not None:
         raise HTTPException(status_code=409, detail={
@@ -552,9 +615,11 @@ def submit_prediction(
 
 
 @router.get("/tips/mine")
-def my_predictions(league: str, device_id: str, matchweek: int | None = None, db: Session = Depends(get_db)):
-    """One device's predictions for a matchweek, with grading once graded,
-    alongside the model's own kickoff-locked scoreline per match."""
+def my_predictions(league: str, device_id: str, matchweek: int | None = None, db: Session = Depends(get_db),
+                   user: AppUser | None = Depends(get_current_user_optional)):
+    """One player's predictions for a matchweek -- the device's, or the
+    account's when signed in (see _player_for_read) -- with grading once
+    graded, alongside the model's own kickoff-locked scoreline per match."""
     tournament = _resolve_league(db, league)
     if not _DEVICE_ID_RE.match(device_id):
         raise HTTPException(status_code=422, detail={"code": "invalid_device_id",
@@ -584,7 +649,7 @@ def my_predictions(league: str, device_id: str, matchweek: int | None = None, db
     match_ids = [m.id for m, _, _ in rows]
     preds_by_match = _model_predictions_by_match(db, match_ids)
 
-    player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
+    player = _player_for_read(db, device_id, user)
     yours_by_match: dict[int, LeagueScorePrediction] = {}
     if player is not None:
         for pr in (
@@ -632,7 +697,8 @@ def my_predictions(league: str, device_id: str, matchweek: int | None = None, db
 
 
 @router.get("/tips/summary")
-def predictions_summary(league: str, device_id: str, db: Session = Depends(get_db)):
+def predictions_summary(league: str, device_id: str, db: Session = Depends(get_db),
+                        user: AppUser | None = Depends(get_current_user_optional)):
     """Season-long you-vs-AI record for one league: per graded matchweek, the
     device's points vs the model's -- the model's side scored live off its
     own frozen scoreline with the identical _score_prediction rule, so the
@@ -645,7 +711,7 @@ def predictions_summary(league: str, device_id: str, db: Session = Depends(get_d
 
     zero_totals = {"your_points": 0, "model_points": 0, "matchweeks_played": 0}
     zero_streaks = {"current_streak": 0, "best_streak": 0, "best_matchweek": None}
-    player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
+    player = _player_for_read(db, device_id, user)
     if player is None:
         return {"league": league, "handle": None, "matchweeks": [], "totals": zero_totals,
                 **zero_streaks, "disclaimer": _DISCLAIMER}
