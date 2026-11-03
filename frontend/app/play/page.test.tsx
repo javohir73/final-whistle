@@ -18,11 +18,16 @@ import {
   getKnockoutOddsServer,
   getNrlTipsheetServer,
 } from "@/lib/api";
+import { readServerCompetition } from "@/lib/competitionServer";
 import type { NrlTipsheet, TournamentOdds } from "@/lib/types";
 
 jest.mock("@/lib/api");
 const mockTipsheet = getNrlTipsheetServer as jest.MockedFunction<typeof getNrlTipsheetServer>;
 const mockKnockoutOdds = getKnockoutOddsServer as jest.MockedFunction<typeof getKnockoutOddsServer>;
+// Reads the request (middleware's x-fw-comp header / fw_comp cookie); the
+// visitor's current competition is whatever each test says it is.
+jest.mock("@/lib/competitionServer", () => ({ readServerCompetition: jest.fn() }));
+const mockCurrentCompetition = readServerCompetition as jest.MockedFunction<typeof readServerCompetition>;
 
 // The Football group renders the real LeagueTipsPlaySection, whose leaf
 // components each fetch on mount -- stub them (mirrors
@@ -86,6 +91,7 @@ const playPage = (competition: string) =>
 beforeEach(() => {
   mockTipsheet.mockResolvedValue(tipsheet);
   mockKnockoutOdds.mockResolvedValue(odds);
+  mockCurrentCompetition.mockResolvedValue("epl");
 });
 afterEach(() => jest.resetAllMocks());
 
@@ -277,3 +283,42 @@ it("mounts the requested league picker and keeps the other leagues closed", asyn
   expect(mockTipsheet).toHaveBeenCalledWith();
   expect(mockKnockoutOdds).not.toHaveBeenCalled();
 });
+
+// ---- Scope: /play follows the nav's current competition (nav handoff) -------
+
+it("without ?competition=, opens on the visitor's current competition (an NRL visitor)", async () => {
+  mockCurrentCompetition.mockResolvedValue("nrl");
+  render(await PlayPage({}));
+
+  expect(sectionOrder()).toEqual(["nrl", "epl", "laliga", "bundesliga", "wc26"]);
+  expect(screen.getByTestId("nrl-play-round")).toHaveTextContent("2026-2");
+  expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
+});
+
+it("without ?competition=, opens on a La Liga visitor's league", async () => {
+  mockCurrentCompetition.mockResolvedValue("laliga");
+  render(await PlayPage({}));
+
+  expect(sectionOrder()[0]).toBe("laliga");
+  expect(screen.getByTestId("picker-laliga")).toBeInTheDocument();
+});
+
+it("an explicit ?competition= wins, without reading the visitor's cookie", async () => {
+  mockCurrentCompetition.mockResolvedValue("nrl");
+  render(await playPage("bundesliga"));
+
+  expect(sectionOrder()[0]).toBe("bundesliga");
+  expect(mockCurrentCompetition).not.toHaveBeenCalled();
+});
+
+it.each(["toString", "constructor", "__proto__", "premier-league"])(
+  "treats ?competition=%s as absent rather than a competition",
+  async (bogus) => {
+    mockCurrentCompetition.mockResolvedValue("epl");
+    render(await playPage(bogus));
+
+    expect(mockCurrentCompetition).toHaveBeenCalled();
+    expect(sectionOrder()).toEqual(["epl", "laliga", "bundesliga", "nrl", "wc26"]);
+    expect(screen.queryByText(/picks aren't open yet/)).not.toBeInTheDocument();
+  },
+);

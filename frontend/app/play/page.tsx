@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { getKnockoutOddsServer, getNrlTipsheetServer } from "@/lib/api";
+import { parseCompetition } from "@/lib/competitionPrefs";
+import { readServerCompetition } from "@/lib/competitionServer";
 import { nrlSeasonState } from "@/lib/nrlTips";
 import { getCompetitionTournament } from "@/lib/tournament";
 import type { TournamentOdds } from "@/lib/types";
@@ -7,9 +9,10 @@ import type { BracketChampion } from "@/components/play/PlayBracketCard";
 import { PlayHub } from "./PlayHub";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
-// Same ISR posture as /nrl/tips and /tips -- the shell is evergreen (nothing
-// user-specific here; picks and leaderboards resolve inside the client
-// sections), so the round rolls week to week under one stable URL.
+// The page is request-dependent (?competition=, else the visitor's current
+// competition), so it renders per request; the backend fetches below keep
+// their own Data Cache revalidate, and picks and leaderboards still resolve
+// inside the client sections.
 export const revalidate = 300;
 
 export const metadata: Metadata = {
@@ -44,10 +47,14 @@ type PlayPageProps = {
 };
 
 export default async function PlayPage({ searchParams }: PlayPageProps) {
+  // `?competition=` when it names a real competition (parseCompetition is an
+  // own-property check: "toString" is not a competition), else the visitor's
+  // current competition -- the same scope the nav shows (middleware's
+  // x-fw-comp / the fw_comp cookie, then geo, then EPL). An NRL or La Liga
+  // visitor's Play tab therefore opens on their own competition.
   const raw = (await searchParams)?.competition;
-  const candidate = Array.isArray(raw) ? raw[0] : raw;
   const selectedCompetition: CompetitionId =
-    candidate && candidate in COMPETITIONS ? (candidate as CompetitionId) : "epl";
+    parseCompetition(Array.isArray(raw) ? raw[0] : raw) ?? (await readServerCompetition());
 
   const [nrlTipsheet, tournament, odds] = await Promise.all([
     getNrlTipsheetServer().catch(() => null),

@@ -8,6 +8,10 @@ import * as session from "@/lib/session";
 // AuthProvider), so the test supplies it here too. Signed out: the promo's
 // visibility is covered by components/PremiumPromo.test.tsx, not this file.
 jest.mock("@/lib/session");
+// The home page's "Next up" strip fetches fixtures client-side after mount;
+// that late state update would otherwise log an act() warning here. The strip
+// has its own tests (components/play/NextUpStrip.test.tsx).
+jest.mock("@/components/play/NextUpStrip", () => ({ NextUpStrip: () => null }));
 beforeEach(() => {
   (session.getMe as jest.MockedFunction<typeof session.getMe>).mockResolvedValue(null);
 });
