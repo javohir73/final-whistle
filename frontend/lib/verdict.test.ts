@@ -1,5 +1,5 @@
 /** predictionVerdict: exact-score hit > right result > miss; null until FT. */
-import { predictionVerdict, predictedOutcome } from "./verdict";
+import { isKnockout, predictionVerdict, predictedOutcome } from "./verdict";
 import type { MatchSummary } from "./types";
 
 const base: MatchSummary = {
@@ -100,6 +100,27 @@ describe("regulation basis (90-min) + penalty shootouts", () => {
       predicted_score: { home: 2, away: 0, probability: 0.1 },
     });
     expect(v?.shootout?.winner).toBe("Brazil");
+  });
+});
+
+/** "Knockout" adds a "90 MIN" qualifier to every verdict. It used to be
+ *  `stage !== "group"`, so the NRL adapter's empty stage, a league's
+ *  "regular"/"league" stage, or a missing stage all claimed a knockout and
+ *  every finished NRL row wore a "90 MIN" chip. Unknown fails closed. */
+describe("isKnockout", () => {
+  it.each(["R32", "R16", "QF", "SF", "final", "third_place", "knockout", "Quarter-finals"])(
+    "treats %s as a knockout stage",
+    (stage) => expect(isKnockout(stage)).toBe(true),
+  );
+
+  it.each(["group", "Group C", "regular", "league", "League phase", "Matchweek 11", "", null, undefined])(
+    "never claims a knockout for %p",
+    (stage) => expect(isKnockout(stage)).toBe(false),
+  );
+
+  it("gives an NRL-style regular-season verdict no 90-min basis", () => {
+    expect(predictionVerdict({ ...base, stage: "regular" })?.basis).toBeNull();
+    expect(predictionVerdict({ ...base, stage: "" })?.basis).toBeNull();
   });
 });
 

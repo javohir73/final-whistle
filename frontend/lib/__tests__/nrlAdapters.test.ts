@@ -4,6 +4,7 @@ import {
   nrlMatchHref,
   nrlMatchToSummary,
 } from "@/lib/nrlAdapters";
+import { predictionVerdict } from "@/lib/verdict";
 import type { LadderRow, NrlMatch, NrlPrediction } from "@/lib/types";
 
 const prediction = (over: Partial<NrlPrediction> = {}): NrlPrediction => ({
@@ -60,6 +61,25 @@ describe("nrlMatchToSummary", () => {
     expect(s.status).toBe("finished");
     expect(s.score_home).toBe(24);
     expect(s.score_away).toBe(12);
+  });
+
+  it("labels the stage as a regular-season game, so no row claims a knockout", () => {
+    // An empty stage used to count as a knockout, so every finished NRL row
+    // wore a "90 MIN" basis chip -- a football concept on an 80-minute game.
+    const s = nrlMatchToSummary(match({ status: "finished", score_home: 24, score_away: 12 }));
+    expect(s.stage).toBe("regular");
+    expect(predictionVerdict(s)?.basis).toBeNull();
+  });
+
+  it.each(["postponed", "cancelled", "suspended"] as const)(
+    "maps a %s match through instead of flattening it to scheduled",
+    (status) => {
+      expect(nrlMatchToSummary(match({ status })).status).toBe(status);
+    },
+  );
+
+  it("keeps an unknown provider status on the old scheduled fallback", () => {
+    expect(nrlMatchToSummary(match({ status: "tbc" })).status).toBe("scheduled");
   });
 
   it("passes live status, score and minute to the shared scoreboard", () => {

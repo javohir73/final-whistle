@@ -4,8 +4,20 @@
  *  intact: a 3-way probability bar with a naturally-small draw (never zeroed),
  *  margin chips, and the (season, round, match_no) match href. */
 
-import type { LadderRow, MatchSummary, NrlMatch } from "./types";
+import type { LadderRow, MatchStatus, MatchSummary, NrlMatch } from "./types";
 import type { StandingsTableRow } from "@/components/StandingsTable";
+
+/** Statuses the shared football components already understand. Deliberate
+ *  stops pass through (a postponed NRL game must not count down to a kickoff
+ *  that will not happen -- see lib/matchStatus.ts); anything unrecognised keeps
+ *  the old "scheduled" fallback. */
+const PASSTHROUGH_STATUSES: ReadonlySet<string> = new Set<MatchStatus>([
+  "scheduled", "in_play", "finished", "postponed", "cancelled", "suspended",
+]);
+
+function nrlStatus(status: string): MatchStatus {
+  return PASSTHROUGH_STATUSES.has(status) ? (status as MatchStatus) : "scheduled";
+}
 
 /** The favoured side's name, or null when there's no prediction, the pick is a
  *  dead heat, or the team is still TBC -- an honest null beats a false
@@ -23,19 +35,22 @@ function favouredSide(m: NrlMatch): string | null {
  *  score instead of the frozen pre-match percentage.
  *  probabilities keep all three outcomes so the W/D/L bar renders the small
  *  draw segment; predicted_score/confidence are null (NrlPrediction has
- *  neither), venue city/country too (the list payload carries no locale). */
+ *  neither), venue city/country too (the list payload carries no locale).
+ *  `stage` is "regular": the list payload carries no finals marker, and the
+ *  shared verdict's knockout ("90 MIN") basis is a football concept that never
+ *  applies to an 80-minute NRL game -- an empty stage used to claim it. */
 export function nrlMatchToSummary(m: NrlMatch): MatchSummary {
   const p = m.prediction;
   return {
     match_id: m.id,
-    stage: "",
+    stage: "regular",
     group: null,
     kickoff_utc: m.kickoff_utc,
     venue: m.venue,
     venue_city: null,
     venue_country: null,
     is_neutral: false,
-    status: m.status === "finished" ? "finished" : m.status === "in_play" ? "in_play" : "scheduled",
+    status: nrlStatus(m.status),
     score_home: m.score_home,
     score_away: m.score_away,
     minute: m.minute ?? null,

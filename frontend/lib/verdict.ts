@@ -15,11 +15,18 @@ export type Verdict = {
   shootout: { winner: string; text: string } | null;
 };
 
-/** A match is "knockout" when it's past the group stage. The model is
- *  regulation-only, so only knockout results can diverge from the 90-min call
- *  (extra time / penalties), which is what the basis + shootout note explain. */
-export function isKnockout(stage: string): boolean {
-  return stage.toLowerCase() !== "group";
+/** A match is "knockout" when it's a tie that can go past 90 minutes. The
+ *  model is regulation-only, so only knockout results can diverge from the
+ *  90-min call (extra time / penalties), which is what the basis + shootout
+ *  note explain.
+ *
+ *  Fails CLOSED: an empty or missing stage, or any table stage (group, regular
+ *  season, league phase, matchweek), is not a knockout. This used to be
+ *  `stage !== "group"`, so the NRL adapter's empty stage made every finished
+ *  NRL row claim a "90 MIN" knockout basis. */
+export function isKnockout(stage: string | null | undefined): boolean {
+  if (!stage) return false;
+  return !/group|regular|league|matchweek/i.test(stage);
 }
 
 /** A penalty shootout result, or null when the match wasn't decided on pens.

@@ -143,11 +143,28 @@ it("does not let an older request failure replace a newer score", async () => {
 
 // --- finished matches: instant seed, then the persisted record ------------
 //
-// The seed is a fabrication (empty timeline, 1/0 probability) built from the
-// core match row so the hero paints with no loading flash. The persisted
-// NrlLiveState/NrlLiveEvent record must still replace it — an earlier version
-// returned early on the seed, which permanently hid every finished match's
-// try timeline and closing probability.
+// The seed is built from the core match row so the hero paints with no
+// loading flash. It carries no probability (null, rendered "—"): it used to
+// fabricate 1/0, so a drawn game briefly read "{home} win chance · 0%". The
+// persisted NrlLiveState/NrlLiveEvent record must still replace it — an
+// earlier version returned early on the seed, which permanently hid every
+// finished match's try timeline and closing probability.
+
+function ProbProbe() {
+  const state = useLiveMatch();
+  if (state.status !== "success") return <span>{state.status}</span>;
+  return <span>prob:{String(state.data.live_home_prob)}</span>;
+}
+
+it("seeds a finished match with no probability instead of a fabricated 1/0", () => {
+  mockLive.mockReturnValueOnce(new Promise<NrlLive>(() => {}));
+  render(
+    <LiveMatchProvider match={{ ...finishedMatch, score_home: 18, score_away: 18 }}>
+      <ProbProbe />
+    </LiveMatchProvider>,
+  );
+  expect(screen.getByText("prob:null")).toBeInTheDocument();
+});
 
 it("seeds a finished match instantly, then replaces the seed with the persisted timeline", async () => {
   const pending = deferred<NrlLive>();
