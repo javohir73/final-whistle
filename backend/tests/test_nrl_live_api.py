@@ -113,7 +113,49 @@ def test_live_final_state_from_finished_match_without_ever_being_polled():
         body = client.get(f"/api/nrl/matches/{m.id}/live").json()
         assert body["status"] == "final"
         assert body["score_home"] == 24 and body["score_away"] == 10
-        assert body["live_home_prob"] == 1.0
+        # No poller ever ran, so there is no closing probability to report --
+        # null, never a 1.0/0.0 fabricated from the score.
+        assert body["live_home_prob"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_live_finished_draw_is_never_reported_as_a_zero_percent_home_chance():
+    """The fabricated 1.0/0.0 used to read a drawn game as a 0% home win
+    chance. A finished match with no closing probability reports none."""
+    client, TestingSession = _client()
+    try:
+        db = TestingSession()
+        m = SportMatch(sport="nrl", season=2026, round=1, match_no=1, status="finished",
+                        score_home=18, score_away=18)
+        db.add(m); db.commit()
+
+        body = client.get(f"/api/nrl/matches/{m.id}/live").json()
+        assert body["status"] == "final"
+        assert (body["score_home"], body["score_away"]) == (18, 18)
+        assert body["live_home_prob"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_live_persisted_final_state_keeps_the_pollers_closing_probability():
+    """Only the fallbacks lose the number: a state row the poller itself
+    closed at "final" still serves its persisted closing probability, which
+    the match page waits for (LiveMatchProvider seeds null until it lands)."""
+    client, TestingSession = _client()
+    try:
+        db = TestingSession()
+        now = datetime.now(timezone.utc)
+        m = SportMatch(sport="nrl", season=2026, round=1, match_no=1, status="finished",
+                        kickoff_utc=now - timedelta(hours=3), score_home=24, score_away=10)
+        db.add(m); db.flush()
+        db.add(NrlLiveState(match_id=m.id, status="final", minute=80,
+                             score_home=24, score_away=10, live_home_prob=0.97))
+        db.commit()
+
+        body = client.get(f"/api/nrl/matches/{m.id}/live").json()
+        assert body["status"] == "final"
+        assert body["live_home_prob"] == 0.97
     finally:
         app.dependency_overrides.clear()
 
@@ -140,7 +182,8 @@ def test_live_finished_match_overrides_stale_non_final_live_state():
         assert body["status"] == "final"
         assert body["minute"] == 80
         assert body["score_home"] == 24 and body["score_away"] == 10
-        assert body["live_home_prob"] == 1.0
+        # Neither the stale live 0.9 nor a 1.0 made up from the score.
+        assert body["live_home_prob"] is None
         assert len(body["events"]) == 1
         assert body["events"][0]["team"] == "home"
     finally:
@@ -171,7 +214,8 @@ def test_live_stale_live_state_on_a_scheduled_match_is_served_as_final():
         assert body["minute"] == 80
         # The state's last word, not the (empty) scheduled match row.
         assert (body["score_home"], body["score_away"]) == (18, 12)
-        assert body["live_home_prob"] == 1.0
+        # A frozen mid-match row has no closing probability: null, not 1.0.
+        assert body["live_home_prob"] is None
         assert len(body["events"]) == 1
     finally:
         app.dependency_overrides.clear()
