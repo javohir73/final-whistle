@@ -18,7 +18,8 @@ describe("expectedMarginLabel", () => {
  *  legend. pctTriple uses largest-remainder rounding so the three whole
  *  percentages always add up to exactly 100. */
 describe("pctTriple", () => {
-  const sum = (t: { home: number; draw: number; away: number }) => t.home + t.draw + t.away;
+  const sum = (t: { home: number; draw: number; away: number } | null) =>
+    t ? t.home + t.draw + t.away : NaN;
 
   it("keeps values that already round cleanly", () => {
     expect(pctTriple({ home_win: 0.62, draw: 0.24, away_win: 0.14 })).toEqual({ home: 62, draw: 24, away: 14 });
@@ -53,7 +54,18 @@ describe("pctTriple", () => {
     }
   });
 
-  it("returns zeros rather than NaN for an empty triple", () => {
-    expect(pctTriple({ home_win: 0, draw: 0, away_win: 0 })).toEqual({ home: 0, draw: 0, away: 0 });
+  it("returns null -- never a made-up split -- when the triple carries no information", () => {
+    expect(pctTriple({ home_win: 0, draw: 0, away_win: 0 })).toBeNull();
+  });
+
+  // A partial payload must not be normalised into certainty: NaN / missing /
+  // negative used to drop to 0, so { NaN, undefined, 0.3 } printed "away 100%".
+  it.each([
+    [{ home_win: NaN, draw: undefined as unknown as number, away_win: 0.3 }],
+    [{ home_win: 0.5, draw: null as unknown as number, away_win: 0.3 }],
+    [{ home_win: 0.5, draw: 0.3, away_win: Infinity }],
+    [{ home_win: -0.1, draw: 0.6, away_win: 0.5 }],
+  ])("returns null for a partial or invalid triple %p", (p) => {
+    expect(pctTriple(p)).toBeNull();
   });
 });

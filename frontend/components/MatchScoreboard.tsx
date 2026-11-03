@@ -33,6 +33,10 @@ interface Props {
   /** Knockout resolution block (v0.5) — who goes through, past the 90th minute. */
   knockout?: KnockoutAdvance | null;
   competition?: CompetitionId;
+  /** The server's render instant (ISO), for the feed this hero provides
+   *  itself when rendered outside a MatchLiveProvider: hydration then reads
+   *  the server's clock first. Ignored inside a provider (it owns the clock). */
+  serverNow?: string | null;
 }
 
 /** The match hero: ONE card holding the broadcast Scorebug (status line,
@@ -56,6 +60,7 @@ export function MatchScoreboard(props: Props) {
       competition={props.competition}
       kickoffUtc={props.kickoffUtc}
       initialSummary={props.initialSummary}
+      serverNow={props.serverNow}
     >
       <MatchScoreboard {...props} />
     </MatchLiveProvider>
@@ -126,6 +131,7 @@ function MatchHero({
         status={scorebugStatus}
         liveLabel={isLive && summary ? liveLabel(summary) : null}
         liveLabelSpoken={isLive && summary ? liveLabelSpoken(summary) : null}
+        livePeriod={isLive ? summary?.period ?? null : null}
         statusLine={statusLine}
         venue={venue}
         score={hasActual ? formatScore(summary!.score_home, summary!.score_away) : null}

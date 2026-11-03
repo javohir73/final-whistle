@@ -36,6 +36,22 @@ describe("ProbabilityBar", () => {
     expect(screen.getByText("Draw 27%")).toBeInTheDocument();
     expect(screen.getByText("Brentford").parentElement).toHaveTextContent("Brentford21%");
   });
+
+  it("prints '—' for a partial triple instead of normalising it to 100%", () => {
+    render(
+      <ProbabilityBar
+        probabilities={{ home_win: NaN, draw: undefined as unknown as number, away_win: 0.3 }}
+        homeLabel="Bournemouth"
+        awayLabel="Brentford"
+      />,
+    );
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "aria-label",
+      "Bournemouth v Brentford: win probabilities unavailable",
+    );
+    expect(screen.getByText("Draw —")).toBeInTheDocument();
+    expect(screen.queryByText(/100%/)).not.toBeInTheDocument();
+  });
 });
 
 describe("ConfidenceBadge", () => {

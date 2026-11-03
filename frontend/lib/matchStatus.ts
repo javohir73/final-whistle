@@ -95,10 +95,16 @@ export const STALE_AFTER_MINUTES = 150;
 
 /** The one place a surface classifies a fixture. Prefer this to comparing
  *  `status` strings: the stale bucket only exists here. `now` is injectable
- *  for tests and for clients that tick a shared clock. */
+ *  for tests and for clients that tick a shared clock.
+ *
+ *  `now === null` means the clock is not known yet: a client component
+ *  hydrating cached server HTML must classify exactly as the server did, so
+ *  until the browser clock takes over the feed's own status decides (in_play
+ *  is live, scheduled is upcoming) and the clock-based bounds apply one commit
+ *  later. */
 export function matchPhase(
   m: Pick<MatchSummary, "status" | "kickoff_utc">,
-  now: Date = new Date(),
+  now: Date | null = new Date(),
 ): MatchPhase {
   switch (m.status) {
     case "finished":
@@ -107,8 +113,10 @@ export function matchPhase(
     case "suspended":
       return m.status;
     case "in_play":
+      if (!now) return "live";
       return isLiveNow(m, now) ? "live" : "stale";
     default: {
+      if (!now) return "upcoming";
       // "scheduled", and anything the provider invents later: a fixture whose
       // kickoff is long past without a confirmed result is pending, never
       // upcoming (fails closed for an unknown status, like isPickable).

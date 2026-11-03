@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import type { MatchSummary } from "@/lib/types";
-import { expectedMarginLabel, formatScore, pct, topOutcome } from "@/lib/format";
+import { expectedMarginLabel, formatScore, pctTriple, topOutcome } from "@/lib/format";
 import { liveLabel, liveLabelSpoken } from "@/lib/liveLabel";
 import { predictionVerdict, prematchCall } from "@/lib/verdict";
 import { ShootoutNote, BasisTag } from "@/components/ShootoutNote";
 import { kickoffDate, kickoffTime } from "@/lib/datetime";
 import { trackEvent } from "@/lib/analytics";
 import { useFavorites } from "@/lib/useFavorites";
+import { useRenderNow } from "@/components/match/clock";
 import { ProbabilityBar } from "./ProbabilityBar";
 import { ClubBadge } from "@/components/ClubBadge";
 import { TeamBadge } from "@/components/TeamBadge";
@@ -84,7 +85,11 @@ export function MatchCard({
   margin?: number | null;
 }) {
   const { teams, probabilities, predicted_score, predicted_winner } = match;
-  const phase = matchPhase(match);
+  // The list's clock (its server render instant while hydrating cached HTML),
+  // or the browser clock; null while hydrating without one -- the feed's own
+  // status decides that first pass, the time bounds apply one commit later.
+  const now = useRenderNow();
+  const phase = matchPhase(match, now);
   const live = phase === "live";
   // Only a feed-confirmed result is "finished". A row the feed left stuck
   // (in_play past the live window, or scheduled long after kickoff) is
@@ -294,12 +299,12 @@ function CompactRow({
   const probs = showPrediction
     ? (live && match.live_probabilities) || match.probabilities
     : null;
-  const lead = probs
-    ? Math.max(probs.home_win, probs.draw, probs.away_win)
-    : null;
   // The bare number was ambiguous — 49% of WHAT? Name the outcome it belongs
-  // to (home side, away side, or the draw) right under it.
+  // to (home side, away side, or the draw) right under it. The number is the
+  // bar's own sum-to-100 share for that outcome, so the two never disagree.
   const leadOutcome = probs ? topOutcome(probs) : null;
+  const triple = probs ? pctTriple(probs) : null;
+  const lead = triple && leadOutcome ? triple[leadOutcome] : null;
   const leadLabel =
     leadOutcome === "home" ? teams.home : leadOutcome === "away" ? teams.away : "Draw";
   const hasScore = match.score_home != null && match.score_away != null;
@@ -359,10 +364,10 @@ function CompactRow({
             <span className="flex shrink-0 flex-col items-end">
               <span
                 className={`font-display text-lg font-extrabold leading-tight tabular-nums ${
-                  lead >= 0.6 ? "text-lime-deep" : "text-muted"
+                  lead >= 60 ? "text-lime-deep" : "text-muted"
                 }`}
               >
-                {pct(lead)}
+                {lead}%
               </span>
               <span className="max-w-[84px] truncate text-mini font-semibold uppercase tracking-wide text-muted">
                 {leadLabel}

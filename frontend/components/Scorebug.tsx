@@ -3,8 +3,38 @@ import { TeamBadge } from "@/components/TeamBadge";
 import { Eyebrow } from "@/components/Eyebrow";
 import { RESULT_PENDING } from "@/lib/matchStatus";
 import { cn } from "@/lib/utils";
+import type { LivePeriod } from "@/lib/types";
 
 export type ScorebugStatus = "upcoming" | "live" | "ft" | "stale";
+
+/** What the polite live region says: the score and the phase, never the
+ *  running minute -- the minute moves on almost every 30 s poll, and a screen
+ *  reader would re-announce the match about once a minute for two hours. A
+ *  change of score, a half-time / extra-time / penalties phase and full time
+ *  are announced; ticks of the clock are not. */
+function scoreAnnouncement(
+  status: ScorebugStatus,
+  home: string,
+  away: string,
+  score: string | null | undefined,
+  livePeriod: LivePeriod | undefined,
+  penaltyTally: string | null | undefined,
+): string {
+  if (!score) return "";
+  const line = `${home} ${score} ${away}`;
+  if (status === "ft") return `Full time: ${line}`;
+  if (status === "stale") return `${RESULT_PENDING}: ${line}`;
+  if (status !== "live") return "";
+  const phase =
+    livePeriod === "half_time"
+      ? ", half-time"
+      : livePeriod === "extra_time"
+        ? ", extra time"
+        : livePeriod === "penalty_shootout"
+          ? `, penalties${penaltyTally ? ` ${penaltyTally}` : ""}`
+          : "";
+  return `Live: ${line}${phase}`;
+}
 
 /** TV-style broadcast scorebug: the top of the match hero (prototype
  *  match-detail lines 211-232) -- a centred stack of competition eyebrow →
@@ -31,6 +61,7 @@ export function Scorebug({
   status,
   liveLabel,
   liveLabelSpoken,
+  livePeriod,
   statusLine,
   venue,
   score,
@@ -45,8 +76,12 @@ export function Scorebug({
   status: ScorebugStatus;
   /** Live clock/phase (e.g. "63' est.", "HT", "PENS"); null unless live. */
   liveLabel?: string | null;
-  /** The same clock for screen readers ("63' (estimated)"). */
+  /** The same clock for screen readers ("63' (estimated)"); read in place,
+   *  never from the live region. */
   liveLabelSpoken?: string | null;
+  /** Phase of play while live (half-time / extra time / penalties are
+   *  announced; the running minute is not). */
+  livePeriod?: LivePeriod;
   /** Pre-match kickoff·venue line (or a stopped label); null when unknown. */
   statusLine?: string | null;
   /** Venue, appended to the live / full-time / pending status line. */
@@ -67,13 +102,12 @@ export function Scorebug({
       {/* The prototype's radial "under the lights" wash behind the scorebug. */}
       <div className="floodlight-glow-top pointer-events-none absolute inset-0" aria-hidden />
 
-      {/* One always-mounted polite region carrying the SCORE while live:
+      {/* One always-mounted polite region carrying the SCORE and the phase:
           screen readers announce changes inside an existing region, and the
-          visible scoreboard is static markup to them. Empty otherwise. */}
+          visible scoreboard is static markup to them. The running minute is
+          deliberately not in it (see scoreAnnouncement). */}
       <p className="sr-only" role="status">
-        {status === "live" && score
-          ? `Live: ${home} ${score} ${away}${liveLabelSpoken ? `, ${liveLabelSpoken}` : ""}`
-          : ""}
+        {scoreAnnouncement(status, home, away, score, livePeriod, penaltyTally)}
       </p>
 
       <div className="relative">
@@ -81,14 +115,21 @@ export function Scorebug({
 
         {/* Status line — the middle changes voice per state, colour AND label. */}
         {status === "live" ? (
-          <div
-            className="mt-2 flex items-center justify-center gap-[7px] text-label font-bold uppercase tracking-[0.14em] text-loss-ink"
-            aria-hidden
-          >
-            {/* Rose dot + pulsing ring; both reduced-motion-gated in globals. */}
-            <span className="status-live-dot status-live-ring h-[7px] w-[7px] rounded-full bg-current" aria-hidden />
-            LIVE{liveLabel ? ` · ${liveLabel}` : ""}{venueTail}
-          </div>
+          <>
+            <div
+              className="mt-2 flex items-center justify-center gap-[7px] text-label font-bold uppercase tracking-[0.14em] text-loss-ink"
+              aria-hidden
+            >
+              {/* Rose dot + pulsing ring; both reduced-motion-gated in globals. */}
+              <span className="status-live-dot status-live-ring h-[7px] w-[7px] rounded-full bg-current" aria-hidden />
+              LIVE{liveLabel ? ` · ${liveLabel}` : ""}{venueTail}
+            </div>
+            {/* The same line for screen readers, with the estimate spelled out.
+                Read in place, not announced on every tick. */}
+            <p className="sr-only">
+              {["LIVE", liveLabelSpoken ?? liveLabel, venue].filter(Boolean).join(", ")}
+            </p>
+          </>
         ) : status === "ft" ? (
           <div className="mt-2 text-label font-bold uppercase tracking-[0.14em] text-muted">
             FULL TIME{venueTail}

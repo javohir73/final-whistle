@@ -19,7 +19,9 @@ export function ModelVsMarket({
   away: string;
 }) {
   const oc = prediction.odds_comparison;
-  if (!oc?.available || !oc.market) {
+  const modelTriple = pctTriple(prediction.probabilities);
+  const marketTriple = oc?.available && oc.market ? pctTriple(oc.market) : null;
+  if (!modelTriple || !marketTriple) {
     return (
       <p className="text-sm leading-relaxed text-muted">
         Market consensus isn&apos;t available for this fixture yet.
@@ -29,8 +31,8 @@ export function ModelVsMarket({
 
   const side = topOutcome(prediction.probabilities);
   const label = side === "home" ? home : side === "away" ? away : "Draw";
-  const model = pctTriple(prediction.probabilities)[side];
-  const market = pctTriple(oc.market)[side];
+  const model = modelTriple[side];
+  const market = marketTriple[side];
   const gap = model - market;
   const signed = gap > 0 ? `+${gap}` : gap < 0 ? `−${Math.abs(gap)}` : "±0";
 

@@ -24,7 +24,9 @@ const SIZE_HEIGHT: Record<NonNullable<Props["size"]>, string> = {
  *  The printed numbers come from pctTriple (largest-remainder rounding), so the
  *  legend and the aria-label always add up to exactly 100 and always agree.
  *  The legend names every outcome ("Brazil 62% · Draw 24% · Serbia 14%"): a
- *  bare "62% · 24% draw · 14%" left the reader to guess which side was which. */
+ *  bare "62% · 24% draw · 14%" left the reader to guess which side was which.
+ *  A partial or empty triple draws an empty track and prints "—": it is never
+ *  normalised into a confident split. */
 export function ProbabilityBar({
   probabilities,
   homeLabel = "Home",
@@ -35,17 +37,30 @@ export function ProbabilityBar({
   const { home_win, draw, away_win } = probabilities;
   const t = pctTriple(probabilities);
   const seg = (w: number) => ({ width: `${Math.max(0, w * 100)}%` });
+  const shown = (v: number | undefined) => (t ? `${v}%` : "—");
 
   return (
     <div>
       <div
-        className={cn("flex w-full gap-0.5 overflow-hidden rounded-full", SIZE_HEIGHT[size])}
+        className={cn(
+          "flex w-full gap-0.5 overflow-hidden rounded-full",
+          SIZE_HEIGHT[size],
+          !t && "bg-surface-2",
+        )}
         role="img"
-        aria-label={`${homeLabel} win ${t.home}%, draw ${t.draw}%, ${awayLabel} win ${t.away}%`}
+        aria-label={
+          t
+            ? `${homeLabel} win ${t.home}%, draw ${t.draw}%, ${awayLabel} win ${t.away}%`
+            : `${homeLabel} v ${awayLabel}: win probabilities unavailable`
+        }
       >
-        <div className="rounded-l-full bg-win" style={seg(home_win)} />
-        <div className="bg-draw" style={seg(draw)} />
-        <div className="rounded-r-full bg-loss" style={seg(away_win)} />
+        {t && (
+          <>
+            <div className="rounded-l-full bg-win" style={seg(home_win)} />
+            <div className="bg-draw" style={seg(draw)} />
+            <div className="rounded-r-full bg-loss" style={seg(away_win)} />
+          </>
+        )}
       </div>
       {showLabels && (
         // Decorative twin of the aria-label above (screen readers get the
@@ -56,12 +71,12 @@ export function ProbabilityBar({
         >
           <span className="flex min-w-0 gap-1 text-lime-deep">
             <span className="truncate">{homeLabel}</span>
-            <span className="shrink-0">{t.home}%</span>
+            <span className="shrink-0">{shown(t?.home)}</span>
           </span>
-          <span className="shrink-0 text-draw-ink">Draw {t.draw}%</span>
+          <span className="shrink-0 text-draw-ink">Draw {shown(t?.draw)}</span>
           <span className="flex min-w-0 justify-end gap-1 text-loss-ink">
             <span className="truncate">{awayLabel}</span>
-            <span className="shrink-0">{t.away}%</span>
+            <span className="shrink-0">{shown(t?.away)}</span>
           </span>
         </div>
       )}

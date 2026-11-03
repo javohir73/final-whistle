@@ -8,6 +8,7 @@ import { getMatchSummary } from "@/lib/api";
 import { MAX_LIVE_MINUTES } from "@/lib/liveLabel";
 import type { CompetitionId } from "@/lib/sports";
 import type { MatchSummary } from "@/lib/types";
+import { useHydratedNow } from "@/components/match/clock";
 
 const POLL_MS = 30_000;
 // Fetch only while new data can arrive: from shortly before kickoff (so the
@@ -25,12 +26,23 @@ export function withinPollWindow(kickoffUtc: string | null | undefined, nowMs: n
   return elapsedMin >= -POLL_LEAD_MIN && elapsedMin <= POLL_TAIL_MIN;
 }
 
+/** Could a non-final seed already be out of date? From shortly before kickoff
+ *  onwards, with NO upper bound: an ISR page (and the summary's own 30 s
+ *  cache) can be hours old, so a page cached before kickoff and opened the
+ *  next morning must still ask once. */
+export function seedMayBeBehind(kickoffUtc: string | null | undefined, nowMs: number): boolean {
+  if (!kickoffUtc) return true;
+  const elapsedMin = (nowMs - Date.parse(kickoffUtc)) / 60_000;
+  return !Number.isFinite(elapsedMin) || elapsedMin >= -POLL_LEAD_MIN;
+}
+
 export interface MatchLive {
   /** Latest summary: the server seed, then each successful poll. Null when
    *  the seed fetch failed and no client fetch has succeeded yet. */
   summary: MatchSummary | null;
   /** Shared ticking clock (every 30 s), so kickoff locks and stale flips
-   *  happen on an open tab without a reload. */
+   *  happen on an open tab without a reload. While hydrating it is the
+   *  server's render instant, so the first client pass matches the HTML. */
   now: Date;
   /** A client fetch is in flight and there is no summary to show yet. */
   loading: boolean;
@@ -52,6 +64,7 @@ export function MatchLiveProvider({
   competition,
   kickoffUtc,
   initialSummary,
+  serverNow,
   children,
 }: {
   matchId: number;
@@ -59,12 +72,19 @@ export function MatchLiveProvider({
   /** The prediction's kickoff, used until a summary says otherwise. */
   kickoffUtc?: string | null;
   initialSummary?: MatchSummary | null;
+  /** When the server rendered this page (ISO). The first client pass renders
+   *  with it so cached HTML hydrates without a mismatch ("Locks at kickoff"
+   *  on the server vs "Locked" in the browser); the browser clock follows. */
+  serverNow?: string | null;
   children: ReactNode;
 }) {
   const [summary, setSummary] = useState<MatchSummary | null>(initialSummary ?? null);
   const [loading, setLoading] = useState(initialSummary == null);
   const [error, setError] = useState(false);
-  const [now, setNow] = useState(() => new Date());
+  const clock = useHydratedNow(serverNow);
+  // Only reached on a server render (or hydration) without serverNow.
+  const [fallbackNow] = useState(() => new Date());
+  const now = clock ?? fallbackNow;
   const sequence = useRef(0);
   const applied = useRef(0);
   const mounted = useRef(true);
@@ -104,23 +124,24 @@ export function MatchLiveProvider({
   const seedKickoff = initialSummary?.kickoff_utc ?? kickoffUtc ?? null;
 
   // First client fetch: always when there is no seed (the server fetch
-  // failed), otherwise only inside the live window, where the ISR seed can
-  // already be behind. A finished match never refetches.
+  // failed); for a seed, whenever it is not final and kickoff is near or past
+  // -- however long ago, since cached HTML can be hours old. Silent: a failed
+  // refresh keeps the seed on screen. A finished seed never refetches.
   useEffect(() => {
     if (!seeded) load(false);
-    else if (!seedFinished && withinPollWindow(seedKickoff, Date.now())) load(true);
+    else if (!seedFinished && seedMayBeBehind(seedKickoff, Date.now())) load(true);
   }, [load, seeded, seedFinished, seedKickoff]);
 
   const finished = summary?.status === "finished";
   const kickoff = summary?.kickoff_utc ?? kickoffUtc ?? null;
 
+  // The 30 s poll stays inside the match window (the clock itself ticks in
+  // components/match/clock). A recorded result cannot change: no poll.
   useEffect(() => {
-    if (finished) return; // a recorded result cannot change: no clock, no poll
+    if (finished) return;
     const tick = () => {
-      const t = Date.now();
-      setNow(new Date(t));
       if (typeof document !== "undefined" && document.hidden) return;
-      if (withinPollWindow(kickoff, t)) load(true);
+      if (withinPollWindow(kickoff, Date.now())) load(true);
     };
     const id = setInterval(tick, POLL_MS);
     // A tab coming back to the foreground catches up at once.

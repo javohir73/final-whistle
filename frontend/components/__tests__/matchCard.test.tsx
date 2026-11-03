@@ -9,6 +9,8 @@
  *  sits inside the link. */
 import { render, screen, within } from "@testing-library/react";
 import { MatchCard } from "@/components/MatchCard";
+import { RenderClockContext } from "@/components/match/clock";
+import { hydrateAcrossTime } from "@/components/match/hydrate.testutil";
 import type { MatchSummary } from "@/lib/types";
 
 const HREF = "/football/wc26/match/11";
@@ -197,6 +199,15 @@ describe("MatchCard (variant=\"compact\")", () => {
     expect(screen.getByText(/Venue TBC/)).toBeInTheDocument();
   });
 
+  it("prints the bar's own rounded share as the lead %, so the two never disagree (L6)", () => {
+    // Rounded alone 0.456 is 46%; the bar's sum-to-100 split gives home 45.
+    const match = makeMatch({ probabilities: { home_win: 0.456, draw: 0.267, away_win: 0.277 } });
+    render(<MatchCard match={match} variant="compact" href={HREF} />);
+    expect(screen.getByText("45%")).toBeInTheDocument();
+    expect(screen.queryByText("46%")).not.toBeInTheDocument();
+    expect(screen.getByRole("img")).toHaveAttribute("aria-label", expect.stringContaining("Argentina win 45%"));
+  });
+
   it("shows a muted lead percentage when no side clears 60%", () => {
     const match = makeMatch({ probabilities: { home_win: 0.42, draw: 0.3, away_win: 0.28 } });
     render(<MatchCard match={match} variant="compact" href={HREF} />);
@@ -246,6 +257,48 @@ describe("MatchCard (variant=\"compact\")", () => {
     expect(screen.getByText("1–0")).toBeInTheDocument();
     // The bar reads the in-play odds (82%), not the stale pre-match 50%.
     expect(screen.getByRole("img")).toHaveAttribute("aria-label", expect.stringContaining("82%"));
+  });
+});
+
+describe("MatchCard clock (H2: cached list HTML hydrating later)", () => {
+  // In play 170 minutes after kickoff when the list was rendered; hydrated 30
+  // minutes later the browser clock alone would call it stale.
+  const KO = "2026-11-08T12:00:00Z";
+  const SERVER = new Date("2026-11-08T14:50:00Z");
+  const CLIENT = new Date("2026-11-08T15:20:00Z");
+  const inPlay = makeMatch({ kickoff_utc: KO, status: "in_play", score_home: 1, score_away: 0, minute: 90, period: "second_half" });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    document.body.innerHTML = "";
+  });
+
+  it("hydrates with its list's server clock without a mismatch, then applies the browser clock", async () => {
+    jest.useFakeTimers({ now: SERVER });
+    const { html, container, errors } = await hydrateAcrossTime(
+      () => (
+        <RenderClockContext.Provider value={SERVER}>
+          <MatchCard match={inPlay} variant="compact" href={HREF} />
+        </RenderClockContext.Provider>
+      ),
+      SERVER,
+      CLIENT,
+    );
+    expect(html).toContain("90&#x27; est.");
+    expect(errors).toEqual([]);
+    expect(container).toHaveTextContent("90' est."); // the list's clock still says live
+  });
+
+  it("without a list clock, classifies by the feed while hydrating, then by the browser clock", async () => {
+    jest.useFakeTimers({ now: SERVER });
+    const { errors, container } = await hydrateAcrossTime(
+      () => <MatchCard match={inPlay} variant="compact" href={HREF} />,
+      SERVER,
+      CLIENT,
+    );
+    expect(errors).toEqual([]);
+    // One commit after hydration the browser clock applies the live bound.
+    expect(container).toHaveTextContent("Result pending");
   });
 });
 

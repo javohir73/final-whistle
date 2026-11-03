@@ -120,3 +120,84 @@ it("never polls a finished match", async () => {
   expect(mockSummary).not.toHaveBeenCalled();
   expect(screen.getByText("finished")).toBeInTheDocument();
 });
+
+// --- H1: ISR pages can be hours old ---------------------------------------
+// The match route is ISR, so the seed can predate kickoff by hours. The first
+// client fetch must not be limited to the poll window, or a page cached before
+// kickoff and opened the next morning says RESULT PENDING forever.
+
+const KO = "2026-11-08T15:00:00+00:00";
+
+it("re-asks once on mount for a pre-kickoff seed opened the next morning", async () => {
+  jest.useFakeTimers({ now: new Date("2026-11-09T09:00:00Z") });
+  mockSummary.mockResolvedValue(summary({ kickoff_utc: KO, status: "finished", score_home: 2, score_away: 1 }));
+  render(
+    <MatchLiveProvider matchId={5} competition="epl" kickoffUtc={KO} initialSummary={summary({ kickoff_utc: KO })}>
+      <Probe />
+    </MatchLiveProvider>,
+  );
+  await act(async () => {});
+  expect(mockSummary).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("finished")).toBeInTheDocument();
+
+  // Still outside the poll window afterwards: no interval traffic.
+  await act(async () => { jest.advanceTimersByTime(10 * 60_000); });
+  expect(mockSummary).toHaveBeenCalledTimes(1);
+});
+
+it("re-asks once on mount for a seed cached mid-match", async () => {
+  jest.useFakeTimers({ now: new Date("2026-11-09T09:00:00Z") });
+  mockSummary.mockResolvedValue(summary({ kickoff_utc: KO, status: "finished", score_home: 2, score_away: 1 }));
+  render(
+    <MatchLiveProvider
+      matchId={5}
+      kickoffUtc={KO}
+      initialSummary={summary({ kickoff_utc: KO, status: "in_play", score_home: 1, score_away: 0, minute: 40 })}
+    >
+      <Probe />
+    </MatchLiveProvider>,
+  );
+  await act(async () => {});
+  expect(mockSummary).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("finished")).toBeInTheDocument();
+});
+
+it("keeps the stale seed (silently) when that mount fetch fails", async () => {
+  jest.useFakeTimers({ now: new Date("2026-11-09T09:00:00Z") });
+  mockSummary.mockRejectedValue(new Error("cold start"));
+  render(
+    <MatchLiveProvider matchId={5} kickoffUtc={KO} initialSummary={summary({ kickoff_utc: KO })}>
+      <Probe />
+    </MatchLiveProvider>,
+  );
+  await act(async () => {});
+  expect(screen.getByText("scheduled")).toBeInTheDocument();
+});
+
+// --- H2: the first client pass reads the server's clock -------------------
+
+it("renders with the server's render instant while hydrating, then the browser clock", async () => {
+  const { hydrateAcrossTime } = await import("./hydrate.testutil");
+  jest.useFakeTimers({ now: new Date("2026-11-08T14:59:00Z") });
+  const serverNow = "2026-11-08T14:59:00.000Z";
+  mockSummary.mockReturnValue(new Promise(() => {}));
+  const { html, container, errors } = await hydrateAcrossTime(
+    () => (
+      <MatchLiveProvider matchId={5} kickoffUtc={KO} initialSummary={summary({ kickoff_utc: KO })} serverNow={serverNow}>
+        <span data-testid="clock">
+          <ClockOnly />
+        </span>
+      </MatchLiveProvider>
+    ),
+    new Date(serverNow),
+    new Date("2026-11-08T15:01:00Z"),
+  );
+  expect(html).toContain(String(Date.parse(serverNow)));
+  expect(errors).toEqual([]);
+  expect(container).toHaveTextContent(String(Date.parse("2026-11-08T15:01:00Z")));
+});
+
+function ClockOnly() {
+  const live = useMatchLive();
+  return <>{live?.now.getTime()}</>;
+}

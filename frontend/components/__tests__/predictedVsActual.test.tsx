@@ -199,14 +199,14 @@ describe("MatchScoreboard (the match hero)", () => {
   it("shows HT at half-time instead of a ticking minute", () => {
     mockGetMatchSummary.mockResolvedValue(halfTime);
     renderBoard(halfTime);
-    expect(screen.getByText(/LIVE.*HT/)).toBeInTheDocument();
+    expect(screen.getByText(/LIVE · HT/)).toBeInTheDocument();
     expect(screen.queryByText(/\d+' est\./)).not.toBeInTheDocument();
   });
 
   it("shows PENS, the 90-minute score, and the live shootout tally during a shootout", () => {
     mockGetMatchSummary.mockResolvedValue(shootout);
     renderBoard(shootout);
-    expect(screen.getByText(/LIVE.*PENS/)).toBeInTheDocument();
+    expect(screen.getByText(/LIVE · PENS/)).toBeInTheDocument();
     expect(screen.getByText("1–1")).toBeInTheDocument(); // level after 90/ET
     expect(screen.getByText(/5–4 pens/)).toBeInTheDocument();
   });

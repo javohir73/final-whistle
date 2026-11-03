@@ -87,6 +87,17 @@ describe("matchPhase", () => {
     expect(matchPhase({ status, kickoff_utc: ko(600) }, NOW)).toBe(status);
   });
 
+  // Hydration: a list rendered from cached HTML must classify a fixture the
+  // same way on the server and on the hydrating client. Before the browser
+  // clock is known (now = null) the feed's own status decides; the bounds that
+  // need a clock apply one commit later.
+  it("trusts the feed's status while the clock is unknown", () => {
+    expect(matchPhase({ status: "in_play", kickoff_utc: ko(8 * 60) }, null)).toBe("live");
+    expect(matchPhase({ status: "scheduled", kickoff_utc: ko(8 * 60) }, null)).toBe("upcoming");
+    expect(matchPhase({ status: "finished", kickoff_utc: ko(120) }, null)).toBe("finished");
+    expect(matchPhase({ status: "postponed", kickoff_utc: ko(120) }, null)).toBe("postponed");
+  });
+
   it("fails closed for a status it does not recognise", () => {
     expect(matchPhase({ status: "abandoned" as never, kickoff_utc: ko(600) }, NOW)).toBe("stale");
     expect(matchPhase({ status: "abandoned" as never, kickoff_utc: ko(-600) }, NOW)).toBe("upcoming");

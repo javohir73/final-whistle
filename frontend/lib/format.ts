@@ -6,16 +6,24 @@ export function pct(value: number | null | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
+export type PctTriple = { home: number; draw: number; away: number };
+
 /** Whole-number percentages for a W/D/L triple that always add up to exactly
  *  100. Rounding each outcome on its own (pct) can print 52 · 27 · 22 = 101 on
  *  a legend; this uses largest-remainder rounding instead: floor every value,
  *  then hand the spare points to the largest remainders (ties go home, draw,
  *  away, so the result is deterministic). A feed triple that does not quite sum
- *  to 1 is normalised first. */
-export function pctTriple(p: Probabilities): { home: number; draw: number; away: number } {
-  const raw = [p.home_win, p.draw, p.away_win].map((v) => (Number.isFinite(v) && v > 0 ? v : 0));
+ *  to 1 is normalised first.
+ *
+ *  Null when the triple carries no usable information -- any value missing,
+ *  non-finite or negative, or all three zero. Normalising a partial payload
+ *  would invent certainty ({NaN, —, 0.3} used to print "away 100%"); callers
+ *  print "—" instead. */
+export function pctTriple(p: Probabilities): PctTriple | null {
+  const raw = [p.home_win, p.draw, p.away_win];
+  if (!raw.every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0)) return null;
   const total = raw[0] + raw[1] + raw[2];
-  if (total <= 0) return { home: 0, draw: 0, away: 0 };
+  if (total <= 0) return null;
   const scaled = raw.map((v) => (v / total) * 100);
   const whole = scaled.map((v) => Math.floor(v));
   let spare = 100 - (whole[0] + whole[1] + whole[2]);
