@@ -20,7 +20,7 @@ export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: "NRL predictions — FinalWhistle",
-  description: "Match predictions from the FinalWhistle ML model, ladder and model record for the NRL season.",
+  description: "Match predictions from the FinalWhistle model, the ladder and the model's record for the NRL season.",
 };
 
 /** A season with nothing left to play is only "complete" once its last game

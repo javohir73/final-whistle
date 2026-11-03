@@ -54,7 +54,7 @@ export function LeagueYouVsAi({ league }: { league: string }) {
   return (
     <section>
       <h2 className="mb-2.5 px-0.5 text-label font-semibold uppercase tracking-wider text-muted">
-        You vs the AI
+        You vs the model
       </h2>
       {state.status === "loading" && <Loading label="Loading your record…" />}
       {state.status === "error" && (
@@ -68,7 +68,7 @@ export function LeagueYouVsAi({ league }: { league: string }) {
             <div className="flex items-center justify-center gap-6">
               <Stat label="You" value={state.data.totals.your_points} />
               <span className="text-xs font-semibold text-muted">vs</span>
-              <Stat label="ML model" value={state.data.totals.model_points} />
+              <Stat label="Model" value={state.data.totals.model_points} />
             </div>
             <p className="mt-2 text-center text-xs text-muted">
               {state.data.totals.matchweeks_played} matchweek{state.data.totals.matchweeks_played === 1 ? "" : "s"} graded

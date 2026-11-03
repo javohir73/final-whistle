@@ -37,8 +37,8 @@ export async function generateMetadata({
   const share = await getLeagueTipsShareServer(league, matchweek, handle).catch(() => null);
   if (!share) return { title: `${leagueLabel(league)} tips result — ${APP_NAME}` };
 
-  const title = `${share.handle_display} went ${share.player_points}/${share.player_of} vs the AI — ${leagueLabel(league)} Matchweek ${matchweek} | ${APP_NAME}`;
-  const description = `${share.handle_display} scored ${share.player_points}/${share.player_of} in ${leagueLabel(league)} Matchweek ${matchweek} — the AI scored ${share.model_points}/${share.model_of}. Play against the AI at ${APP_NAME}.`;
+  const title = `${share.handle_display} went ${share.player_points}/${share.player_of} vs the model — ${leagueLabel(league)} Matchweek ${matchweek} | ${APP_NAME}`;
+  const description = `${share.handle_display} scored ${share.player_points}/${share.player_of} in ${leagueLabel(league)} Matchweek ${matchweek} — the model scored ${share.model_points}/${share.model_of}. Play against the model at ${APP_NAME}.`;
   return {
     title,
     description,
@@ -65,15 +65,15 @@ export default async function LeagueTipsShareCardPage({
   // in-progress matchweek instead of framing it as final.
   const verdict = share.matchweek_complete
     ? share.player_points > share.model_points
-      ? `${share.handle_display} beat the AI this matchweek`
+      ? `${share.handle_display} beat the model this matchweek`
       : share.player_points < share.model_points
-        ? "The AI came out on top this matchweek"
-        : `${share.handle_display} drew with the AI this matchweek`
+        ? "The model came out on top this matchweek"
+        : `${share.handle_display} drew with the model this matchweek`
     : share.player_points > share.model_points
-      ? `${share.handle_display} is ahead of the AI so far this matchweek`
+      ? `${share.handle_display} is ahead of the model so far this matchweek`
       : share.player_points < share.model_points
-        ? "The AI is ahead so far this matchweek"
-        : `${share.handle_display} is tied with the AI so far this matchweek`;
+        ? "The model is ahead so far this matchweek"
+        : `${share.handle_display} is tied with the model so far this matchweek`;
 
   return (
     <div className="fade-up mx-auto max-w-md space-y-6 text-center">
@@ -82,7 +82,7 @@ export default async function LeagueTipsShareCardPage({
           {leagueLabel(share.league)} Matchweek {share.matchweek}
         </p>
         <p className="mt-3 font-display text-2xl font-extrabold leading-snug tracking-tight">
-          {share.handle_display} went {share.player_points}/{share.player_of} — the AI went{" "}
+          {share.handle_display} went {share.player_points}/{share.player_of} — the model went{" "}
           {share.model_points}/{share.model_of}
         </p>
         <p className="mt-2 text-sm font-semibold text-lime-deep">{verdict}</p>

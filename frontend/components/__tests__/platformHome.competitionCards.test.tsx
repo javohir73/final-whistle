@@ -58,6 +58,8 @@ function isHoverTransformUtility(className: string): boolean {
   return hasHoverVariant && changesTransform;
 }
 
+const competitionsSection = () => document.getElementById("competitions")!;
+
 describe("PlatformHome competition cards", () => {
   it("gives every competition the shared branded treatment as a compact row", () => {
     const { container } = render(<PlatformHome />);
@@ -121,15 +123,20 @@ describe("PlatformHome competition cards", () => {
     expect(nrlStatusLine(new Date("2027-05-10T09:00:00Z"))).toBe("Round-by-round predictions, ladder and tips");
   });
 
-  it("puts the Next-up strip under the hero and keeps 'Make your picks' pointed at /play", () => {
+  it("opens on the game itself: the hero, its CTAs and the Next-up strip inside it", () => {
     render(<PlatformHome />);
 
-    expect(screen.getByTestId("next-up")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Make your picks" })).toHaveAttribute("href", "/play");
-    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
-    expect(within(hero).queryByTestId("next-up")).toBeNull();
+    // No cookie or path in jsdom: the nav scope falls back to the EPL.
+    const hero = screen.getByRole("heading", { level: 1, name: "Beat the model at the Premier League." }).closest("section")!;
+    expect(within(hero).getByRole("link", { name: /Make your picks/ })).toHaveAttribute(
+      "href",
+      "/play?competition=epl",
+    );
+    expect(within(hero).getByTestId("next-up")).toBeInTheDocument();
+    expect(screen.queryByText("Model track record")).not.toBeInTheDocument();
+    // The competitions follow the hero.
     expect(
-      hero.compareDocumentPosition(screen.getByTestId("next-up")) & Node.DOCUMENT_POSITION_FOLLOWING,
+      hero.compareDocumentPosition(competitionsSection()) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 });

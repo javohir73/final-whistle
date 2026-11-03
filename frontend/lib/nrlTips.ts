@@ -23,6 +23,20 @@ export type NrlSeasonState = "open" | "between-rounds" | "complete";
 
 const SEASON_OVER_AFTER_DAYS = 21;
 
+/** Calendar rule for surfaces with no fixture data to hand (the static home
+ *  page): the NRL runs from early March to the Grand Final in early October,
+ *  so October through February is the off-season. Pages that have the draw
+ *  use nrlSeasonState instead. */
+export function isNrlOffSeasonDate(now: Date = new Date()): boolean {
+  const month = now.getMonth(); // 0 = January
+  return month >= 9 || month <= 1;
+}
+
+/** The year the NRL is next back, for "back March {year}" copy. */
+export function nrlReturnYear(now: Date = new Date()): number {
+  return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+}
+
 /** Where the NRL season stands, from the current round's matches alone (the
  *  tipsheet resolves "current" server-side). Nothing left to tip after a
  *  single decided final (the Grand Final), or weeks after the last kickoff,

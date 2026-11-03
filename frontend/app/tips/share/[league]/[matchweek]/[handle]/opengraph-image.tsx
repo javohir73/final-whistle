@@ -5,7 +5,7 @@ import { leagueLabel } from "@/lib/leagueConfig";
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "Beat the AI tips result — FinalWhistle";
+export const alt = "Beat the model tips result — FinalWhistle";
 
 function parseIntParam(s: string): number | null {
   return /^\d+$/.test(s) ? Number(s) : null;
@@ -51,7 +51,7 @@ export default async function Image({
             <div style={{ display: "flex", fontSize: 64, fontWeight: 800, color: verdictColor }}>
               {share.player_points}/{share.player_of}
             </div>
-            <div style={{ display: "flex", fontSize: 32, fontWeight: 400, color: C.muted }}>vs the AI</div>
+            <div style={{ display: "flex", fontSize: 32, fontWeight: 400, color: C.muted }}>vs the model</div>
             <div style={{ display: "flex", fontSize: 64, fontWeight: 800, color: C.muted }}>
               {share.model_points}/{share.model_of}
             </div>

@@ -1,7 +1,7 @@
 /** Leaderboard: premium rows get a small supporter badge next to the display
  *  name; non-premium rows get nothing. Badge renders purely from
  *  `row.premium` — no client-side entitlement derivation. */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { getLeaderboard } from "@/lib/api";
 import type { LeaderboardRow } from "@/lib/types";
 
@@ -76,6 +76,7 @@ describe("LeaderboardClient — supporter badge", () => {
 
   it("shows La Liga's own record and season board without fetching World Cup brackets", async () => {
     render(<LeaderboardClient competition="laliga" />);
+    await act(async () => {});
 
     expect(screen.getByTestId("league-record")).toHaveTextContent("laliga");
     expect(screen.getByTestId("league-board")).toHaveTextContent("laliga-true");
@@ -87,8 +88,9 @@ describe("LeaderboardClient — supporter badge", () => {
     );
   });
 
-  it("shows NRL's own record and an honest empty season when no round is loaded", () => {
+  it("shows NRL's own record and an honest empty season when no round is loaded", async () => {
     render(<LeaderboardClient competition="nrl" nrlSeason={null} />);
+    await act(async () => {});
 
     expect(screen.getByTestId("nrl-record")).toBeInTheDocument();
     expect(screen.queryByTestId("nrl-board")).toBeNull();
@@ -104,16 +106,18 @@ describe("LeaderboardClient — My picks, scoped to a competition", () => {
     mockGetLeaderboard.mockResolvedValue(ROWS);
   });
 
-  it("defaults to a league -- never the finished World Cup bracket", () => {
+  it("defaults to a league -- never the finished World Cup bracket", async () => {
     render(<LeaderboardClient />);
+    await act(async () => {});
 
     expect(screen.getByTestId("league-record")).toHaveTextContent("epl");
     expect(screen.queryByText(/brackets/i)).toBeNull();
     expect(mockGetLeaderboard).not.toHaveBeenCalled();
   });
 
-  it("names the competition in the page's heading and landmark", () => {
+  it("names the competition in the page's heading and landmark", async () => {
     render(<LeaderboardClient competition="bundesliga" />);
+    await act(async () => {});
 
     expect(screen.getByRole("region", { name: "My picks · Bundesliga" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Bundesliga" })).toBeInTheDocument();
@@ -123,8 +127,9 @@ describe("LeaderboardClient — My picks, scoped to a competition", () => {
     );
   });
 
-  it("groups the switcher as Football · Rugby league · Past tournaments", () => {
+  it("groups the switcher as Football · Rugby league · Past tournaments", async () => {
     render(<LeaderboardClient competition="epl" />);
+    await act(async () => {});
 
     const nav = screen.getByRole("navigation", { name: "Competition" });
     const groups = within(nav).getAllByRole("group");
@@ -149,8 +154,9 @@ describe("LeaderboardClient — My picks, scoped to a competition", () => {
     await waitFor(() => expect(mockGetLeaderboard).toHaveBeenCalled());
   });
 
-  it("handles a competition with no tips loop yet without borrowing another's board", () => {
+  it("handles a competition with no tips loop yet without borrowing another's board", async () => {
     render(<LeaderboardClient competition="ucl" />);
+    await act(async () => {});
 
     expect(screen.getByText(/UEFA Champions League score-tip records are not available yet/)).toBeInTheDocument();
     expect(screen.queryByTestId("league-board")).toBeNull();

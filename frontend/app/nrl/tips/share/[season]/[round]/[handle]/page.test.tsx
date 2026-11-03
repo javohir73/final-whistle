@@ -34,29 +34,29 @@ it("renders the graded result, the CTA and the disclaimer", async () => {
 
   expect(mockShare).toHaveBeenCalledWith(2026, 7, "SwiftHalfback123");
   expect(
-    screen.getByText(/SwiftHalfback123 went 7\/8 — the AI went\s*6\/8/),
+    screen.getByText(/SwiftHalfback123 went 7\/8 — the model went\s*6\/8/),
   ).toBeInTheDocument();
-  expect(screen.getByText("SwiftHalfback123 beat the AI this round")).toBeInTheDocument();
+  expect(screen.getByText("SwiftHalfback123 beat the model this round")).toBeInTheDocument();
   expect(screen.getByText("Featured-match margin tiebreak score: 3")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Play against the AI/i })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: /Beat the model at the NRL/i })).toHaveAttribute(
     "href",
     "/nrl/tips",
   );
   expect(screen.getByText(share.disclaimer)).toBeInTheDocument();
 });
 
-it("frames the AI winning honestly when the model out-scored the player", async () => {
+it("frames the model winning honestly when the model out-scored the player", async () => {
   mockShare.mockResolvedValue({ ...share, player_points: 4, model_points: 6 });
   render(await NrlTipsShareCardPage({ params: params() }));
 
-  expect(screen.getByText("The AI came out on top this round")).toBeInTheDocument();
+  expect(screen.getByText("The model came out on top this round")).toBeInTheDocument();
 });
 
 it("frames a draw honestly when the two scores tie", async () => {
   mockShare.mockResolvedValue({ ...share, player_points: 6, model_points: 6 });
   render(await NrlTipsShareCardPage({ params: params() }));
 
-  expect(screen.getByText("SwiftHalfback123 drew with the AI this round")).toBeInTheDocument();
+  expect(screen.getByText("SwiftHalfback123 drew with the model this round")).toBeInTheDocument();
 });
 
 it("omits the margin note when the player never entered a featured-match margin guess", async () => {
@@ -70,9 +70,9 @@ it("softens the verdict to 'so far' and flags progress when the round isn't full
   mockShare.mockResolvedValue({ ...share, round_complete: false });
   render(await NrlTipsShareCardPage({ params: params() }));
 
-  expect(screen.getByText("SwiftHalfback123 is ahead of the AI so far this round")).toBeInTheDocument();
+  expect(screen.getByText("SwiftHalfback123 is ahead of the model so far this round")).toBeInTheDocument();
   expect(screen.getByText(/Round still in progress/)).toBeInTheDocument();
-  expect(screen.queryByText("SwiftHalfback123 beat the AI this round")).not.toBeInTheDocument();
+  expect(screen.queryByText("SwiftHalfback123 beat the model this round")).not.toBeInTheDocument();
 });
 
 it("does not show the in-progress note once the round is fully graded", async () => {

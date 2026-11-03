@@ -9,7 +9,7 @@ import { NrlTipsPlaySection } from "@/components/nrl/NrlTipsPlaySection";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "NRL tips this week — AI predictions with a public record",
+  title: "NRL tips this week — the model's picks, with a public record",
   description:
     "The model's pick for every fixture in this week's NRL round — win probability, expected margin, and a season record graded after full time, misses published too.",
   alternates: { canonical: "/nrl/tips" },
@@ -64,7 +64,7 @@ export default async function NrlTipsPage() {
         </Link>
       )}
 
-      {/* Beat-the-AI loop (Slice 2): play, "you vs the AI", leaderboard --
+      {/* Beat-the-model loop (Slice 2): play, "you vs the model", leaderboard --
        *  design doc scopes all of it to /nrl/tips, not the round permalinks. */}
       <NrlTipsPlaySection season={tipsheet.season} round={tipsheet.round} />
     </div>

@@ -1,20 +1,16 @@
 import Link from "next/link";
-import { BrandMark } from "@/components/Logo";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { PremiumPromo } from "@/components/PremiumPromo";
-import { NextUpStrip } from "@/components/play/NextUpStrip";
+import { PlatformHero } from "@/components/play/PlatformHero";
 import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
+import { isNrlOffSeasonDate, nrlReturnYear } from "@/lib/nrlTips";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
-/** The NRL runs early March to the Grand Final in early October. Derived from
- *  the date (this page is static, re-evaluated on every deploy) so the line
- *  can't rot the way the hard-coded "2026 season" card did. */
+/** Derived from the date (this page is static, re-evaluated on every deploy)
+ *  so the line can't rot the way the hard-coded "2026 season" card did. */
 export function nrlStatusLine(now: Date = new Date()): string {
-  const month = now.getMonth(); // 0 = January
-  const offSeason = month >= 9 || month <= 1; // October through February
-  if (!offSeason) return "Round-by-round predictions, ladder and tips";
-  const backYear = month >= 9 ? now.getFullYear() + 1 : now.getFullYear();
-  return `Season complete · back March ${backYear}`;
+  if (!isNrlOffSeasonDate(now)) return "Round-by-round predictions, ladder and tips";
+  return `Season complete · back March ${nrlReturnYear(now)}`;
 }
 
 function footballStatusLine(id: CompetitionId): string {
@@ -39,21 +35,6 @@ function ArrowIcon() {
       aria-hidden="true"
     >
       <path d="M5 12h14M14 7l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden="true"
-    >
-      <path d="m5 12 4 4L19 6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -98,70 +79,14 @@ function CompetitionRow({
 }
 
 /** The platform-level front door. Competition pages keep their own dense,
- * matchday-focused surfaces; this page only answers the first visit questions:
- * what FinalWhistle covers, what is on next, where to go, and what "Play"
- * means. The World Cup sits under "Past tournaments", below everything live. */
+ * matchday-focused surfaces; this page answers the first-visit questions: the
+ * game (beat the model at your competition) and the next fixtures to pick on
+ * the first screen, then where else to go. The World Cup sits under "Past
+ * tournaments", below everything live. */
 export function PlatformHome({ now }: { now?: Date } = {}) {
   return (
     <div className="-mt-8">
-      <section className="relative left-1/2 w-screen -translate-x-1/2 overflow-hidden border-b border-border pb-12 pt-12 sm:pb-16 sm:pt-16 lg:pb-20 lg:pt-20">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_72%_40%,hsl(var(--win)/0.07),transparent_32%)]"
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-24 h-px bg-gradient-to-r from-transparent via-win/15 to-transparent"
-        />
-
-        <div className="relative mx-auto max-w-6xl px-4 sm:px-5">
-          <div className="max-w-4xl">
-            <div className="mb-6 inline-flex items-center gap-2 text-label font-bold uppercase tracking-[0.16em] text-lime-deep">
-              <BrandMark className="h-5 w-auto" />
-              Sports, clearly explained
-            </div>
-            <h1 className="max-w-4xl font-display text-[clamp(2.8rem,8vw,6.5rem)] font-extrabold leading-[0.92] tracking-[-0.055em]">
-              Your matchday,
-              <span className="block text-lime-deep">all in one place.</span>
-            </h1>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-              Predictions, fixtures and form across football and rugby league—without
-              the noise.
-            </p>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="#competitions"
-                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-win px-5 font-display text-sm font-bold text-action-ink transition hover:brightness-105"
-              >
-                Choose a competition
-                <ArrowIcon />
-              </a>
-              <Link
-                href="/play"
-                className="inline-flex min-h-[48px] items-center justify-center rounded-xl border border-border bg-surface/50 px-5 font-display text-sm font-bold transition hover:border-win/40 hover:bg-surface"
-              >
-                Make your picks
-              </Link>
-            </div>
-
-            <div className="mt-9 flex flex-wrap gap-x-6 gap-y-2 border-t border-border/70 pt-5 text-xs font-medium text-muted">
-              {["Match probabilities", "Fixtures & tables", "Model track record"].map(
-                (item) => (
-                  <span key={item} className="inline-flex items-center gap-1.5">
-                    <span className="text-lime-deep">
-                      <CheckIcon />
-                    </span>
-                    {item}
-                  </span>
-                ),
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <NextUpStrip />
+      <PlatformHero now={now} />
 
       <section id="competitions" className="scroll-mt-32 py-10 sm:py-14">
         <div className="mb-5 flex items-end justify-between gap-4">

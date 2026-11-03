@@ -92,6 +92,7 @@ afterEach(() => {
 });
 
 it("lets an anonymous user choose a country and go straight to its dashboard", async () => {
+  const scrollToSpy = jest.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<HomeExperience initialTeams={teams} />);
 
   // Chooser appears (post-hydration).
@@ -108,6 +109,7 @@ it("lets an anonymous user choose a country and go straight to its dashboard", a
 
   // Selection persisted locally for the next visit.
   expect(localStorage.getItem("finalwhistle:selected-country:v1")).toContain("Brazil");
+  scrollToSpy.mockRestore();
 });
 
 it("resets scroll position when the dashboard swaps in after choosing a team", async () => {

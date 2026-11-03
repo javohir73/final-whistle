@@ -28,9 +28,15 @@ it("renders one clear route into every supported competition", () => {
     </AuthProvider>,
   );
 
+  // The first screen is the game, scoped to the visitor's competition (the
+  // EPL by default: no cookie or path in jsdom).
   expect(
-    screen.getByRole("heading", { name: "Your matchday, all in one place." }),
+    screen.getByRole("heading", { level: 1, name: "Beat the model at the Premier League." }),
   ).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Make your picks/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
   expect(screen.getByRole("link", { name: /Premier League/ })).toHaveAttribute(
     "href",
     "/football/epl",

@@ -275,10 +275,10 @@ function HomeDashboard({
         </div>
       </Link>
 
-      {/* ===== AI record so far (real, verified track record) ===== */}
+      {/* ===== Model record so far (real, verified track record) ===== */}
       {record && record.evaluated_matches > 0 && (
         <p className="mt-8 text-center text-sm text-muted">
-          ML model record so far: {record.winners_correct}/{record.evaluated_matches} winners
+          Model record so far: {record.winners_correct}/{record.evaluated_matches} winners
           {" · "}
           {record.exact_score_hits} exact score{record.exact_score_hits === 1 ? "" : "s"}
           {" · "}

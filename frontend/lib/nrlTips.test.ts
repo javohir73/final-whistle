@@ -1,4 +1,4 @@
-import { nrlSeasonState } from "./nrlTips";
+import { isNrlOffSeasonDate, nrlReturnYear, nrlSeasonState } from "./nrlTips";
 
 const NOW = new Date("2026-11-03T00:00:00Z");
 const day = (d: number) => new Date(NOW.getTime() + d * 86_400_000).toISOString();
@@ -26,4 +26,12 @@ it("is only between rounds in the days before the next draw lands", () => {
   expect(
     nrlSeasonState([{ status: "scheduled", kickoff_utc: day(-2) }, { status: "finished", kickoff_utc: day(-2) }], NOW),
   ).toBe("between-rounds");
+});
+
+it("knows the off-season from the calendar alone, and when the NRL is back", () => {
+  expect(isNrlOffSeasonDate(new Date("2026-11-03T00:00:00Z"))).toBe(true);
+  expect(isNrlOffSeasonDate(new Date("2027-02-15T00:00:00Z"))).toBe(true);
+  expect(isNrlOffSeasonDate(new Date("2027-04-15T00:00:00Z"))).toBe(false);
+  expect(nrlReturnYear(new Date("2026-11-03T00:00:00Z"))).toBe(2027);
+  expect(nrlReturnYear(new Date("2027-02-15T00:00:00Z"))).toBe(2027);
 });

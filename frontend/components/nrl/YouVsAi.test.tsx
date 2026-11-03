@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { YouVsAi } from "./YouVsAi";
 import { getNrlTipsSummary } from "@/lib/nrlTips";
 import { getOrCreateDeviceId } from "@/lib/session";
@@ -96,9 +96,9 @@ it("shares the player's own share-page URL for a graded round", async () => {
   // ShareButton's accessible name is its constant aria-label ("Share this
   // page"), not the visible `label` text -- same as ShareButton.test.tsx.
   const shareButton = await screen.findByRole("button");
-  shareButton.click();
+  fireEvent.click(shareButton);
   // Desktop: the explicit targets menu (Copy link / WhatsApp / Telegram).
-  (await screen.findByRole("menuitem", { name: "Copy link" })).click();
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Copy link" }));
 
   await screen.findByText("Link copied!");
   expect(writeText).toHaveBeenCalledWith(
