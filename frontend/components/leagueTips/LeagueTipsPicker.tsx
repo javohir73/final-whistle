@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TeamBadge } from "@/components/TeamBadge";
 import { Empty, ErrorState, Loading } from "@/components/States";
+import { trackEvent } from "@/lib/analytics";
+import { recordEngagement } from "@/lib/engagement";
 import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
 import { formatScore } from "@/lib/format";
 import { kickoffDate, kickoffTime } from "@/lib/datetime";
@@ -55,6 +57,35 @@ function kickoffLabel(iso: string | null, tz: string): string {
   return `${kickoffDate(iso, tz)} · ${kickoffTime(iso, tz)}`;
 }
 
+/** Same lock rule PredictionRow renders: not pickable by status, or a
+ *  scheduled fixture whose kickoff has passed (status lag or a ghost row). */
+function isLocked(match: LeagueTipsMineMatch, now: number): boolean {
+  return (
+    !isPickable(match.status) ||
+    (match.status === "scheduled" &&
+      match.kickoff_utc != null &&
+      now >= new Date(match.kickoff_utc).getTime())
+  );
+}
+
+/** Can the player still make a meaningful pick in this matchweek? Stricter
+ *  than "some row is editable": a postponed fixture keeps its ORIGINAL
+ *  kickoff, so one postponed weeks ago must not anchor the picker to a
+ *  matchweek that is otherwise over. */
+function hasOpenFixture(matches: LeagueTipsMineMatch[], now: number): boolean {
+  return matches.some(
+    (m) =>
+      !isLocked(m, now) &&
+      (m.kickoff_utc == null || new Date(m.kickoff_utc).getTime() > now),
+  );
+}
+
+/** "done" only when every fixture is settled; anything still in play or
+ *  awaiting a result is "locked" -- the same word the rows use. */
+function closedWeekLabel(matches: LeagueTipsMineMatch[]): "done" | "locked" {
+  return matches.every((m) => m.status === "finished" || m.status === "cancelled") ? "done" : "locked";
+}
+
 /** "Beat the AI's scoreline" (design doc: League Score Predictions,
  *  2026-07-24) -- the football-league port of components/nrl/PlayRound.tsx.
  *  Unlike NRL there is no separate public tipsheet endpoint: /tips/mine is
@@ -103,6 +134,16 @@ export function LeagueTipsPicker({
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [draftHome, setDraftHome] = useState<Record<number, string>>({});
   const [draftAway, setDraftAway] = useState<Record<number, string>>({});
+  // Safety net: the server's "current" matchweek can be one with nothing left
+  // to pick (a status update lagging after kickoff, or a ghost fixture still
+  // marked scheduled). The initial, server-resolved load then moves on to the
+  // next matchweek exactly once per league -- never after the player's own
+  // prev/next, and never twice, so it cannot loop. `advancing` keeps the
+  // locked week off screen (and away from onMatchweekChange) until the
+  // advance resolves; `advanceNotice` is the one-line "why".
+  const autoAdvancedFor = useRef<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const [advanceNotice, setAdvanceNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -128,6 +169,22 @@ export function LeagueTipsPicker({
         setCurrent({ ...res, matches: merged });
         setSeasonNotStarted(false);
         setBoundary({ prev: false, next: false });
+        if (
+          requested == null &&
+          autoAdvancedFor.current !== league &&
+          !hasOpenFixture(res.matches, Date.now())
+        ) {
+          autoAdvancedFor.current = league;
+          setAdvancing(true);
+          setRequested(res.matchweek + 1); // same request path as the "next" button
+          return;
+        }
+        if (advancing && current && res.matchweek !== current.matchweek) {
+          setAdvanceNotice(
+            `Matchweek ${current.matchweek} is ${closedWeekLabel(current.matches)} — showing Matchweek ${res.matchweek}`,
+          );
+        }
+        setAdvancing(false);
         onMatchweekChange?.(res.matchweek);
       })
       .catch((err) => {
@@ -141,6 +198,12 @@ export function LeagueTipsPicker({
           // last good matchweek and just flag that direction as exhausted.
           setBoundary((b) => ({ ...b, [requested < current.matchweek ? "prev" : "next"]: true }));
           setNavError(`No ${league} matches loaded for that matchweek yet.`);
+          if (advancing) {
+            // The auto-advance found nothing after the loaded week: stay on
+            // it, now announced as the week on screen.
+            setAdvancing(false);
+            onMatchweekChange?.(current.matchweek);
+          }
           return;
         }
         setLoadError(err instanceof ApiError ? err.message : "Couldn't load this matchweek's tips.");
@@ -211,6 +274,10 @@ export function LeagueTipsPicker({
         // Retention instrumentation (same best-effort call ActivityPing
         // fires on every page load, not a new analytics path).
         pingDailyActivity().catch(() => {});
+        // A scored pick is the engagement signal the install prompt waits
+        // for, and the loop's own funnel event.
+        recordEngagement("pick");
+        trackEvent("tips_submit", { competition: league, matchweek: current.matchweek, match_id: matchId });
       } catch (err) {
         setCurrent((cur) => cur && { ...cur, matches: prevMatches }); // never claim a rejected score was saved
         setDraftHome((d) => {
@@ -249,10 +316,17 @@ export function LeagueTipsPicker({
     );
   }
   if (loadError) return <ErrorState message={loadError} onRetry={() => setAttempt((a) => a + 1)} />;
-  if (!current) return <Loading label="Loading this matchweek's tips…" />;
+  if (!current || advancing) return <Loading label="Loading this matchweek's tips…" />;
 
   const prevWeek = current.matchweek - 1;
   const nextWeek = current.matchweek + 1;
+  const open = hasOpenFixture(current.matches, now.getTime());
+
+  // Explicit navigation always wins over the safety net's notice.
+  function goTo(matchweek: number) {
+    setAdvanceNotice(null);
+    setRequested(matchweek);
+  }
 
   return (
     <section>
@@ -265,7 +339,7 @@ export function LeagueTipsPicker({
         {prevWeek >= 1 && !boundary.prev ? (
           <button
             type="button"
-            onClick={() => setRequested(prevWeek)}
+            onClick={() => goTo(prevWeek)}
             className="inline-flex min-h-[44px] items-center rounded-lg px-1 text-sm font-semibold text-lime-deep transition hover:bg-win/10"
           >
             ← Matchweek {prevWeek}
@@ -277,7 +351,7 @@ export function LeagueTipsPicker({
         {!boundary.next ? (
           <button
             type="button"
-            onClick={() => setRequested(nextWeek)}
+            onClick={() => goTo(nextWeek)}
             className="inline-flex min-h-[44px] items-center rounded-lg px-1 text-sm font-semibold text-lime-deep transition hover:bg-win/10"
           >
             Matchweek {nextWeek} →
@@ -287,10 +361,17 @@ export function LeagueTipsPicker({
         )}
       </div>
       {navError ? <p className="mb-3 text-center text-xs text-muted">{navError}</p> : null}
+      {advanceNotice ? (
+        <p role="status" className="mb-3 text-center text-xs font-semibold text-lime-deep">
+          {advanceNotice}
+        </p>
+      ) : null}
 
-      <p className="mb-3 text-center text-xs text-muted">
-        Make your prediction to reveal the model&apos;s frozen scoreline. Locked fixtures reveal it automatically.
-      </p>
+      {open ? (
+        <p className="mb-3 text-center text-xs text-muted">
+          Make your prediction to reveal the model&apos;s frozen scoreline. Locked fixtures reveal it automatically.
+        </p>
+      ) : null}
 
       {current.matches.length === 0 ? (
         <Empty label="No fixtures for this matchweek." />
@@ -343,11 +424,7 @@ function PredictionRow({
   onSubmit: (home: number, away: number) => void;
 }) {
   const stopped = stoppedLabel(match.status);
-  const locked =
-    !isPickable(match.status) ||
-    (match.status === "scheduled" &&
-      match.kickoff_utc != null &&
-      now.getTime() >= new Date(match.kickoff_utc).getTime());
+  const locked = isLocked(match, now.getTime());
   const your = match.your_prediction;
   // Keep the model hidden until the user has picked or the fixture is locked.
   // This also protects rolling deploys where an older API still returns model

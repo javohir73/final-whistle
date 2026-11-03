@@ -28,9 +28,6 @@ const mockKnockoutOdds = getKnockoutOddsServer as jest.MockedFunction<typeof get
 // components each fetch on mount -- stub them (mirrors
 // components/leagueTips/LeagueTipsPlaySection.test.tsx) so this test exercises
 // the composition, not their client fetch/localStorage paths.
-jest.mock("@/components/leagueTips/ClaimDeviceLeagueTips", () => ({
-  ClaimDeviceLeagueTips: () => <div data-testid="claim" />,
-}));
 jest.mock("@/components/leagueTips/LeagueTipsPicker", () => ({
   LeagueTipsPicker: ({ league }: { league: string; onMatchweekChange?: (mw: number) => void }) => (
     <div data-testid={`picker-${league}`}>{league}</div>
@@ -50,9 +47,6 @@ jest.mock("@/components/leagueTips/LeagueTipsLeaderboard", () => ({
 // components/nrl/*.test.tsx) so this test exercises the composition and that
 // the play round + leaderboard get the seeded season/round, not their fetch
 // paths.
-jest.mock("@/components/nrl/ClaimDeviceTips", () => ({
-  ClaimDeviceTips: () => <div data-testid="nrl-claim" />,
-}));
 jest.mock("@/components/nrl/PlayRound", () => ({
   PlayRound: ({ season, round }: { season: number; round: number }) => (
     <div data-testid="nrl-play-round">{`${season}-${round}`}</div>

@@ -69,7 +69,6 @@ export function PlayHub({
                 defaultLeague={league}
                 showLeaderboard={false}
                 showLeagueSwitcher={false}
-                showClaim={league === ACTIVE_LEAGUES[0]}
                 onMatchweekResolved={(matchweek) => setLeagueMatchweek(league, matchweek)}
               />
             </div>

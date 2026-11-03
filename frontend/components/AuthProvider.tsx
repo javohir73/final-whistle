@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   getMe,
+  getOrCreateDeviceId,
   logout as apiLogout,
   deleteAccount as apiDeleteAccount,
   loadUserHint,
@@ -10,6 +11,8 @@ import {
   clearUserHint,
   type SessionUser,
 } from "@/lib/session";
+import { trackEvent } from "@/lib/analytics";
+import { claimNrlTips } from "@/lib/nrlTips";
 import { AuthModal } from "@/components/AuthModal";
 import { AuthToast } from "@/components/AuthToast";
 import { VerifyEmailBanner } from "@/components/VerifyEmailBanner";
@@ -55,20 +58,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // resolving AFTER a successful login must not sign the fresh session out.
   const generationRef = useRef(0);
 
+  // Merge-on-signup for the tips loops: attach this device's anonymous picks
+  // (NRL tips AND football scoreline tips — one endpoint claims both, see
+  // backend nrl_user_tips.claim_device_tips) to the account. It lives here so
+  // every sign-in merges, whichever page it happened on; it used to run only
+  // where an EPL or NRL tips section happened to be mounted. Runs once per
+  // account per page session: on a fresh sign-in/sign-up, and on a session
+  // confirmed by /me at load (anonymous picks this device made since the last
+  // merge get folded in). Idempotent server-side; failures are swallowed and
+  // simply retried on the next sign-in or page load.
+  const claimedForRef = useRef<number | null>(null);
+  const claimDeviceTips = useCallback((account: SessionUser, trigger: "signin" | "session") => {
+    if (claimedForRef.current === account.id) return;
+    const deviceId = getOrCreateDeviceId();
+    if (!deviceId) return;
+    claimedForRef.current = account.id;
+    Promise.resolve()
+      .then(() => claimNrlTips(deviceId))
+      .then((res) => trackEvent("tips_claim", { claimed_tips: res.claimed_tips, trigger }))
+      .catch(() => {
+        if (claimedForRef.current === account.id) claimedForRef.current = null;
+      });
+  }, []);
+
   const refresh = useCallback(async () => {
     const gen = ++generationRef.current;
     try {
       const me = await getMe(); // user (200) | null (401) | throws (network/cold start)
       if (gen !== generationRef.current) return; // superseded — drop stale result
       setUser(me);
-      if (me) saveUserHint(me);
-      else clearUserHint();
+      if (me) {
+        saveUserHint(me);
+        claimDeviceTips(me, "session");
+      } else clearUserHint();
     } catch {
       // Transient failure — keep whatever we already have (hint/last good user).
     } finally {
       if (gen === generationRef.current) setLoading(false);
     }
-  }, []);
+  }, [claimDeviceTips]);
 
   // On mount: paint from the cached hint immediately, then reconcile with /me.
   // A guest with no hint has never signed in on this device, so /auth/me would
@@ -107,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await Promise.allSettled([...flushersRef.current].map((fn) => fn()));
     await apiLogout();
     clearUserHint();
+    claimedForRef.current = null; // a later sign-in on this page claims again
     setUser(null);
   }, []);
 
@@ -133,13 +162,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveUserHint(authedUser);
     setLoading(false);
     setModalOpen(false);
+    claimDeviceTips(authedUser, "signin");
     if (isNew) {
       const name = authedUser.display_name?.trim();
       setToast(name ? `Welcome, ${name}! Your account is ready.` : "Your account is ready 🎉");
     }
     onSuccessRef.current?.();
     onSuccessRef.current = undefined;
-  }, []);
+  }, [claimDeviceTips]);
 
   return (
     <AuthContext.Provider

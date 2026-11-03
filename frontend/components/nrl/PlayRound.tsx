@@ -5,7 +5,9 @@ import { ClubBadge } from "@/components/ClubBadge";
 import { ConfidenceRing } from "@/components/ConfidenceRing";
 import { ErrorState, Loading } from "@/components/States";
 import { kickoffLabel } from "@/components/nrl/TipsheetBlock";
+import { trackEvent } from "@/lib/analytics";
 import { confidenceTier } from "@/lib/confidenceTier";
+import { recordEngagement } from "@/lib/engagement";
 import { getMyNrlTips, submitNrlTip } from "@/lib/nrlTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -159,6 +161,10 @@ export function PlayRound({
         // existing activity-ping client") -- reuse the same best-effort call
         // ActivityPing fires on every page load, not a new analytics path.
         pingDailyActivity().catch(() => {});
+        // A scored tip is the engagement signal the install prompt waits for,
+        // and the loop's own funnel event.
+        recordEngagement("pick");
+        trackEvent("tips_submit", { competition: "nrl", round, match_id: matchId });
       } catch (err) {
         setMatches(prevMatches ?? null); // never claim a rejected pick was saved
         setRowError((e) => ({

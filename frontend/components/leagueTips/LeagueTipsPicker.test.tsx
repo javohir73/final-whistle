@@ -1,10 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LeagueTipsPicker } from "./LeagueTipsPicker";
 import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
-import type { LeagueTipsMineResponse } from "@/lib/types";
+import { trackEvent } from "@/lib/analytics";
+import { loadEngagement } from "@/lib/engagement";
+import type { LeagueTipsMineMatch, LeagueTipsMineResponse } from "@/lib/types";
 
 jest.mock("@/lib/leagueTips");
+jest.mock("@/lib/analytics");
 jest.mock("@/lib/session", () => {
   const actual = jest.requireActual("@/lib/session");
   return { ...actual, getOrCreateDeviceId: jest.fn(), pingDailyActivity: jest.fn() };
@@ -14,6 +17,7 @@ const mockMine = getMyLeagueTips as jest.MockedFunction<typeof getMyLeagueTips>;
 const mockSubmit = submitLeagueTip as jest.MockedFunction<typeof submitLeagueTip>;
 const mockDeviceId = getOrCreateDeviceId as jest.MockedFunction<typeof getOrCreateDeviceId>;
 const mockPing = pingDailyActivity as jest.MockedFunction<typeof pingDailyActivity>;
+const mockTrack = trackEvent as jest.MockedFunction<typeof trackEvent>;
 
 // resetAllMocks (below) wipes any implementation set inside the jest.mock
 // factory too, so the device id / ping stubs are (re)installed per test here
@@ -340,4 +344,159 @@ it("keeps a postponed fixture editable after its original kickoff", async () => 
   render(<LeagueTipsPicker league="epl" />);
   expect(await screen.findByText("Postponed")).toBeInTheDocument();
   expect(screen.getByRole("group", { name: /Arsenal vs Chelsea/i })).toBeInTheDocument();
+});
+
+// ---- Safety net: a matchweek with nothing left to pick (C2-1) ----------------
+
+function fixture(id: number, overrides: Partial<LeagueTipsMineMatch> = {}): LeagueTipsMineMatch {
+  return {
+    id, home: `Home ${id}`, away: `Away ${id}`, kickoff_utc: future(60), status: "scheduled",
+    score_home: null, score_away: null, model: null, your_prediction: null,
+    ...overrides,
+  };
+}
+const fullTime = (id: number) =>
+  fixture(id, { kickoff_utc: past(3 * 24 * 60), status: "finished", score_home: 2, score_away: 1 });
+
+it("auto-advances once from an initial matchweek with nothing left to pick, and says so", async () => {
+  const onMatchweekChange = jest.fn();
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 9, matches: [fullTime(901), fullTime(902)] }));
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 10, matches: [fixture(1001)] }));
+
+  render(<LeagueTipsPicker league="laliga" onMatchweekChange={onMatchweekChange} />);
+
+  expect(await screen.findByText("Matchweek 9 is done — showing Matchweek 10")).toBeInTheDocument();
+  expect(mockMine).toHaveBeenNthCalledWith(1, "laliga", "device-1", undefined);
+  expect(mockMine).toHaveBeenNthCalledWith(2, "laliga", "device-1", 10);
+  expect(screen.getByRole("group", { name: /Home 1001 vs Away 1001/ })).toBeInTheDocument();
+  // The leaderboard above only ever hears about the week actually shown.
+  expect(onMatchweekChange).toHaveBeenCalledTimes(1);
+  expect(onMatchweekChange).toHaveBeenCalledWith(10);
+});
+
+it("treats a ghost fixture still marked scheduled after kickoff as nothing to pick", async () => {
+  mockMine.mockResolvedValueOnce(
+    mine({ matchweek: 2, matches: [fullTime(201), fixture(202, { kickoff_utc: past(60 * 24 * 70) })] }),
+  );
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 3, matches: [fixture(301)] }));
+
+  render(<LeagueTipsPicker league="laliga" />);
+
+  expect(await screen.findByText("Matchweek 2 is locked — showing Matchweek 3")).toBeInTheDocument();
+  expect(mockMine).toHaveBeenLastCalledWith("laliga", "device-1", 3);
+});
+
+it("never loops: advances at most once even when the next matchweek is locked too", async () => {
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 9, matches: [fullTime(901)] }));
+  mockMine.mockResolvedValueOnce(
+    mine({ matchweek: 10, matches: [fixture(1001, { kickoff_utc: past(30) })] }),
+  );
+  mockMine.mockResolvedValue(mine({ matchweek: 11, matches: [fixture(1101)] }));
+
+  render(<LeagueTipsPicker league="epl" />);
+
+  expect(await screen.findByText("Matchweek 9 is done — showing Matchweek 10")).toBeInTheDocument();
+  await act(async () => {});
+  expect(mockMine).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("Matchweek 10")).toBeInTheDocument();
+});
+
+it("stays on a matchweek that still has an open fixture", async () => {
+  mockMine.mockResolvedValue(mine({ matchweek: 9, matches: [fullTime(901), fixture(902)] }));
+
+  render(<LeagueTipsPicker league="epl" />);
+
+  expect(await screen.findByText("Matchweek 9")).toBeInTheDocument();
+  await act(async () => {});
+  expect(mockMine).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText(/is done — showing/)).not.toBeInTheDocument();
+});
+
+it("does not auto-advance after an explicit prev navigation to a finished matchweek", async () => {
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 10, matches: [fixture(1001)] }));
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 9, matches: [fullTime(901), fullTime(902)] }));
+  mockMine.mockResolvedValue(mine({ matchweek: 10, matches: [fixture(1001)] }));
+
+  render(<LeagueTipsPicker league="epl" />);
+  await screen.findByText("Matchweek 10");
+
+  fireEvent.click(screen.getByRole("button", { name: /Matchweek 9/ }));
+  expect(await screen.findByText("Matchweek 9")).toBeInTheDocument();
+  await act(async () => {});
+  expect(mockMine).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText(/is done — showing/)).not.toBeInTheDocument();
+});
+
+it("clears the auto-advance notice once the player navigates themselves", async () => {
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 9, matches: [fullTime(901)] }));
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 10, matches: [fixture(1001)] }));
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 9, matches: [fullTime(901)] }));
+
+  render(<LeagueTipsPicker league="epl" />);
+  await screen.findByText("Matchweek 9 is done — showing Matchweek 10");
+
+  fireEvent.click(screen.getByRole("button", { name: /Matchweek 9/ }));
+  expect(await screen.findByText("Matchweek 9")).toBeInTheDocument();
+  expect(screen.queryByText(/is done — showing/)).not.toBeInTheDocument();
+});
+
+it("stays on the loaded matchweek with the existing message when the advance hits the end", async () => {
+  const onMatchweekChange = jest.fn();
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 38, matches: [fullTime(3801)] }));
+  mockMine.mockRejectedValueOnce(new ApiError(404, "matchweek_not_found", "No matches for matchweek 39"));
+
+  render(<LeagueTipsPicker league="epl" onMatchweekChange={onMatchweekChange} />);
+
+  expect(await screen.findByText(/No epl matches loaded for that matchweek yet\./)).toBeInTheDocument();
+  expect(screen.getByText("Matchweek 38")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Matchweek 39/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/showing Matchweek/)).not.toBeInTheDocument();
+  expect(onMatchweekChange).toHaveBeenCalledWith(38);
+});
+
+it("does not ask for a prediction on a matchweek with nothing left to pick", async () => {
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 10, matches: [fixture(1001)] }));
+  mockMine.mockResolvedValueOnce(mine({ matchweek: 9, matches: [fullTime(901)] }));
+
+  render(<LeagueTipsPicker league="epl" />);
+  expect(await screen.findByText(/Make your prediction to reveal/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Matchweek 9/ }));
+  await screen.findByText("Matchweek 9");
+  expect(screen.queryByText(/Make your prediction to reveal/)).not.toBeInTheDocument();
+});
+
+// ---- Engagement + analytics on a confirmed submit (C2-3) --------------------
+
+it("counts a confirmed submit as engagement and tracks tips_submit", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockResolvedValue({
+    ok: true, handle: "SwiftStriker42",
+    model: { predicted_home: 2, predicted_away: 1, model_version: "poisson-elo-club-v0.1" },
+    prediction: { match_id: 501, predicted_home: 0, predicted_away: 0, updated_at: "2026-08-22T10:00:00+00:00" },
+  });
+
+  render(<LeagueTipsPicker league="epl" />);
+  await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
+  expect(loadEngagement().picks).toBe(0);
+
+  fireEvent.click(screen.getByRole("button", { name: /Lock prediction and reveal model/i }));
+
+  await waitFor(() =>
+    expect(mockTrack).toHaveBeenCalledWith("tips_submit", { competition: "epl", matchweek: 3, match_id: 501 }),
+  );
+  expect(loadEngagement().picks).toBe(1);
+});
+
+it("neither counts nor tracks a rejected submit", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockRejectedValue(new ApiError(422, "match_locked", "Match 501 has kicked off and is locked."));
+
+  render(<LeagueTipsPicker league="epl" />);
+  await screen.findByRole("group", { name: /Arsenal vs Chelsea/i });
+  fireEvent.click(screen.getByRole("button", { name: /Lock prediction and reveal model/i }));
+
+  expect(await screen.findByText("Match 501 has kicked off and is locked.")).toBeInTheDocument();
+  expect(mockTrack).not.toHaveBeenCalledWith("tips_submit", expect.anything());
+  expect(loadEngagement().picks).toBe(0);
 });
