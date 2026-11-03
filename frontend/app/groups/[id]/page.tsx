@@ -7,6 +7,11 @@ import { APP_NAME } from "@/lib/constants";
 import { GroupTable } from "@/components/GroupTable";
 import { GroupFixtureList } from "@/components/GroupFixtureList";
 import { ShareButton } from "@/components/ShareButton";
+import { COMPETITIONS } from "@/lib/sports";
+
+/** Served at /football/wc26/groups/[id]; every exit links its final URL
+ *  (the legacy /groups, /brackets and /matches paths are redirect hops). */
+const WC26_BASE = COMPETITIONS.wc26.basePath;
 
 export async function generateMetadata({
   params,
@@ -49,7 +54,7 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ id
   return (
     <div className="fade-up mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/groups" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
+        <Link href={`${WC26_BASE}/groups`} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
           <span aria-hidden>←</span> All groups
         </Link>
         <ShareButton title={`${group.name} — ${tournament.name} standings`} />
@@ -83,8 +88,8 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ id
           Explore
         </h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <ExploreLink href="/brackets" label="Tournament odds" sub="Qualification, title & round-by-round" />
-          <ExploreLink href="/matches" label="All matches" sub="Every fixture across the groups" />
+          <ExploreLink href={`${WC26_BASE}/bracket`} label="Tournament odds" sub="Qualification, title & round-by-round" />
+          <ExploreLink href={`${WC26_BASE}/fixtures`} label="All matches" sub="Every fixture across the groups" />
         </div>
       </section>
     </div>

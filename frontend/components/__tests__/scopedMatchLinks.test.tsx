@@ -7,6 +7,8 @@
 import { render, screen } from "@testing-library/react";
 import { GroupFixtureList } from "@/components/GroupFixtureList";
 import { GroupTable } from "@/components/GroupTable";
+import { GroupCard } from "@/components/GroupCard";
+import { TeamFixtures } from "@/components/TeamFixtures";
 import { EmbedPredictionCard } from "@/components/EmbedPredictionCard";
 import { parseEmbedConfig } from "@/lib/embed-utils";
 import { SITE_URL } from "@/lib/constants";
@@ -80,4 +82,57 @@ it("sends the embed backlink through the /match/:id lookup, keeping utm_source",
   expect(backlink).toHaveAttribute("href", `${SITE_URL}/match/198?utm_source=embed`);
   // (The origin itself is fifa-wc26-prediction, so check the path.)
   expect(new URL(backlink.getAttribute("href")!).pathname).not.toContain("/football/wc26");
+});
+
+it("links a group card and its teams to the World Cup's scoped pages by default", () => {
+  const group = {
+    id: 3,
+    name: "Group C",
+    standings: [
+      {
+        team_id: 10,
+        team: "Brazil",
+        projected_points: 6,
+        projected_goals_for: 4,
+        projected_goal_diff: 3,
+        qualification_prob: 0.9,
+      },
+    ],
+  };
+  render(<GroupCard group={group} />);
+  expect(screen.getByRole("link", { name: /Group C/ })).toHaveAttribute(
+    "href",
+    "/football/wc26/groups/3",
+  );
+  expect(screen.getByRole("link", { name: /Brazil/ })).toHaveAttribute(
+    "href",
+    "/football/wc26/team/10",
+  );
+});
+
+describe("TeamFixtures", () => {
+  const upcoming = (id: number, competition?: string) =>
+    ({
+      ...fixture(id),
+      teams: { home: "Arsenal", away: "Spurs" },
+      kickoff_utc: new Date(Date.now() + 86_400_000).toISOString(),
+      competition,
+    }) as MatchSummary;
+
+  it("uses the caller's scoped base path (the team page passes its own)", () => {
+    render(
+      <TeamFixtures matches={[upcoming(5)]} teamName="Arsenal" matchBasePath="/football/epl/match" />,
+    );
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/football/epl/match/5");
+  });
+
+  it("falls back to each fixture's own competition when it is known", () => {
+    render(<TeamFixtures matches={[upcoming(5, "laliga")]} teamName="Arsenal" />);
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/football/laliga/match/5");
+  });
+
+  it("otherwise uses the /match/:id lookup, never a WC26 guess", () => {
+    render(<TeamFixtures matches={[upcoming(5)]} teamName="Arsenal" />);
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/match/5");
+  });
 });

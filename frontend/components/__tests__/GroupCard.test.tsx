@@ -20,13 +20,14 @@ it("is a real link to the group (middle-click / copy-link / ctrl-click all work)
   render(<GroupCard group={group} />);
   const link = screen.getByRole("link", { name: /Group A/i });
   expect(link.tagName).toBe("A");
-  expect(link).toHaveAttribute("href", "/groups/1");
+  // Straight to the World Cup's scoped URL, not the legacy /groups redirect.
+  expect(link).toHaveAttribute("href", "/football/wc26/groups/1");
 });
 
 it("clicking a team name goes to the team, not the group", () => {
   render(<GroupCard group={group} />);
   const teamLink = screen.getByRole("link", { name: /Mexico/i });
-  expect(teamLink).toHaveAttribute("href", "/team/10");
+  expect(teamLink).toHaveAttribute("href", "/football/wc26/team/10");
   // The card link and the team link are independent real anchors (the team
   // link sits above the card's stretched link, not nested inside it), so
   // clicking one never fires the other.

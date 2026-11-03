@@ -7,13 +7,17 @@ import { TeamBadge } from "@/components/TeamBadge";
 import { formatScore, pct } from "@/lib/format";
 import type { MatchSummary } from "@/lib/types";
 import { stoppedLabel, willBePlayed } from "@/lib/matchStatus";
+import { footballMatchHrefOrLookup } from "@/lib/sports";
 
 /** Client island: a team's fixtures in the user's timezone. The soonest match
- *  that hasn't finished is flagged "Next". Each row links to the match page. */
+ *  that hasn't finished is flagged "Next". Each row links to the match page:
+ *  under the caller's scoped `matchBasePath` (the team page passes its own
+ *  /football/{comp}/match), else the fixture's own competition when the feed
+ *  names it, else the /match/:id lookup -- never a guessed competition. */
 export function TeamFixtures({
   matches,
   teamName,
-  matchBasePath = "/match",
+  matchBasePath,
   badge = "flag",
 }: {
   matches: MatchSummary[];
@@ -62,7 +66,11 @@ export function TeamFixtures({
         return (
           <li key={m.match_id}>
             <Link
-              href={`${matchBasePath}/${m.match_id}`}
+              href={
+                matchBasePath
+                  ? `${matchBasePath}/${m.match_id}`
+                  : footballMatchHrefOrLookup(m.match_id, m.competition)
+              }
               className="flex items-center gap-3 py-3 transition hover:text-lime-deep"
             >
               <span className="w-20 shrink-0 text-xs text-muted">
