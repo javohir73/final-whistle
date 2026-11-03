@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
 import { getKnockoutOddsServer, getNrlTipsheetServer } from "@/lib/api";
+import { parseCompetition } from "@/lib/competitionPrefs";
+import { readServerCompetition } from "@/lib/competitionServer";
+import { nrlSeasonStart, nrlSeasonState } from "@/lib/nrlTips";
 import { getCompetitionTournament } from "@/lib/tournament";
 import type { TournamentOdds } from "@/lib/types";
 import type { BracketChampion } from "@/components/play/PlayBracketCard";
 import { PlayHub } from "./PlayHub";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
-// Same ISR posture as /nrl/tips and /tips -- the shell is evergreen (nothing
-// user-specific here; picks and leaderboards resolve inside the client
-// sections), so the round rolls week to week under one stable URL.
+// The page is request-dependent (?competition=, else the visitor's current
+// competition), so it renders per request; the backend fetches below keep
+// their own Data Cache revalidate, and picks and leaderboards still resolve
+// inside the client sections.
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "Play — beat the AI across every competition",
+  title: "Beat the model — Premier League, La Liga, Bundesliga and NRL picks",
   description:
-    "One place to make your picks against the model: the World Cup bracket, league score tips, and this week's NRL round — every pick graded on a public record.",
+    "Pick the scores against FinalWhistle's model, matchweek by matchweek: 5 points for an exact score, 2 for the right result, every pick graded on a public leaderboard.",
   alternates: { canonical: "/play" },
 };
 
@@ -30,37 +34,49 @@ function topChampion(odds: TournamentOdds[]): BracketChampion | null {
   return top ? { team: top.team, winTitle: top.win_title as number } : null;
 }
 
-/** The Floodlight Play hub (design: Floodlight Implementation Plan, P5). Merges
- *  the WC26 bracket, league tips and NRL tips into one surface grouped by sport.
- *  Server-fetches, in parallel: the current NRL round (seeds the NRL group, same
- *  call as /nrl/tips), the active tournament (gates the bracket entry on
- *  `has_brackets`, exactly as app/brackets does), and the knockout odds (surface
- *  the predicted champion on the bracket card). Each degrades honestly to
- *  null/false so the hub always renders. League tips carry no public seed (they
- *  resolve client-side, exactly as /tips does today). */
+/** The Play hub ("Beat the model"): every competition you can play against
+ *  the model, current competition first. Server-fetches, in parallel: the
+ *  current NRL round (always -- it's ISR-cached, and the NRL section can now
+ *  be opened client-side alongside others), plus the World Cup tournament and
+ *  knockout odds only when the World Cup is the requested competition (its
+ *  bracket card degrades to a plain link otherwise). Each degrades honestly
+ *  to null/false so the hub always renders. League tips carry no public seed
+ *  (they resolve client-side). */
 type PlayPageProps = {
   searchParams?: Promise<{ competition?: string | string[] }>;
 };
 
 export default async function PlayPage({ searchParams }: PlayPageProps) {
+  // `?competition=` when it names a real competition (parseCompetition is an
+  // own-property check: "toString" is not a competition), else the visitor's
+  // current competition -- the same scope the nav shows (middleware's
+  // x-fw-comp / the fw_comp cookie, then geo, then EPL). An NRL or La Liga
+  // visitor's Play tab therefore opens on their own competition.
   const raw = (await searchParams)?.competition;
-  const candidate = Array.isArray(raw) ? raw[0] : raw;
   const selectedCompetition: CompetitionId =
-    candidate && candidate in COMPETITIONS ? (candidate as CompetitionId) : "epl";
+    parseCompetition(Array.isArray(raw) ? raw[0] : raw) ?? (await readServerCompetition());
 
   const [nrlTipsheet, tournament, odds] = await Promise.all([
-    selectedCompetition === "nrl" ? getNrlTipsheetServer().catch(() => null) : null,
+    getNrlTipsheetServer().catch(() => null),
     selectedCompetition === "wc26" ? getCompetitionTournament("wc26") : null,
     selectedCompetition === "wc26" ? getKnockoutOddsServer().catch(() => null) : null,
   ]);
 
-  const hasBrackets = tournament?.has_brackets ?? false;
+  // The World Cup is a past tournament with a bracket by definition; the
+  // tournament lookup only refines that when it actually ran.
+  const hasBrackets = tournament?.has_brackets ?? COMPETITIONS.wc26.hasBracket;
   const champion = hasBrackets && odds ? topChampion(odds) : null;
+
+  // The tipsheet is the current round; the shared rule reads it as a draw of one.
+  const nrlRounds = nrlTipsheet ? [{ matches: nrlTipsheet.matches }] : null;
+  const nrlState = nrlRounds ? nrlSeasonState(nrlRounds) : null;
 
   return (
     <PlayHub
       selectedCompetition={selectedCompetition}
       nrlTipsheet={nrlTipsheet}
+      nrlState={nrlState}
+      nrlOpensAt={nrlState === "pre-season" && nrlRounds ? nrlSeasonStart(nrlRounds) : null}
       hasBrackets={hasBrackets}
       champion={champion}
     />

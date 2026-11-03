@@ -2,7 +2,8 @@
  *  load — only once the user has actually played with the product).
  *
  *  Threshold (PRD FR 22), any of:
- *    - made at least one pick (bracket or per-match),
+ *    - made at least one pick: a confirmed league scoreline or NRL tip
+ *      (LeagueTipsPicker / PlayRound), a per-match pick, or a bracket pick,
  *    - visited My Bracket twice,
  *    - opened the menu/settings.
  *

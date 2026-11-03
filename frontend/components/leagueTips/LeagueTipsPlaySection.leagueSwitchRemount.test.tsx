@@ -17,9 +17,6 @@ jest.mock("@/lib/leagueConfig", () => ({
   ACTIVE_LEAGUES: ["epl", "laliga"],
   leagueLabel: (league: string) => ({ epl: "Premier League", laliga: "La Liga" })[league] ?? league.toUpperCase(),
 }));
-jest.mock("@/components/leagueTips/ClaimDeviceLeagueTips", () => ({
-  ClaimDeviceLeagueTips: () => <div data-testid="claim" />,
-}));
 jest.mock("@/components/leagueTips/LeagueYouVsAi", () => ({
   LeagueYouVsAi: ({ league }: { league: string }) => <div data-testid="you-vs-ai">{league}</div>,
 }));

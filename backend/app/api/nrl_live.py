@@ -80,9 +80,12 @@ def nrl_match_live(match_id: int, db: Session = Depends(get_db)):
         # Serve the finished fallback so the UI stops pinning a LIVE strip
         # and polling indefinitely; a state row already at "final" is left
         # alone below since its stored scores/prob are the poller's last word.
+        # No poller closed this match, so there is no closing probability:
+        # null, never a 1.0/0.0 made up from the score (that read a drawn
+        # game as a 0% home win chance). The page renders null as "—".
         status, minute = "final", MATCH_MINUTES
         score_home, score_away = match.score_home, match.score_away
-        live_home_prob = 1.0 if (score_home or 0) > (score_away or 0) else 0.0
+        live_home_prob = None
     elif state is not None and state.status == "live" and live_state_is_stale(kickoff_utc, now):
         # The match row still says scheduled (the twice-weekly ingest can lag
         # a result for days) but the "live" claim is past the staleness cutoff:
@@ -90,9 +93,11 @@ def nrl_match_live(match_id: int, db: Session = Depends(get_db)):
         # as final -- same philosophy as the finished-fallback above -- so the
         # hero stops pinning LIVE and clients stop polling a frozen row. The
         # ingest corrects the score later if the last poll missed anything.
+        # The frozen mid-match probability is not a closing one, and nothing
+        # else is either: null, same as the finished fallback above.
         status, minute = "final", MATCH_MINUTES
         score_home, score_away = state.score_home, state.score_away
-        live_home_prob = 1.0 if (score_home or 0) > (score_away or 0) else 0.0
+        live_home_prob = None
     elif state is not None:
         status, minute = state.status, state.minute
         score_home, score_away = state.score_home, state.score_away

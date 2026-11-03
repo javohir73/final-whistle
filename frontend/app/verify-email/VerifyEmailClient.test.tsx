@@ -43,3 +43,16 @@ it("shows the invalid state and skips the API when there's no token", () => {
   expect(screen.getByText(/verification link invalid/i)).toBeInTheDocument();
   expect(mockVerify).not.toHaveBeenCalled();
 });
+
+it("announces progress as a status and a failure as an alert", async () => {
+  let reject: (e: unknown) => void = () => {};
+  mockVerify.mockReturnValue(new Promise((_, r) => (reject = r)));
+  render(<VerifyEmailClient />);
+  expect(screen.getByRole("status")).toHaveTextContent(/verifying your email/i);
+
+  reject(new ApiError(400, "invalid_token", "This verification link is invalid or has expired."));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent(/invalid or has expired/i);
+  // Daylight-safe ink (text-loss measured 3.5:1 on white).
+  expect(alert).toHaveClass("text-loss-ink");
+});

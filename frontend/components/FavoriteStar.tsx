@@ -4,8 +4,12 @@ import { useFavorites } from "@/lib/useFavorites";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
-/** Star toggle for marking a team as a favorite. Safe to place inside a link —
- *  it prevents the click from navigating. */
+/** Star toggle for marking a team as a favorite (the team page header).
+ *
+ *  Never place it inside a link or another control: a <button> nested in an
+ *  <a> is invalid HTML, and keyboard and screen-reader users cannot reach one
+ *  without the other. Cards that sit inside a link show a static star for a
+ *  favourited team instead (MatchCard's FavouriteMark). */
 export function FavoriteStar({
   team,
   size = 16,
@@ -21,9 +25,7 @@ export function FavoriteStar({
   return (
     <button
       type="button"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      onClick={() => {
         toggle(team);
         trackEvent("favorite_toggle", { team, favorited: !active });
       }}

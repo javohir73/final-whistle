@@ -30,8 +30,17 @@ export function formatDelta(delta: number | null): string | null {
   return `${delta >= 0 ? "▲" : "▼"} ${pts}`;
 }
 
+/** A measured move that prints as "▲ 0.0" (formatDelta's one decimal of
+ *  percentage points). A null delta is not flat -- it is a row with no
+ *  history yet, still worth showing. */
+function isFlat(delta: number | null): boolean {
+  return delta !== null && Math.abs(delta * 100) < 0.05;
+}
+
 /** Home hero (replaces the "Your team" panel, spec 2026-07-09): the three
- *  biggest probability swings since the previous model refresh. */
+ *  biggest probability swings since the previous model refresh. Renders
+ *  nothing when nothing moved -- an off-season feed (every delta 0) printed
+ *  "Today's movers ▲ 0.0" on rows from a finished competition. */
 export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
   const [movers, setMovers] = useState<Mover[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -52,7 +61,9 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
     };
   }, [sport]);
 
-  if (failed || (movers !== null && movers.length === 0)) return null;
+  if (failed || (movers !== null && (movers.length === 0 || movers.every((m) => isFlat(m.delta))))) {
+    return null;
+  }
 
   return (
     <section className="panel-pitch mt-6 rounded-2xl p-5">

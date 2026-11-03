@@ -8,14 +8,22 @@ const writeup = {
   caveat: "A draw after 90 minutes is live at roughly one in 4 (26%).",
 };
 
-test("renders the THE MODEL SAYS eyebrow and all four labelled sections", () => {
+test("renders all four labelled sections of the narrative", () => {
   render(<MatchWriteup home="England" away="Norway" writeup={writeup} />);
-  expect(screen.getByText("THE MODEL SAYS")).toBeInTheDocument();
   expect(screen.getByText("The case for England")).toBeInTheDocument();
   expect(screen.getByText("The case for Norway")).toBeInTheDocument();
   expect(screen.getByText("The call")).toBeInTheDocument();
   expect(screen.getByText("The honest caveat")).toBeInTheDocument();
   expect(screen.getByText(/2–1 the single most likely scoreline/)).toBeInTheDocument();
+});
+
+test("sits under the match page's one 'Why' heading: no panel or eyebrow of its own", () => {
+  const { container } = render(<MatchWriteup home="England" away="Norway" writeup={writeup} />);
+  expect(screen.queryByText("THE MODEL SAYS")).not.toBeInTheDocument();
+  expect(container.querySelector("section")).toBeNull();
+  // The two cases sit side by side (for / for), then the call and the caveat.
+  const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+  expect(headings).toEqual(["The case for England", "The case for Norway", "The call", "The honest caveat"]);
 });
 
 test("renders nothing when writeup is null", () => {

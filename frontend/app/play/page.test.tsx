@@ -12,25 +12,28 @@
  *  groups' leaf components are stubbed the same way components/{leagueTips,nrl}/
  *  *.test.tsx do -- this test is about the composition, not each picker's own
  *  fetch machinery. */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import PlayPage from "./page";
 import {
   getKnockoutOddsServer,
   getNrlTipsheetServer,
 } from "@/lib/api";
+import { readServerCompetition } from "@/lib/competitionServer";
+import { nrlStartLabel } from "@/lib/nrlTips";
 import type { NrlTipsheet, TournamentOdds } from "@/lib/types";
 
 jest.mock("@/lib/api");
 const mockTipsheet = getNrlTipsheetServer as jest.MockedFunction<typeof getNrlTipsheetServer>;
 const mockKnockoutOdds = getKnockoutOddsServer as jest.MockedFunction<typeof getKnockoutOddsServer>;
+// Reads the request (middleware's x-fw-comp header / fw_comp cookie); the
+// visitor's current competition is whatever each test says it is.
+jest.mock("@/lib/competitionServer", () => ({ readServerCompetition: jest.fn() }));
+const mockCurrentCompetition = readServerCompetition as jest.MockedFunction<typeof readServerCompetition>;
 
 // The Football group renders the real LeagueTipsPlaySection, whose leaf
 // components each fetch on mount -- stub them (mirrors
 // components/leagueTips/LeagueTipsPlaySection.test.tsx) so this test exercises
 // the composition, not their client fetch/localStorage paths.
-jest.mock("@/components/leagueTips/ClaimDeviceLeagueTips", () => ({
-  ClaimDeviceLeagueTips: () => <div data-testid="claim" />,
-}));
 jest.mock("@/components/leagueTips/LeagueTipsPicker", () => ({
   LeagueTipsPicker: ({ league }: { league: string; onMatchweekChange?: (mw: number) => void }) => (
     <div data-testid={`picker-${league}`}>{league}</div>
@@ -50,9 +53,6 @@ jest.mock("@/components/leagueTips/LeagueTipsLeaderboard", () => ({
 // components/nrl/*.test.tsx) so this test exercises the composition and that
 // the play round + leaderboard get the seeded season/round, not their fetch
 // paths.
-jest.mock("@/components/nrl/ClaimDeviceTips", () => ({
-  ClaimDeviceTips: () => <div data-testid="nrl-claim" />,
-}));
 jest.mock("@/components/nrl/PlayRound", () => ({
   PlayRound: ({ season, round }: { season: number; round: number }) => (
     <div data-testid="nrl-play-round">{`${season}-${round}`}</div>
@@ -92,24 +92,93 @@ const playPage = (competition: string) =>
 beforeEach(() => {
   mockTipsheet.mockResolvedValue(tipsheet);
   mockKnockoutOdds.mockResolvedValue(odds);
+  mockCurrentCompetition.mockResolvedValue("epl");
 });
 afterEach(() => jest.resetAllMocks());
 
-it("renders the prototype slate grouped by competition", async () => {
+const sectionOrder = () =>
+  Array.from(document.querySelectorAll("[data-play-section]")).map((el) =>
+    el.getAttribute("data-play-section"),
+  );
+const sectionToggle = (name: RegExp) => screen.getByRole("button", { name });
+
+it("is the 'Beat the model' hub: live leagues, then the NRL, the World Cup under past tournaments", async () => {
   render(await PlayPage({}));
 
-  expect(screen.getByRole("heading", { level: 1, name: "The slate" })).toBeInTheDocument();
-  for (const name of [
-    "Premier League",
-    "La Liga",
-    "Bundesliga",
-    "UEFA Champions League",
-    "World Cup 2026",
-    "NRL",
-  ]) {
-    expect(screen.getByRole("heading", { name })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Beat the model" })).toBeInTheDocument();
+  expect(screen.queryByText(/slate/i)).not.toBeInTheDocument();
+  expect(sectionOrder()).toEqual(["epl", "laliga", "bundesliga", "nrl", "wc26"]);
+  expect(screen.getByRole("heading", { name: "Past tournaments" })).toBeInTheDocument();
+  for (const name of [/^Premier League/, /^La Liga/, /^Bundesliga/, /^NRL/, /^World Cup 2026/]) {
+    expect(sectionToggle(name)).toBeInTheDocument();
   }
-  expect(document.querySelectorAll("[data-competition-logo]")).toHaveLength(10);
+  // The World Cup arrives collapsed; the requested league arrives open.
+  expect(sectionToggle(/^World Cup 2026/)).toHaveAttribute("aria-expanded", "false");
+  expect(sectionToggle(/^Premier League/)).toHaveAttribute("aria-expanded", "true");
+});
+
+it("hides the Champions League row until its tips are live", async () => {
+  render(await PlayPage({}));
+  expect(screen.queryByRole("button", { name: /UEFA Champions League/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/tips open when/i)).not.toBeInTheDocument();
+});
+
+it("says so, and points at the fixtures, when the requested competition can't be played yet", async () => {
+  render(await playPage("ucl"));
+
+  expect(screen.getByRole("status")).toHaveTextContent("UEFA Champions League picks aren't open yet.");
+  expect(screen.getByRole("link", { name: /See its fixtures/ })).toHaveAttribute(
+    "href",
+    "/football/ucl/fixtures",
+  );
+  expect(sectionOrder()).toEqual(["epl", "laliga", "bundesliga", "nrl", "wc26"]);
+});
+
+it("lists the requested competition first", async () => {
+  render(await playPage("bundesliga"));
+  expect(sectionOrder()).toEqual(["bundesliga", "epl", "laliga", "nrl", "wc26"]);
+
+  render(await playPage("nrl"));
+  expect(sectionOrder().slice(5)).toEqual(["nrl", "epl", "laliga", "bundesliga", "wc26"]);
+});
+
+it("opens more than one section at a time, and closes one on a second tap", async () => {
+  render(await PlayPage({}));
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+
+  fireEvent.click(sectionToggle(/^La Liga/));
+  expect(screen.getByTestId("picker-laliga")).toBeInTheDocument();
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+  expect(sectionToggle(/^La Liga/)).toHaveAttribute("aria-expanded", "true");
+
+  fireEvent.click(sectionToggle(/^Premier League/));
+  expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
+  expect(screen.getByTestId("picker-laliga")).toBeInTheDocument();
+});
+
+it("opens the NRL alongside a league without a round trip to the server", async () => {
+  render(await PlayPage({}));
+  fireEvent.click(sectionToggle(/^NRL/));
+  expect(screen.getByTestId("nrl-play-round")).toHaveTextContent("2026-2");
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+});
+
+it("shows one off-season card for a finished NRL season", async () => {
+  mockTipsheet.mockResolvedValue({
+    ...tipsheet,
+    round: 31,
+    matches: [{
+      id: 2152, match_no: 213, kickoff_utc: "2026-10-04T08:30:00+00:00", venue: "Accor Stadium",
+      home: "Roosters", away: "Knights", home_team_id: 1, away_team_id: 2,
+      score_home: 19, score_away: 18, status: "finished", prediction: null,
+    }],
+  });
+  render(await playPage("nrl"));
+
+  expect(sectionToggle(/^NRL/)).toHaveTextContent("Season complete · back March 2027");
+  expect(screen.getByText("2026 season complete")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /The model's 2026 record/ })).toHaveAttribute("href", "/nrl/record");
+  expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
 });
 
 it("mounts only the selected competition's interactive section", async () => {
@@ -158,8 +227,8 @@ it("degrades to the empty state (no round line, no crash) when the tipsheet is n
   mockTipsheet.mockResolvedValue(null);
   render(await playPage("nrl"));
 
-  expect(screen.getByRole("heading", { name: "Premier League" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "NRL" })).toBeInTheDocument();
+  expect(sectionToggle(/^Premier League/)).toBeInTheDocument();
+  expect(sectionToggle(/^NRL/)).toBeInTheDocument();
   expect(screen.queryByText(/^Round \d/)).not.toBeInTheDocument();
   // No fabricated season/round: the loop is replaced by the honest empty state.
   expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
@@ -170,8 +239,8 @@ it("degrades to the empty state (no crash) when the NRL tipsheet fetch rejects",
   mockTipsheet.mockRejectedValue(new Error("upstream down"));
   render(await playPage("nrl"));
 
-  expect(screen.getByRole("heading", { name: "Premier League" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "NRL" })).toBeInTheDocument();
+  expect(sectionToggle(/^Premier League/)).toBeInTheDocument();
+  expect(sectionToggle(/^NRL/)).toBeInTheDocument();
   expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
   expect(screen.getByText("NRL tips aren't available right now.")).toBeInTheDocument();
 });
@@ -209,6 +278,86 @@ it("mounts the requested league picker and keeps the other leagues closed", asyn
   expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
   expect(screen.queryByTestId("picker-bundesliga")).not.toBeInTheDocument();
   expect(screen.queryByTestId("picker-ucl")).not.toBeInTheDocument();
-  expect(mockTipsheet).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
+  // The (ISR-cached) round is fetched so the NRL section can open in place;
+  // the World Cup's odds are only fetched when the World Cup is requested.
+  expect(mockTipsheet).toHaveBeenCalledWith();
   expect(mockKnockoutOdds).not.toHaveBeenCalled();
+});
+
+// ---- Scope: /play follows the nav's current competition (nav handoff) -------
+
+it("without ?competition=, opens on the visitor's current competition (an NRL visitor)", async () => {
+  mockCurrentCompetition.mockResolvedValue("nrl");
+  render(await PlayPage({}));
+
+  expect(sectionOrder()).toEqual(["nrl", "epl", "laliga", "bundesliga", "wc26"]);
+  expect(screen.getByTestId("nrl-play-round")).toHaveTextContent("2026-2");
+  expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
+});
+
+it("without ?competition=, opens on a La Liga visitor's league", async () => {
+  mockCurrentCompetition.mockResolvedValue("laliga");
+  render(await PlayPage({}));
+
+  expect(sectionOrder()[0]).toBe("laliga");
+  expect(screen.getByTestId("picker-laliga")).toBeInTheDocument();
+});
+
+it("an explicit ?competition= wins, without reading the visitor's cookie", async () => {
+  mockCurrentCompetition.mockResolvedValue("nrl");
+  render(await playPage("bundesliga"));
+
+  expect(sectionOrder()[0]).toBe("bundesliga");
+  expect(mockCurrentCompetition).not.toHaveBeenCalled();
+});
+
+it.each(["toString", "constructor", "__proto__", "premier-league"])(
+  "treats ?competition=%s as absent rather than a competition",
+  async (bogus) => {
+    mockCurrentCompetition.mockResolvedValue("epl");
+    render(await playPage(bogus));
+
+    expect(mockCurrentCompetition).toHaveBeenCalled();
+    expect(sectionOrder()).toEqual(["epl", "laliga", "bundesliga", "nrl", "wc26"]);
+    expect(screen.queryByText(/picks aren't open yet/)).not.toBeInTheDocument();
+  },
+);
+
+// ---- NRL pre-season: the next draw is loaded, Round 1 is months away (M3) ----
+
+it("keeps the NRL row closed as 'Opens {date}' when next season's draw is loaded", async () => {
+  const opener = new Date(Date.now() + 100 * 86_400_000).toISOString();
+  mockTipsheet.mockResolvedValue({
+    ...tipsheet,
+    season: 2027,
+    round: 1,
+    matches: [{
+      id: 3001, match_no: 1, kickoff_utc: opener, venue: "Accor Stadium",
+      home: "Roosters", away: "Rabbitohs", home_team_id: 1, away_team_id: 2,
+      score_home: null, score_away: null, status: "scheduled", prediction: null,
+    }],
+  });
+  render(await playPage("nrl"));
+
+  expect(sectionToggle(/^NRL/)).toHaveTextContent(`Opens ${nrlStartLabel(opener, "short")}`);
+  expect(screen.getByText(`The 2027 season starts ${nrlStartLabel(opener)}.`)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /See the draw/ })).toHaveAttribute("href", "/nrl/matches");
+  expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
+});
+
+it("keeps the NRL row open in season and closes it when a final is stuck in play", async () => {
+  mockTipsheet.mockResolvedValue({
+    ...tipsheet,
+    round: 31,
+    matches: [{
+      id: 2152, match_no: 213, kickoff_utc: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      venue: "Accor Stadium", home: "Roosters", away: "Knights", home_team_id: 1, away_team_id: 2,
+      score_home: 19, score_away: 18, status: "in_play", prediction: null,
+    }],
+  });
+  render(await playPage("nrl"));
+
+  // A month-old "in_play" final no longer holds the season open (L12).
+  expect(sectionToggle(/^NRL/)).toHaveTextContent("Season complete · back March 2027");
 });

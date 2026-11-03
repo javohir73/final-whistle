@@ -4,8 +4,12 @@
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import * as session from "@/lib/session";
+import { claimNrlTips } from "@/lib/nrlTips";
+import { trackEvent } from "@/lib/analytics";
 
 jest.mock("@/lib/session");
+jest.mock("@/lib/nrlTips");
+jest.mock("@/lib/analytics");
 // The modal/toast render real UI; stub them so tests drive auth directly.
 jest.mock("@/components/AuthToast", () => ({ AuthToast: () => null }));
 jest.mock("@/components/AuthModal", () => ({
@@ -30,6 +34,7 @@ function Probe() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   mockLoadHint.mockReturnValue(null);
   (session.logout as jest.Mock).mockResolvedValue(undefined);
 });
@@ -116,4 +121,135 @@ it("keeps the current user when /me fails transiently (network/cold start)", asy
   await waitFor(() => expect(screen.getByTestId("who")).not.toHaveTextContent("loading:"));
   expect(screen.getByTestId("who")).toHaveTextContent("Pat");
   expect(mockClearHint).not.toHaveBeenCalled();
+});
+
+// ---- Merge-on-signup: the device claim runs from here, for every sport -----
+
+const mockClaim = claimNrlTips as jest.MockedFunction<typeof claimNrlTips>;
+const mockDeviceId = session.getOrCreateDeviceId as jest.Mock;
+const pat = { id: 7, email: "p@e.com", display_name: "Pat", avatar_url: null };
+
+it("merges this device's anonymous picks into the account on sign-in", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockClaim.mockResolvedValue({ ok: true, handle: "SwiftStriker42", claimed_tips: 3 });
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await waitFor(() => expect(mockClaim).toHaveBeenCalledWith("device-1"));
+  expect(mockClaim).toHaveBeenCalledTimes(1);
+  await waitFor(() =>
+    expect(trackEvent).toHaveBeenCalledWith("tips_claim", { claimed_tips: 3, trigger: "signin" }),
+  );
+});
+
+it("re-runs the claim once for a session restored on page load", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockLoadHint.mockReturnValue(pat);
+  mockGetMe.mockResolvedValue(pat);
+  mockClaim.mockResolvedValue({ ok: true, handle: "SwiftStriker42", claimed_tips: 0 });
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+
+  await waitFor(() => expect(mockClaim).toHaveBeenCalledWith("device-1"));
+  // Signing in again as the same account in this page session is a no-op.
+  fireEvent.click(screen.getByText("complete-login"));
+  await act(async () => {});
+  expect(mockClaim).toHaveBeenCalledTimes(1);
+});
+
+it("never claims for a guest or an unconfirmed session", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockLoadHint.mockReturnValue(pat);
+  mockGetMe.mockRejectedValue(new Error("502")); // cold start: session unconfirmed
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+
+  await waitFor(() => expect(screen.getByTestId("who")).not.toHaveTextContent("loading:"));
+  expect(mockClaim).not.toHaveBeenCalled();
+});
+
+it("swallows a failed claim without touching the fresh session", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockClaim.mockRejectedValue(new Error("500"));
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await waitFor(() => expect(mockClaim).toHaveBeenCalled());
+  await act(async () => {});
+  expect(screen.getByTestId("who")).toHaveTextContent("Pat");
+  expect(trackEvent).not.toHaveBeenCalledWith("tips_claim", expect.anything());
+});
+
+it("skips the claim when this browser has no device id (storage blocked)", async () => {
+  mockDeviceId.mockReturnValue(null);
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await act(async () => {});
+  expect(mockClaim).not.toHaveBeenCalled();
+});
+
+// ---- After a claim the server's picks win over this device's cache (H3) ----
+
+it("clears this device's tips caches and tells tips surfaces to re-read after a claim", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockClaim.mockResolvedValue({ ok: true, handle: "AccountHandle", claimed_tips: 2 });
+  localStorage.setItem("finalwhistle:league-tips:v1:epl:11", JSON.stringify({ 501: { predicted_home: 3, predicted_away: 1 } }));
+  localStorage.setItem("finalwhistle:nrl-tips:v1:2026:27", JSON.stringify({ 9: { pick: "home", margin: null } }));
+  localStorage.setItem("keep-me", "1");
+  const listener = jest.fn();
+  window.addEventListener("finalwhistle:tips-identity-changed", listener);
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+  window.removeEventListener("finalwhistle:tips-identity-changed", listener);
+  expect(localStorage.getItem("finalwhistle:league-tips:v1:epl:11")).toBeNull();
+  expect(localStorage.getItem("finalwhistle:nrl-tips:v1:2026:27")).toBeNull();
+  expect(localStorage.getItem("keep-me")).toBe("1");
+});
+
+it("leaves the caches alone when the claim fails", async () => {
+  mockDeviceId.mockReturnValue("device-1");
+  mockClaim.mockRejectedValue(new Error("500"));
+  localStorage.setItem("finalwhistle:league-tips:v1:epl:11", "{}");
+
+  render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+  fireEvent.click(screen.getByText("complete-login"));
+
+  await waitFor(() => expect(mockClaim).toHaveBeenCalled());
+  await act(async () => {});
+  expect(localStorage.getItem("finalwhistle:league-tips:v1:epl:11")).toBe("{}");
 });

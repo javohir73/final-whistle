@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app import schemas
 from app.availability import availability_for_match
+from app.competition_scope import competition_for_tournament
 from app.live_winprob import live_probabilities_for_match, regulation_remaining
 from app.models import Group, GroupTeam, HistoricalMatch, Match, Odds, Prediction, Standing, Team
 from ml.models import live_markets as _live_markets
@@ -161,6 +162,7 @@ def prediction_to_out(db: Session, match: Match, pred: Prediction) -> schemas.Pr
         group=match.group.name if match.group else None,
         group_id=match.group_id,
         stage=match.stage,
+        matchweek=match.matchweek,
         is_neutral=match.is_neutral,
         kickoff_utc=_kickoff_iso(match.kickoff_utc),
         venue=match.venue,
@@ -387,6 +389,9 @@ def match_to_summary(
         match_id=match.id,
         stage=match.stage,
         group=match.group.name if match.group else None,
+        # Deferred column: list callers undefer it in their query (see
+        # matches.upcoming_matches); a single match pays one lazy load.
+        matchweek=match.matchweek,
         kickoff_utc=_kickoff_iso(match.kickoff_utc),
         venue=match.venue,
         venue_city=match.venue_city,
@@ -412,6 +417,7 @@ def match_to_summary(
         predicted_score=predicted_score,
         confidence=confidence,
         live_probabilities=live_probabilities,
+        competition=competition_for_tournament(match.tournament),
     )
 
 
@@ -540,6 +546,7 @@ def team_profile(
     *,
     tournament_id: int | None = None,
     history_competition: str | None = None,
+    competition: str | None = None,
 ) -> schemas.TeamProfileOut:
     form_query = db.query(HistoricalMatch).filter(
         (HistoricalMatch.team_a_id == team.id) | (HistoricalMatch.team_b_id == team.id)
@@ -614,4 +621,5 @@ def team_profile(
         recent_form=form,
         strengths=strengths,
         weaknesses=weaknesses,
+        competition=competition,
     )

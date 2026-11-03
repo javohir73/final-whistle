@@ -1,8 +1,9 @@
-/** Country-first home flow: choose a country → "Predict my team" → AI reveal,
- *  and a returning user (reveal already done) lands on the Daylight home
- *  DASHBOARD — greeting, the "Today's movers" panel, and today's
- *  match-of-the-day. The detailed team hub lives on /team/[id]; this surface
- *  is the lightweight landing. Whole flow is anonymous + local. */
+/** Country-first World Cup hub flow: choose a country → "Show my team" →
+ *  straight to the Daylight home DASHBOARD (no fake "AI calculating" stage),
+ *  and a returning user lands on that dashboard — greeting, the "Today's
+ *  movers" panel, and the next match. The detailed team hub lives on
+ *  /team/[id]; this surface is the lightweight landing. Whole flow is
+ *  anonymous + local. */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { HomeExperience } from "@/app/HomeExperience";
 import * as api from "@/lib/api";
@@ -90,42 +91,37 @@ afterEach(() => {
   jest.resetAllMocks();
 });
 
-it("lets an anonymous user choose a country and start the ML model forecast", async () => {
-  jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+it("lets an anonymous user choose a country and go straight to its dashboard", async () => {
+  const scrollToSpy = jest.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<HomeExperience initialTeams={teams} />);
 
   // Chooser appears (post-hydration).
   await waitFor(() => expect(screen.getByText("Choose your")).toBeInTheDocument());
 
-  // Pick Brazil → focused preview with the Predict CTA.
+  // Pick Brazil → focused preview with the CTA.
   fireEvent.click(screen.getByRole("option", { name: /Brazil/ }));
-  expect(screen.getByRole("button", { name: /Predict my team/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Show my team/ }));
 
-  // Start the forecast → honest "preparing" reveal (no "generating live" copy).
-  fireEvent.click(screen.getByRole("button", { name: /Predict my team/ }));
-  expect(screen.getByText("Preparing your ML model forecast")).toBeInTheDocument();
+  // No fake "AI calculating" stage: the dashboard swaps straight in.
+  expect(screen.queryByText(/Preparing your Model forecast/i)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Skip/ })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText(/Following Brazil/)).toBeInTheDocument());
 
   // Selection persisted locally for the next visit.
   expect(localStorage.getItem("finalwhistle:selected-country:v1")).toContain("Brazil");
+  scrollToSpy.mockRestore();
 });
 
-it("resets scroll position when the dashboard swaps in after the AI reveal", async () => {
-  // Simulate the page having scrolled down to reach the reveal's "Skip"
-  // control (a real user, or a browser-automation tool bringing an
-  // off-screen element into view before clicking it, both do this) — the
-  // regression was that this leftover scrollY carried straight into the
-  // much-shorter dashboard, hiding "Following {team}" above the fold.
+it("resets scroll position when the dashboard swaps in after choosing a team", async () => {
+  // The team preview's CTA sits mid-page; the regression was that a leftover
+  // scrollY carried straight into the much-shorter dashboard, hiding
+  // "Following {team}" above the fold.
   const scrollToSpy = jest.spyOn(window, "scrollTo").mockImplementation(() => {});
-  jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
   render(<HomeExperience initialTeams={teams} />);
 
   await waitFor(() => expect(screen.getByText("Choose your")).toBeInTheDocument());
   fireEvent.click(screen.getByRole("option", { name: /Brazil/ }));
-  fireEvent.click(screen.getByRole("button", { name: /Predict my team/ }));
-  expect(screen.getByText("Preparing your ML model forecast")).toBeInTheDocument();
-
-  // Finish the reveal (skip button also works; the timeout is simplest here).
-  fireEvent.click(screen.getByRole("button", { name: /Skip|Continue/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Show my team/ }));
 
   await waitFor(() => expect(screen.getByText(/Following Brazil/)).toBeInTheDocument());
   expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
@@ -133,11 +129,18 @@ it("resets scroll position when the dashboard swaps in after the AI reveal", asy
   scrollToSpy.mockRestore();
 });
 
+it("no longer shows the World Cup retention bridge", async () => {
+  render(<HomeExperience initialTeams={teams} />);
+  await waitFor(() => expect(screen.getByText("Choose your")).toBeInTheDocument());
+  expect(screen.queryByText(/World Cup is over/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/mid-August/i)).not.toBeInTheDocument();
+});
+
 it("does not reset scroll on a plain dashboard remount (only the reveal transition does)", async () => {
   // Regression check for the fix: a returning user whose `prediction_revealed`
   // is already persisted — e.g. navigating away from "/" and hitting Back —
   // mounts straight into HomeDashboard without ever going through
-  // AICalculationReveal. That mount must NOT call scrollTo, or it would stomp
+  // the team chooser. That mount must NOT call scrollTo, or it would stomp
   // the browser's native scroll restoration on every such remount.
   localStorage.setItem("finalwhistle:selected-country:v1", REVEALED);
   const scrollToSpy = jest.spyOn(window, "scrollTo").mockImplementation(() => {});
@@ -214,9 +217,10 @@ it("features an upcoming fixture in the FeatureHero, linking into the match page
     <HomeExperience initialTeams={teams} initialGroups={[]} initialMatches={[fixture]} initialOdds={[]} />,
   );
 
-  // The FeatureHero renders "tonight's feature" with CTAs into the full match page.
-  await waitFor(() => expect(screen.getByText(/Tonight's feature/i)).toBeInTheDocument());
-  expect(container.querySelector('a[href="/match/101"]')).not.toBeNull();
+  // The FeatureHero leads with the next match, its CTAs into the World Cup's
+  // own match page (never the legacy /match/:id redirect).
+  await waitFor(() => expect(screen.getByText(/Next up/i)).toBeInTheDocument());
+  expect(container.querySelector('a[href^="/football/wc26/match/101"]')).not.toBeNull();
 });
 
 it("a finished-only slate falls back to the no-matches-today state without crashing", async () => {
@@ -279,5 +283,5 @@ it("survives a corrupted stored timezone without crashing the dashboard", async 
   );
 
   // The dashboard renders the fixture card without the bad zone crashing the tree.
-  await waitFor(() => expect(container.querySelector('a[href^="/match/"]')).not.toBeNull());
+  await waitFor(() => expect(container.querySelector('a[href*="/match/"]')).not.toBeNull());
 });

@@ -65,7 +65,7 @@ export function StandingsClient({
       </header>
 
       {state.status === "loading" && (
-        <div className="glass rounded-2xl p-5 sm:p-6">
+        <div className="glass rounded-2xl px-3 py-5 sm:p-6">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="skeleton mb-2 h-9 w-full rounded" />
           ))}
@@ -74,7 +74,8 @@ export function StandingsClient({
       {state.status === "error" && <ErrorState message={state.message} onRetry={state.retry} />}
       {state.status === "success" &&
         (hasRows ? (
-          <div className="glass rounded-2xl p-5 sm:p-6">
+          // px-3 below sm: every pixel of a 360px phone goes to the club name.
+          <div className="glass rounded-2xl px-3 py-5 sm:p-6">
             <StandingsTable
               standings={state.data[0].standings}
               zones={isUnplayed ? [] : competition.zones}

@@ -1,10 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PlayRound } from "./PlayRound";
 import { getMyNrlTips, submitNrlTip } from "@/lib/nrlTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
+import { trackEvent } from "@/lib/analytics";
+import { loadEngagement } from "@/lib/engagement";
+import { announceTipsIdentityChanged, clearLocalTipsCaches } from "@/components/play/tipsIdentity";
 import type { NrlMyTipsResponse } from "@/lib/types";
 
 jest.mock("@/lib/nrlTips");
+jest.mock("@/lib/analytics");
 jest.mock("@/lib/session", () => {
   const actual = jest.requireActual("@/lib/session");
   return { ...actual, getOrCreateDeviceId: jest.fn(), pingDailyActivity: jest.fn() };
@@ -133,4 +137,56 @@ it("surfaces a rejected submit honestly and reverts the optimistic pick", async 
 
   expect(await screen.findByText("Match 1 has kicked off and is locked.")).toBeInTheDocument();
   expect(within(group).getByRole("button", { name: "Storm" })).toHaveAttribute("aria-pressed", "false");
+});
+
+it("counts a confirmed tip as engagement and tracks tips_submit with the round", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockResolvedValue({
+    ok: true, handle: "SwiftHalfback482",
+    tip: { match_id: 2, pick: "away", margin: null, updated_at: "2026-07-24T09:00:00+00:00" },
+  });
+
+  render(<PlayRound season={2026} round={3} />);
+  const group = await screen.findByRole("group", { name: /Broncos vs Titans/i });
+  expect(loadEngagement().picks).toBe(0);
+  fireEvent.click(within(group).getByRole("button", { name: "Titans" }));
+
+  await waitFor(() =>
+    expect(trackEvent).toHaveBeenCalledWith("tips_submit", { competition: "nrl", round: 3, match_id: 2 }),
+  );
+  expect(loadEngagement().picks).toBe(1);
+});
+
+it("neither counts nor tracks a rejected tip", async () => {
+  mockMine.mockResolvedValue(mine());
+  mockSubmit.mockRejectedValue(new ApiError(422, "match_locked", "Match 2 has kicked off and is locked."));
+
+  render(<PlayRound season={2026} round={3} />);
+  const group = await screen.findByRole("group", { name: /Broncos vs Titans/i });
+  fireEvent.click(within(group).getByRole("button", { name: "Titans" }));
+
+  expect(await screen.findByText("Match 2 has kicked off and is locked.")).toBeInTheDocument();
+  expect(trackEvent).not.toHaveBeenCalledWith("tips_submit", expect.anything());
+  expect(loadEngagement().picks).toBe(0);
+});
+
+it("re-reads the round after a sign-in claim, dropping a cached tip the server no longer holds", async () => {
+  localStorage.setItem("finalwhistle:nrl-tips:v1:2026:3", JSON.stringify({ 2: { pick: "away", margin: null } }));
+  mockMine.mockResolvedValue(mine());
+
+  render(<PlayRound season={2026} round={3} />);
+  const group = await screen.findByRole("group", { name: /Broncos vs Titans/i });
+  expect(within(group).getByRole("button", { name: "Titans" })).toHaveAttribute("aria-pressed", "true");
+
+  act(() => {
+    clearLocalTipsCaches();
+    announceTipsIdentityChanged();
+  });
+
+  await waitFor(() => expect(mockMine).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("group", { name: /Broncos vs Titans/i })).getByRole("button", { name: "Titans" }),
+    ).toHaveAttribute("aria-pressed", "false"),
+  );
 });

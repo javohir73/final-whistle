@@ -14,6 +14,10 @@ jest.mock("@/lib/constants", () => ({
 
 const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
+// The Next-up strip fetches client-side; covered by its own test.
+jest.mock("@/components/play/NextUpStrip", () => ({ NextUpStrip: () => null }));
+// PlatformHome reads the NRL's current round server-side.
+jest.mock("@/lib/api", () => ({ getNrlTipsheetServer: jest.fn().mockResolvedValue(null) }));
 
 import { PlatformHome } from "@/components/PlatformHome";
 
@@ -30,9 +34,9 @@ const precedes = (first: Node, second: Node) =>
 afterEach(() => jest.clearAllMocks());
 
 describe("PlatformHome — Premium promo", () => {
-  it("carries the promo between the Play panel and the closing note", () => {
+  it("carries the promo between the Play panel and the closing note", async () => {
     mockUseAuth.mockReturnValue(freeUser);
-    render(<PlatformHome />);
+    render(await PlatformHome());
 
     const promo = promoCta();
     expect(promo).toBeInTheDocument();
@@ -41,15 +45,15 @@ describe("PlatformHome — Premium promo", () => {
     expect(precedes(promo!, closingNote())).toBe(true);
   });
 
-  it("shows the promo to an anonymous visitor", () => {
+  it("shows the promo to an anonymous visitor", async () => {
     mockUseAuth.mockReturnValue({ user: null, loading: false });
-    render(<PlatformHome />);
+    render(await PlatformHome());
     expect(promoCta()).toBeInTheDocument();
   });
 
-  it("drops the section for a subscriber, leaving the rest of the page intact", () => {
+  it("drops the section for a subscriber, leaving the rest of the page intact", async () => {
     mockUseAuth.mockReturnValue({ user: { id: 1, premium: true }, loading: false });
-    render(<PlatformHome />);
+    render(await PlatformHome());
 
     expect(promoCta()).not.toBeInTheDocument();
     expect(screen.queryByText("Every market the model prices")).not.toBeInTheDocument();

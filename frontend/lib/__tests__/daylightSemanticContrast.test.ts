@@ -398,13 +398,16 @@ it("preserves every new state ink's exact Floodlight literal", () => {
   expect(token(floodlight, "disabled-opacity-40")).toBe("0.4");
   expect(token(floodlight, "gold-ink")).toBe("42 62% 48%");
   expect(token(floodlight, "muted-solid")).toBe("129 10% 62% / 0.7");
-  expect(token(floodlight, "loss-wash-ink")).toBe("351 90% 64%");
+  // Two deliberate AA departures from the original literals (UX rebuild
+  // 2026-11, design-system audit §5.1): the LIVE-pill wash ink 64% -> 70% and
+  // the pitch-subtle ink .45 -> .5. contrastQuickWins.test.ts measures both.
+  expect(token(floodlight, "loss-wash-ink")).toBe("351 90% 70%");
   expect(token(floodlight, "gold-wash-ink")).toBe("38 94% 58%");
   expect(token(floodlight, "accent-nrl-ink")).toBe("174 60% 40%");
   expect(token(floodlight, "pitch-accent-ink")).toBe("84 78% 55%");
   expect(token(floodlight, "pitch-loss-ink")).toBe("351 90% 64%");
   expect(token(floodlight, "pitch-foreground-ink")).toBe("120 14% 96%");
   expect(token(floodlight, "pitch-muted-ink")).toBe("129 10% 62%");
-  expect(token(floodlight, "pitch-subtle-ink")).toBe("0 0% 100% / 0.45");
+  expect(token(floodlight, "pitch-subtle-ink")).toBe("0 0% 100% / 0.5");
   expect(token(floodlight, "pitch-chip")).toBe("144 19% 10% / 0.7");
 });

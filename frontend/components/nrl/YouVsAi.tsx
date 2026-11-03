@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Empty, ErrorState, Loading } from "@/components/States";
 import { ShareButton } from "@/components/ShareButton";
+import { reportViewerHandle } from "@/components/play/viewerHandle";
+import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
 import { SITE_URL } from "@/lib/constants";
 import { getNrlTipsSummary } from "@/lib/nrlTips";
 import { ApiError, getOrCreateDeviceId } from "@/lib/session";
@@ -21,6 +23,8 @@ type State =
 export function YouVsAi() {
   const [state, setState] = useState<State>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // Re-read after a sign-in claim (see components/play/tipsIdentity.ts).
+  const identityVersion = useTipsIdentityVersion();
 
   useEffect(() => {
     const deviceId = getOrCreateDeviceId();
@@ -31,7 +35,11 @@ export function YouVsAi() {
     let live = true;
     setState({ status: "loading" });
     getNrlTipsSummary(deviceId)
-      .then((data) => live && setState({ status: "success", data }))
+      .then((data) => {
+        if (!live) return;
+        setState({ status: "success", data });
+        reportViewerHandle(data.handle);
+      })
       .catch(
         (err) =>
           live &&
@@ -43,12 +51,12 @@ export function YouVsAi() {
     return () => {
       live = false;
     };
-  }, [attempt]);
+  }, [attempt, identityVersion]);
 
   return (
     <section>
       <h2 className="mb-2.5 px-0.5 text-label font-semibold uppercase tracking-wider text-muted">
-        You vs the AI
+        You vs the model
       </h2>
       {state.status === "loading" && <Loading label="Loading your record…" />}
       {state.status === "error" && (
@@ -62,7 +70,7 @@ export function YouVsAi() {
             <div className="flex items-center justify-center gap-6">
               <Stat label="You" value={state.data.totals.your_points} />
               <span className="text-xs font-semibold text-muted">vs</span>
-              <Stat label="ML model" value={state.data.totals.model_points} />
+              <Stat label="Model" value={state.data.totals.model_points} />
             </div>
             <p className="mt-2 text-center text-xs text-muted">
               {state.data.totals.rounds_played} round{state.data.totals.rounds_played === 1 ? "" : "s"} graded
@@ -86,8 +94,9 @@ export function YouVsAi() {
                       {shareUrl && (
                         <ShareButton
                           label="Share"
-                          title={`${handle} went ${r.your_points}/${r.matches_played} vs the AI — NRL Round ${r.round}`}
+                          title={`${handle} went ${r.your_points}/${r.matches_played} vs the model — NRL Round ${r.round}`}
                           url={shareUrl}
+                          surface="nrl_tips_recap"
                           className="gap-1 px-2 py-1 text-label"
                         />
                       )}

@@ -1,15 +1,18 @@
 import type { MetadataRoute } from "next";
 import { APP_NAME } from "@/lib/constants";
-import { getTournament } from "@/lib/tournament";
+import { PLATFORM_DESCRIPTION, PLATFORM_TITLE } from "@/lib/og";
 
-export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  const tournament = await getTournament();
+/** Platform copy only: the install name and home-screen description must not
+ *  follow getTournament() (the pipeline's "active tournament" was the
+ *  Champions League in November 2026 while players were on the leagues and
+ *  the NRL). Chrome colours and icons are fixed by the design system. */
+export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
     lang: "en",
-    name: `${APP_NAME} — ${tournament.name} Predictions`,
+    name: `${APP_NAME} — ${PLATFORM_TITLE}`,
     short_name: APP_NAME,
-    description: `Explainable predictions for the ${tournament.name} from FinalWhistle's in-house ML model — win probabilities, scorelines, group & knockout odds. For analytics and entertainment only.`,
+    description: PLATFORM_DESCRIPTION,
     start_url: "/",
     scope: "/",
     display: "standalone",

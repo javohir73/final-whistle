@@ -32,14 +32,20 @@
   --gold-ink: 42 62% 48%; /* original gold text literal */
   --muted-solid: 129 10% 62% / 0.7; /* original text-muted/70 literal */
   --hint-ink: 129 10% 62% / 0.8; /* original shared error hint text-muted/80 */
-  --loss-wash-ink: 351 90% 64%; /* original loss ink on loss-tinted chips */
+  /* Ink on loss-tinted chips (the LIVE pill on MatchCard, GroupCard and
+     TipsheetBlock). Lifted from the --loss literal (64%) to 70%: 64% measured
+     4.39:1 on its own loss/15 wash over the card, under the 4.5:1 floor for
+     this 11px text; 70% clears it on every stop (5.17 inset .. 5.72 canvas). */
+  --loss-wash-ink: 351 90% 70%;
   --gold-wash-ink: 38 94% 58%; /* original amber ink on warm-tinted chips */
   --accent-nrl-ink: 174 60% 40%; /* original NRL eyebrow ink */
   --pitch-accent-ink: 84 78% 55%; /* original lime ink on invariant pitch panels */
   --pitch-loss-ink: 351 90% 64%; /* original loss ink on invariant pitch panels */
   --pitch-foreground-ink: 120 14% 96%; /* original foreground ink on pitch panels */
   --pitch-muted-ink: 129 10% 62%; /* original muted ink on pitch panels */
-  --pitch-subtle-ink: 0 0% 100% / 0.45; /* original text-white/45 pitch ink */
+  /* Was text-white/45: 4.10-4.48:1 across the pitch gradient stops. At .5 the
+     lightest stop clears AA (4.71:1). */
+  --pitch-subtle-ink: 0 0% 100% / 0.5;
   --pitch-chip: 144 19% 10% / 0.7; /* original surface-2/70 pitch chip */
   --pitch: 143 33% 8%;        /* #0d1a12  hero/accent panels */
   --pitch-copy: #a9c7b4;      /* supporting copy on invariant dark pitch panels */
@@ -103,6 +109,9 @@
   --comp-accent: var(--accent-wc26);/* default; overlay/eyebrow set per comp */
   --competition-card-base: 150 34% 8%;
   --competition-card-ink: 0 0% 100%;
+  /* Height the fixed mobile tab bar (BottomNav, lg:hidden) occupies above the
+     home-indicator inset; .bottom-above-tabbar parks toasts and cards on it. */
+  --tabbar-clearance: 4.5rem;
 }
 
 /* Daylight rollback: apply .theme-daylight on <html> to restore the light theme. */
@@ -220,6 +229,16 @@ body {
 }
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
+}
+/* Fixed toasts/cards sit above the mobile tab bar and the home indicator; the
+   bar is lg:hidden, so from lg they drop to a plain 1.5rem gap. */
+.bottom-above-tabbar {
+  bottom: calc(var(--tabbar-clearance) + env(safe-area-inset-bottom));
+}
+@media (min-width: 1024px) {
+  .bottom-above-tabbar {
+    bottom: 1.5rem;
+  }
 }
 
 /* ============ Reusable utilities ============ */
@@ -669,29 +688,6 @@ body {
   50%      { box-shadow: 0 0 0 3px hsl(var(--status-live) / 0.15); }
 }
 
-/* ===== AI "thinking" orb — Siri/Jarvis style ===== */
-@keyframes spinCW { to { transform: rotate(360deg); } }
-@keyframes spinCCW { to { transform: rotate(-360deg); } }
-.ai-spin-cw { animation: spinCW 18s linear infinite; }
-.ai-spin-cw-fast { animation: spinCW 7s linear infinite; }
-.ai-spin-ccw { animation: spinCCW 11s linear infinite; }
-/* Radar sweep that orbits the ring */
-.ai-sweep { animation: spinCW 2.6s linear infinite; }
-
-/* Breathing halo */
-@keyframes aiPulse {
-  0%, 100% { transform: scale(1); opacity: 0.45; }
-  50% { transform: scale(1.14); opacity: 0.85; }
-}
-.ai-pulse { animation: aiPulse 2.4s ease-in-out infinite; }
-
-/* Siri-style equalizer bar */
-@keyframes aiEq {
-  0%, 100% { transform: scaleY(0.28); }
-  50% { transform: scaleY(1); }
-}
-.ai-eq { transform-origin: center; animation: aiEq 0.9s ease-in-out infinite; }
-
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
@@ -724,9 +720,9 @@ body {
      named classes below. Catches Tailwind's `animate-pulse` (which ignores
      prefers-reduced-motion), the `transition-[width]` prob/qualification bars,
      the MatchTabs/BottomNav `transition`, and the skip-link/hero transitions —
-     none of which are in the explicit list. 0.01ms (not `none`) so components
-     that self-shorten via matchMedia, e.g. AICalculationReveal, still run once
-     and settle instead of being hard-killed mid-state. */
+     none of which are in the explicit list. 0.01ms (not `none`) so a component
+     that self-shortens via matchMedia still runs once and settles instead of
+     being hard-killed mid-state. */
   *,
   *::before,
   *::after {
@@ -740,12 +736,6 @@ body {
   .float,
   .float-slow,
   .spin-slow,
-  .ai-spin-cw,
-  .ai-spin-cw-fast,
-  .ai-spin-ccw,
-  .ai-sweep,
-  .ai-pulse,
-  .ai-eq,
   .status-live-ring {
     animation: none;
   }

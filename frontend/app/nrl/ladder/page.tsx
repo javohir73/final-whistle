@@ -27,7 +27,8 @@ export default async function NrlLadderPage() {
         NRL ladder · Season {ladder.season}
       </h1>
       <p className="mt-1 text-sm text-muted">Top 8 qualify for the finals.</p>
-      <div className="glass mt-6 rounded-2xl p-4">
+      {/* px-3 below sm: the ladder's four numeric columns need the width. */}
+      <div className="glass mt-6 rounded-2xl px-3 py-4 sm:p-4">
         <StandingsTable
           standings={ladderRowsToStandings(ladder.rows, projectionsByTeam)}
           zones={COMPETITIONS.nrl.zones}

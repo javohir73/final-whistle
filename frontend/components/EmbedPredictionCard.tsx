@@ -3,6 +3,7 @@ import { APP_NAME, SITE_URL } from "@/lib/constants";
 import { pct, formatScore, topOutcome } from "@/lib/format";
 import { accentTint, type EmbedConfig } from "@/lib/embed-utils";
 import type { Prediction } from "@/lib/types";
+import { footballMatchHrefOrLookup } from "@/lib/sports";
 
 /** Compact, brandable, self-contained prediction card for the white-label embed.
  *
@@ -168,8 +169,12 @@ export function EmbedPredictionCard({
         <span style={{ fontSize: 10, color: palette.muted, lineHeight: 1.3 }}>
           Not betting advice
         </span>
+        {/* The prediction payload does not name its competition, so the
+            backlink goes through the /match/:id lookup, which 308s to the
+            match's own /football/{comp}/match/:id and keeps utm_source. It
+            used to 308 every id to WC26 -- a soft 404 for club matches. */}
         <a
-          href={`${SITE_URL}/match/${prediction.match_id}?utm_source=embed`}
+          href={`${SITE_URL}${footballMatchHrefOrLookup(prediction.match_id)}?utm_source=embed`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ fontSize: 10, fontWeight: 700, color: accent, textDecoration: "none", whiteSpace: "nowrap" }}

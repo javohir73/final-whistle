@@ -1,7 +1,11 @@
-import { liveLabel, isLiveNow, MAX_LIVE_MINUTES } from "@/lib/liveLabel";
+import { liveLabel, liveLabelSpoken, isLiveNow, MAX_LIVE_MINUTES } from "@/lib/liveLabel";
 import type { MatchSummary } from "@/lib/types";
 
-const s = (over: Partial<MatchSummary>): MatchSummary =>
+// The summary as liveLabel reads it: MatchSummary plus the optional
+// minute-provenance flags a richer feed may send (read defensively).
+type LiveSummary = MatchSummary & { minute_estimated?: boolean | null; minute_exact?: boolean | null };
+
+const s = (over: Partial<LiveSummary>): LiveSummary =>
   ({
     status: "in_play",
     minute: null,
@@ -10,16 +14,29 @@ const s = (over: Partial<MatchSummary>): MatchSummary =>
     penalty_home: null,
     penalty_away: null,
     ...over,
-  } as MatchSummary);
+  } as LiveSummary);
+
+/** The free football-data tier carries no live minute; the pipeline estimates
+ *  it from kickoff. An estimate must never read as the official clock, so an
+ *  open-play minute says "est." unless the summary explicitly marks it exact. */
+const exact: Partial<LiveSummary> = { minute_estimated: false };
 
 describe("liveLabel", () => {
-  it("shows the running minute in open play", () => {
-    expect(liveLabel(s({ period: "second_half", minute: 57 }))).toBe("57'");
+  it("marks the running minute as an estimate by default", () => {
+    expect(liveLabel(s({ period: "second_half", minute: 57 }))).toBe("57' est.");
+  });
+
+  it("drops the estimate marker only when the feed flags the minute as exact", () => {
+    expect(liveLabel(s({ period: "second_half", minute: 57, ...exact }))).toBe("57'");
+    expect(liveLabel(s({ period: "second_half", minute: 57, minute_exact: true }))).toBe("57'");
+    // An explicit "estimated" flag keeps the marker.
+    expect(liveLabel(s({ period: "second_half", minute: 57, minute_estimated: true }))).toBe("57' est.");
   });
 
   it("shows stoppage time as 45+2' / 90+5'", () => {
-    expect(liveLabel(s({ period: "first_half", minute: 45, injury_time: 2 }))).toBe("45+2'");
-    expect(liveLabel(s({ period: "second_half", minute: 90, injury_time: 5 }))).toBe("90+5'");
+    expect(liveLabel(s({ period: "first_half", minute: 45, injury_time: 2, ...exact }))).toBe("45+2'");
+    expect(liveLabel(s({ period: "second_half", minute: 90, injury_time: 5, ...exact }))).toBe("90+5'");
+    expect(liveLabel(s({ period: "second_half", minute: 90, injury_time: 5 }))).toBe("90+5' est.");
   });
 
   it("freezes at half-time", () => {
@@ -45,6 +62,14 @@ describe("liveLabel", () => {
 
   it("falls back to LIVE when in play but the minute is unknown", () => {
     expect(liveLabel(s({ period: "first_half", minute: null }))).toBe("LIVE");
+  });
+});
+
+describe("liveLabelSpoken", () => {
+  it("spells the estimate out for screen readers", () => {
+    expect(liveLabelSpoken(s({ period: "second_half", minute: 57 }))).toBe("57' (estimated)");
+    expect(liveLabelSpoken(s({ period: "second_half", minute: 57, ...exact }))).toBe("57'");
+    expect(liveLabelSpoken(s({ period: "half_time", minute: null }))).toBe("HT");
   });
 });
 

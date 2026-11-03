@@ -7,9 +7,6 @@
 import { render, screen } from "@testing-library/react";
 import { NrlTipsPlaySection } from "./NrlTipsPlaySection";
 
-jest.mock("@/components/nrl/ClaimDeviceTips", () => ({
-  ClaimDeviceTips: () => <div data-testid="claim" />,
-}));
 jest.mock("@/components/nrl/PlayRound", () => ({
   PlayRound: ({ season, round }: { season: number; round: number }) => (
     <div data-testid="play-round">{`${season}-${round}`}</div>

@@ -12,7 +12,8 @@
  *  Import these rather than comparing strings, so the next status the provider
  *  invents is a one-line change here instead of a hunt through the components.
  */
-import type { MatchStatus } from "@/lib/types";
+import type { MatchStatus, MatchSummary } from "@/lib/types";
+import { isLiveNow } from "@/lib/liveLabel";
 
 export const STATUS_LABELS: Record<string, string> = {
   postponed: "Postponed",
@@ -60,6 +61,70 @@ export function willBePlayed(status: string | null | undefined): boolean {
     status === "in_play" ||
     status === "finished"
   );
+}
+
+/** Where a fixture is in its life, as a reader should be told it.
+ *
+ *  - `upcoming`  scheduled and not yet overdue.
+ *  - `live`      in_play inside the live window (isLiveNow).
+ *  - `stale`     the feed has stopped telling the truth: `in_play` stranded
+ *                past the live window, or still `scheduled` long after its
+ *                kickoff. Render "Result pending" with the last known score
+ *                and NO verdict -- full time is never inferred.
+ *  - `finished`  the feed confirmed full time.
+ *  - `postponed` / `cancelled` / `suspended`  deliberate stops, passed through
+ *                so pickability and copy can differ (postponed stays open).
+ */
+export type MatchPhase =
+  | "upcoming"
+  | "live"
+  | "stale"
+  | "finished"
+  | "postponed"
+  | "cancelled"
+  | "suspended";
+
+/** Reader-facing copy for the `stale` phase, shared by every surface (the
+ *  scorebug prints it upper-case like FULL TIME). */
+export const RESULT_PENDING = "Result pending";
+
+/** How long after kickoff a still-`scheduled` fixture is presumed overdue:
+ *  90' + half-time + stoppage with a generous margin. Inside this window a
+ *  lagging feed is only lagging; past it the result is pending, not upcoming. */
+export const STALE_AFTER_MINUTES = 150;
+
+/** The one place a surface classifies a fixture. Prefer this to comparing
+ *  `status` strings: the stale bucket only exists here. `now` is injectable
+ *  for tests and for clients that tick a shared clock.
+ *
+ *  `now === null` means the clock is not known yet: a client component
+ *  hydrating cached server HTML must classify exactly as the server did, so
+ *  until the browser clock takes over the feed's own status decides (in_play
+ *  is live, scheduled is upcoming) and the clock-based bounds apply one commit
+ *  later. */
+export function matchPhase(
+  m: Pick<MatchSummary, "status" | "kickoff_utc">,
+  now: Date | null = new Date(),
+): MatchPhase {
+  switch (m.status) {
+    case "finished":
+    case "postponed":
+    case "cancelled":
+    case "suspended":
+      return m.status;
+    case "in_play":
+      if (!now) return "live";
+      return isLiveNow(m, now) ? "live" : "stale";
+    default: {
+      if (!now) return "upcoming";
+      // "scheduled", and anything the provider invents later: a fixture whose
+      // kickoff is long past without a confirmed result is pending, never
+      // upcoming (fails closed for an unknown status, like isPickable).
+      if (!m.kickoff_utc) return "upcoming";
+      const elapsedMin = (now.getTime() - new Date(m.kickoff_utc).getTime()) / 60_000;
+      return elapsedMin > STALE_AFTER_MINUTES ? "stale" : "upcoming";
+    }
+  }
 }
 
 /** schema.org eventStatus, or null when no valid value exists.

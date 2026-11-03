@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, undefer
 
 from app import schemas, serializers
 from app.cache import cache
@@ -43,6 +43,9 @@ def upcoming_matches(
         joinedload(Match.group),
         joinedload(Match.home_team),
         joinedload(Match.away_team),
+        # Deferred on the model; every summary row reads it, so load it here
+        # rather than with one extra SELECT per row on this polled list.
+        undefer(Match.matchweek),
     ).filter(Match.team_home_id.isnot(None))
     if tournament is not None:
         query = query.filter(Match.tournament_id == tournament.id)

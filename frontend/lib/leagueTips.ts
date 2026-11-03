@@ -1,4 +1,4 @@
-/** Client for the league "Beat the AI's scoreline" loop (design doc:
+/** Client for the league "Beat the model's scoreline" loop (design doc:
  *  2026-07-24-league-score-predictions-design.md): device_id-keyed scoreline
  *  submission, "you vs the AI" summary, and weekly/season leaderboards
  *  (backend/app/api/league_score_predictions.py). Mirrors lib/nrlTips.ts's

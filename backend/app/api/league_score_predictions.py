@@ -16,7 +16,9 @@ importing them, matching how this codebase already keeps each vertical's
 copy of a shared pattern local (see nrl_tips.py's docstring on sports.py /
 nrl_intel.py / nrl_live.py, and activity.py's own _DEVICE_ID_RE). POST
 /api/nrl/tips/claim already claims a device's rows in this table too (see
-its second reassign/dedupe loop, added for this table).
+its second reassign/dedupe loop, added for this table). A signed-in request
+resolves the ACCOUNT's player first, from any device, and falls back to the
+device only when anonymous (_player_for_read / _player_for_submit).
 
 INTEGRITY: the first accepted prediction is final. Submitting it reveals the
 model's frozen scoreline, so allowing later edits would let a player copy the
@@ -32,22 +34,29 @@ _score_prediction, which this file also uses to compute the MODEL's side of
 the you-vs-AI comparison live, off the model's own frozen predicted scoreline
 -- this is the same pure function the (pipeline-owned) grading pass must use
 for player rows, so the two numbers can never disagree (see the parity test
-in backend/tests/test_league_score_predictions_api.py)."""
+in backend/tests/test_league_score_predictions_api.py). _model_scores is the
+one place that happens, for /summary, /share and the model's own ranked row
+on both leaderboards alike."""
 from __future__ import annotations
 
 import random
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, aliased, undefer
+from sqlalchemy.orm import Session, aliased, load_only, undefer
 
 from app import schemas
 from app.api.auth import _email_action_rate_limited
+from app.auth import get_current_user_optional
+from app.data_freshness import MATCH_MAX_DURATION_HOURS
 from app.db import get_db
-from app.match_status import IN_PLAY, SCHEDULED, is_locked
-from app.models import EmailActionAttempt, LeagueScorePrediction, Match, Prediction, Team, TipPlayer, Tournament
+from app.match_status import FINISHED, IN_PLAY, SCHEDULED, is_locked
+from app.models import (
+    AppUser, EmailActionAttempt, LeagueScorePrediction, Match, Prediction, Team, TipPlayer, Tournament,
+)
 from app.security import client_ip, hash_ip, require_same_origin, to_aware_utc
 from pipeline.leagues import LEAGUES as _PIPELINE_LEAGUES
 
@@ -74,7 +83,26 @@ _SUBMIT_ACTION = "league_tip_submit"
 _SUBMIT_MAX = 120
 _SUBMIT_WINDOW_MIN = 60
 
-_LEADERBOARD_MIN_PARTICIPANTS = 10
+# Human entries are revealed from the first participant. This was 10, which
+# meant no league board ever rendered a row (4/0/1 season players live, UX
+# rebuild plan 2026-11 §1.2); with the model always a ranked row, one player
+# already has someone to beat ("You #1 of 2"). Mirrors nrl_user_tips.
+_LEADERBOARD_MIN_PARTICIPANTS = 1
+
+# The model's ranked row on both boards. Not a TipPlayer: it never counts
+# toward participant_count, and `is_model` -- not this string -- is what marks
+# the row. Generated handles never contain a space, so it can't collide with
+# one. Same name as nrl_user_tips._MODEL_HANDLE.
+_MODEL_HANDLE = "FinalWhistle model"
+
+# Every Match column the model's row reads (_gradeable, _final_score,
+# _kickoff_locked_prediction, and the season board's matchweek). The boards
+# load only these, never the JSON goal/card/injury payloads; listing the
+# deferred matchweek here also loads it, so no per-row lazy load.
+_MODEL_ROW_MATCH_COLUMNS = (
+    Match.matchweek, Match.status, Match.kickoff_utc, Match.score_home, Match.score_away,
+    Match.score_home_90, Match.score_away_90,
+)
 
 _HANDLE_ADJECTIVES = (
     "Swift", "Brave", "Clutch", "Steady", "Fearless", "Sharp", "Bold",
@@ -211,21 +239,170 @@ def _model_out(pred: Prediction | None) -> dict | None:
     }
 
 
-def _current_matchweek(db: Session, tournament_id: int) -> int | None:
-    """Matchweek containing the earliest playable match; if the whole
-    tournament is finished (or nothing has a matchweek yet), the latest
+def _gradeable(m: Match) -> bool:
+    """Whether the (pipeline-owned) grading pass can score predictions on `m`:
+    finished, with a kickoff to lock against and a final score -- the same
+    three conditions pipeline.league_score_predictions.grade() applies. A
+    live score on an in-play match is not a result. Whether that pass has
+    actually RUN on the match yet is _awaiting_grading's question."""
+    return m.status == FINISHED and m.kickoff_utc is not None and _final_score(m) is not None
+
+
+def _awaiting_grading(db: Session, match_ids: list[int]) -> set[int]:
+    """The matches among `match_ids` with at least one grade-eligible player
+    pick -- stamped at or before kickoff, the grading pass's own filter --
+    not graded yet. Live refresh marks a match finished minutes after full
+    time, but picks are graded by pipeline.league_score_predictions.grade()
+    (post-results chain, daily pipeline); until it has run, the model's row
+    must not count the match either, or it banks points the players who
+    called the score don't have yet (review H1). A pick stamped after
+    kickoff is never graded, so it never holds the model back."""
+    if not match_ids:
+        return set()
+    return {
+        match_id
+        for (match_id,) in (
+            db.query(LeagueScorePrediction.match_id)
+            .join(Match, LeagueScorePrediction.match_id == Match.id)
+            .filter(
+                LeagueScorePrediction.match_id.in_(match_ids),
+                LeagueScorePrediction.graded_at.is_(None),
+                Match.kickoff_utc.isnot(None),
+                LeagueScorePrediction.updated_at <= Match.kickoff_utc,
+            )
+            .distinct()
+            .all()
+        )
+    }
+
+
+def _model_predictions_by_match(db: Session, match_ids: list[int]) -> dict[int, list[Prediction]]:
+    """The kickoff-locked production Prediction of each of `match_ids`, as
+    the one-row list per match _kickoff_locked_prediction takes.
+
+    The log is append-only -- a row per pipeline run per scheduled match,
+    plus shadow twins and a re-prediction after every post-results chain --
+    so a season's finished matches carry tens of thousands of rows (review
+    M3). The winning row is picked in SQL with the row_number() pattern
+    matches.upcoming_matches uses: per match, created_at desc, id desc, over
+    exactly the rows _kickoff_locked_prediction would consider (created_at
+    <= kickoff_utc when there is a kickoff). load_only then fetches only what
+    the reveal and scoring paths read, never the JSON reasons/features/
+    writeup payloads.
+
+    is_shadow.is_(False): shadow twins (odds/availability/offsets/rest) share
+    created_at with the production row (same generate_predictions
+    transaction) but are written AFTER it, so they'd win the created_at desc,
+    id desc tiebreak if not excluded -- mirrors learning_loop.
+    _frozen_prediction and every other public-facing Prediction read
+    (predictions.py, prob_history.py, serializers.py)."""
+    if not match_ids:
+        return {}
+    ranked = (
+        select(
+            Prediction.id.label("prediction_id"),
+            func.row_number()
+            .over(partition_by=Prediction.match_id,
+                  order_by=(Prediction.created_at.desc(), Prediction.id.desc()))
+            .label("row_number"),
+        )
+        .join(Match, Prediction.match_id == Match.id)
+        .where(
+            Prediction.match_id.in_(match_ids),
+            Prediction.is_shadow.is_(False),
+            or_(Match.kickoff_utc.is_(None), Prediction.created_at <= Match.kickoff_utc),
+        )
+        .subquery()
+    )
+    preds = (
+        db.query(Prediction)
+        .options(load_only(Prediction.match_id, Prediction.created_at, Prediction.model_version,
+                           Prediction.predicted_score_home, Prediction.predicted_score_away))
+        .join(ranked, Prediction.id == ranked.c.prediction_id)
+        .filter(ranked.c.row_number == 1)
+        .all()
+    )
+    return {p.match_id: [p] for p in preds}
+
+
+def _model_scores(preds_by_match: dict[int, list[Prediction]], matches: list[Match]) -> list[tuple[Match, int, bool]]:
+    """(match, points, exact) for each of `matches` the model's kickoff-locked
+    scoreline can be scored on, under the same _score_prediction rule the
+    grading pass applies to a player's row. The one computation behind the
+    model's side of /summary, /share and both leaderboards. A match with no
+    eligible prediction, no predicted scoreline, or no final score is
+    skipped, not scored zero."""
+    scores = []
+    for m in matches:
+        pred = _kickoff_locked_prediction(preds_by_match, m)
+        actual = _final_score(m)
+        if pred is None or actual is None or pred.predicted_score_home is None \
+                or pred.predicted_score_away is None:
+            continue
+        points, exact = _score_prediction(pred.predicted_score_home, pred.predicted_score_away, actual[0], actual[1])
+        scores.append((m, points, exact))
+    return scores
+
+
+def _model_leaderboard_scores(db: Session, matches: list[Match]) -> list[tuple[Match, int, bool]]:
+    """_model_scores over a leaderboard's SETTLED matches: gradeable, with no
+    eligible player pick still awaiting the grading pass. The model plays
+    every fixture, so its row is scored on each settled one whether or not
+    any player predicted it -- but never on a match before the players on
+    it have their points, so the two sides can't disagree."""
+    gradeable = [m for m in matches if _gradeable(m)]
+    waiting = _awaiting_grading(db, [m.id for m in gradeable])
+    settled = [m for m in gradeable if m.id not in waiting]
+    return _model_scores(_model_predictions_by_match(db, [m.id for m in settled]), settled)
+
+
+def _leaderboard_rank(entry: dict) -> tuple:
+    """Points desc, then exact-count desc (design doc), then humans ahead of
+    the model on a full tie -- level with the model still ranks a player
+    above it -- then handle asc so a full tie between players is stable."""
+    return (-entry["points"], -entry["exact_count"], entry["is_model"], entry["handle"])
+
+
+def _current_matchweek(db: Session, tournament_id: int, now: datetime | None = None) -> int | None:
+    """Matchweek containing the earliest OPEN match; if nothing is open (the
+    whole tournament is played, or nothing has a matchweek yet), the latest
     matchweek that has any match at all. Same rule shape as nrl_tips.
     _current_round, scoped to tournament_id instead of (sport, season) since
     one Tournament row already IS one season for a football league.
 
+    Open means dated, and either scheduled and not yet kicked off or in play
+    and within MATCH_MAX_DURATION_HOURS of kickoff. A `scheduled` row whose
+    kickoff has passed is a status the feed never caught up on -- a
+    duplicate-team ghost fixture from August, or a played match the refresh
+    hasn't flipped yet -- and it pinned Play to a matchweek nobody can play
+    (UX rebuild plan 2026-11 §1.2: La Liga on matchweek 2 and Bundesliga on
+    matchweek 1 in November, EPL on an all-played matchweek 9). An `in_play`
+    row past /api/health's own line (app.data_freshness) is just as
+    impossible: nobody is still playing, the feed that should have finished
+    it stopped reaching us. The cutoff uses >=, the exact complement of
+    stuck_matches' `<`, so a row is never both stuck there and open here. An
+    undated row never counts (review L3): a ghost or a date still TBD can't
+    be played, and counting it let a matchweek-3 leftover beat matchweek 10.
+
     Postponed/suspended fixtures are intentionally excluded until the provider
     gives them a new playable state. Otherwise an old stopped fixture pins the
-    Play page to its original matchweek indefinitely."""
+    Play page to its original matchweek indefinitely.
+
+    `now` defaults to the server clock; tests pin it."""
+    now = to_aware_utc(now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    in_play_cutoff = now - timedelta(hours=MATCH_MAX_DURATION_HOURS)
     upcoming = (
         db.query(Match.matchweek)
-        .filter(Match.tournament_id == tournament_id, Match.status.in_((SCHEDULED, IN_PLAY)),
-                Match.matchweek.isnot(None))
-        .order_by(Match.kickoff_utc.is_(None), Match.kickoff_utc.asc(), Match.id.asc())
+        .filter(
+            Match.tournament_id == tournament_id,
+            Match.matchweek.isnot(None),
+            Match.kickoff_utc.isnot(None),
+            or_(
+                and_(Match.status == IN_PLAY, Match.kickoff_utc >= in_play_cutoff),
+                and_(Match.status == SCHEDULED, Match.kickoff_utc > now),
+            ),
+        )
+        .order_by(Match.kickoff_utc.asc(), Match.id.asc())
         .first()
     )
     if upcoming is not None:
@@ -278,6 +455,62 @@ def _get_or_create_player(db: Session, device_id: str) -> TipPlayer:
     return player
 
 
+def _find_account_player(db: Session, user_id: int) -> TipPlayer | None:
+    return db.query(TipPlayer).filter_by(user_id=user_id).one_or_none()
+
+
+def _player_for_read(db: Session, device_id: str, user: AppUser | None) -> TipPlayer | None:
+    """The TipPlayer a device-scoped read (/mine, /summary) shows. Signed out:
+    this device's own row, exactly as before. Signed in: the account's row,
+    whichever device asks -- /claim merges a second device's row into the
+    account and deletes it, so a device-only lookup there found nothing
+    (review H3). With no account row yet, this device's row only while no
+    account owns it: a shared device must never show one account's picks to
+    another."""
+    if user is None:
+        return _find_player(db, device_id)
+    account_player = _find_account_player(db, user.id)
+    if account_player is not None:
+        return account_player
+    device_player = _find_player(db, device_id)
+    return device_player if device_player is not None and device_player.user_id is None else None
+
+
+def _player_for_submit(db: Session, device_id: str, user: AppUser | None, *, retry: bool = True) -> TipPlayer:
+    """The TipPlayer a submit writes to. Signed out: this device's own row,
+    created on first play, exactly as before. Signed in: the account's row,
+    so a pick from any device lands beside -- and is checked for finality
+    against -- the account's others (review H3). With no account row yet,
+    this device's unclaimed row is linked to the account (what /claim does
+    on the next page load); otherwise the account gets a new row, keyed by
+    this device's id, or -- when another account already owns that id, a
+    shared device -- by an account-scoped key no real device sends. Never
+    written into another account's row."""
+    if user is None:
+        return _get_or_create_player(db, device_id)
+    player = _find_account_player(db, user.id)
+    if player is not None:
+        return player
+    device_player = _find_player(db, device_id)
+    if device_player is not None and device_player.user_id is None:
+        device_player.user_id = user.id
+        player = device_player
+    else:
+        key = device_id if device_player is None else f"account:{user.id}"
+        player = TipPlayer(device_id=key, handle=_generate_handle(), user_id=user.id)
+        db.add(player)
+    try:
+        db.flush()
+    except IntegrityError:
+        # A concurrent request linked or created the account's row first
+        # (user_id and device_id are both unique): resolve again, once.
+        db.rollback()
+        if not retry:
+            raise
+        return _player_for_submit(db, device_id, user, retry=False)
+    return player
+
+
 def _find_prediction(db: Session, match_id: int, player_id: int) -> LeagueScorePrediction | None:
     """Mirrors _find_player -- split out so a concurrent first-submit race on
     the same (match, player) is easy to force in tests."""
@@ -288,8 +521,10 @@ def _find_prediction(db: Session, match_id: int, player_id: int) -> LeagueScoreP
 def submit_prediction(
     league: str, payload: schemas.LeagueScorePredictionSubmitIn, request: Request,
     db: Session = Depends(get_db),
+    user: AppUser | None = Depends(get_current_user_optional),
 ):
-    """Save one device's final scoreline guess for one match.
+    """Save one player's final scoreline guess for one match -- the device's
+    own player, or the account's when signed in (see _player_for_submit).
 
     The accepted response reveals the model score, so the first saved guess is
     immutable even before kickoff. This is enforced here, never by trusting
@@ -332,7 +567,7 @@ def submit_prediction(
             "message": f"Match {m.id} has kicked off and is locked.",
         })
 
-    player = _get_or_create_player(db, device_id)
+    player = _player_for_submit(db, device_id, user)
     pred = _find_prediction(db, m.id, player.id)
     if pred is not None:
         raise HTTPException(status_code=409, detail={
@@ -380,9 +615,11 @@ def submit_prediction(
 
 
 @router.get("/tips/mine")
-def my_predictions(league: str, device_id: str, matchweek: int | None = None, db: Session = Depends(get_db)):
-    """One device's predictions for a matchweek, with grading once graded,
-    alongside the model's own kickoff-locked scoreline per match."""
+def my_predictions(league: str, device_id: str, matchweek: int | None = None, db: Session = Depends(get_db),
+                   user: AppUser | None = Depends(get_current_user_optional)):
+    """One player's predictions for a matchweek -- the device's, or the
+    account's when signed in (see _player_for_read) -- with grading once
+    graded, alongside the model's own kickoff-locked scoreline per match."""
     tournament = _resolve_league(db, league)
     if not _DEVICE_ID_RE.match(device_id):
         raise HTTPException(status_code=422, detail={"code": "invalid_device_id",
@@ -410,24 +647,9 @@ def my_predictions(league: str, device_id: str, matchweek: int | None = None, db
         })
 
     match_ids = [m.id for m, _, _ in rows]
-    preds = (
-        db.query(Prediction)
-        # is_shadow.is_(False): shadow twins (odds/availability/offsets/rest)
-        # share created_at with the production row (same generate_predictions
-        # transaction) but are written AFTER it, so they'd win the
-        # created_at desc, id desc tiebreak in _kickoff_locked_prediction if
-        # not excluded here -- mirrors learning_loop._frozen_prediction and
-        # every other public-facing Prediction read (predictions.py,
-        # prob_history.py, serializers.py).
-        .filter(Prediction.match_id.in_(match_ids), Prediction.is_shadow.is_(False))
-        .order_by(Prediction.created_at.desc(), Prediction.id.desc())
-        .all()
-    )
-    preds_by_match: dict[int, list[Prediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
+    preds_by_match = _model_predictions_by_match(db, match_ids)
 
-    player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
+    player = _player_for_read(db, device_id, user)
     yours_by_match: dict[int, LeagueScorePrediction] = {}
     if player is not None:
         for pr in (
@@ -475,7 +697,8 @@ def my_predictions(league: str, device_id: str, matchweek: int | None = None, db
 
 
 @router.get("/tips/summary")
-def predictions_summary(league: str, device_id: str, db: Session = Depends(get_db)):
+def predictions_summary(league: str, device_id: str, db: Session = Depends(get_db),
+                        user: AppUser | None = Depends(get_current_user_optional)):
     """Season-long you-vs-AI record for one league: per graded matchweek, the
     device's points vs the model's -- the model's side scored live off its
     own frozen scoreline with the identical _score_prediction rule, so the
@@ -488,7 +711,7 @@ def predictions_summary(league: str, device_id: str, db: Session = Depends(get_d
 
     zero_totals = {"your_points": 0, "model_points": 0, "matchweeks_played": 0}
     zero_streaks = {"current_streak": 0, "best_streak": 0, "best_matchweek": None}
-    player = db.query(TipPlayer).filter_by(device_id=device_id).one_or_none()
+    player = _player_for_read(db, device_id, user)
     if player is None:
         return {"league": league, "handle": None, "matchweeks": [], "totals": zero_totals,
                 **zero_streaks, "disclaimer": _DISCLAIMER}
@@ -517,36 +740,13 @@ def predictions_summary(league: str, device_id: str, db: Session = Depends(get_d
     for t, m in rows:
         by_week.setdefault(m.matchweek, []).append((t, m))
 
-    match_ids = [m.id for _, m in rows]
-    preds = (
-        db.query(Prediction)
-        # is_shadow.is_(False): shadow twins (odds/availability/offsets/rest)
-        # share created_at with the production row (same generate_predictions
-        # transaction) but are written AFTER it, so they'd win the
-        # created_at desc, id desc tiebreak in _kickoff_locked_prediction if
-        # not excluded here -- mirrors learning_loop._frozen_prediction and
-        # every other public-facing Prediction read (predictions.py,
-        # prob_history.py, serializers.py).
-        .filter(Prediction.match_id.in_(match_ids), Prediction.is_shadow.is_(False))
-        .order_by(Prediction.created_at.desc(), Prediction.id.desc())
-        .all()
-    )
-    preds_by_match: dict[int, list[Prediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
+    preds_by_match = _model_predictions_by_match(db, [m.id for _, m in rows])
 
     weeks_out = []
     total_your = total_model = 0
     for week, items in sorted(by_week.items(), key=lambda kv: (kv[0] is None, kv[0])):
         your_points = sum(t.points or 0 for t, _ in items)
-        model_points = 0
-        for t, m in items:
-            pred = _kickoff_locked_prediction(preds_by_match, m)
-            actual = _final_score(m)
-            if pred is not None and actual is not None and pred.predicted_score_home is not None \
-                    and pred.predicted_score_away is not None:
-                pts, _ = _score_prediction(pred.predicted_score_home, pred.predicted_score_away, actual[0], actual[1])
-                model_points += pts
+        model_points = sum(points for _, points, _ in _model_scores(preds_by_match, [m for _, m in items]))
         weeks_out.append({
             "matchweek": week, "your_points": your_points, "model_points": model_points,
             "matches_played": len(items),
@@ -578,24 +778,28 @@ def predictions_summary(league: str, device_id: str, db: Session = Depends(get_d
 
 @router.get("/tips/leaderboard")
 def predictions_leaderboard(league: str, matchweek: int, db: Session = Depends(get_db)):
-    """Per-matchweek leaderboard. Hidden below _LEADERBOARD_MIN_PARTICIPANTS
-    -- participant_count is always returned so the UI can show "N players so
-    far", but individual entries (and every device_id) stay unexposed until
-    the matchweek has a real crowd. Never returns a device_id. Counts anyone
-    who SUBMITTED a prediction for this matchweek, graded or not (mirrors
-    nrl_user_tips.tips_leaderboard's population rule) -- ungraded rows just
-    contribute 0 points/0 exact until the match finishes."""
+    """Per-matchweek leaderboard. Player entries show from
+    _LEADERBOARD_MIN_PARTICIPANTS (1) and the model is ALWAYS a ranked row
+    (`is_model: true`, scored on every graded match of the matchweek -- see
+    _model_leaderboard_scores), so even a lone player has a rank against it.
+    participant_count counts players only, never the model. Never returns a
+    device_id. Counts anyone who SUBMITTED a prediction for this matchweek,
+    graded or not (mirrors nrl_user_tips.tips_leaderboard's population rule)
+    -- ungraded rows just contribute 0 points/0 exact until the match
+    finishes."""
     tournament = _resolve_league(db, league)
-    match_ids = [
-        mid for (mid,) in db.query(Match.id)
+    matches = (
+        db.query(Match)
+        .options(load_only(*_MODEL_ROW_MATCH_COLUMNS))
         .filter(Match.tournament_id == tournament.id, Match.matchweek == matchweek)
         .all()
-    ]
-    if not match_ids:
+    )
+    if not matches:
         raise HTTPException(status_code=404, detail={
             "code": "matchweek_not_found",
             "message": f"No matches for matchweek {matchweek}",
         })
+    match_ids = [m.id for m in matches]
 
     rows = (
         db.query(LeagueScorePrediction, TipPlayer)
@@ -615,8 +819,16 @@ def predictions_leaderboard(league: str, matchweek: int, db: Session = Depends(g
         for player_id, preds in by_player.items():
             points = sum(t.points or 0 for t in preds)
             exact_count = sum(1 for t in preds if t.exact)
-            entries.append({"handle": handles[player_id], "points": points, "exact_count": exact_count})
-        entries.sort(key=lambda e: (-e["points"], -e["exact_count"], e["handle"]))
+            entries.append({"handle": handles[player_id], "points": points, "exact_count": exact_count,
+                            "is_model": False})
+    model_scores = _model_leaderboard_scores(db, matches)
+    entries.append({
+        "handle": _MODEL_HANDLE,
+        "points": sum(points for _, points, _ in model_scores),
+        "exact_count": sum(1 for _, _, exact in model_scores if exact),
+        "is_model": True,
+    })
+    entries.sort(key=_leaderboard_rank)
 
     return {
         "league": league, "matchweek": matchweek,
@@ -628,10 +840,12 @@ def predictions_leaderboard(league: str, matchweek: int, db: Session = Depends(g
 @router.get("/tips/leaderboard/season")
 def predictions_leaderboard_season(league: str, db: Session = Depends(get_db)):
     """Season-long leaderboard: per-player totals across every graded
-    matchweek in this league's tournament. Same reveal gate and no-device_id
-    rule as the weekly board -- only the ranking key/population differ.
-    Unlike the weekly board, population here is players with at least one
-    GRADED prediction (mirrors nrl_user_tips.tips_leaderboard_season's
+    matchweek in this league's tournament. Same reveal rule, model row and
+    no-device_id rule as the weekly board -- only the ranking key/population
+    differ. The model's row covers every graded match in the tournament, and
+    its matchweeks_played counts the matchweeks it was scored in. Unlike the
+    weekly board, population here is players with at least one GRADED
+    prediction (mirrors nrl_user_tips.tips_leaderboard_season's
     submitted-vs-graded distinction) -- a running season total only means
     something once something's been graded."""
     tournament = _resolve_league(db, league)
@@ -659,8 +873,23 @@ def predictions_leaderboard_season(league: str, db: Session = Depends(get_db)):
             entries.append({
                 "handle": handles[player_id], "points": points,
                 "exact_count": exact_count, "matchweeks_played": matchweeks_played,
+                "is_model": False,
             })
-        entries.sort(key=lambda e: (-e["points"], -e["exact_count"], e["handle"]))
+    finished = (
+        db.query(Match)
+        .options(load_only(*_MODEL_ROW_MATCH_COLUMNS))
+        .filter(Match.tournament_id == tournament.id, Match.status == FINISHED)
+        .all()
+    )
+    model_scores = _model_leaderboard_scores(db, finished)
+    entries.append({
+        "handle": _MODEL_HANDLE,
+        "points": sum(points for _, points, _ in model_scores),
+        "exact_count": sum(1 for _, _, exact in model_scores if exact),
+        "matchweeks_played": len({m.matchweek for m, _, _ in model_scores}),
+        "is_model": True,
+    })
+    entries.sort(key=_leaderboard_rank)
 
     return {
         "league": league,
@@ -720,36 +949,13 @@ def predictions_share(league: str, matchweek: int, handle: str, db: Session = De
     items = by_player[chosen_id]
     handle_display = next(p.handle for p in candidates if p.id == chosen_id)
 
-    match_ids = [m.id for _, m in items]
-    preds = (
-        db.query(Prediction)
-        # is_shadow.is_(False): shadow twins (odds/availability/offsets/rest)
-        # share created_at with the production row (same generate_predictions
-        # transaction) but are written AFTER it, so they'd win the
-        # created_at desc, id desc tiebreak in _kickoff_locked_prediction if
-        # not excluded here -- mirrors learning_loop._frozen_prediction and
-        # every other public-facing Prediction read (predictions.py,
-        # prob_history.py, serializers.py).
-        .filter(Prediction.match_id.in_(match_ids), Prediction.is_shadow.is_(False))
-        .order_by(Prediction.created_at.desc(), Prediction.id.desc())
-        .all()
-    )
-    preds_by_match: dict[int, list[Prediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
+    preds_by_match = _model_predictions_by_match(db, [m.id for _, m in items])
 
     # Same live-scoring pattern as predictions_summary, over the SAME
     # per-matchweek prediction set, so this number never disagrees with what
     # /summary shows this player for this matchweek.
     player_points = sum(t.points or 0 for t, _ in items)
-    model_points = 0
-    for t, m in items:
-        pred = _kickoff_locked_prediction(preds_by_match, m)
-        actual = _final_score(m)
-        if pred is not None and actual is not None and pred.predicted_score_home is not None \
-                and pred.predicted_score_away is not None:
-            pts, _ = _score_prediction(pred.predicted_score_home, pred.predicted_score_away, actual[0], actual[1])
-            model_points += pts
+    model_points = sum(points for _, points, _ in _model_scores(preds_by_match, [m for _, m in items]))
 
     # Whole-matchweek completeness, independent of what THIS player
     # predicted -- every match in (tournament, matchweek) must be finished.

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { ClaimDeviceLeagueTips } from "@/components/leagueTips/ClaimDeviceLeagueTips";
 import { LeagueSwitcher } from "@/components/leagueTips/LeagueSwitcher";
 import { LeagueTipsPicker } from "@/components/leagueTips/LeagueTipsPicker";
 import { LeagueYouVsAi } from "@/components/leagueTips/LeagueYouVsAi";
@@ -44,18 +43,19 @@ import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
  *  one unified, competition-filtered board, so it passes showLeaderboard={false}
  *  to suppress the in-section LeagueTipsLeaderboard and onMatchweekResolved to
  *  learn the same resolved matchweek the hoisted board needs. Both default to
- *  the shipped behavior, leaving /tips pixel-identical. */
+ *  the shipped behavior, leaving /tips pixel-identical.
+ *
+ *  Merge-on-signup (the device claim) no longer lives here: AuthProvider runs
+ *  it on every sign-in, for every league and NRL alike. */
 export function LeagueTipsPlaySection({
   defaultLeague,
   showLeaderboard = true,
   showLeagueSwitcher = true,
-  showClaim = true,
   onMatchweekResolved,
 }: {
   defaultLeague: string;
   showLeaderboard?: boolean;
   showLeagueSwitcher?: boolean;
-  showClaim?: boolean;
   onMatchweekResolved?: (matchweek: number | null) => void;
 }) {
   const [league, setLeague] = useState(defaultLeague);
@@ -81,7 +81,6 @@ export function LeagueTipsPlaySection({
           <LeagueSwitcher leagues={ACTIVE_LEAGUES} value={league} onChange={selectLeague} />
         </div>
       )}
-      {showClaim && <ClaimDeviceLeagueTips />}
       <LeagueTipsPicker key={`picker-${league}`} league={league} onMatchweekChange={applyMatchweek} />
       <LeagueYouVsAi key={`you-vs-ai-${league}`} league={league} />
       {showLeaderboard && matchweek != null && (

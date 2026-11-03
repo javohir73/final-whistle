@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { resetPassword, friendlyAuthError } from "@/lib/session";
@@ -16,9 +16,14 @@ export function ResetPasswordClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const uid = useId();
+  const passwordId = `${uid}-password`;
+  const passwordHintId = `${uid}-password-hint`;
+  const confirmId = `${uid}-confirm`;
 
   const field =
     "w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-win";
+  const labelCls = "mb-1 block text-xs font-semibold text-muted";
 
   if (!token) {
     return (
@@ -64,40 +69,71 @@ export function ResetPasswordClient() {
   return (
     <Shell title="Choose a new password">
       <form onSubmit={submit} className="space-y-3">
-        <div className="relative">
+        {/* Visible labels: a placeholder-only field loses its name on the
+            first keystroke. */}
+        <div>
+          <div className="flex items-baseline justify-between gap-2">
+            <label htmlFor={passwordId} className={labelCls}>
+              New password
+            </label>
+            <span id={passwordHintId} className="text-xs text-muted">
+              8+ characters
+            </span>
+          </div>
+          <div className="relative">
+            <input
+              id={passwordId}
+              type={show ? "text" : "password"}
+              required
+              minLength={8}
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              aria-describedby={passwordHintId}
+              className={`${field} pr-11`}
+            />
+            <button
+              type="button"
+              onClick={() => setShow((v) => !v)}
+              aria-label={show ? "Hide password" : "Show password"}
+              aria-pressed={show}
+              className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-lg text-muted transition hover:text-foreground"
+            >
+              {show ? (
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 3l18 18" />
+                <path d="M10.6 10.6a3 3 0 0 0 4.2 4.2" />
+                <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.9 3.7M6.2 6.2A17.5 17.5 0 0 0 2 12s3.5 7 10 7a10.4 10.4 0 0 0 3.4-.6" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label htmlFor={confirmId} className={labelCls}>
+            Confirm new password
+          </label>
           <input
+            id={confirmId}
             type={show ? "text" : "password"}
             required
             minLength={8}
             autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="New password (8+ characters)"
-            aria-label="New password"
-            className={`${field} pr-11`}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className={field}
           />
-          <button
-            type="button"
-            onClick={() => setShow((v) => !v)}
-            aria-label={show ? "Hide password" : "Show password"}
-            aria-pressed={show}
-            className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-lg text-muted transition hover:text-foreground"
-          >
-            {show ? "🙈" : "👁"}
-          </button>
         </div>
-        <input
-          type={show ? "text" : "password"}
-          required
-          minLength={8}
-          autoComplete="new-password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          placeholder="Confirm new password"
-          aria-label="Confirm new password"
-          className={field}
-        />
-        {error && <p className="text-sm text-loss">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-loss-ink">
+            {error}
+          </p>
+        )}
         <button
           type="submit"
           disabled={busy}

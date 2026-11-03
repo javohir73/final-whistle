@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import NrlTipsPage from "./page";
 import { getNrlTipsheetServer } from "@/lib/api";
 import type { NrlTipsheet } from "@/lib/types";
+import { nrlStartLabel } from "@/lib/nrlTips";
 
 jest.mock("@/lib/api");
 const mockTipsheet = getNrlTipsheetServer as jest.MockedFunction<typeof getNrlTipsheetServer>;
@@ -20,7 +21,8 @@ const fixtures: NrlTipsheet = {
   season: 2026,
   round: 2,
   matches: [{
-    id: 5, match_no: 1, kickoff_utc: "2026-03-12T00:00:00+00:00",
+    // Relative kickoff so the round stays "open" whenever the suite runs.
+    id: 5, match_no: 1, kickoff_utc: new Date(Date.now() + 2 * 86_400_000).toISOString(),
     venue: "AAMI Park", home: "Storm", away: "Eels",
     home_team_id: 1, away_team_id: 2, score_home: null, score_away: null,
     status: "scheduled",
@@ -79,4 +81,41 @@ it("renders gracefully when nothing is graded and no match has a prediction yet"
   expect(screen.getByText("Prediction arriving before kickoff.")).toBeInTheDocument();
   expect(screen.getByText(/No graded matches yet this season/)).toBeInTheDocument();
   expect(screen.queryByText(/worst miss/)).not.toBeInTheDocument();
+});
+
+it("swaps the finals-race teaser for a live competition once the season is over", async () => {
+  mockTipsheet.mockResolvedValue({
+    ...fixtures,
+    round: 31,
+    matches: [{
+      ...fixtures.matches[0], kickoff_utc: "2026-10-04T08:30:00+00:00",
+      status: "finished", score_home: 19, score_away: 18,
+    }],
+  });
+  render(await NrlTipsPage());
+
+  expect(screen.queryByRole("link", { name: /run home/i })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
+  expect(screen.getByText(/2026 season complete · back March 2027/)).toBeInTheDocument();
+});
+
+it("points at a live competition in the pre-season too, with the season's start date", async () => {
+  const opener = new Date(Date.now() + 100 * 86_400_000).toISOString();
+  mockTipsheet.mockResolvedValue({
+    ...fixtures,
+    season: 2027,
+    round: 1,
+    matches: [{ ...fixtures.matches[0], kickoff_utc: opener, status: "scheduled" }],
+  });
+  render(await NrlTipsPage());
+
+  expect(screen.queryByRole("link", { name: /run home/i })).not.toBeInTheDocument();
+  expect(screen.getByText(`Season 2027 starts ${nrlStartLabel(opener)}`)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
 });

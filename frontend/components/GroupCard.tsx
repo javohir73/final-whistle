@@ -3,7 +3,13 @@
 import Link from "next/link";
 import type { Group, MatchSummary } from "@/lib/types";
 import { groupHasLiveMatch } from "@/lib/liveLabel";
+import { COMPETITIONS } from "@/lib/sports";
 import { GroupTable } from "./GroupTable";
+
+/** Groups exist only where the registry says hasGroups (the World Cup), so
+ *  the defaults are its scoped URLs -- the legacy /groups and /team paths are
+ *  each a redirect or lookup hop. */
+const WC26_BASE = COMPETITIONS.wc26.basePath;
 
 /** A whole-card link to the group detail page. The "View matches" text is a
  *  real <Link>, stretched via `after:absolute after:inset-0` to cover the
@@ -14,8 +20,8 @@ export function GroupCard({
   group,
   index = 0,
   matches,
-  groupBasePath = "/groups",
-  teamBasePath = "/team",
+  groupBasePath = `${WC26_BASE}/groups`,
+  teamBasePath = `${WC26_BASE}/team`,
 }: {
   group: Group;
   index?: number;

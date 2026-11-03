@@ -30,18 +30,19 @@ const LiveMatchContext = createContext<LiveMatchState | null>(null);
 export function LiveMatchProvider({ match, children }: { match: NrlMatch; children: ReactNode }) {
   const finished = match.status === "finished";
   // First-paint seed for a finished match: built from the core match row so
-  // the hero renders a final score with no loading flash. It is a FABRICATION
-  // (empty timeline, 1/0 probability) and must not be the last word -- the
-  // single fetch below replaces it with the persisted closing probability and
-  // the try-by-try NrlLiveEvent timeline.
-  const initial = useMemo(
+  // the hero renders a final score with no loading flash. It is PARTIAL (empty
+  // timeline, no probability -- never a fabricated 1/0, which read "0%" for a
+  // drawn game; consumers print null as "—") and must not be the last word:
+  // the single fetch below replaces it with the persisted closing probability
+  // (itself null when no poller closed the match) and the try timeline.
+  const initial = useMemo<NrlLive | undefined>(
     () => finished && match.score_home != null && match.score_away != null
       ? {
-          status: "final" as const,
+          status: "final",
           minute: 80,
           score_home: match.score_home,
           score_away: match.score_away,
-          live_home_prob: match.score_home > match.score_away ? 1 : 0,
+          live_home_prob: null,
           events: [],
         }
       : undefined,
@@ -103,7 +104,7 @@ export function LiveMatchProvider({ match, children }: { match: NrlMatch; childr
       active = false;
       if (interval) clearInterval(interval);
     };
-  }, [attempt, initial, match.id]);
+  }, [attempt, initial, match.id, match.kickoff_utc]);
 
   const retry = useCallback(() => {
     if (terminal.current) return;

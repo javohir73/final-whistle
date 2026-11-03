@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { createPortalSession, type SessionUser } from "@/lib/session";
 import { BILLING_ENABLED } from "@/lib/constants";
 import { recordEngagement } from "@/lib/engagement";
+import { COMPETITIONS, navTabsFor } from "@/lib/sports";
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
+import { useCompetitionScope } from "@/components/TournamentProvider";
+
+const ITEM_CLASS =
+  "w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-foreground";
 
 function initials(user: SessionUser): string {
   const name = (user.display_name || "").trim();
@@ -16,7 +22,9 @@ function initials(user: SessionUser): string {
 }
 
 /** Signed-in indicator: a circular avatar with the user's initials (top-right),
- *  opening a small menu with their email + Sign out. */
+ *  opening a small menu: My picks and (where the competition has one) the
+ *  model's record, scoped to the current competition like the rest of the
+ *  shell, then the account actions. */
 export function AccountMenu({
   user,
   onLogout,
@@ -30,6 +38,9 @@ export function AccountMenu({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const label = user.display_name || user.email;
+  const { competition } = useCompetitionScope();
+  const myPicksHref = navTabsFor(competition).find((tab) => tab.id === "mypicks")!.href;
+  const recordHref = COMPETITIONS[competition].recordPath;
 
   const onManageSubscription = async () => {
     try {
@@ -84,12 +95,31 @@ export function AccountMenu({
             <div className="truncate text-xs text-muted">{user.email}</div>
           </div>
           <div className="my-1 border-t border-border" />
+          <Link
+            href={myPicksHref}
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className={`block ${ITEM_CLASS}`}
+          >
+            My picks
+          </Link>
+          {recordHref && (
+            <Link
+              href={recordHref}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className={`block ${ITEM_CLASS}`}
+            >
+              Model record
+            </Link>
+          )}
+          <div className="my-1 border-t border-border" />
           {BILLING_ENABLED && user.premium && (
             <button
               type="button"
               role="menuitem"
               onClick={onManageSubscription}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+              className={ITEM_CLASS}
             >
               Manage subscription
             </button>
@@ -101,7 +131,7 @@ export function AccountMenu({
               setOpen(false);
               onLogout();
             }}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+            className={ITEM_CLASS}
           >
             Sign out
           </button>

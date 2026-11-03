@@ -143,3 +143,20 @@ it("never shows when already running standalone (installed)", async () => {
     window.matchMedia = orig;
   }
 });
+
+it("keeps its glyphs decorative and clears the mobile tab bar", async () => {
+  setUserAgent(IOS_UA);
+  render(<InstallAppPrompt />);
+  act(() => {
+    recordEngagement("menu-open");
+  });
+  const card = await screen.findByRole("complementary", { name: "Install FinalWhistle" });
+  // The Share glyph sits inside running text ("Tap Share … then"); labelling
+  // it made screen readers say "Share Share icon".
+  expect(screen.queryByLabelText("Share icon")).not.toBeInTheDocument();
+  for (const svg of card.querySelectorAll("svg")) {
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+  }
+  expect(card).toHaveClass("bottom-above-tabbar");
+  expect(card.className).not.toMatch(/(^|\s)sm:bottom-/);
+});

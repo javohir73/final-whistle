@@ -7,7 +7,8 @@ import { getUpcomingMatches } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
 import { useTimezone } from "@/lib/useTimezone";
 import { dayKey, dayHeading, relativeDayLabel, tzCityLabel } from "@/lib/datetime";
-import { isLiveNow } from "@/lib/liveLabel";
+import { matchPhase } from "@/lib/matchStatus";
+import { RenderClockContext, useHydratedNow } from "@/components/match/clock";
 import { MatchCard } from "@/components/MatchCard";
 import { TimelineSpine } from "@/components/TimelineSpine";
 import { LocationPicker } from "@/components/LocationPicker";
@@ -29,16 +30,27 @@ const TBC = "tbc";
 type Filter = "Upcoming" | "Live" | "Finished";
 const FILTERS: Filter[] = ["Upcoming", "Live", "Finished"];
 
-const isFinished = (m: MatchSummary) =>
-  m.status === "finished" || (m.status === "in_play" && !isLiveNow(m));
-
 export function MatchesClient({
   initialMatches,
   competition,
+  renderedAt,
 }: {
   initialMatches?: MatchSummary[];
   competition?: CompetitionId;
+  /** When the server rendered this list (ISO). The page is ISR, so its HTML
+   *  can be hours old: the first client pass renders with this instant so it
+   *  hydrates exactly ("Tomorrow" stays "Tomorrow", LIVE stays LIVE), then the
+   *  browser clock takes over. Without it the first pass skips clock-only
+   *  details (day labels, the live bound) instead of guessing. */
+  renderedAt?: string | null;
 }) {
+  const now = useHydratedNow(renderedAt);
+  // Live and Finished by matchPhase on that clock (the feed's own status while
+  // the clock is unknown): a match the feed left `in_play` past the live window
+  // is a result to file under Finished, never a perpetual LIVE pin.
+  const isLive = (m: MatchSummary) => matchPhase(m, now) === "live";
+  const isFinished = (m: MatchSummary) =>
+    m.status === "finished" || (m.status === "in_play" && !isLive(m));
   const pathname = usePathname();
   const activeCompetition = competition ?? competitionFromPathname(pathname);
   const config = COMPETITIONS[activeCompetition];
@@ -100,18 +112,18 @@ export function MatchesClient({
   });
 
   const filtered = searched.filter((m) => {
-    if (filter === "Live") return isLiveNow(m);
+    if (filter === "Live") return isLive(m);
     if (filter === "Finished") return isFinished(m);
-    return !isLiveNow(m) && !isFinished(m); // Upcoming = still to be played
+    return !isLive(m) && !isFinished(m); // Upcoming = still to be played
   });
 
   // Live games are pinned to the top on every view except Finished, so the
   // current match is never buried — even while you're browsing Upcoming.
-  // isLiveNow (not a bare status check) keeps a match the feed left stuck
+  // isLive (not a bare status check) keeps a match the feed left stuck
   // `in_play` from being pinned as "LIVE" forever — it falls into its day group.
-  const liveMatches = (filter === "Finished" ? [] : searched.filter((m) => isLiveNow(m)))
+  const liveMatches = (filter === "Finished" ? [] : searched.filter((m) => isLive(m)))
     .sort((a, b) => (a.kickoff_utc ?? "").localeCompare(b.kickoff_utc ?? ""));
-  const rest = filtered.filter((m) => !isLiveNow(m));
+  const rest = filtered.filter((m) => !isLive(m));
 
   // Bucket the non-live fixtures by local calendar day. Soonest-first, with any
   // undated fixtures last. Each day's eyebrow uses the relative label ("Today ·",
@@ -151,6 +163,7 @@ export function MatchesClient({
   })();
 
   return (
+    <RenderClockContext.Provider value={now}>
     <div>
       <header className="mb-4 flex items-start justify-between gap-3">
         <div>
@@ -202,14 +215,14 @@ export function MatchesClient({
         />
       </div>
 
-      {/* Beat the AI entry point (design doc: League Score Predictions,
+      {/* Beat the model entry point (design doc: League Score Predictions,
        *  2026-07-24) -- same glass teaser-card idiom as /nrl/tips's "Finals
        *  race" card and /nrl's "State of Origin" card. */}
       <Link href="/play" className="glass mb-6 block rounded-2xl p-4 transition hover:bg-white/5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-              Beat the AI
+              Beat the model
             </p>
             <p className="mt-1 font-display text-lg font-extrabold">Predict this week&apos;s scorelines</p>
           </div>
@@ -297,7 +310,7 @@ export function MatchesClient({
             <TimelineSpine
               days={days.map(([key, dayMatches]) => {
                 const iso = dayMatches[0].kickoff_utc;
-                const rel = key === TBC || !iso ? null : relativeDayLabel(iso, tz);
+                const rel = key === TBC || !iso || !now ? null : relativeDayLabel(iso, tz, now);
                 const heading =
                   key === TBC || !iso
                     ? "Date to be confirmed"
@@ -313,5 +326,6 @@ export function MatchesClient({
           </div>
         ))}
     </div>
+    </RenderClockContext.Provider>
   );
 }

@@ -27,7 +27,9 @@ export function InstallAppPrompt() {
     <div
       role="complementary"
       aria-label="Install FinalWhistle"
-      className="glass safe-x fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-md rounded-2xl p-4 shadow-xl sm:inset-x-auto sm:bottom-6 sm:right-6"
+      // bottom-above-tabbar: clears the tab bar until lg. The old sm:bottom-6
+      // dropped onto the bar at 640-1023px, where BottomNav is still shown.
+      className="glass safe-x bottom-above-tabbar fixed inset-x-3 z-40 mx-auto max-w-md rounded-2xl p-4 shadow-xl sm:inset-x-auto sm:right-6"
     >
       <div className="flex items-start gap-3">
         <Image
@@ -41,7 +43,7 @@ export function InstallAppPrompt() {
           <p className="font-display text-sm font-bold">Install FinalWhistle</p>
           {platform === "android" ? (
             <p className="mt-0.5 text-xs leading-relaxed text-muted">
-              Full-screen launch from your home screen — your bracket and live
+              Full-screen launch from your home screen — your picks and live
               scores, one tap away.
             </p>
           ) : (
@@ -49,7 +51,8 @@ export function InstallAppPrompt() {
               Tap{" "}
               <span className="font-semibold text-foreground">
                 Share{" "}
-                <svg viewBox="0 0 24 24" className="inline h-3.5 w-3.5 align-[-2px]" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Share icon">
+                {/* Decorative: the word "Share" already names the button. */}
+                <svg viewBox="0 0 24 24" className="inline h-3.5 w-3.5 align-[-2px]" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path d="M12 3v12M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>{" "}
@@ -73,7 +76,7 @@ export function InstallAppPrompt() {
           aria-label="Dismiss install prompt"
           className="shrink-0 rounded-md p-1 text-muted transition hover:text-foreground"
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
           </svg>
         </button>

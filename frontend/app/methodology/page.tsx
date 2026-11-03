@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
-import { CalibrationChart } from "@/components/CalibrationChart";
+// Lazy: recharts loads after hydration, not on this page's first load.
+import { CalibrationChartLazy } from "@/components/CalibrationChartLazy";
 import data from "@/lib/methodology-data.json";
 import { getMarketRecordServer, getModelRecordServer } from "@/lib/api";
 import { MarketComparison } from "@/components/MarketComparison";
@@ -95,7 +96,7 @@ export default async function MethodologyPage() {
           <span className="text-foreground/80">perfect-calibration</span> line.
         </p>
         <div className="mt-5">
-          <CalibrationChart bins={data.reliability} />
+          <CalibrationChartLazy bins={data.reliability} />
         </div>
         <p className="mt-3 text-xs text-muted">
           Based on {data.reliability_n.toLocaleString()} probability–outcome pairs across the{" "}

@@ -6,10 +6,20 @@ import type { ReactNode } from "react";
 export const OG_SIZE = { width: 1200, height: 630 };
 export const OG_CONTENT_TYPE = "image/png";
 
-/** Shared OG footer tagline, parameterized on the active tournament's name
- *  (see lib/tournament.ts) rather than a hardcoded "FIFA World Cup 2026". */
+/** Shared OG footer tagline for a competition-scoped image, parameterized on
+ *  that competition's name rather than a hardcoded "FIFA World Cup 2026". */
 export const ogFooter = (tournamentName: string) =>
   `Explainable ${tournamentName} predictions · for analytics & entertainment`;
+
+/** Platform-level copy (root share image, PWA manifest): names the
+ *  competitions people can play right now and never follows getTournament(),
+ *  whose "active tournament" is a pipeline setting, not the product. */
+export const PLATFORM_TITLE = "Beat the model at the Premier League, La Liga, Bundesliga and NRL";
+export const PLATFORM_DESCRIPTION =
+  "Pick the scores and beat FinalWhistle's in-house model at the Premier League, La Liga, " +
+  "Bundesliga and the NRL — explainable win probabilities and scorelines, a public record, " +
+  "and a leaderboard. For analytics and entertainment only.";
+export const PLATFORM_FOOTER = "Explainable football & NRL predictions · for analytics & entertainment";
 
 export const C = {
   bg: "#08120d",

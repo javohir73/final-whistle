@@ -10,6 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import nrl_tips
+from app.api.nrl_live import _LIVE_STATE_GRACE, _MATCH_DURATION, live_state_is_stale
 from app.db import Base, get_db
 from app.main import app
 from app.models import SportMatch, SportPrediction, SportPredictionResult, SportTeam
@@ -57,8 +59,11 @@ def test_defaults_to_current_round_with_scheduled_matches(client):
                      kickoff_utc=datetime(2026, 3, 5, tzinfo=timezone.utc),
                      home_team_id=storm.id, away_team_id=eels.id,
                      status="finished", score_home=20, score_away=10)
+    # Relative, not a fixed date: a scheduled kickoff that has already passed
+    # is no longer "open" (see the _current_round tests below), so a fixed
+    # date would quietly turn this into a test of the latest-round fallback.
     r2 = SportMatch(sport="nrl", season=2026, round=2, match_no=1,
-                     kickoff_utc=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                     kickoff_utc=datetime.now(timezone.utc) + timedelta(days=7),
                      venue="AAMI Park", home_team_id=storm.id, away_team_id=eels.id,
                      status="scheduled")
     db.add_all([r1, r2])
@@ -263,6 +268,164 @@ def test_finished_season_falls_back_to_latest_round(client):
     body = r.json()
     assert body["round"] == 2
     assert body["record"]["evaluated_matches"] == 0  # no SportPredictionResult rows seeded
+
+
+# _current_round is stale-aware (UX rebuild plan 2026-11, Phase 0): a match is
+# open iff it is in play, or scheduled and not yet kicked off. These pin the
+# clock through the injectable `now` so the dates can be read literally.
+_NOW = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+
+
+def _nrl_match(db, rnd, match_no, home, away, kickoff, status="scheduled", **kw):
+    m = SportMatch(sport="nrl", season=2026, round=rnd, match_no=match_no, kickoff_utc=kickoff,
+                   home_team_id=home.id, away_team_id=away.id, status=status, **kw)
+    db.add(m)
+    db.flush()
+    return m
+
+
+def test_current_round_skips_a_scheduled_row_whose_kickoff_has_passed(client):
+    """nrl-refresh can lag a played match's status by days; the old
+    `status != "finished"` rule pinned the round to it until it caught up."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 20, 1, storm, eels, _NOW - timedelta(days=2))  # played, still "scheduled"
+    _nrl_match(db, 20, 2, storm, eels, _NOW - timedelta(days=3), status="finished",
+               score_home=10, score_away=6)
+    _nrl_match(db, 21, 1, storm, eels, _NOW + timedelta(days=2))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 21
+    # Same rows a week earlier: round 20 hadn't kicked off, so it was open.
+    assert nrl_tips._current_round(db, 2026, now=_NOW - timedelta(days=7)) == 20
+
+
+def test_current_round_ignores_postponed_and_cancelled_rows(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 3, 1, storm, eels, _NOW - timedelta(days=10), status="postponed")
+    _nrl_match(db, 3, 2, storm, eels, _NOW + timedelta(days=1), status="cancelled")  # never tippable
+    _nrl_match(db, 4, 1, storm, eels, _NOW + timedelta(days=5))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 4
+
+
+def test_current_round_in_play_match_keeps_its_round(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 12, 1, storm, eels, _NOW - timedelta(minutes=30), status="in_play")
+    _nrl_match(db, 13, 1, storm, eels, _NOW + timedelta(days=4))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 12
+
+
+# NRL's own line for a live claim (app.api.nrl_live.live_state_is_stale): the
+# poller's 110' window plus a golden-point grace, past which "live" is frozen.
+_NRL_LIVE_LIMIT = _MATCH_DURATION + _LIVE_STATE_GRACE
+
+
+@pytest.mark.parametrize("age, still_open", [
+    (timedelta(minutes=30), True),
+    (_NRL_LIVE_LIMIT, True),
+    (_NRL_LIVE_LIMIT + timedelta(seconds=1), False),
+    (timedelta(hours=6), False),
+])
+def test_current_round_in_play_is_open_only_while_nrl_live_still_believes_it(client, age, still_open):
+    """An in_play row is open only while it could still be a game in
+    progress: past the line every NRL surface draws for a live claim, it is
+    frozen data, so it must not pin the round. Both draw the same line."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kickoff = _NOW - age
+    _nrl_match(db, 12, 1, storm, eels, kickoff, status="in_play")
+    _nrl_match(db, 13, 1, storm, eels, _NOW + timedelta(days=4))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == (12 if still_open else 13)
+    assert live_state_is_stale(kickoff, _NOW) is (not still_open)
+
+
+def test_tipsheet_default_round_skips_a_stuck_in_play_row_but_keeps_a_live_one(client):
+    """End to end on the server clock: a row left in_play six hours after
+    kickoff no longer pins the round, while a match thirty minutes in keeps
+    its round."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    _nrl_match(db, 20, 1, storm, eels, now - timedelta(hours=6), status="in_play")
+    _nrl_match(db, 21, 1, storm, eels, now + timedelta(days=3))
+    db.commit()
+
+    r = c.get("/api/nrl/tips", params={"season": 2026})
+    assert r.status_code == 200, r.text
+    assert r.json()["round"] == 21
+
+    _nrl_match(db, 20, 2, storm, eels, now - timedelta(minutes=30), status="in_play")
+    db.commit()
+
+    r = c.get("/api/nrl/tips", params={"season": 2026})
+    assert r.status_code == 200, r.text
+    assert r.json()["round"] == 20
+
+
+def test_current_round_nothing_open_falls_back_to_latest_round(client):
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 1, 1, storm, eels, _NOW - timedelta(days=200), status="finished",
+               score_home=20, score_away=10)
+    _nrl_match(db, 2, 1, storm, eels, _NOW - timedelta(days=190))  # stale "scheduled": not open
+    _nrl_match(db, 27, 1, storm, eels, _NOW - timedelta(days=30), status="finished",
+               score_home=14, score_away=26)
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 27
+
+
+def test_current_round_undated_fixture_never_picks_the_default(client):
+    """An undated fixture must never choose the default round, not even when
+    nothing else is open (review L3): played through round 10 with an
+    undated round-3 row left over, the default is round 10."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    _nrl_match(db, 3, 1, storm, eels, None)  # undated ghost
+    _nrl_match(db, 10, 1, storm, eels, _NOW - timedelta(days=2), status="finished",
+               score_home=8, score_away=4)
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 10
+
+    _nrl_match(db, 11, 1, storm, eels, _NOW + timedelta(days=3))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 11
+
+
+def test_current_round_holds_while_its_last_game_is_being_played(client):
+    """Review L4: NRL ingest never writes in_play, so a game in progress is a
+    `scheduled` row whose kickoff has passed. Inside the live window every
+    NRL surface uses it still holds its round; past it, the round moves on."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    last_kickoff = _NOW - timedelta(minutes=30)
+    _nrl_match(db, 5, 1, storm, eels, _NOW - timedelta(days=2), status="finished",
+               score_home=20, score_away=12)
+    _nrl_match(db, 5, 2, storm, eels, last_kickoff)  # the round's last game, 30 minutes in
+    _nrl_match(db, 6, 1, storm, eels, _NOW + timedelta(days=4))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 5
+    # Same rows, three hours after that kickoff.
+    assert nrl_tips._current_round(db, 2026, now=last_kickoff + timedelta(hours=3)) == 6
 
 
 def test_record_is_all_time_not_scoped_to_the_requested_season(client):

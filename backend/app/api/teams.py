@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 
 from app import schemas, serializers
 from app.cache import cache
-from app.competition_scope import competition_cache_key, tournament_for_competition
+from app.competition_scope import (
+    competition_cache_key,
+    competition_for_team,
+    tournament_for_competition,
+)
 from app.db import get_db
 from app.models import Group, GroupTeam, Match, Team
 from pipeline.leagues import LEAGUES
@@ -112,4 +116,9 @@ def team_profile(
         team,
         tournament_id=tournament.id if tournament is not None else None,
         history_competition=history_competition,
+        # A scoped request was validated above, so it names its own
+        # competition; a bare /team/:id resolves to the team's current one.
+        competition=(
+            competition if competition is not None else competition_for_team(db, team.id)
+        ),
     )

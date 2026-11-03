@@ -127,7 +127,10 @@ def nrl_refresh_live(
     """Poll every in-window NRL match's live state via StatsProvider.fetch_live
     and update nrl_live_state/nrl_live_events. Safe to call every minute; a
     scheduled workflow does so during NRL match windows (Thu-Sun AEST, plus
-    the occasional Monday game -- see .github/workflows/nrl-live-refresh.yml)."""
+    the occasional Monday game -- see .github/workflows/nrl-live-refresh.yml).
+    A poll that takes a match to full time also grades the tips on it in the
+    same request, best-effort (`finished` / `tips_graded` in the summary --
+    see pipeline.sports.nrl_live_poll.poll_live_matches)."""
     _require_token(x_recompute_token)
     from pipeline.sports.nrl_live_poll import poll_live_matches
     from pipeline.sports.nrl_stats import NrlComStatsProvider, _db_team_names

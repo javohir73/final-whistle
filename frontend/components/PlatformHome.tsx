@@ -1,40 +1,59 @@
 import Link from "next/link";
-import { BrandMark } from "@/components/Logo";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { PremiumPromo } from "@/components/PremiumPromo";
+import { PlatformHero } from "@/components/play/PlatformHero";
+import { getNrlTipsheetServer } from "@/lib/api";
+import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
+import {
+  isNrlOffSeasonDate,
+  nrlReturnYear,
+  nrlSeasonStart,
+  nrlSeasonState,
+  nrlStartLabel,
+} from "@/lib/nrlTips";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import type { NrlTipsheet } from "@/lib/types";
 
-const FOOTBALL_COMPETITIONS: Array<{
-  id: CompetitionId;
-  region: string;
-  description: string;
-}> = [
-  {
-    id: "epl",
-    region: "England",
-    description: "Fixtures, standings and match forecasts.",
-  },
-  {
-    id: "laliga",
-    region: "Spain",
-    description: "A dedicated home for every La Liga club.",
-  },
-  {
-    id: "bundesliga",
-    region: "Germany",
-    description: "Bundesliga teams, fixtures and tables.",
-  },
-  {
-    id: "ucl",
-    region: "Europe",
-    description: "League-phase fixtures, standings and score predictions.",
-  },
-  {
-    id: "wc26",
-    region: "International",
-    description: "The complete World Cup tournament view.",
-  },
-];
+/** Calendar-only fallback for when the NRL round can't be fetched. */
+export function nrlStatusLine(now: Date = new Date()): string {
+  if (!isNrlOffSeasonDate(now)) return "Round-by-round predictions, ladder and tips";
+  return `Season complete · back March ${nrlReturnYear(now)}`;
+}
+
+/** The NRL row's status line, and whether NRL picks are open, from the
+ *  current-round tipsheet through the same season rule as /nrl and /play
+ *  (lib/nrlTips.ts) -- the calendar is only the fallback without data. */
+export function nrlHomeStatus(
+  tipsheet: NrlTipsheet | null,
+  now: Date = new Date(),
+): { line: string; playable: boolean } {
+  if (!tipsheet) return { line: nrlStatusLine(now), playable: !isNrlOffSeasonDate(now) };
+  const rounds = [{ matches: tipsheet.matches }];
+  switch (nrlSeasonState(rounds, now)) {
+    case "pre-season": {
+      const start = nrlSeasonStart(rounds);
+      return {
+        line: start ? `Season ${tipsheet.season} starts ${nrlStartLabel(start)}` : `Season ${tipsheet.season} starts soon`,
+        playable: false,
+      };
+    }
+    case "complete":
+      return { line: `Season complete · back March ${tipsheet.season + 1}`, playable: false };
+    default:
+      return { line: `Round ${tipsheet.round} · predictions, ladder and tips`, playable: true };
+  }
+}
+
+function footballStatusLine(id: CompetitionId): string {
+  return ACTIVE_LEAGUES.includes(id)
+    ? "Score picks open · fixtures & table"
+    : "League phase · fixtures & table";
+}
+
+/** Live football competitions, in registry order (the World Cup is past). */
+const LIVE_FOOTBALL: CompetitionId[] = (["epl", "laliga", "bundesliga", "ucl"] as CompetitionId[]).filter(
+  (id) => COMPETITIONS[id].enabled,
+);
 
 function ArrowIcon() {
   return (
@@ -51,86 +70,61 @@ function ArrowIcon() {
   );
 }
 
-function CheckIcon() {
+/** One competition as a compact branded row: crest, name, a status line and a
+ *  chevron. Rows (not 300 px cards) keep the whole list near one mobile
+ *  screen; the branded `.competition-card` treatment carries over unchanged. */
+function CompetitionRow({
+  id,
+  name,
+  status,
+}: {
+  id: CompetitionId;
+  name: string;
+  status: string;
+}) {
+  const competition = COMPETITIONS[id];
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden="true"
+    <Link
+      href={competition.basePath}
+      data-competition-card={id}
+      className="competition-card competition-card--wide group relative flex min-h-[72px] items-center gap-3 overflow-hidden rounded-2xl py-3 pl-3 pr-4"
     >
-      <path d="m5 12 4 4L19 6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+      <span className="grid w-[72px] shrink-0 place-items-center">
+        <CompetitionLogo
+          competition={id}
+          size={40}
+          imageClassName={id === "wc26" ? "competition-card__wc26-mark" : undefined}
+        />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-display text-lg font-extrabold leading-tight tracking-tight">
+          {name}
+        </span>
+        <span className="competition-card__copy block truncate text-xs">{status}</span>
+      </span>
+      <span className="competition-card__arrow">
+        <ArrowIcon />
+      </span>
+    </Link>
   );
 }
 
 /** The platform-level front door. Competition pages keep their own dense,
- * matchday-focused surfaces; this page only answers the first visit questions:
- * what FinalWhistle covers, where to go, and what "Play" means. */
-export function PlatformHome() {
+ * matchday-focused surfaces; this page answers the first-visit questions: the
+ * game (beat the model at your competition) and the next fixtures to pick on
+ * the first screen, then where else to go. The World Cup sits under "Past
+ * tournaments", below everything live. */
+export async function PlatformHome({ now = new Date() }: { now?: Date } = {}) {
+  // ISR-cached (lib/api getServer), so the page now refreshes the NRL line
+  // instead of freezing it at build time.
+  const nrl = nrlHomeStatus(await getNrlTipsheetServer().catch(() => null), now);
+
   return (
     <div className="-mt-8">
-      <section className="relative left-1/2 w-screen -translate-x-1/2 overflow-hidden border-b border-border pb-12 pt-12 sm:pb-16 sm:pt-16 lg:pb-20 lg:pt-20">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_72%_40%,hsl(var(--win)/0.07),transparent_32%)]"
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-24 h-px bg-gradient-to-r from-transparent via-win/15 to-transparent"
-        />
+      <PlatformHero now={now} nrlPlayable={nrl.playable} />
 
-        <div className="relative mx-auto max-w-6xl px-4 sm:px-5">
-          <div className="max-w-4xl">
-            <div className="mb-6 inline-flex items-center gap-2 text-label font-bold uppercase tracking-[0.16em] text-lime-deep">
-              <BrandMark className="h-5 w-auto" />
-              Sports, clearly explained
-            </div>
-            <h1 className="max-w-4xl font-display text-[clamp(2.8rem,8vw,6.5rem)] font-extrabold leading-[0.92] tracking-[-0.055em]">
-              Your matchday,
-              <span className="block text-lime-deep">all in one place.</span>
-            </h1>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-              Predictions, fixtures and form across football and rugby league—without
-              the noise.
-            </p>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="#competitions"
-                className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-win px-5 font-display text-sm font-bold text-action-ink transition hover:brightness-105"
-              >
-                Choose a competition
-                <ArrowIcon />
-              </a>
-              <Link
-                href="/play"
-                className="inline-flex min-h-[48px] items-center justify-center rounded-xl border border-border bg-surface/50 px-5 font-display text-sm font-bold transition hover:border-win/40 hover:bg-surface"
-              >
-                Make your picks
-              </Link>
-            </div>
-
-            <div className="mt-9 flex flex-wrap gap-x-6 gap-y-2 border-t border-border/70 pt-5 text-xs font-medium text-muted">
-              {["Match probabilities", "Fixtures & tables", "Model track record"].map(
-                (item) => (
-                  <span key={item} className="inline-flex items-center gap-1.5">
-                    <span className="text-lime-deep">
-                      <CheckIcon />
-                    </span>
-                    {item}
-                  </span>
-                ),
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="competitions" className="scroll-mt-32 py-12 sm:py-16">
-        <div className="mb-7 flex items-end justify-between gap-4">
+      <section id="competitions" className="scroll-mt-32 py-10 sm:py-14">
+        <div className="mb-5 flex items-end justify-between gap-4">
           <div>
             <p className="text-label font-bold uppercase tracking-[0.14em] text-lime-deep">
               Explore
@@ -139,86 +133,28 @@ export function PlatformHome() {
               Choose your competition
             </h2>
           </div>
-          <span className="hidden text-sm text-muted sm:block">Football</span>
         </div>
 
-        <div className="competition-card-grid grid items-start gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-          {FOOTBALL_COMPETITIONS.map(({ id, region, description }) => {
-            const competition = COMPETITIONS[id];
-            return (
-              <Link
-                key={id}
-                href={competition.basePath}
-                data-competition-card={id}
-                className="competition-card competition-card--compact group relative h-[300px] overflow-hidden rounded-2xl p-5"
-              >
-                <div className="flex items-start justify-between">
-                  <CompetitionLogo
-                    competition={id}
-                    size={60}
-                    width={id === "wc26" ? 84 : undefined}
-                    height={id === "wc26" ? 72 : undefined}
-                    fit={id === "wc26" ? "cover" : undefined}
-                    imageClassName={
-                      id === "wc26" ? "competition-card__wc26-mark" : undefined
-                    }
-                  />
-                  <span className="competition-card__arrow">
-                    <ArrowIcon />
-                  </span>
-                </div>
-                <div className="competition-card__content mt-[34px]">
-                  <p className="competition-card__copy text-[9px] font-extrabold uppercase tracking-[0.15em]">
-                    {region}
-                  </p>
-                  <h3 className="mt-[7px] max-w-[190px] font-display text-[22px] font-extrabold leading-[1.08] tracking-[-0.035em]">
-                    {competition.label}
-                  </h3>
-                  <p className="competition-card__copy competition-card__description mt-2 max-w-[210px] text-[11px] leading-[1.4]">
-                    {description}
-                  </p>
-                </div>
-              </Link>
-            );
-          })}
+        <h3 className="mb-2.5 text-label font-bold uppercase tracking-[0.12em] text-muted">Football</h3>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4" data-competition-group="football">
+          {LIVE_FOOTBALL.map((id) => (
+            <CompetitionRow key={id} id={id} name={COMPETITIONS[id].label} status={footballStatusLine(id)} />
+          ))}
         </div>
 
-        <div className="mt-10 mb-4 flex items-end justify-between">
-          <div>
-            <p className="text-label font-bold uppercase tracking-[0.14em] text-lime-deep">
-              Rugby league
-            </p>
-            <h2 className="mt-1 font-display text-2xl font-extrabold tracking-tight">
-              NRL
-            </h2>
-          </div>
-          <span className="hidden text-sm text-muted sm:block">Australia &amp; New Zealand</span>
+        <h3 className="mb-2.5 mt-6 text-label font-bold uppercase tracking-[0.12em] text-muted">
+          Rugby league
+        </h3>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4" data-competition-group="rugby-league">
+          <CompetitionRow id="nrl" name="National Rugby League" status={nrl.line} />
         </div>
 
-        <Link
-          href={COMPETITIONS.nrl.basePath}
-          data-competition-card="nrl"
-          className="competition-card competition-card--wide group relative flex min-h-[150px] flex-col justify-between overflow-hidden rounded-2xl p-5 sm:flex-row sm:items-center sm:p-7"
-        >
-          <div className="flex items-center gap-4">
-            <CompetitionLogo competition="nrl" size={64} />
-            <div className="competition-card__wide-copy">
-              <p className="competition-card__copy text-label font-bold uppercase tracking-[0.12em]">
-                2026 season
-              </p>
-              <h3 className="mt-1 font-display text-3xl font-extrabold tracking-tight">
-                National Rugby League
-              </h3>
-              <p className="competition-card__copy mt-1 text-sm">
-                Round-by-round predictions, ladder and model record.
-              </p>
-            </div>
-          </div>
-          <span className="competition-card__arrow competition-card__arrow--wide mt-5 inline-flex items-center gap-2 self-start whitespace-nowrap font-display text-sm font-bold sm:mt-0 sm:self-auto">
-            Open NRL
-            <ArrowIcon />
-          </span>
-        </Link>
+        <h3 className="mb-2.5 mt-6 text-label font-bold uppercase tracking-[0.12em] text-muted">
+          Past tournaments
+        </h3>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4" data-competition-group="past">
+          <CompetitionRow id="wc26" name={COMPETITIONS.wc26.label} status="Results, bracket and the model's record" />
+        </div>
       </section>
 
       <section className="panel-pitch rounded-2xl px-6 py-8 sm:flex sm:items-center sm:justify-between sm:px-8">

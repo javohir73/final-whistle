@@ -1,15 +1,21 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { LeagueTipsLeaderboard } from "./LeagueTipsLeaderboard";
 import { getLeagueSeasonLeaderboard, getLeagueTipsLeaderboard } from "@/lib/leagueTips";
+import { reportViewerHandle, resetViewerHandleForTests } from "@/components/play/viewerHandle";
 
 jest.mock("@/lib/leagueTips");
 
 const mockLeaderboard = getLeagueTipsLeaderboard as jest.MockedFunction<typeof getLeagueTipsLeaderboard>;
 const mockSeasonLeaderboard = getLeagueSeasonLeaderboard as jest.MockedFunction<typeof getLeagueSeasonLeaderboard>;
 
-afterEach(() => jest.resetAllMocks());
+afterEach(() => {
+  jest.resetAllMocks();
+  act(() => resetViewerHandleForTests());
+});
 
-it("shows only a quiet participant count below the gate -- no empty table", async () => {
+const MODEL = "FinalWhistle model";
+
+it("falls back to a quiet participant count when an older API withholds the rows", async () => {
   mockLeaderboard.mockResolvedValue({ league: "epl", matchweek: 1, participant_count: 9, entries: [] });
 
   render(<LeagueTipsLeaderboard league="epl" matchweek={1} />);
@@ -105,8 +111,159 @@ it("supports a season-only You view without fetching a guessed matchweek", async
 
   render(<LeagueTipsLeaderboard league="laliga" seasonOnly />);
 
-  expect(await screen.findByText("0 playing this season")).toBeInTheDocument();
+  expect(await screen.findByText(/No graded picks yet this season/)).toBeInTheDocument();
   expect(mockSeasonLeaderboard).toHaveBeenCalledWith("laliga");
   expect(mockLeaderboard).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Weekly" })).toBeNull();
+});
+
+// ---- The model as a ranked row (C2-2) ---------------------------------------
+
+it("ranks the model among the players, badged, with no device actions", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 1,
+    entries: [
+      { handle: "SoloPlayer", points: 5, exact_count: 1, is_model: false },
+      { handle: MODEL, points: 2, exact_count: 0, is_model: true },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} />);
+
+  const rows = (await screen.findAllByRole("row")).slice(1); // drop the header
+  expect(rows).toHaveLength(2);
+  expect(within(rows[1]).getByText("2", { selector: "td:first-child" })).toBeInTheDocument();
+  expect(within(rows[1]).getByText(MODEL)).toBeInTheDocument();
+  expect(within(rows[1]).getByText("Model")).toBeInTheDocument();
+  expect(within(rows[1]).queryByRole("button")).toBeNull();
+  expect(within(rows[1]).queryByRole("link")).toBeNull();
+  expect(within(rows[0]).queryByText("Model")).toBeNull();
+});
+
+it("shows a one-player board instead of hiding it below ten players", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "laliga", matchweek: 11, participant_count: 1,
+    entries: [
+      { handle: MODEL, points: 0, exact_count: 0, is_model: true },
+      { handle: "LoneWolf", points: 0, exact_count: 0, is_model: false },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="laliga" matchweek={11} />);
+  expect(await screen.findByText("LoneWolf")).toBeInTheDocument();
+  expect(screen.queryByText(/playing this matchweek/)).not.toBeInTheDocument();
+});
+
+it("tells the viewer they are beating the model, and marks their row", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 2,
+    entries: [
+      { handle: "SoloPlayer", points: 5, exact_count: 1, is_model: false },
+      { handle: MODEL, points: 2, exact_count: 0, is_model: true },
+      { handle: "Other", points: 0, exact_count: 0, is_model: false },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} viewerHandle="SoloPlayer" />);
+
+  expect(await screen.findByText("You're beating the model by 3 pts this matchweek")).toBeInTheDocument();
+  const viewerRow = screen.getByText("SoloPlayer").closest("tr")!;
+  expect(within(viewerRow).getByText("You")).toBeInTheDocument();
+});
+
+it("tells the viewer by how much the model leads on the season board", async () => {
+  mockSeasonLeaderboard.mockResolvedValue({
+    league: "epl", participant_count: 1,
+    entries: [
+      { handle: MODEL, points: 7, exact_count: 1, matchweeks_played: 3, is_model: true },
+      { handle: "SeasonSolo", points: 2, exact_count: 0, matchweeks_played: 1, is_model: false },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" seasonOnly viewerHandle="SeasonSolo" />);
+
+  expect(await screen.findByText("The model leads you by 5 pts this season")).toBeInTheDocument();
+  // The model's own matchweeks column renders like any other row.
+  expect(screen.getByText("3")).toBeInTheDocument();
+});
+
+it("says so when the viewer is level with the model", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 1,
+    entries: [
+      { handle: "Even", points: 2, exact_count: 0, is_model: false },
+      { handle: MODEL, points: 2, exact_count: 0, is_model: true },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} viewerHandle="Even" />);
+  expect(await screen.findByText("You're level with the model this matchweek")).toBeInTheDocument();
+});
+
+it("learns the viewer's handle from whichever tips surface reported it", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 1,
+    entries: [
+      { handle: MODEL, points: 5, exact_count: 1, is_model: true },
+      { handle: "SwiftStriker42", points: 2, exact_count: 0, is_model: false },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} />);
+  await screen.findByText("SwiftStriker42");
+  expect(screen.queryByText(/the model/i, { selector: "p" })).not.toBeInTheDocument();
+
+  act(() => reportViewerHandle("SwiftStriker42"));
+  expect(await screen.findByText("The model leads you by 3 pts this matchweek")).toBeInTheDocument();
+});
+
+it("adds no summary line for a viewer who isn't on the board", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 1,
+    entries: [
+      { handle: "SoloPlayer", points: 5, exact_count: 1, is_model: false },
+      { handle: MODEL, points: 2, exact_count: 0, is_model: true },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} viewerHandle="Stranger" />);
+  await screen.findByText("SoloPlayer");
+  expect(screen.queryByText(/beating the model|leads you|level with the model/)).not.toBeInTheDocument();
+});
+
+it("keeps an honest empty state when nobody has played -- even with the model row present", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "bundesliga", matchweek: 10, participant_count: 0,
+    entries: [{ handle: MODEL, points: 0, exact_count: 0, is_model: true }] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="bundesliga" matchweek={10} />);
+  expect(await screen.findByText(/No one has played this matchweek yet/)).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});
+
+it("names the model's tally on an empty season board", async () => {
+  mockSeasonLeaderboard.mockResolvedValue({
+    league: "bundesliga", participant_count: 0,
+    entries: [{ handle: MODEL, points: 21, exact_count: 2, matchweeks_played: 9, is_model: true }] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="bundesliga" seasonOnly />);
+  expect(await screen.findByText(/The model has 21 pts so far\./)).toBeInTheDocument();
+});
+
+it("prints rank #1 in the Daylight-safe gold ink", async () => {
+  mockLeaderboard.mockResolvedValue({
+    league: "epl", matchweek: 10, participant_count: 1,
+    entries: [
+      { handle: "SoloPlayer", points: 5, exact_count: 1, is_model: false },
+      { handle: MODEL, points: 2, exact_count: 0, is_model: true },
+    ] as never,
+  });
+
+  render(<LeagueTipsLeaderboard league="epl" matchweek={10} />);
+  const rows = (await screen.findAllByRole("row")).slice(1);
+  const rank = within(rows[0]).getByText("1", { selector: "td:first-child" });
+  expect(rank).toHaveClass("text-gold-ink");
+  expect(rank).not.toHaveClass("text-gold");
 });

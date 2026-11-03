@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 from app.models import NrlLiveEvent, NrlLiveState, SportMatch, SportPrediction
 from ml.sports.nrl.live_model import predict_live_prob
 from ml.sports.nrl.live_params import load_nrl_live_params
+from pipeline.sports import nrl_user_tips
 from pipeline.sports.nrl_stats import LivePayload, StatsProvider
 
 log = logging.getLogger(__name__)
@@ -167,8 +168,41 @@ def poll_match(db: Session, match: SportMatch, provider: StatsProvider, now: dat
     }
 
 
+def _grade_tips(db: Session) -> dict:
+    """Best-effort tips grading, the post-results chain's semantics: every
+    poll has already committed, so a failure rolls back only the grading
+    pass's own writes, is logged and reported, and never fails the poll --
+    nrl-refresh's own grading step stays the catch-all."""
+    try:
+        return {"graded": nrl_user_tips.grade(db)}
+    except Exception:  # noqa: BLE001 - best-effort, log loudly and continue
+        db.rollback()
+        log.exception("nrl tips grading FAILED after a live poll finished a match (best-effort, continuing)")
+        return {"graded": 0, "error": True}
+
+
 def poll_live_matches(db: Session, provider: StatsProvider, now: datetime | None = None) -> dict:
-    """Poll every match currently in its live window. Never raises."""
+    """Poll every match currently in its live window. Never raises.
+
+    `finished` counts the matches this call took to full time (a "final"
+    payload on a match not already finished -- re-polling a finished match
+    while it is still in the window does not count). When any did, the tips
+    on them are graded before returning (`tips_graded`), so tippers get their
+    points in the same request that finishes the match rather than hours
+    later from nrl-refresh, while the beat-the-model boards hold the match
+    back until they do (app.api.nrl_user_tips._awaiting_grading)."""
     matches = matches_in_live_window(db, now=now)
-    polled = sum(1 for m in matches if poll_match(db, m, provider, now=now) is not None)
-    return {"candidates": len(matches), "polled": polled}
+    # Read before any poll commits (and expires these rows).
+    already_finished = {m.id for m in matches if m.status == "finished"}
+    polled = finished = 0
+    for m in matches:
+        result = poll_match(db, m, provider, now=now)
+        if result is None:
+            continue
+        polled += 1
+        if result["status"] == "final" and result["match_id"] not in already_finished:
+            finished += 1
+    summary = {"candidates": len(matches), "polled": polled, "finished": finished}
+    if finished:
+        summary["tips_graded"] = _grade_tips(db)
+    return summary

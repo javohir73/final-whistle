@@ -2,10 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { ErrorState, Loading } from "@/components/States";
+import {
+  BoardNote,
+  EmptyBoard,
+  PlayerCell,
+  ViewerVsModel,
+  boardState,
+  rowClassName,
+  rowKey,
+  type WithModelFlag,
+} from "@/components/play/leaderboardRows";
+import { useViewerHandle } from "@/components/play/viewerHandle";
 import { getNrlSeasonLeaderboard, getNrlTipsLeaderboard } from "@/lib/nrlTips";
 import { ApiError } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import type { NrlSeasonLeaderboardEntry, NrlSeasonLeaderboardResponse, NrlTipsLeaderboardEntry, NrlTipsLeaderboardResponse } from "@/lib/types";
+
+// The model's row carries no margin (it never guesses one) and, on an older
+// API, may lack a rounds count; otherwise it is shaped like a tipper's.
+type WeeklyEntry = WithModelFlag<
+  Omit<NrlTipsLeaderboardEntry, "round_margin"> & { round_margin?: number | null }
+>;
+type SeasonEntry = WithModelFlag<
+  Omit<NrlSeasonLeaderboardEntry, "total_margin" | "rounds_played"> & {
+    total_margin?: number | null;
+    rounds_played?: number | null;
+  }
+>;
 
 type WeeklyState =
   | { status: "loading" }
@@ -19,19 +42,29 @@ type SeasonState =
 
 /** Weekly (per-round) leaderboard for the beat-the-AI loop (design doc: NRL
  *  Round Tips, Slice 2), plus a Season tab (Slice 2.5) over the season-long
- *  totals endpoint. Both share the same reveal rule: below
- *  _LEADERBOARD_MIN_PARTICIPANTS an empty leaderboard advertises an empty
- *  room, so this shows only a quiet participant count, never an empty table.
- *  Mirrors LeaderboardClient's table look for the football leaderboard. */
+ *  totals endpoint. Boards always show now: the backend dropped the 10-player
+ *  reveal gate and ranks the model as a row (`is_model`), so a lone tipper
+ *  still sees "you vs the model"; a round nobody tipped gets an honest empty
+ *  state, and an older, still-gated API's count-only response falls back to
+ *  the quiet participant count. Mirrors LeaderboardClient's table look for
+ *  the football leaderboard.
+ *
+ *  `viewerHandle` overrides the handle this device plays under, which is
+ *  otherwise picked up from whichever tips surface on the page reported it
+ *  (components/play/viewerHandle.ts). */
 export function NrlTipsLeaderboard({
   season,
   round,
   seasonOnly = false,
+  viewerHandle: viewerHandleProp,
 }: {
   season: number;
   round?: number;
   seasonOnly?: boolean;
+  viewerHandle?: string | null;
 }) {
+  const reportedHandle = useViewerHandle();
+  const viewerHandle = viewerHandleProp !== undefined ? viewerHandleProp : reportedHandle;
   const [tab, setTab] = useState<"weekly" | "season">(seasonOnly ? "season" : "weekly");
   const [weeklyState, setWeeklyState] = useState<WeeklyState>({ status: "loading" });
   const [weeklyAttempt, setWeeklyAttempt] = useState(0);
@@ -108,14 +141,13 @@ export function NrlTipsLeaderboard({
           {weeklyState.status === "error" && (
             <ErrorState message={weeklyState.message} onRetry={() => setWeeklyAttempt((a) => a + 1)} />
           )}
-          {weeklyState.status === "success" &&
-            (weeklyState.data.entries.length === 0 ? (
-              <p className="glass rounded-2xl p-4 text-center text-sm text-muted">
-                {weeklyState.data.participant_count} playing this round
-              </p>
-            ) : (
-              <WeeklyTable entries={weeklyState.data.entries} />
-            ))}
+          {weeklyState.status === "success" && (
+            <WeeklyBoard
+              participantCount={weeklyState.data.participant_count}
+              entries={weeklyState.data.entries}
+              viewerHandle={viewerHandle}
+            />
+          )}
         </>
       ) : (
         <>
@@ -123,21 +155,68 @@ export function NrlTipsLeaderboard({
           {seasonState.status === "error" && (
             <ErrorState message={seasonState.message} onRetry={() => setSeasonAttempt((a) => a + 1)} />
           )}
-          {seasonState.status === "success" &&
-            (seasonState.data.entries.length === 0 ? (
-              <p className="glass rounded-2xl p-4 text-center text-sm text-muted">
-                {seasonState.data.participant_count} playing this season
-              </p>
-            ) : (
-              <SeasonTable entries={seasonState.data.entries} />
-            ))}
+          {seasonState.status === "success" && (
+            <SeasonBoard
+              participantCount={seasonState.data.participant_count}
+              entries={seasonState.data.entries}
+              viewerHandle={viewerHandle}
+            />
+          )}
         </>
       )}
     </section>
   );
 }
 
-function WeeklyTable({ entries }: { entries: NrlTipsLeaderboardEntry[] }) {
+function WeeklyBoard({
+  participantCount,
+  entries,
+  viewerHandle,
+}: {
+  participantCount: number;
+  entries: WeeklyEntry[];
+  viewerHandle: string | null;
+}) {
+  const state = boardState(participantCount, entries);
+  if (state === "empty") {
+    return (
+      <EmptyBoard entries={entries} message="No one has tipped this round yet — make your picks to take on the model." />
+    );
+  }
+  if (state === "withheld") return <BoardNote>{participantCount} playing this round</BoardNote>;
+  return (
+    <>
+      <ViewerVsModel entries={entries} viewerHandle={viewerHandle} scope="round" />
+      <WeeklyTable entries={entries} viewerHandle={viewerHandle} />
+    </>
+  );
+}
+
+function SeasonBoard({
+  participantCount,
+  entries,
+  viewerHandle,
+}: {
+  participantCount: number;
+  entries: SeasonEntry[];
+  viewerHandle: string | null;
+}) {
+  const state = boardState(participantCount, entries);
+  if (state === "empty") {
+    return (
+      <EmptyBoard entries={entries} message="No graded tips yet this season — the board fills in after full time." />
+    );
+  }
+  if (state === "withheld") return <BoardNote>{participantCount} playing this season</BoardNote>;
+  return (
+    <>
+      <ViewerVsModel entries={entries} viewerHandle={viewerHandle} scope="season" />
+      <SeasonTable entries={entries} viewerHandle={viewerHandle} />
+    </>
+  );
+}
+
+function WeeklyTable({ entries, viewerHandle }: { entries: WeeklyEntry[]; viewerHandle: string | null }) {
   return (
     <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
       <table className="w-full text-sm">
@@ -151,13 +230,13 @@ function WeeklyTable({ entries }: { entries: NrlTipsLeaderboardEntry[] }) {
         </thead>
         <tbody>
           {entries.map((row, i) => (
-            <tr key={row.handle} className="border-t border-border">
+            <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
               <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold" : "text-muted")}
+                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
               >
                 {i + 1}
               </td>
-              <td className="px-2 py-2.5 font-medium">{row.handle}</td>
+              <PlayerCell row={row} viewerHandle={viewerHandle} />
               <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">{row.points}</td>
               <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.round_margin ?? "—"}</td>
             </tr>
@@ -170,7 +249,7 @@ function WeeklyTable({ entries }: { entries: NrlTipsLeaderboardEntry[] }) {
 
 /** Same table idiom as WeeklyTable, plus the season's Rounds column and a
  *  cumulative Margin (total_margin, summed across the season's rounds). */
-function SeasonTable({ entries }: { entries: NrlSeasonLeaderboardEntry[] }) {
+function SeasonTable({ entries, viewerHandle }: { entries: SeasonEntry[]; viewerHandle: string | null }) {
   return (
     <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
       <table className="w-full text-sm">
@@ -185,16 +264,16 @@ function SeasonTable({ entries }: { entries: NrlSeasonLeaderboardEntry[] }) {
         </thead>
         <tbody>
           {entries.map((row, i) => (
-            <tr key={row.handle} className="border-t border-border">
+            <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
               <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold" : "text-muted")}
+                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
               >
                 {i + 1}
               </td>
-              <td className="px-2 py-2.5 font-medium">{row.handle}</td>
+              <PlayerCell row={row} viewerHandle={viewerHandle} />
               <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">{row.points}</td>
               <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.total_margin ?? "—"}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.rounds_played}</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.rounds_played ?? "—"}</td>
             </tr>
           ))}
         </tbody>

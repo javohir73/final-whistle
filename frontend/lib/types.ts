@@ -164,6 +164,9 @@ export interface Prediction {
   availability?: Availability | null;
   knockout?: KnockoutAdvance | null;
   writeup?: Writeup | null;
+  /** League matchweek (null for knockout fixtures). Optional: older
+   *  backends omit it. */
+  matchweek?: number | null;
 }
 
 /** Phase of play while a match is in progress (refines `status`). Null before
@@ -221,6 +224,14 @@ export interface MatchSummary {
   /** In-play win probability given the live score and time left; present only
    *  while the match is live (else use the pre-match `probabilities`). */
   live_probabilities?: Probabilities | null;
+  /** The competition this match belongs to ("epl", "wc26", ...). Optional:
+   *  older backends omit it. Untrusted -- read it through
+   *  asFootballCompetition (lib/sports.ts), never cast it. The /match/:id
+   *  lookup (lib/competitionServer.ts) uses it to pick the scoped URL. */
+  competition?: string | null;
+  /** League matchweek (null for knockout fixtures). Optional: older
+   *  backends omit it. */
+  matchweek?: number | null;
 }
 
 export interface Team {
@@ -296,6 +307,9 @@ export interface TeamProfile {
   recent_form: FormResult[];
   strengths: string[];
   weaknesses: string[];
+  /** The team's competition ("epl", "wc26", ...). Optional and untrusted,
+   *  exactly like MatchSummary.competition; the /team/:id lookup uses it. */
+  competition?: string | null;
 }
 
 // ---- Accounts / leaderboard ----
@@ -755,7 +769,11 @@ export interface NrlTipsSummaryResponse {
 export interface NrlTipsLeaderboardEntry {
   handle: string;
   points: number;
-  round_margin: number | null;
+  /** null (or absent) on the model's row: the model never guesses a margin. */
+  round_margin?: number | null;
+  /** The model ranked among the players (it never counts toward
+   *  participant_count). Optional: older APIs omit the flag and the row. */
+  is_model?: boolean;
 }
 export interface NrlTipsLeaderboardResponse {
   season: number;
@@ -769,8 +787,11 @@ export interface NrlTipsLeaderboardResponse {
 export interface NrlSeasonLeaderboardEntry {
   handle: string;
   points: number;
-  total_margin: number | null;
-  rounds_played: number;
+  /** null (or absent) on the model's row, which never guesses a margin. */
+  total_margin?: number | null;
+  rounds_played?: number | null;
+  /** See NrlTipsLeaderboardEntry.is_model. */
+  is_model?: boolean;
 }
 export interface NrlSeasonLeaderboardResponse {
   season: number;
@@ -984,7 +1005,8 @@ export type NrlLive = {
   minute: number | null;
   score_home: number | null;
   score_away: number | null;
-  live_home_prob: number;
+  /** null until the live model has a probability for this match. */
+  live_home_prob: number | null;
   events: NrlLiveEvent[];
 };
 
@@ -1066,7 +1088,7 @@ export interface RetentionStats {
 }
 
 /** /api/leagues/{league}/tips/{submit,mine,summary,leaderboard,share} --
- *  "Beat the AI's scoreline" (design doc: 2026-07-24-league-score-predictions
+ *  "Beat the model's scoreline" (design doc: 2026-07-24-league-score-predictions
  *  -design.md), the football-league port of the NRL tips types above.
  *  `league` is a short code (Phase 1: "epl"); device_id is not auth -- see
  *  lib/leagueTips.ts. Scoring is 5pts exact score / 2pts correct result (not
@@ -1138,6 +1160,9 @@ export interface LeagueTipsLeaderboardEntry {
   handle: string;
   points: number;
   exact_count: number;
+  /** The model ranked among the players (it never counts toward
+   *  participant_count). Optional: older APIs omit the flag and the row. */
+  is_model?: boolean;
 }
 export interface LeagueTipsLeaderboardResponse {
   league: string;
@@ -1152,7 +1177,10 @@ export interface LeagueSeasonLeaderboardEntry {
   handle: string;
   points: number;
   exact_count: number;
-  matchweeks_played: number;
+  /** May be null or absent on the model's row. */
+  matchweeks_played?: number | null;
+  /** See LeagueTipsLeaderboardEntry.is_model. */
+  is_model?: boolean;
 }
 export interface LeagueSeasonLeaderboardResponse {
   league: string;

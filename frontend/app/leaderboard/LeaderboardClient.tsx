@@ -33,9 +33,15 @@ function initialsFor(name?: string | null, email?: string | null): string {
   return local.slice(0, 2).toUpperCase() || "··";
 }
 
+/** "My picks" for one competition: your record against the model and the
+ *  season board for a league or the NRL, or the bracket leaderboard for the
+ *  World Cup, now a past tournament. The server page resolves which
+ *  competition; any id renders cleanly (one with no tips loop yet gets an
+ *  honest empty state, never another competition's board), and the default
+ *  is a live league, never the finished World Cup. */
 export function LeaderboardClient({
   initialRows,
-  competition = "wc26",
+  competition = "epl",
   nrlSeason = null,
 }: {
   initialRows?: LeaderboardRow[];
@@ -92,8 +98,9 @@ export function LeaderboardClient({
       : "Signed in"
     : "Guest · picks saved on this device";
 
+  const selected = COMPETITIONS[competition];
+
   if (competition !== "wc26") {
-    const selected = COMPETITIONS[competition];
     const leagueHasTips = competition !== "nrl" && ACTIVE_LEAGUES.includes(competition);
     return (
       <div className="space-y-6">
@@ -104,36 +111,32 @@ export function LeaderboardClient({
           initials={initialsFor(user?.display_name, user?.email)}
         />
         <CompetitionTabs selected={competition} />
-        <header className="flex items-center gap-3">
-          <CompetitionLogo competition={competition} size={40} />
-          <div>
-            <p className="text-label font-semibold uppercase tracking-wider text-muted">Your record</p>
-            <h2 className="font-display text-2xl font-extrabold">{selected.label}</h2>
-          </div>
-        </header>
-        {competition === "nrl" ? (
-          <>
-            <YouVsAi />
-            {nrlSeason != null ? (
-              <NrlTipsLeaderboard season={nrlSeason} seasonOnly />
-            ) : (
-              <Empty label="The NRL season leaderboard is not available yet." />
-            )}
-          </>
-        ) : leagueHasTips ? (
-          <>
-            <LeagueYouVsAi league={competition} />
-            <LeagueTipsLeaderboard league={competition} seasonOnly />
-          </>
-        ) : (
-          <Empty label={`${selected.label} score-tip records are not available yet.`} />
-        )}
-        <Link
-          href={`/play?competition=${competition}`}
-          className="inline-flex min-h-[44px] items-center rounded-xl bg-win/15 px-4 text-sm font-bold text-lime-deep ring-1 ring-win/30"
-        >
-          Play {selected.label} →
-        </Link>
+        <section aria-label={`My picks · ${selected.label}`} className="space-y-6">
+          <CompetitionHeading competition={competition} eyebrow="My picks" />
+          {competition === "nrl" ? (
+            <>
+              <YouVsAi />
+              {nrlSeason != null ? (
+                <NrlTipsLeaderboard season={nrlSeason} seasonOnly />
+              ) : (
+                <Empty label="The NRL season leaderboard is not available yet." />
+              )}
+            </>
+          ) : leagueHasTips ? (
+            <>
+              <LeagueYouVsAi league={competition} />
+              <LeagueTipsLeaderboard league={competition} seasonOnly />
+            </>
+          ) : (
+            <Empty label={`${selected.label} score-tip records are not available yet.`} />
+          )}
+          <Link
+            href={`/play?competition=${competition}`}
+            className="inline-flex min-h-[44px] items-center rounded-xl bg-win/15 px-4 text-sm font-bold text-lime-deep ring-1 ring-win/30"
+          >
+            Play {selected.label} →
+          </Link>
+        </section>
       </div>
     );
   }
@@ -149,116 +152,120 @@ export function LeaderboardClient({
       />
       <CompetitionTabs selected="wc26" />
 
-      {/* 2 · Stat row */}
-      <div className="grid grid-cols-3 gap-3">
-        <Stat label="Rank" value={rank != null ? `#${rank}` : "—"} />
-        <Stat label="Points" value={points != null ? `${points}` : "—"} />
-        <Stat label="Correct" value={correct ?? "—"} />
-      </div>
+      <section aria-label={`My picks · ${selected.label}`} className="space-y-5">
+        <CompetitionHeading competition="wc26" eyebrow="Past tournament" />
 
-      {/* 3 · Sign-in prompt (guests only) */}
-      {!user && (
-        <section className="panel-pitch rounded-2xl p-5">
-          <h2 className="font-display text-lg font-extrabold text-white">
-            Save across devices
+        {/* 2 · Stat row */}
+        <div className="grid grid-cols-3 gap-3">
+          <Stat label="Rank" value={rank != null ? `#${rank}` : "—"} />
+          <Stat label="Points" value={points != null ? `${points}` : "—"} />
+          <Stat label="Correct" value={correct ?? "—"} />
+        </div>
+
+        {/* 3 · Sign-in prompt (guests only) */}
+        {!user && (
+          <section className="panel-pitch rounded-2xl p-5">
+            <h2 className="font-display text-lg font-extrabold text-white">
+              Save across devices
+            </h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-pitch-copy">
+              Free account — sync your bracket and join the leaderboard. Your picks stay yours.
+            </p>
+            <button
+              type="button"
+              onClick={() => openSignIn({ mode: "signup" })}
+              className="mt-4 inline-flex items-center gap-1 rounded-xl bg-win px-4 py-2.5 font-display text-sm font-bold text-pitch transition hover:brightness-105"
+            >
+              Create free account →
+            </button>
+          </section>
+        )}
+
+        {/* 4 · Leaderboard */}
+        <section>
+          <h2 className="mb-2.5 px-0.5 text-label font-semibold uppercase tracking-wider text-muted">
+            Bracket leaderboard
           </h2>
-          <p className="mt-1.5 text-sm leading-relaxed text-pitch-copy">
-            Free account — sync your bracket and join the leaderboard. Your picks stay yours.
+          <p className="mb-3 max-w-xl px-0.5 text-sm text-muted">
+            Public brackets ranked by points (group 3 · knockout 5 · finalist 10 · champion 20).
+            See the tournament on the{" "}
+            <Link href="/brackets" className="text-lime-deep underline underline-offset-2">
+              Bracket
+            </Link>{" "}
+            page.
           </p>
-          <button
-            type="button"
-            onClick={() => openSignIn({ mode: "signup" })}
-            className="mt-4 inline-flex items-center gap-1 rounded-xl bg-win px-4 py-2.5 font-display text-sm font-bold text-pitch transition hover:brightness-105"
-          >
-            Create free account →
-          </button>
-        </section>
-      )}
 
-      {/* 4 · Leaderboard */}
-      <section>
-        <h2 className="mb-2.5 px-0.5 text-label font-semibold uppercase tracking-wider text-muted">
-          Leaderboard
-        </h2>
-        <p className="mb-3 max-w-xl px-0.5 text-sm text-muted">
-          Public brackets ranked by points (group 3 · knockout 5 · finalist 10 · champion 20).
-          See the tournament on the{" "}
-          <Link href="/brackets" className="text-lime-deep underline underline-offset-2">
-            Bracket
-          </Link>{" "}
-          page.
-        </p>
+          <MyRankCard />
 
-        <MyRankCard />
-
-        {state.status === "loading" && <Loading label="Loading leaderboard…" />}
-        {state.status === "error" && <ErrorState message={state.message} onRetry={state.retry} />}
-        {state.status === "success" &&
-          (rows.length === 0 ? (
-            <Empty label="No public brackets yet — check back soon." />
-          ) : (
-            <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-label uppercase tracking-wider text-muted">
-                    <th className="px-2 pb-2 text-left font-medium">#</th>
-                    <th className="px-2 pb-2 text-left font-medium">Player</th>
-                    <th className="px-2 pb-2 text-left font-medium">Champion pick</th>
-                    <th className="px-2 pb-2 text-right font-medium">Points</th>
-                    <th className="hidden px-2 pb-2 text-right font-medium sm:table-cell">Top</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => {
-                    const isMe = myName != null && row.display_name === myName;
-                    const placeRank = row.rank ?? i + 1;
-                    return (
-                      <tr
-                        key={`${row.display_name}-${i}`}
-                        className={`border-t border-border ${isMe ? "bg-win/[0.06]" : ""}`}
-                      >
-                        <td
-                          className={`px-2 py-2.5 font-semibold tabular-nums ${
-                            placeRank === 1 ? "text-gold" : "text-muted"
-                          }`}
+          {state.status === "loading" && <Loading label="Loading leaderboard…" />}
+          {state.status === "error" && <ErrorState message={state.message} onRetry={state.retry} />}
+          {state.status === "success" &&
+            (rows.length === 0 ? (
+              <Empty label="No public brackets yet — check back soon." />
+            ) : (
+              <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-label uppercase tracking-wider text-muted">
+                      <th className="px-2 pb-2 text-left font-medium">#</th>
+                      <th className="px-2 pb-2 text-left font-medium">Player</th>
+                      <th className="px-2 pb-2 text-left font-medium">Champion pick</th>
+                      <th className="px-2 pb-2 text-right font-medium">Points</th>
+                      <th className="hidden px-2 pb-2 text-right font-medium sm:table-cell">Top</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => {
+                      const isMe = myName != null && row.display_name === myName;
+                      const placeRank = row.rank ?? i + 1;
+                      return (
+                        <tr
+                          key={`${row.display_name}-${i}`}
+                          className={`border-t border-border ${isMe ? "bg-win/[0.06]" : ""}`}
                         >
-                          {placeRank}
-                        </td>
-                        <td className={`px-2 py-2.5 ${isMe ? "font-bold" : "font-medium"}`}>
-                          {row.display_name}
-                          {row.premium && (
-                            <span
-                              aria-label="Premium supporter"
-                              title="Premium supporter"
-                              className="ml-1.5 inline-block align-middle text-accent"
-                            >
-                              ★
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2.5">
-                          {row.champion ? (
-                            <span className="flex items-center gap-2">
-                              <Flag team={row.champion} size={18} />
-                              <span className="min-w-0 truncate">{row.champion}</span>
-                            </span>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">
-                          {row.total_points}
-                        </td>
-                        <td className="hidden px-2 py-2.5 text-right tabular-nums text-muted sm:table-cell">
-                          {row.percentile != null ? `${row.percentile}%` : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ))}
+                          <td
+                            className={`px-2 py-2.5 font-semibold tabular-nums ${
+                              placeRank === 1 ? "text-gold" : "text-muted"
+                            }`}
+                          >
+                            {placeRank}
+                          </td>
+                          <td className={`px-2 py-2.5 ${isMe ? "font-bold" : "font-medium"}`}>
+                            {row.display_name}
+                            {row.premium && (
+                              <span
+                                aria-label="Premium supporter"
+                                title="Premium supporter"
+                                className="ml-1.5 inline-block align-middle text-accent"
+                              >
+                                ★
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5">
+                            {row.champion ? (
+                              <span className="flex items-center gap-2">
+                                <Flag team={row.champion} size={18} />
+                                <span className="min-w-0 truncate">{row.champion}</span>
+                              </span>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">
+                            {row.total_points}
+                          </td>
+                          <td className="hidden px-2 py-2.5 text-right tabular-nums text-muted sm:table-cell">
+                            {row.percentile != null ? `${row.percentile}%` : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+        </section>
       </section>
 
       {/* 5 · Favourites */}
@@ -378,21 +385,58 @@ function ProfileHeader({
   );
 }
 
+/** The competition this view is about: crest, a small eyebrow ("My picks",
+ *  or "Past tournament" for the World Cup) and the competition's own label as
+ *  the heading. */
+function CompetitionHeading({ competition, eyebrow }: { competition: CompetitionId; eyebrow: string }) {
+  return (
+    <header className="flex items-center gap-3">
+      <CompetitionLogo competition={competition} size={40} />
+      <div>
+        <p className="text-label font-semibold uppercase tracking-wider text-muted">{eyebrow}</p>
+        <h2 className="font-display text-2xl font-extrabold">
+          {COMPETITIONS[competition].label}
+        </h2>
+      </div>
+    </header>
+  );
+}
+
+/** Switcher groups, in the same order as the competition switcher elsewhere:
+ *  live football, rugby league, then the finished World Cup on its own. */
+const COMPETITION_GROUPS: Array<{ label: string; ids: CompetitionId[] }> = [
+  {
+    label: "Football",
+    ids: Object.values(COMPETITIONS)
+      .filter((c) => c.sport === "football" && c.id !== "wc26")
+      .map((c) => c.id),
+  },
+  { label: "Rugby league", ids: Object.values(COMPETITIONS).filter((c) => c.sport === "nrl").map((c) => c.id) },
+  { label: "Past tournaments", ids: ["wc26"] },
+];
+
 function CompetitionTabs({ selected }: { selected: CompetitionId }) {
   return (
-    <nav aria-label="Your competition" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-      {Object.values(COMPETITIONS).map((competition) => (
-        <Link
-          key={competition.id}
-          href={`/leaderboard?competition=${competition.id}`}
-          aria-current={competition.id === selected ? "page" : undefined}
-          className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold ${
-            competition.id === selected ? "bg-win text-pitch" : "bg-surface-2 text-muted"
-          }`}
-        >
-          <CompetitionLogo competition={competition.id} size={22} />
-          {competition.label}
-        </Link>
+    <nav aria-label="Competition" className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-1">
+      {COMPETITION_GROUPS.map((group) => (
+        <div key={group.label} role="group" aria-label={group.label} className="flex shrink-0 items-center gap-2">
+          <span aria-hidden className="text-label font-semibold uppercase tracking-wider text-muted">
+            {group.label}
+          </span>
+          {group.ids.map((id) => (
+            <Link
+              key={id}
+              href={`/leaderboard?competition=${id}`}
+              aria-current={id === selected ? "page" : undefined}
+              className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold ${
+                id === selected ? "bg-win text-pitch" : "bg-surface-2 text-muted"
+              }`}
+            >
+              <CompetitionLogo competition={id} size={22} />
+              {COMPETITIONS[id].label}
+            </Link>
+          ))}
+        </div>
       ))}
     </nav>
   );

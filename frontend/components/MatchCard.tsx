@@ -2,17 +2,42 @@
 
 import Link from "next/link";
 import type { MatchSummary } from "@/lib/types";
-import { expectedMarginLabel, formatScore, pct, topOutcome } from "@/lib/format";
-import { liveLabel, isLiveNow } from "@/lib/liveLabel";
+import { expectedMarginLabel, formatScore, pctTriple, topOutcome } from "@/lib/format";
+import { liveLabel, liveLabelSpoken } from "@/lib/liveLabel";
 import { predictionVerdict, prematchCall } from "@/lib/verdict";
 import { ShootoutNote, BasisTag } from "@/components/ShootoutNote";
 import { kickoffDate, kickoffTime } from "@/lib/datetime";
 import { trackEvent } from "@/lib/analytics";
+import { useFavorites } from "@/lib/useFavorites";
+import { useRenderNow } from "@/components/match/clock";
 import { ProbabilityBar } from "./ProbabilityBar";
 import { ClubBadge } from "@/components/ClubBadge";
 import { TeamBadge } from "@/components/TeamBadge";
-import { FavoriteStar } from "./FavoriteStar";
-import { showsKickoffCountdown, stoppedLabel, willBePlayed } from "@/lib/matchStatus";
+import {
+  matchPhase,
+  RESULT_PENDING,
+  showsKickoffCountdown,
+  stoppedLabel,
+  willBePlayed,
+} from "@/lib/matchStatus";
+
+// One warning per page load, not one per row of a 380-fixture list.
+let warnedMissingHref = false;
+
+/** Legacy fallback for callers that have not passed `href` yet. `/match/<id>`
+ *  only resolves for a club match once the competition lookup route lands, so
+ *  every caller should pass `footballMatchHref(comp, id)` (or an NRL href, or
+ *  null). Optional-but-logged for one release; make `href` required after. */
+function legacyHref(matchId: number): string {
+  if (!warnedMissingHref && process.env.NODE_ENV !== "production") {
+    warnedMissingHref = true;
+    console.warn(
+      `MatchCard rendered without an href (match ${matchId}); falling back to /match/${matchId}. ` +
+        "Pass footballMatchHref(competition, id) from lib/sports, an NRL href, or null.",
+    );
+  }
+  return `/match/${matchId}`;
+}
 
 /** The core dashboard card: matchup, predicted winner, W/D/L bar, score.
  *  The status pill (top-right) carries the time/state: an amber kickoff-time
@@ -27,12 +52,21 @@ import { showsKickoffCountdown, stoppedLabel, willBePlayed } from "@/lib/matchSt
  *  probability bar -- no footer, for dense lists (home "also on", the Matches
  *  timeline). Default `"full"` is today's layout, unchanged in substance.
  *
- *  The `badge`/`href`/`margin` slots are additive, serializable seams so NRL
- *  callers (several of them server components) can render this same card without
+ *  The `badge`/`href`/`margin` slots are serializable seams so NRL callers
+ *  (several of them server components) can render this same card without
  *  forking a variant: `badge="club"` swaps the country crest for a `ClubBadge`
- *  club crest, `href` overrides (or, when `null`, drops) the football match link,
- *  and `margin` prints the ML model's expected margin chip. All three default to
- *  today's football behavior, so the football surfaces are byte-identical. */
+ *  club crest, `href` is the card's link (`null` drops it), and `margin` prints
+ *  the model's expected margin chip.
+ *
+ *  `href` should always be passed (football: `footballMatchHref(comp, id)`).
+ *  The old `/match/<id>` default 308'd into the World Cup and landed every club
+ *  match on a soft 404; it survives one release as a logged fallback.
+ *
+ *  Status comes from matchPhase: FULL TIME only when the feed confirms it, a
+ *  stranded in_play (or long-overdue scheduled) row reads "Result pending" with
+ *  its last known score and no verdict. Nothing interactive sits inside the
+ *  card link -- a favourited team shows a static star; the toggle lives on the
+ *  team page. */
 export function MatchCard({
   match,
   tz,
@@ -51,10 +85,17 @@ export function MatchCard({
   margin?: number | null;
 }) {
   const { teams, probabilities, predicted_score, predicted_winner } = match;
-  const live = isLiveNow(match);
-  // A match the feed left stuck `in_play` past the live window is treated as
-  // over (show its last score as a result) rather than perpetually "live".
-  const finished = match.status === "finished" || (match.status === "in_play" && !live);
+  // The list's clock (its server render instant while hydrating cached HTML),
+  // or the browser clock; null while hydrating without one -- the feed's own
+  // status decides that first pass, the time bounds apply one commit later.
+  const now = useRenderNow();
+  const phase = matchPhase(match, now);
+  const live = phase === "live";
+  // Only a feed-confirmed result is "finished". A row the feed left stuck
+  // (in_play past the live window, or scheduled long after kickoff) is
+  // "stale": its last score shows, but nothing calls it full time.
+  const finished = phase === "finished";
+  const stale = phase === "stale";
   const stopped = stoppedLabel(match.status);
   const showPrediction = willBePlayed(match.status);
   const hasScore = match.score_home != null && match.score_away != null;
@@ -67,9 +108,9 @@ export function MatchCard({
         : kickoffTime(match.kickoff_utc, tz)
       : null;
 
-  // NRL callers can override the football detail link (or drop it with `null`,
-  // reproducing the plain-card fallback used when an NRL round is still unknown).
-  const target = href === undefined ? `/match/${match.match_id}` : href;
+  // `null` drops the link (the plain-card fallback used when an NRL round is
+  // still unknown); `undefined` is a caller that predates required hrefs.
+  const target = href === undefined ? legacyHref(match.match_id) : href;
   const shell = `glass group block rounded-[14px] ${variant === "compact" ? "p-3" : "p-4"} ${
     live ? "ring-1 ring-loss/40" : ""
   }`;
@@ -80,6 +121,7 @@ export function MatchCard({
         match={match}
         live={live}
         finished={finished}
+        stale={stale}
         kickoffPill={kickoffPill}
         badge={badge}
         margin={margin}
@@ -95,7 +137,7 @@ export function MatchCard({
             {live ? (
               <span
                 className="status-live-ring inline-flex items-center gap-1.5 rounded-full bg-loss/15 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss-wash-ink"
-                aria-label={`Live, ${liveLabel(match)}`}
+                aria-label={`Live, ${liveLabelSpoken(match)}`}
               >
                 <span className="status-live-dot h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
                 {liveLabel(match)}
@@ -103,6 +145,10 @@ export function MatchCard({
             ) : finished ? (
               <span className="rounded-full bg-surface-2/70 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-muted">
                 Full time
+              </span>
+            ) : stale ? (
+              <span className="rounded-full bg-surface-2/70 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-muted">
+                {RESULT_PENDING}
               </span>
             ) : stopped ? (
               <span className="rounded-full bg-surface-2/70 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-muted">
@@ -121,8 +167,8 @@ export function MatchCard({
           </div>
 
           <div className="mb-4 space-y-2.5">
-            <TeamRow name={teams.home} score={hasScore ? match.score_home : null} live={live || finished} badge={badge} />
-            <TeamRow name={teams.away} score={hasScore ? match.score_away : null} live={live || finished} badge={badge} />
+            <TeamRow name={teams.home} score={hasScore ? match.score_home : null} live={live || finished || stale} badge={badge} />
+            <TeamRow name={teams.away} score={hasScore ? match.score_away : null} live={live || finished || stale} badge={badge} />
           </div>
 
           {showPrediction && probabilities ? (
@@ -150,6 +196,10 @@ export function MatchCard({
                     : "Called it"}
                 <BasisTag verdict={verdict} />
               </span>
+            ) : stale ? (
+              // No verdict on an unconfirmed result -- the model is graded
+              // only on a score the feed has actually called final.
+              <span className="text-xs font-semibold text-muted">Awaiting the confirmed result</span>
             ) : showPrediction && call ? (
               <span
                 className={`text-xs font-semibold ${
@@ -169,7 +219,7 @@ export function MatchCard({
             {showPrediction && predicted_score ? (
               <span className="inline-flex items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-sm font-bold tabular-nums text-foreground">
                 <span className="mr-1.5 align-middle text-note font-semibold uppercase tracking-wide text-muted">
-                  ML model
+                  Model
                 </span>
                 {formatScore(predicted_score.home, predicted_score.away)}
               </span>
@@ -182,7 +232,7 @@ export function MatchCard({
               margin != null &&
               !finished && (
                 <span className="rounded-lg bg-surface-2 px-2 py-0.5 font-bold tabular-nums text-foreground">
-                  <span className="mr-1 font-semibold text-muted">ML model</span>
+                  <span className="mr-1 font-semibold text-muted">Model</span>
                   {expectedMarginLabel(margin, teams.home, teams.away)}
                 </span>
               )
@@ -202,13 +252,9 @@ export function MatchCard({
   return (
     <Link
       href={target}
-      // NRL match ids live in a different namespace, so skip the football click
-      // event whenever a caller supplies its own href.
-      onClick={
-        href === undefined
-          ? () => trackEvent("match_card_click", { match_id: match.match_id })
-          : undefined
-      }
+      // NRL and football match ids live in different namespaces; the href
+      // disambiguates them, so every linked card reports its click.
+      onClick={() => trackEvent("match_card_click", { match_id: match.match_id, href: target })}
       className={`card-hover ${shell}`}
     >
       {content}
@@ -230,6 +276,7 @@ function CompactRow({
   match,
   live,
   finished,
+  stale,
   kickoffPill,
   badge,
   margin,
@@ -239,6 +286,7 @@ function CompactRow({
   match: MatchSummary;
   live: boolean;
   finished: boolean;
+  stale: boolean;
   kickoffPill: string | null;
   badge: "flag" | "club";
   margin?: number | null;
@@ -251,25 +299,27 @@ function CompactRow({
   const probs = showPrediction
     ? (live && match.live_probabilities) || match.probabilities
     : null;
-  const lead = probs
-    ? Math.max(probs.home_win, probs.draw, probs.away_win)
-    : null;
   // The bare number was ambiguous — 49% of WHAT? Name the outcome it belongs
-  // to (home side, away side, or the draw) right under it.
+  // to (home side, away side, or the draw) right under it. The number is the
+  // bar's own sum-to-100 share for that outcome, so the two never disagree.
   const leadOutcome = probs ? topOutcome(probs) : null;
+  const triple = probs ? pctTriple(probs) : null;
+  const lead = triple && leadOutcome ? triple[leadOutcome] : null;
   const leadLabel =
     leadOutcome === "home" ? teams.home : leadOutcome === "away" ? teams.away : "Draw";
   const hasScore = match.score_home != null && match.score_away != null;
   const venueLabel = [match.venue ?? "Venue TBC", match.venue_city, match.venue_country]
     .filter(Boolean)
     .join(", ");
-  const showScore = hasScore && (live || finished);
+  const showScore = hasScore && (live || finished || stale);
   const verdict = finished ? predictionVerdict(match) : null;
   const metaLabel = live
     ? liveLabel(match)
     : finished
       ? "Full time"
-      : stopped ?? kickoffPill ?? "Kickoff TBC";
+      : stale
+        ? RESULT_PENDING
+        : stopped ?? kickoffPill ?? "Kickoff TBC";
 
   return (
     <>
@@ -314,10 +364,10 @@ function CompactRow({
             <span className="flex shrink-0 flex-col items-end">
               <span
                 className={`font-display text-lg font-extrabold leading-tight tabular-nums ${
-                  lead >= 0.6 ? "text-lime-deep" : "text-muted"
+                  lead >= 60 ? "text-lime-deep" : "text-muted"
                 }`}
               >
-                {pct(lead)}
+                {lead}%
               </span>
               <span className="max-w-[84px] truncate text-mini font-semibold uppercase tracking-wide text-muted">
                 {leadLabel}
@@ -344,7 +394,7 @@ function CompactRow({
         // Same humane form as the full card: favoured side, not a signed number.
         <div className="mt-2">
           <span className="rounded-lg bg-surface-2 px-2 py-0.5 font-bold tabular-nums text-foreground">
-            <span className="mr-1 font-semibold text-muted">ML model</span>
+            <span className="mr-1 font-semibold text-muted">Model</span>
             {expectedMarginLabel(margin, teams.home, teams.away)}
           </span>
         </div>
@@ -388,7 +438,21 @@ function TeamRow({
       {live && score != null && (
         <span className="font-display text-lg font-extrabold tabular-nums">{score}</span>
       )}
-      <FavoriteStar team={name} />
+      <FavouriteMark team={name} />
     </div>
+  );
+}
+
+/** A static star for a favourited team. Deliberately not a button: this row
+ *  sits inside the card's link, and an interactive control nested in an <a> is
+ *  invalid and traps keyboard users. Favourites are toggled on the team page. */
+function FavouriteMark({ team }: { team: string }) {
+  const { isFavorite } = useFavorites();
+  if (!isFavorite(team)) return null;
+  return (
+    <span className="text-sm leading-none text-amber-ink">
+      <span aria-hidden>★</span>
+      <span className="sr-only">(favourite team)</span>
+    </span>
   );
 }

@@ -39,6 +39,23 @@ function isStandalone(): boolean {
   );
 }
 
+/** Running inside the Capacitor app (App Store / Play Store build). The shell
+ *  loads the live origin (remote-shell mode, capacitor.config.ts), and its
+ *  WebView is neither `display-mode: standalone` nor `navigator.standalone`,
+ *  so isStandalone() can't see it. Capacitor injects its native bridge as
+ *  window.Capacitor (isNativePlatform() is false in a plain browser); a
+ *  bundled build would also serve from the capacitor:// or ionic:// scheme. */
+export function isNativeShell(): boolean {
+  if (typeof window === "undefined") return false;
+  const cap = (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  try {
+    if (cap?.isNativePlatform?.() === true) return true;
+  } catch {
+    /* a half-initialized bridge is not proof of the native app */
+  }
+  return window.location.protocol === "capacitor:" || window.location.protocol === "ionic:";
+}
+
 function isIOS(): boolean {
   const ua = navigator.userAgent;
   // iPadOS 13+ masquerades as macOS but is touch-capable.
@@ -50,7 +67,7 @@ export type InstallPlatform = "android" | "ios";
 /**
  * Install-prompt state machine (PRD FR 4.4):
  *  - never on first load: only once an engagement signal has been recorded;
- *  - never when already installed/standalone;
+ *  - never when already installed/standalone, or inside the native app;
  *  - Android/Chromium: captures `beforeinstallprompt` and re-fires it natively;
  *  - iOS/Safari: no event exists — exposes platform "ios" so the UI can show
  *    manual Add-to-Home-Screen steps;
@@ -74,7 +91,8 @@ export function useInstallPrompt(): {
     // they aren't mid-action on a fresh load.
     setEngaged(isEngaged());
     setDismissed(loadDismissed());
-    setInstalled(isStandalone());
+    // The native app is "installed" by definition: no Add-to-Home-Screen there.
+    setInstalled(isStandalone() || isNativeShell());
     setReady(true);
 
     let settleTimer: number | null = null;

@@ -2,9 +2,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { LeagueTipsPlaySection } from "./LeagueTipsPlaySection";
 
-jest.mock("@/components/leagueTips/ClaimDeviceLeagueTips", () => ({
-  ClaimDeviceLeagueTips: () => <div data-testid="claim" />,
-}));
 jest.mock("@/components/leagueTips/LeagueTipsPicker", () => ({
   LeagueTipsPicker: ({
     league,

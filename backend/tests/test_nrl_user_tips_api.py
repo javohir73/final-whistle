@@ -10,9 +10,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import nrl_user_tips as nut
 from app.db import Base, get_db
 from app.main import app
 from app.models import SportMatch, SportPrediction, SportTeam, TipPlayer, UserTip
+from pipeline.sports.nrl_user_tips import grade as grade_tips
 
 ALLOWED_ORIGIN = "http://localhost:3000"
 DEVICE_A = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
@@ -568,8 +570,12 @@ def test_summary_best_round_null_when_every_graded_round_scored_zero(client):
 
 
 # ---------------------------------------------------------------------------
-# GET /leaderboard -- participation gate + ranking (points desc, margin asc)
+# GET /leaderboard -- never hidden + ranking (points desc, margin asc), with
+# the model always a ranked row (UX rebuild 2026-11, Phase 0)
 # ---------------------------------------------------------------------------
+
+MODEL_HANDLE = "FinalWhistle model"
+
 
 def _seed_leaderboard_round(db, n_players, points_and_margins):
     """points_and_margins: list of (points, round_margin) for the featured
@@ -590,7 +596,10 @@ def _seed_leaderboard_round(db, n_players, points_and_margins):
     return m
 
 
-def test_leaderboard_hidden_below_ten_participants(client):
+def test_leaderboard_never_hides_below_the_old_ten_player_gate(client):
+    """The old >=10 reveal gate meant no NRL board ever rendered a row (3
+    players live in November 2026). Nine tippers now see all nine rows, plus
+    the model's -- which never counts as a participant."""
     c, TestingSession = client
     db = TestingSession()
     _seed_leaderboard_round(db, 9, [(1, i) for i in range(9)])
@@ -599,10 +608,10 @@ def test_leaderboard_hidden_below_ten_participants(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["participant_count"] == 9
-    assert body["entries"] == []
+    assert [e["handle"] for e in body["entries"]] == [f"Player{i}" for i in range(9)] + [MODEL_HANDLE]
 
 
-def test_leaderboard_visible_at_ten_ranked_points_then_margin(client):
+def test_leaderboard_ranked_points_then_margin(client):
     c, TestingSession = client
     db = TestingSession()
     # 10 players: player 0 has the most points; players 1-2 tie on points but
@@ -615,10 +624,13 @@ def test_leaderboard_visible_at_ten_ranked_points_then_margin(client):
     body = r.json()
     assert body["participant_count"] == 10
     entries = body["entries"]
-    assert len(entries) == 10
+    assert len(entries) == 11  # ten tippers plus the model
     assert entries[0]["handle"] == "Player0" and entries[0]["points"] == 1
     assert entries[1]["handle"] == "Player2" and entries[1]["round_margin"] == 3
     assert entries[2]["handle"] == "Player1" and entries[2]["round_margin"] == 8
+    # No model prediction was seeded, so the model sits at zero with no margin:
+    # level with Player3-9 on every key, and a tie goes to the humans.
+    assert entries[-1]["is_model"] is True and entries[-1]["points"] == 0
     assert all("device_id" not in e for e in entries)  # never exposed
 
 
@@ -629,8 +641,8 @@ def test_leaderboard_unknown_round_404s(client):
 
 
 # ---------------------------------------------------------------------------
-# GET /leaderboard/season -- season totals, gate at 10, total_margin tiebreak
-# (Slice 2.5)
+# GET /leaderboard/season -- season totals, never hidden, total_margin
+# tiebreak (Slice 2.5)
 # ---------------------------------------------------------------------------
 
 def _seed_season_player(db, match, device_id, handle, points, margin):
@@ -645,7 +657,7 @@ def _seed_season_player(db, match, device_id, handle, points, margin):
     return p
 
 
-def test_season_leaderboard_hidden_below_ten_participants(client):
+def test_season_leaderboard_never_hides_below_the_old_ten_player_gate(client):
     c, TestingSession = client
     db = TestingSession()
     storm, eels = _team(db, "Storm"), _team(db, "Eels")
@@ -660,7 +672,7 @@ def test_season_leaderboard_hidden_below_ten_participants(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["participant_count"] == 9
-    assert body["entries"] == []
+    assert [e["handle"] for e in body["entries"]] == [f"SPlayer{i}" for i in range(9)] + [MODEL_HANDLE]
 
 
 def test_season_leaderboard_ranking_points_then_total_margin(client):
@@ -696,8 +708,8 @@ def test_season_leaderboard_ranking_points_then_total_margin(client):
     body = r.json()
     assert body["participant_count"] == 10
     entries = body["entries"]
-    assert entries[0] == {"handle": "Top0", "points": 2, "total_margin": 7, "rounds_played": 2}
-    assert entries[1] == {"handle": "Top1", "points": 2, "total_margin": 11, "rounds_played": 2}
+    assert entries[0] == {"handle": "Top0", "points": 2, "total_margin": 7, "rounds_played": 2, "is_model": False}
+    assert entries[1] == {"handle": "Top1", "points": 2, "total_margin": 11, "rounds_played": 2, "is_model": False}
     assert entries[2]["handle"] == "WithMargin" and entries[2]["total_margin"] == 50
     assert entries[3]["handle"] == "NoMargin" and entries[3]["total_margin"] is None
     assert all("device_id" not in e for e in entries)
@@ -708,6 +720,277 @@ def test_season_leaderboard_unknown_season_404s(client):
     r = c.get("/api/nrl/tips/leaderboard/season", params={"season": 2099})
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "season_not_found"
+
+
+# ---------------------------------------------------------------------------
+# The model as a ranked row on both boards (UX rebuild 2026-11, Phase 0)
+# ---------------------------------------------------------------------------
+
+def test_leaderboard_single_tipper_is_ranked_against_the_model(client):
+    """One tipper still gets a real board ("You #1 of 2"): their own row and
+    the model's, which participant_count never counts. The model never
+    enters a margin guess, so its round_margin is None."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    m = _match(db, 2026, 5, 1, storm, eels, now - timedelta(days=1), status="finished",
+               score_home=20, score_away=10)
+    _prediction(db, m, p_home=0.4)  # p_away 0.59: the model picked away and missed
+    player = TipPlayer(device_id=DEVICE_A, handle="SoloTipper")
+    db.add(player)
+    db.flush()
+    db.add(UserTip(match_id=m.id, player_id=player.id, pick="home", margin=7,
+                   points=1, round_margin=3, graded_at=now))
+    db.commit()
+
+    r = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 5})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["participant_count"] == 1
+    assert body["entries"] == [
+        {"handle": "SoloTipper", "points": 1, "round_margin": 3, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 0, "round_margin": None, "is_model": True},
+    ]
+    assert DEVICE_A not in r.text  # human rows still never expose a device_id
+
+
+def test_leaderboard_model_row_scores_kickoff_locked_picks_on_graded_matches_only(client):
+    """The model's row is _scores_point (draw rule included) applied to its
+    kickoff-locked pick on every GRADED match of the round -- finished, with
+    a kickoff and a final score, the grading pass's own conditions. A
+    post-kickoff write is never its pick, and a match nrl-refresh hasn't
+    marked finished yet earns nothing."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    kick = now - timedelta(days=1)
+    drew = _match(db, 2026, 6, 1, storm, eels, kick, status="finished", score_home=18, score_away=18)
+    _prediction(db, drew, p_home=0.7)  # picked home; a draw scores every tipper -> 1
+    away_win = _match(db, 2026, 6, 2, storm, eels, kick, status="finished", score_home=10, score_away=20)
+    _prediction(db, away_win, p_home=0.3)  # picked away (0.69) -> 1
+    _prediction(db, away_win, p_home=0.9, created_at=kick + timedelta(minutes=20))  # after kickoff: ignored
+    missed = _match(db, 2026, 6, 3, storm, eels, kick, status="finished", score_home=30, score_away=0)
+    _prediction(db, missed, p_home=0.2)  # picked away -> 0
+    lagging = _match(db, 2026, 6, 4, storm, eels, now - timedelta(hours=1))  # still "scheduled"
+    _prediction(db, lagging, p_home=0.6)
+    late_only = _match(db, 2026, 6, 5, storm, eels, kick, status="finished", score_home=12, score_away=6)
+    _prediction(db, late_only, p_home=0.8, created_at=kick + timedelta(hours=1))  # no eligible pick
+    db.commit()
+
+    body = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 6}).json()
+
+    assert body["participant_count"] == 0
+    assert body["entries"] == [{"handle": MODEL_HANDLE, "points": 2, "round_margin": None, "is_model": True}]
+
+
+def test_leaderboard_ungraded_round_gives_the_model_zero(client):
+    """Nothing graded yet: the model sits at zero, and a tipper level with it
+    on every key ranks above it -- the tie goes to the human."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    m = _match(db, 2026, 8, 1, storm, eels, datetime.now(timezone.utc) + timedelta(days=2))
+    _prediction(db, m, p_home=0.6)
+    db.commit()
+
+    empty = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 8}).json()
+    assert empty["participant_count"] == 0
+    assert empty["entries"] == [{"handle": MODEL_HANDLE, "points": 0, "round_margin": None, "is_model": True}]
+
+    submitted = c.post("/api/nrl/tips/submit", json={"device_id": DEVICE_A, "match_id": m.id, "pick": "home"})
+    assert submitted.status_code == 200, submitted.text
+    handle = submitted.json()["handle"]
+
+    body = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 8}).json()
+    assert body["participant_count"] == 1
+    assert body["entries"] == [
+        {"handle": handle, "points": 0, "round_margin": None, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 0, "round_margin": None, "is_model": True},
+    ]
+
+
+def test_leaderboard_model_points_equal_the_summary_model_points(client):
+    """One computation, not two: for a tipper who tipped every graded match
+    of a round, the board's model row and /summary's model_points for that
+    round are the same number."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    kick = now - timedelta(days=1)
+    player = TipPlayer(device_id=DEVICE_A, handle="ParityTipper")
+    db.add(player)
+    db.flush()
+    for no, (home_pts, away_pts), p_home in ((1, (18, 18), 0.7), (2, (10, 20), 0.3), (3, (30, 0), 0.2)):
+        m = _match(db, 2026, 4, no, storm, eels, kick, status="finished",
+                   score_home=home_pts, score_away=away_pts)
+        _prediction(db, m, p_home=p_home)
+        db.add(UserTip(match_id=m.id, player_id=player.id, pick="home", points=0, graded_at=now))
+    db.commit()
+
+    summary = c.get("/api/nrl/tips/summary", params={"device_id": DEVICE_A}).json()
+    board = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 4}).json()
+
+    model_row = next(e for e in board["entries"] if e["is_model"])
+    assert summary["rounds"][0]["model_points"] == model_row["points"] == 2
+
+
+def test_season_leaderboard_ranks_a_tipper_against_the_models_season_total(client):
+    """The season row is the model's points across every graded match of the
+    season: last season's matches, or one still to be played, never count.
+    rounds_played counts rounds the model was scored in, a zero-point one
+    included -- the same rule a tipper's row follows."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    r1 = _match(db, 2026, 1, 1, storm, eels, now - timedelta(days=14), status="finished",
+                score_home=20, score_away=10)
+    _prediction(db, r1, p_home=0.6)  # correct -> 1
+    r2 = _match(db, 2026, 2, 1, storm, eels, now - timedelta(days=7), status="finished",
+                score_home=6, score_away=24)
+    _prediction(db, r2, p_home=0.6)  # wrong -> 0, but a round the model played
+    r3 = _match(db, 2026, 3, 1, storm, eels, now + timedelta(days=7))
+    _prediction(db, r3, p_home=0.6)  # not played yet
+    old = _match(db, 2025, 27, 1, storm, eels, now - timedelta(days=400), status="finished",
+                 score_home=40, score_away=0)
+    _prediction(db, old, p_home=0.6)  # last season's hit
+    player = TipPlayer(device_id=DEVICE_A, handle="SeasonTipper")
+    db.add(player)
+    db.flush()
+    db.add(UserTip(match_id=r1.id, player_id=player.id, pick="home", margin=6,
+                   points=1, round_margin=4, graded_at=now))
+    db.commit()
+
+    r = c.get("/api/nrl/tips/leaderboard/season", params={"season": 2026})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["participant_count"] == 1
+    # Level on points; the tipper's real margin outranks the model's missing one.
+    assert body["entries"] == [
+        {"handle": "SeasonTipper", "points": 1, "total_margin": 4, "rounds_played": 1, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 1, "total_margin": None, "rounds_played": 2, "is_model": True},
+    ]
+    assert DEVICE_A not in r.text
+
+
+def test_model_row_waits_until_the_tips_on_a_match_are_graded(client):
+    """Review H1, NRL side: the live poller marks a match finished at full
+    time, but tips are graded only by nrl-refresh, hours later. Until then
+    the model must not bank the match -- level at 0 with a tipper who got it
+    right, then level at 1 once graded."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kick = datetime.now(timezone.utc) - timedelta(hours=3)
+    m = _match(db, 2026, 9, 1, storm, eels, kick, status="finished", score_home=22, score_away=10)
+    _prediction(db, m, p_home=0.7)  # the model picked home: right
+    player = TipPlayer(device_id=DEVICE_A, handle="WaitingTipper")
+    db.add(player)
+    db.flush()
+    db.add(UserTip(match_id=m.id, player_id=player.id, pick="home", updated_at=kick - timedelta(days=1)))
+    db.commit()
+
+    def boards():
+        weekly = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 9}).json()
+        season = c.get("/api/nrl/tips/leaderboard/season", params={"season": 2026}).json()
+        return weekly, season
+
+    weekly, season = boards()
+    assert weekly["entries"] == [
+        {"handle": "WaitingTipper", "points": 0, "round_margin": None, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 0, "round_margin": None, "is_model": True},
+    ]
+    assert season["participant_count"] == 0
+    assert season["entries"] == [
+        {"handle": MODEL_HANDLE, "points": 0, "total_margin": None, "rounds_played": 0, "is_model": True},
+    ]
+
+    assert grade_tips(db) == 1
+
+    weekly, season = boards()
+    assert weekly["entries"] == [
+        {"handle": "WaitingTipper", "points": 1, "round_margin": None, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 1, "round_margin": None, "is_model": True},
+    ]
+    assert season["participant_count"] == 1
+    assert season["entries"] == [
+        {"handle": "WaitingTipper", "points": 1, "total_margin": None, "rounds_played": 1, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 1, "total_margin": None, "rounds_played": 1, "is_model": True},
+    ]
+
+
+def test_leaderboards_break_a_full_tie_by_handle(client):
+    """Review L8: tippers level on every ranking key are ordered by handle,
+    like the football boards, so the order can't shuffle between requests."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    m = _match(db, 2026, 5, 1, storm, eels, datetime.now(timezone.utc) - timedelta(days=1),
+               status="finished", score_home=20, score_away=10)
+    db.flush()
+    for i, handle in enumerate(("Zeta", "Alpha", "Mike")):  # inserted out of order
+        _seed_season_player(db, m, f"dddddddd-0000-4000-8000-{i:012d}", handle, 1, 4)
+    db.commit()
+
+    weekly = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 5}).json()
+    season = c.get("/api/nrl/tips/leaderboard/season", params={"season": 2026}).json()
+
+    assert [e["handle"] for e in weekly["entries"]] == ["Alpha", "Mike", "Zeta", MODEL_HANDLE]
+    assert [e["handle"] for e in season["entries"]] == ["Alpha", "Mike", "Zeta", MODEL_HANDLE]
+
+
+def test_model_predictions_are_narrowed_to_one_kickoff_locked_row_per_match_in_sql(client):
+    """Review M3: one kickoff-locked row per match, selected in SQL -- the row
+    nrl_tips._kickoff_locked_prediction would pick."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kick = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
+    locked = _match(db, 2026, 25, 1, storm, eels, kick, status="finished", score_home=10, score_away=12)
+    for day in range(4, 0, -1):  # four runs; the last is a day before kickoff
+        last_before_kickoff = _prediction(db, locked, p_home=0.5 + day / 100, created_at=kick - timedelta(days=day))
+    _prediction(db, locked, p_home=0.9, created_at=kick + timedelta(minutes=10))  # after kickoff
+    undated = _match(db, 2026, 26, 1, storm, eels, None)
+    _prediction(db, undated, created_at=datetime(2026, 9, 5, tzinfo=timezone.utc))
+    newest = _prediction(db, undated, created_at=datetime(2026, 9, 6, tzinfo=timezone.utc))
+    db.commit()
+
+    by_match = nut._model_predictions_by_match(db, [locked.id, undated.id])
+
+    assert {mid: [p.id for p in rows] for mid, rows in by_match.items()} == {
+        locked.id: [last_before_kickoff.id], undated.id: [newest.id],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /mine -- stale-aware default round (UX rebuild 2026-11, Phase 0)
+# ---------------------------------------------------------------------------
+
+def test_mine_default_round_skips_a_round_pinned_by_a_lagging_scheduled_row(client):
+    """nrl-refresh can lag a played match's status by days, and the old
+    `status != "finished"` rule pinned the default round to it. A scheduled
+    match whose kickoff has passed is not tippable, so the default is the
+    round of the next one that is."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    now = datetime.now(timezone.utc)
+    _match(db, 2026, 26, 1, storm, eels, now - timedelta(days=2))  # played, still "scheduled"
+    _match(db, 2026, 26, 2, storm, eels, now - timedelta(days=3), status="finished",
+           score_home=12, score_away=10)
+    upcoming = _match(db, 2026, 27, 1, storm, eels, now + timedelta(days=2))
+    db.commit()
+
+    r = c.get("/api/nrl/tips/mine", params={"device_id": DEVICE_A})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["round"] == 27
+    assert [row["id"] for row in r.json()["matches"]] == [upcoming.id]
 
 
 # ---------------------------------------------------------------------------
@@ -1018,3 +1301,136 @@ def test_claim_requires_auth(client):
     c, _ = client
     r = c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Signed-in tippers: one account is one player on every device (review H3)
+# ---------------------------------------------------------------------------
+
+DEVICE_C = "5fa85f64-5717-4562-b3fc-2c963f66afa8"
+
+
+def _tip(c, device_id, match, pick):
+    return c.post("/api/nrl/tips/submit", json={"device_id": device_id, "match_id": match.id, "pick": pick})
+
+
+def _open_round(db, rnd=7, n=3):
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kick = datetime.now(timezone.utc) + timedelta(days=2)
+    matches = [_match(db, 2026, rnd, i + 1, storm, eels, kick + timedelta(hours=2 * i)) for i in range(n)]
+    for m in matches:
+        _prediction(db, m)
+    db.commit()
+    return matches
+
+
+def test_signed_in_second_device_reads_and_writes_the_accounts_tips(client):
+    """Claiming a second device merges its row into the account's player and
+    deletes it, so a device-only lookup found nothing there, and the next
+    tip from that device started a fresh row the following claim threw away.
+    Signed in, every device reads and writes the account's player."""
+    c, TestingSession = client
+    db = TestingSession()
+    phone_tip, laptop_tip, untipped = _open_round(db)
+    assert _tip(c, DEVICE_A, phone_tip, "home").status_code == 200  # anonymous, on the phone
+    assert _tip(c, DEVICE_B, laptop_tip, "away").status_code == 200  # anonymous, on the laptop
+    user_id = _register(c, "two-devices@example.com")
+    assert c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A}).status_code == 200
+    assert c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_B}).status_code == 200  # merged, B deleted
+
+    check = TestingSession()
+    account = check.query(TipPlayer).filter_by(user_id=user_id).one()
+    assert check.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None
+    check.close()
+
+    mine = c.get("/api/nrl/tips/mine", params={"device_id": DEVICE_B, "season": 2026, "round": 7})
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["handle"] == account.handle
+    tips = {row["id"]: row["your_tip"] for row in mine.json()["matches"]}
+    assert tips[phone_tip.id]["pick"] == "home"
+    assert tips[laptop_tip.id]["pick"] == "away"
+    assert tips[untipped.id] is None
+
+    # A tip can change until kickoff -- on the account's row, from any device.
+    assert _tip(c, DEVICE_B, phone_tip, "away").status_code == 200
+    check = TestingSession()
+    assert check.query(TipPlayer).filter_by(device_id=DEVICE_B).one_or_none() is None
+    rows = check.query(UserTip).filter_by(match_id=phone_tip.id).all()
+    assert [(t.player_id, t.pick) for t in rows] == [(account.id, "away")]
+    check.close()
+
+    summary = c.get("/api/nrl/tips/summary", params={"device_id": DEVICE_B}).json()
+    assert summary["handle"] == account.handle
+
+
+def test_signed_out_tips_keep_the_device_only_identity(client):
+    c, TestingSession = client
+    db = TestingSession()
+    first, second, _ = _open_round(db)
+    assert _tip(c, DEVICE_A, first, "home").status_code == 200
+    assert _tip(c, DEVICE_B, second, "away").status_code == 200
+    _register(c, "claims-both@example.com")
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_B})
+
+    anonymous = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})  # no session cookie
+    merged_away = anonymous.get("/api/nrl/tips/mine",
+                                params={"device_id": DEVICE_B, "season": 2026, "round": 7}).json()
+    assert merged_away["handle"] is None
+    assert all(row["your_tip"] is None for row in merged_away["matches"])
+
+    assert _tip(anonymous, DEVICE_C, first, "draw").status_code == 200
+    check = TestingSession()
+    own_row = check.query(TipPlayer).filter_by(device_id=DEVICE_C).one()
+    assert own_row.user_id is None
+    assert check.query(UserTip).filter_by(player_id=own_row.id).count() == 1
+    check.close()
+
+
+def test_a_signed_in_first_tip_creates_or_takes_over_the_accounts_player(client):
+    """No account row yet: a device with an unclaimed row has it linked to the
+    account (what /claim does on the next load); a device with none gets a
+    row created against the account."""
+    c, TestingSession = client
+    db = TestingSession()
+    first, second, _ = _open_round(db)
+    assert _tip(c, DEVICE_A, first, "home").status_code == 200  # anonymous
+    linked_id = _register(c, "link-me@example.com")
+    assert _tip(c, DEVICE_A, second, "away").status_code == 200  # signed in, no claim yet
+
+    fresh = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
+    created_id = _register(fresh, "fresh@example.com")
+    assert _tip(fresh, DEVICE_C, first, "draw").status_code == 200
+
+    check = TestingSession()
+    players = {p.user_id: p for p in check.query(TipPlayer).all()}
+    assert set(players) == {linked_id, created_id}
+    assert players[linked_id].device_id == DEVICE_A
+    assert check.query(UserTip).filter_by(player_id=players[linked_id].id).count() == 2
+    assert players[created_id].device_id == DEVICE_C
+    check.close()
+
+
+def test_a_shared_device_never_shows_or_takes_another_accounts_tips(client):
+    c, TestingSession = client
+    db = TestingSession()
+    first, _, _ = _open_round(db)
+    assert _tip(c, DEVICE_A, first, "home").status_code == 200
+    owner_id = _register(c, "owner@example.com")
+    c.post("/api/nrl/tips/claim", json={"device_id": DEVICE_A})
+
+    guest = TestClient(app, headers={"Origin": ALLOWED_ORIGIN})
+    guest_id = _register(guest, "guest@example.com")
+    mine = guest.get("/api/nrl/tips/mine", params={"device_id": DEVICE_A, "season": 2026, "round": 7}).json()
+    assert mine["handle"] is None
+    assert all(row["your_tip"] is None for row in mine["matches"])
+
+    assert _tip(guest, DEVICE_A, first, "away").status_code == 200
+
+    check = TestingSession()
+    owner = check.query(TipPlayer).filter_by(user_id=owner_id).one()
+    guest_player = check.query(TipPlayer).filter_by(user_id=guest_id).one()
+    assert owner.device_id == DEVICE_A and guest_player.id != owner.id
+    tips = {t.player_id: t.pick for t in check.query(UserTip).filter_by(match_id=first.id).all()}
+    assert tips == {owner.id: "home", guest_player.id: "away"}
+    check.close()

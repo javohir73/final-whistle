@@ -1,7 +1,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { getNrlLiveClient } from "@/lib/api";
-import type { NrlLive, NrlMatch } from "@/lib/types";
+import type { NrlLive, NrlMatch, NrlMatchDetail } from "@/lib/types";
 import { LiveMatchProvider, useLiveMatch } from "./LiveMatchProvider";
+import LiveSection from "./LiveSection";
 
 jest.mock("@/lib/api");
 
@@ -143,11 +144,77 @@ it("does not let an older request failure replace a newer score", async () => {
 
 // --- finished matches: instant seed, then the persisted record ------------
 //
-// The seed is a fabrication (empty timeline, 1/0 probability) built from the
-// core match row so the hero paints with no loading flash. The persisted
-// NrlLiveState/NrlLiveEvent record must still replace it — an earlier version
-// returned early on the seed, which permanently hid every finished match's
-// try timeline and closing probability.
+// The seed is built from the core match row so the hero paints with no
+// loading flash. It carries no probability (null, rendered "—"): it used to
+// fabricate 1/0, so a drawn game briefly read "{home} win chance · 0%". The
+// persisted NrlLiveState/NrlLiveEvent record must still replace it — an
+// earlier version returned early on the seed, which permanently hid every
+// finished match's try timeline and closing probability.
+
+function ProbProbe() {
+  const state = useLiveMatch();
+  if (state.status !== "success") return <span>{state.status}</span>;
+  return <span>prob:{String(state.data.live_home_prob)}</span>;
+}
+
+it("seeds a finished match with no probability instead of a fabricated 1/0", () => {
+  mockLive.mockReturnValueOnce(new Promise<NrlLive>(() => {}));
+  render(
+    <LiveMatchProvider match={{ ...finishedMatch, score_home: 18, score_away: 18 }}>
+      <ProbProbe />
+    </LiveMatchProvider>,
+  );
+  expect(screen.getByText("prob:null")).toBeInTheDocument();
+});
+
+// The live section is what readers see: a missing probability prints "—",
+// never "0%" (which the old 1/0 fabrication showed for every drawn game).
+function detailFor(match: NrlMatch): NrlMatchDetail {
+  return {
+    match: {
+      id: match.id, season: 2026, round: 19, match_no: match.match_no,
+      kickoff_utc: match.kickoff_utc, venue: match.venue,
+      home: match.home, away: match.away,
+      home_team_id: match.home_team_id, away_team_id: match.away_team_id,
+      score_home: match.score_home, score_away: match.score_away,
+      status: match.status,
+    },
+    prediction: null,
+    form: { home: null, away: null },
+    h2h: [],
+    factors: [],
+  };
+}
+
+it("prints '—', not '0%', for a drawn finished match while the seed is on screen", () => {
+  const drawn: NrlMatch = { ...finishedMatch, score_home: 18, score_away: 18 };
+  mockLive.mockReturnValueOnce(new Promise<NrlLive>(() => {}));
+  render(
+    <LiveMatchProvider match={drawn}>
+      <LiveSection detail={detailFor(drawn)} probHistory={null} />
+    </LiveMatchProvider>,
+  );
+  expect(screen.getByText("Final")).toBeInTheDocument();
+  expect(screen.getByText(/Sharks win chance · —/)).toBeInTheDocument();
+  expect(screen.queryByText(/0%/)).not.toBeInTheDocument();
+});
+
+it("keeps '—' when /live returns a null closing probability for a finished game", async () => {
+  mockLive.mockResolvedValueOnce(livePayload({
+    status: "final", minute: 80, score_home: 12, score_away: 26, live_home_prob: null,
+    events: [{ minute: 44, type: "score", team: "away", player: "N. Hynes", prob_after: 0.2 }],
+  }));
+  render(
+    <LiveMatchProvider match={finishedMatch}>
+      <LiveSection detail={detailFor(finishedMatch)} probHistory={null} />
+    </LiveMatchProvider>,
+  );
+  // The persisted payload (with its try timeline) replaces the seed...
+  expect(await screen.findByText(/N\. Hynes/)).toBeInTheDocument();
+  // ...and its null probability still reads as unknown, not as 0%.
+  expect(screen.getByText(/Sharks win chance · —/)).toBeInTheDocument();
+  expect(screen.queryByText("0%")).not.toBeInTheDocument();
+});
 
 it("seeds a finished match instantly, then replaces the seed with the persisted timeline", async () => {
   const pending = deferred<NrlLive>();

@@ -7,7 +7,6 @@ import type { MatchSummary } from "@/lib/types";
 // seeded), so mock the api module — mirrors predictedVsActual.test.tsx.
 jest.mock("@/lib/api");
 const mockGetMatchSummary = api.getMatchSummary as jest.Mock;
-const mockGetProbHistory = api.getProbHistory as jest.Mock;
 
 const summary: MatchSummary = {
   match_id: 1, stage: "group", group: "Group A", kickoff_utc: null,
@@ -24,7 +23,6 @@ const summary: MatchSummary = {
 
 beforeEach(() => {
   mockGetMatchSummary.mockResolvedValue(summary);
-  mockGetProbHistory.mockResolvedValue({ match_id: 1, points: [], disclaimer: "" });
 });
 
 test("renders goalscorers under the score", () => {

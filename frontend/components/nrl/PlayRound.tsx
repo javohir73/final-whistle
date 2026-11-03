@@ -5,7 +5,11 @@ import { ClubBadge } from "@/components/ClubBadge";
 import { ConfidenceRing } from "@/components/ConfidenceRing";
 import { ErrorState, Loading } from "@/components/States";
 import { kickoffLabel } from "@/components/nrl/TipsheetBlock";
+import { reportViewerHandle } from "@/components/play/viewerHandle";
+import { NRL_TIPS_CACHE_PREFIX, useTipsIdentityVersion } from "@/components/play/tipsIdentity";
+import { trackEvent } from "@/lib/analytics";
 import { confidenceTier } from "@/lib/confidenceTier";
+import { recordEngagement } from "@/lib/engagement";
 import { getMyNrlTips, submitNrlTip } from "@/lib/nrlTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -17,7 +21,8 @@ type Pick = "home" | "draw" | "away";
 // visit instead of waiting on /tips/mine, mirrors useMatchPicks' localStorage
 // idiom. Only ever written from a CONFIRMED (server-accepted) submit --
 // see submit() below -- so a stale/rejected optimistic value never persists.
-const CACHE_PREFIX = "finalwhistle:nrl-tips:v1:";
+// Cleared after a sign-in claim (components/play/tipsIdentity.ts).
+const CACHE_PREFIX = NRL_TIPS_CACHE_PREFIX;
 
 interface CachedTip {
   pick: Pick;
@@ -88,6 +93,9 @@ export function PlayRound({
   const [pending, setPending] = useState<Record<number, boolean>>({});
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [marginDraft, setMarginDraft] = useState<Record<number, string>>({});
+  // Re-read the server when a sign-in claim may have changed whose tips
+  // this device shows.
+  const identityVersion = useTipsIdentityVersion();
 
   useEffect(() => {
     if (!deviceId) return;
@@ -110,6 +118,7 @@ export function PlayRound({
         });
         setMatches(merged);
         setHandle(res.handle);
+        reportViewerHandle(res.handle);
       })
       .catch((err) => {
         if (!live) return;
@@ -118,7 +127,7 @@ export function PlayRound({
     return () => {
       live = false;
     };
-  }, [deviceId, season, round, attempt]);
+  }, [deviceId, season, round, attempt, identityVersion]);
 
   const submit = useCallback(
     async (matchId: number, pick: Pick, marginOverride?: number) => {
@@ -155,10 +164,15 @@ export function PlayRound({
         );
         writeCache(season, round, matchId, { pick: res.tip.pick, margin: res.tip.margin });
         setHandle(res.handle);
+        reportViewerHandle(res.handle);
         // Retention instrumentation (design doc: "tips-locked ... ride the
         // existing activity-ping client") -- reuse the same best-effort call
         // ActivityPing fires on every page load, not a new analytics path.
         pingDailyActivity().catch(() => {});
+        // A scored tip is the engagement signal the install prompt waits for,
+        // and the loop's own funnel event.
+        recordEngagement("pick");
+        trackEvent("tips_submit", { competition: "nrl", round, match_id: matchId });
       } catch (err) {
         setMatches(prevMatches ?? null); // never claim a rejected pick was saved
         setRowError((e) => ({

@@ -9,20 +9,26 @@
  *
  *  Deterministic server component: no "use client", no window/hooks, so it renders
  *  identical markup server- and client-side. When there are <2 points there is no
- *  trajectory to draw, so it degrades to the pre-match hero bar (the plan's honest
- *  single-bar state) — never a fake chart.
+ *  trajectory to draw, so it renders NOTHING (the caller drops the section): the
+ *  match hero already carries the one W/D/L bar, and a second "fallback" copy of
+ *  it here was a duplicate, not a forecast. Never a fake chart.
+ *
+ *  Honest axis: the series ends "KO" only once kickoff has actually passed.
+ *  Before that the last snapshot is just the latest one ("Latest · 3 Nov").
  */
-import type { ProbHistoryPoint, Probabilities } from "@/lib/types";
-import { ProbabilityBar } from "@/components/ProbabilityBar";
+import type { ProbHistoryPoint } from "@/lib/types";
 import { Eyebrow } from "@/components/Eyebrow";
 import { pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface Props {
   points: ProbHistoryPoint[];
-  probabilities: Probabilities;
   homeLabel: string;
-  awayLabel: string;
+  /** Kickoff (UTC ISO). The end label says "KO" only when this is in the past
+   *  relative to `now`; unknown kickoff never claims KO. */
+  kickoffUtc?: string | null;
+  /** Render clock, injectable for tests (server render time otherwise). */
+  now?: Date;
   /** Optional event markers (NRL reuse): `at` is a 0..1 fractional x position,
    *  `tone` picks the ring color. Football passes none. */
   markers?: { at: number; tone: "home" | "away" }[];
@@ -43,28 +49,16 @@ function shortDate(iso: string | null): string | null {
 /** Round to 2dp so the emitted SVG coordinates stay short and deterministic. */
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
-export function WinProbTimeline({ points, probabilities, homeLabel, awayLabel, markers = [] }: Props) {
-  // Honest fallback: no trajectory to draw yet (most fixtures until the model
-  // starts updating them), so show only the pre-match hero bar — not a chart.
-  if (points.length < 2) {
-    return (
-      <div>
-        <Eyebrow tone="muted">MODEL FORECAST</Eyebrow>
-        <div className="mt-3">
-          <ProbabilityBar
-            probabilities={probabilities}
-            homeLabel={homeLabel}
-            awayLabel={awayLabel}
-            size="hero"
-            showLabels
-          />
-        </div>
-        <p className="mt-2 text-body text-muted">
-          Forecast movement appears once the model updates this fixture.
-        </p>
-      </div>
-    );
-  }
+/** True when the forecast has a trajectory worth drawing. Callers use this to
+ *  decide whether the forecast section exists at all. */
+export function hasForecastTrajectory(points: ProbHistoryPoint[] | null | undefined): boolean {
+  return (points?.length ?? 0) >= 2;
+}
+
+export function WinProbTimeline({ points, homeLabel, kickoffUtc = null, now, markers = [] }: Props) {
+  // No trajectory to draw yet (most fixtures until the model starts updating
+  // them): render nothing rather than a second copy of the hero's bar.
+  if (!hasForecastTrajectory(points)) return null;
 
   const series = points.map((p) => p.p_home);
   const n = series.length;
@@ -86,13 +80,19 @@ export function WinProbTimeline({ points, probabilities, homeLabel, awayLabel, m
   const d = series.map((p, i) => `${i === 0 ? "M" : "L"}${r2(xFor(i))} ${r2(yFor(p))}`).join(" ");
 
   // Axis labels: honest steps, never fabricated KO/1H/HT/2H minutes. Dated
-  // snapshots print first/mid dates ending at kickoff; undated fall to EARLIER…NOW.
+  // snapshots print first/mid dates and end at "KO" only once kickoff has
+  // passed -- before that the last point is simply the latest snapshot.
+  // Undated series fall to EARLIER…NOW.
   const dated = points.some((p) => p.date);
+  const kickoffMs = kickoffUtc ? Date.parse(kickoffUtc) : NaN;
+  const kickoffPassed =
+    Number.isFinite(kickoffMs) && (now ?? new Date()).getTime() >= kickoffMs;
+  const latest = shortDate(points[n - 1].date);
   const axisLabels = dated
     ? [
         shortDate(points[0].date) ?? "EARLIER",
         shortDate(points[Math.floor((n - 1) / 2)].date) ?? "",
-        "KO",
+        kickoffPassed ? "KO" : latest ? `Latest · ${latest}` : "Latest",
       ]
     : ["EARLIER", "NOW"];
 

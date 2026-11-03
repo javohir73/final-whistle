@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { LeagueYouVsAi } from "./LeagueYouVsAi";
 import { getLeagueTipsSummary } from "@/lib/leagueTips";
 import { getOrCreateDeviceId } from "@/lib/session";
@@ -93,7 +93,9 @@ it("shares the player's own league share-page URL for a graded matchweek", async
 
   render(<LeagueYouVsAi league="epl" />);
   const shareButton = await screen.findByRole("button");
-  shareButton.click();
+  fireEvent.click(shareButton);
+  // Desktop: the explicit targets menu (Copy link / WhatsApp / Telegram).
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Copy link" }));
 
   await screen.findByText("Link copied!");
   expect(writeText).toHaveBeenCalledWith(

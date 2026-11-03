@@ -35,8 +35,8 @@ export async function generateMetadata({
   const share = await getNrlTipsShareServer(season, round, handle).catch(() => null);
   if (!share) return { title: `NRL tips result — ${APP_NAME}` };
 
-  const title = `${share.handle_display} went ${share.player_points}/${share.player_of} vs the AI — NRL Round ${round} | ${APP_NAME}`;
-  const description = `${share.handle_display} scored ${share.player_points}/${share.player_of} in NRL Round ${round} (${season}) — the AI scored ${share.model_points}/${share.model_of}. Play against the AI at ${APP_NAME}.`;
+  const title = `${share.handle_display} went ${share.player_points}/${share.player_of} vs the model — NRL Round ${round} | ${APP_NAME}`;
+  const description = `${share.handle_display} scored ${share.player_points}/${share.player_of} in NRL Round ${round} (${season}) — the model scored ${share.model_points}/${share.model_of}. Play against the model at ${APP_NAME}.`;
   return {
     title,
     description,
@@ -64,15 +64,15 @@ export default async function NrlTipsShareCardPage({
   // honest about an in-progress round instead of framing it as final.
   const verdict = share.round_complete
     ? share.player_points > share.model_points
-      ? `${share.handle_display} beat the AI this round`
+      ? `${share.handle_display} beat the model this round`
       : share.player_points < share.model_points
-        ? "The AI came out on top this round"
-        : `${share.handle_display} drew with the AI this round`
+        ? "The model came out on top this round"
+        : `${share.handle_display} drew with the model this round`
     : share.player_points > share.model_points
-      ? `${share.handle_display} is ahead of the AI so far this round`
+      ? `${share.handle_display} is ahead of the model so far this round`
       : share.player_points < share.model_points
-        ? "The AI is ahead so far this round"
-        : `${share.handle_display} is tied with the AI so far this round`;
+        ? "The model is ahead so far this round"
+        : `${share.handle_display} is tied with the model so far this round`;
 
   return (
     <div className="fade-up mx-auto max-w-md space-y-6 text-center">
@@ -81,7 +81,7 @@ export default async function NrlTipsShareCardPage({
           NRL Round {share.round} · {share.season}
         </p>
         <p className="mt-3 font-display text-2xl font-extrabold leading-snug tracking-tight">
-          {share.handle_display} went {share.player_points}/{share.player_of} — the AI went{" "}
+          {share.handle_display} went {share.player_points}/{share.player_of} — the model went{" "}
           {share.model_points}/{share.model_of}
         </p>
         <p className="mt-2 text-sm font-semibold text-lime-deep">{verdict}</p>
@@ -95,7 +95,7 @@ export default async function NrlTipsShareCardPage({
         href="/nrl/tips"
         className="inline-block rounded-lg bg-win px-6 py-3 text-sm font-bold text-pitch transition hover:brightness-110"
       >
-        Play against the AI →
+        Beat the model at the NRL →
       </Link>
 
       <p className="text-xs leading-relaxed text-muted">{share.disclaimer}</p>

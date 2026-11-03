@@ -63,9 +63,9 @@ export async function generateMetadata({
   const p = match.prediction;
   const title = `${match.home} vs ${match.away} — NRL prediction | ${APP_NAME}`;
   const description = p
-    ? `ML model prediction for ${match.home} vs ${match.away} (NRL round ${ids.round}): ` +
+    ? `Model prediction for ${match.home} vs ${match.away} (NRL round ${ids.round}): ` +
       `${match.home} ${pct(p.p_home)}, draw ${pct(p.p_draw)}, ${match.away} ${pct(p.p_away)}.`
-    : `NRL round ${ids.round}: ${match.home} vs ${match.away} — ML model prediction, kickoff and ladder context.`;
+    : `NRL round ${ids.round}: ${match.home} vs ${match.away} — Model prediction, kickoff and ladder context.`;
   return {
     title,
     description,
@@ -130,7 +130,7 @@ export default async function NrlMatchDetailPage({
         {!p && match.status !== "finished" && (
           <section className="glass rounded-2xl p-6 text-center">
             <h2 className="font-display text-base font-bold text-foreground">
-              ML model prediction on the way
+              Model prediction on the way
             </h2>
             <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted">
               The model freezes its call for this match in the lead-up to the round.

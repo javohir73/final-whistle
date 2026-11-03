@@ -2,15 +2,47 @@
 
 import Link from "next/link";
 import type { MatchSummary } from "@/lib/types";
-import type { CompetitionId } from "@/lib/sports";
+import { COMPETITIONS, footballMatchHref, navTabsFor, type CompetitionId } from "@/lib/sports";
 import { Eyebrow, CompEyebrowChip } from "@/components/Eyebrow";
 import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { ClubBadge } from "@/components/ClubBadge";
 import { TeamBadge } from "@/components/TeamBadge";
-import { formatScore, topOutcome } from "@/lib/format";
-import { isLiveNow } from "@/lib/liveLabel";
-import { kickoffTime } from "@/lib/datetime";
+import { useRenderNow } from "@/components/match/clock";
+import { hasMatchPagePick } from "@/components/match/picks";
+import { formatScore, pctTriple, topOutcome } from "@/lib/format";
+import { matchPhase, type MatchPhase } from "@/lib/matchStatus";
+import { kickoffDate, kickoffTime, tzAbbrev } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+
+/** The "why" section's anchor on each sport's match page. */
+const WHY_ANCHOR: Record<"football" | "nrl", string> = { football: "#why", nrl: "#model" };
+
+/** The primary call to action, honest about where a pick can be made:
+ *  - before kickoff, "Make your pick": the match page's #pick where it has one
+ *    (club leagues' scored game, the World Cup's W/D/L), the NRL tips game for
+ *    NRL (its match page has no pick), and a plain "Preview" where picks are
+ *    not open (the Champions League);
+ *  - live, "Live now" into the match centre (its pick is closed);
+ *  - after the whistle, "Match centre".
+ *  Null href: there is no page to go to (an NRL round still TBC). */
+function primaryCta(
+  comp: CompetitionId,
+  phase: MatchPhase,
+  target: string | null,
+): { label: string; href: string | null } {
+  if (phase === "live") return { label: "Live now", href: target };
+  if (phase === "upcoming" || phase === "postponed") {
+    if (COMPETITIONS[comp].sport === "nrl") {
+      const play = navTabsFor(comp).find((tab) => tab.id === "play")?.href ?? null;
+      return { label: "Make your pick", href: target !== null ? play : null };
+    }
+    if (hasMatchPagePick(comp)) {
+      return { label: "Make your pick", href: target !== null ? `${target}#pick` : null };
+    }
+    return { label: "Preview", href: target };
+  }
+  return { label: "Match centre", href: target };
+}
 
 /** The P1 confidence -> color mapping. MEDIUM is amber, so its word is printed
  *  at 12px bold (`text-xs font-bold`) to clear the "amber text only >= 12px
@@ -57,6 +89,9 @@ export function FeatureHero({
   margin?: number | null;
   eyebrow?: string;
 }) {
+  // The page's clock: null while hydrating cached HTML (the feed's own status
+  // decides that first pass), the browser clock after.
+  const now = useRenderNow();
   if (!match) {
     return (
       <section className="glass relative overflow-hidden rounded-[16px] p-6">
@@ -67,14 +102,15 @@ export function FeatureHero({
   }
 
   const { teams, probabilities, predicted_score, confidence } = match;
-  const live = isLiveNow(match);
+  const phase = matchPhase(match, now);
+  const live = phase === "live";
   // Live matches promote the in-play probabilities (same idiom as the old
-  // match-of-day card). The giant number and the bar both read from `probs` so
-  // they can never disagree.
+  // match-of-day card). The giant number is the bar's own sum-to-100 share for
+  // the leading outcome, so the two can never disagree.
   const probs = (live && match.live_probabilities) || probabilities;
-  const lead = probs ? Math.max(probs.home_win, probs.draw, probs.away_win) : null;
-  const heroPct = lead != null ? Math.round(lead * 100) : null;
   const leader = probs ? topOutcome(probs) : null;
+  const triple = probs ? pctTriple(probs) : null;
+  const heroPct = triple && leader ? triple[leader] : null;
   const leaderLabel =
     leader === "home"
       ? `${teams.home} win`
@@ -84,11 +120,23 @@ export function FeatureHero({
           ? "Draw"
           : "";
   const conf = confidence ? CONFIDENCE[confidence] : null;
-  // NRL callers can override the football detail link, or drop it with `null`
-  // (a fixture whose round is still TBC has no detail page) — mirrors the shared
-  // MatchCard's guard so the CTAs never fall through to the football /match/<id>
-  // route and mis-navigate to an unrelated match.
-  const target = href === undefined ? `/match/${match.match_id}` : href;
+  // NRL callers pass their own (season/round/no) link, or drop it with `null`
+  // (a fixture whose round is still TBC has no detail page). The default is the
+  // competition-scoped football page -- never the legacy /match/<id>, which
+  // 308s into the World Cup and soft-404s for club matches. A non-football
+  // competition with no href gets no link rather than a guessed one.
+  const sport = COMPETITIONS[comp].sport;
+  const target =
+    href !== undefined
+      ? href
+      : sport === "football"
+        ? footballMatchHref(comp, match.match_id)
+        : null;
+  const cta = primaryCta(comp, phase, target);
+  const kickoffLabel =
+    match.kickoff_utc && tz
+      ? `${kickoffDate(match.kickoff_utc, tz)} · ${kickoffTime(match.kickoff_utc, tz)} ${tzAbbrev(match.kickoff_utc, tz)}`.trim()
+      : null;
   // The side the margin favours: leader by win probability, draw ignored.
   const favoured = (probs?.home_win ?? 0) >= (probs?.away_win ?? 0) ? teams.home : teams.away;
 
@@ -102,10 +150,12 @@ export function FeatureHero({
           <CompEyebrowChip comp={comp} />
           <Eyebrow tone="lime">{eyebrow}</Eyebrow>
           {live ? (
-            <span className="ml-auto text-label font-bold uppercase tracking-wide text-loss">Live</span>
-          ) : match.kickoff_utc && tz ? (
+            <span className="ml-auto text-label font-bold uppercase tracking-wide text-loss-ink">Live</span>
+          ) : kickoffLabel ? (
+            // Date · time · zone: a bare "3:00 PM" on a "Next up" card days
+            // away never said which day, or in whose zone.
             <span className="ml-auto text-label font-semibold tabular-nums text-muted">
-              {kickoffTime(match.kickoff_utc, tz)}
+              {kickoffLabel}
             </span>
           ) : null}
         </div>
@@ -141,7 +191,7 @@ export function FeatureHero({
           <span className="text-label font-semibold leading-relaxed text-muted">
             <span className="uppercase tracking-wide">{leaderLabel}</span>
             <br />
-            AI most likely:{" "}
+            Model most likely:{" "}
             {margin != null && !predicted_score
               ? `${favoured} by ${Math.abs(margin).toFixed(1)}`
               : formatScore(predicted_score?.home ?? null, predicted_score?.away ?? null)}
@@ -168,42 +218,41 @@ export function FeatureHero({
           </div>
         )}
 
-        {/* Two equal CTAs, both into the match page. Lime primary, outline
-            secondary; both 44px tap targets. When there's no detail page yet
-            (`target === null`, an NRL round still TBC) they degrade to
-            non-interactive labels rather than mis-navigating to the football
-            /match/<id> route — the hero's analogue of MatchCard's plain card. */}
+        {/* Two equal CTAs. The primary says what can actually be done (see
+            primaryCta); the secondary opens the "why". Lime primary, outline
+            secondary; both 44px tap targets. With no page to go to (an NRL
+            round still TBC) they degrade to non-interactive labels rather than
+            mis-navigating — the hero's analogue of MatchCard's plain card. */}
         <div className="mt-4 flex gap-2.5">
-          {target !== null ? (
-            <>
-              <Link
-                href={target}
-                className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink transition hover:brightness-[1.06]"
-              >
-                Make your pick
-              </Link>
-              <Link
-                href={target}
-                className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground transition hover:border-win hover:text-lime-deep"
-              >
-                {heroPct != null ? `Why ${heroPct}%?` : "See the prediction"}
-              </Link>
-            </>
+          {cta.href !== null ? (
+            <Link
+              href={cta.href}
+              className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink transition hover:brightness-[1.06]"
+            >
+              {cta.label}
+            </Link>
           ) : (
-            <>
-              <span
-                aria-disabled
-                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink opacity-disabled"
-              >
-                Make your pick
-              </span>
-              <span
-                aria-disabled
-                className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground opacity-disabled"
-              >
-                {heroPct != null ? `Why ${heroPct}%?` : "See the prediction"}
-              </span>
-            </>
+            <span
+              aria-disabled
+              className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] bg-win font-display text-sm font-semibold text-action-ink opacity-disabled"
+            >
+              {cta.label}
+            </span>
+          )}
+          {target !== null ? (
+            <Link
+              href={`${target}${WHY_ANCHOR[sport]}`}
+              className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground transition hover:border-win hover:text-lime-deep"
+            >
+              {heroPct != null ? `Why ${heroPct}%?` : "See the prediction"}
+            </Link>
+          ) : (
+            <span
+              aria-disabled
+              className="flex min-h-[44px] flex-1 cursor-default items-center justify-center rounded-[12px] border border-border font-display text-sm font-semibold text-foreground opacity-disabled"
+            >
+              {heroPct != null ? `Why ${heroPct}%?` : "See the prediction"}
+            </span>
           )}
         </div>
       </div>

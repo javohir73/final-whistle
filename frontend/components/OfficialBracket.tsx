@@ -6,6 +6,7 @@ import { KO_TREE, FINAL_MATCH, THIRD_PLACE } from "@/lib/bracketStructure";
 import type { SideView, TieView } from "@/lib/officialBracket";
 import { cn } from "@/lib/utils";
 import { stoppedLabel } from "@/lib/matchStatus";
+import { footballMatchHref } from "@/lib/sports";
 
 const ROUND_LABEL: Record<string, string> = {
   r32: "Round of 32",
@@ -120,11 +121,13 @@ function TieCard({ v, roundLabel, accent }: { v: TieView; roundLabel: string; ac
     </div>
   );
 
-  const linkable = v.matchId != null && v.state !== "labels";
+  // The only official bracket is the World Cup's (hasBracket: wc26).
+  const href =
+    v.matchId != null && v.state !== "labels" ? footballMatchHref("wc26", v.matchId) : null;
   return (
     <li className="ko-tie w-[108px]" aria-label={tieAria(v, roundLabel)}>
-      {linkable ? (
-        <Link href={`/match/${v.matchId}`} className="block">
+      {href ? (
+        <Link href={href} className="block">
           {body}
         </Link>
       ) : (

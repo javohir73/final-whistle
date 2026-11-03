@@ -33,34 +33,38 @@ it("renders the graded result, the CTA and the disclaimer", async () => {
 
   expect(mockShare).toHaveBeenCalledWith("epl", 7, "SwiftStriker123");
   expect(
-    screen.getByText(/SwiftStriker123 went 7\/8 — the AI went\s*6\/8/),
+    screen.getByText(/SwiftStriker123 went 7\/8 — the model went\s*6\/8/),
   ).toBeInTheDocument();
-  expect(screen.getByText("SwiftStriker123 beat the AI this matchweek")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Play against the AI/i })).toHaveAttribute("href", "/tips");
+  expect(screen.getByText("SwiftStriker123 beat the model this matchweek")).toBeInTheDocument();
+  // Straight back into that league's open matchweek, not the old /tips page.
+  expect(screen.getByRole("link", { name: "Beat the model at the Premier League →" })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
   expect(screen.getByText(share.disclaimer)).toBeInTheDocument();
 });
 
-it("frames the AI winning honestly when the model out-scored the player", async () => {
+it("frames the model winning honestly when the model out-scored the player", async () => {
   mockShare.mockResolvedValue({ ...share, player_points: 4, model_points: 6 });
   render(await LeagueTipsShareCardPage({ params: params() }));
 
-  expect(screen.getByText("The AI came out on top this matchweek")).toBeInTheDocument();
+  expect(screen.getByText("The model came out on top this matchweek")).toBeInTheDocument();
 });
 
 it("frames a draw honestly when the two scores tie", async () => {
   mockShare.mockResolvedValue({ ...share, player_points: 6, model_points: 6 });
   render(await LeagueTipsShareCardPage({ params: params() }));
 
-  expect(screen.getByText("SwiftStriker123 drew with the AI this matchweek")).toBeInTheDocument();
+  expect(screen.getByText("SwiftStriker123 drew with the model this matchweek")).toBeInTheDocument();
 });
 
 it("softens the verdict to 'so far' and flags progress when the matchweek isn't fully graded", async () => {
   mockShare.mockResolvedValue({ ...share, matchweek_complete: false });
   render(await LeagueTipsShareCardPage({ params: params() }));
 
-  expect(screen.getByText("SwiftStriker123 is ahead of the AI so far this matchweek")).toBeInTheDocument();
+  expect(screen.getByText("SwiftStriker123 is ahead of the model so far this matchweek")).toBeInTheDocument();
   expect(screen.getByText(/Matchweek still in progress/)).toBeInTheDocument();
-  expect(screen.queryByText("SwiftStriker123 beat the AI this matchweek")).not.toBeInTheDocument();
+  expect(screen.queryByText("SwiftStriker123 beat the model this matchweek")).not.toBeInTheDocument();
 });
 
 it("does not show the in-progress note once the matchweek is fully graded", async () => {

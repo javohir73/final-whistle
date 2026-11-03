@@ -1,14 +1,14 @@
 import type { Prediction } from "@/lib/types";
-import { ProbabilityBar } from "@/components/ProbabilityBar";
+import { pctTriple, topOutcome } from "@/lib/format";
 
-/** Model vs market on the match page: the AI's W/D/L triple stacked against
- *  the market-consensus implied probabilities (median across bookmakers,
- *  margin removed). Renders nothing until an odds snapshot exists for the
- *  match. Probabilities only — no prices, no bookmaker names, and the
- *  standing not-betting-advice framing. When no snapshot exists, say so
- *  explicitly instead of making the whole section silently disappear.
- *  (Distinct from MarketComparison, the methodology page's aggregate
- *  benchmark table.) */
+/** Model vs market on the match page, as ONE row: the model's favoured outcome
+ *  next to the bookmaker consensus on that same outcome (median across
+ *  bookmakers, margin removed), and the gap in points. It used to stack two
+ *  more W/D/L bars under the hero's -- the third and fourth copies of the same
+ *  split on the page. Probabilities only: no prices, no bookmaker names, and
+ *  the standing not-betting-advice framing. When no snapshot exists it says so
+ *  in one line rather than disappearing. (Distinct from MarketComparison, the
+ *  methodology page's aggregate benchmark table.) */
 export function ModelVsMarket({
   prediction,
   home,
@@ -19,46 +19,37 @@ export function ModelVsMarket({
   away: string;
 }) {
   const oc = prediction.odds_comparison;
-  if (!oc?.available || !oc.market) {
+  const modelTriple = pctTriple(prediction.probabilities);
+  const marketTriple = oc?.available && oc.market ? pctTriple(oc.market) : null;
+  if (!modelTriple || !marketTriple) {
     return (
-      <section className="glass rounded-2xl p-6">
-        <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-          Model vs market
-        </h2>
-        <p className="text-sm leading-relaxed text-muted">
-          Market consensus is not available for this fixture yet. The comparison appears once
-          enough current bookmaker snapshots have been captured.
-        </p>
-      </section>
+      <p className="text-sm leading-relaxed text-muted">
+        Market consensus isn&apos;t available for this fixture yet.
+      </p>
     );
   }
+
+  const side = topOutcome(prediction.probabilities);
+  const label = side === "home" ? home : side === "away" ? away : "Draw";
+  const model = modelTriple[side];
+  const market = marketTriple[side];
+  const gap = model - market;
+  const signed = gap > 0 ? `+${gap}` : gap < 0 ? `−${Math.abs(gap)}` : "±0";
+
   return (
-    <section className="glass rounded-2xl p-6">
-      <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-        Model vs market
-      </h2>
-      <p className="mb-4 text-xs leading-relaxed text-muted">
-        The FinalWhistle ML model&apos;s probabilities next to the betting market&apos;s consensus
-        (median across bookmakers, margin removed). Disagreement is where the
-        model thinks the market is wrong — or vice versa.
-      </p>
-      <div className="space-y-4">
-        <div>
-          <div className="mb-1.5 font-display text-label font-semibold uppercase tracking-wider text-muted">
-            FinalWhistle ML model
-          </div>
-          <ProbabilityBar probabilities={prediction.probabilities} homeLabel={home} awayLabel={away} />
-        </div>
-        <div>
-          <div className="mb-1.5 font-display text-label font-semibold uppercase tracking-wider text-muted">
-            Market consensus
-          </div>
-          <ProbabilityBar probabilities={oc.market} homeLabel={home} awayLabel={away} />
-        </div>
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="text-label font-semibold uppercase tracking-wider text-muted">
+          Model vs market
+        </span>
+        <span className="text-sm tabular-nums text-foreground">
+          <strong className="font-semibold">{label}:</strong> model {model}% · market {market}%{" "}
+          <span className="text-muted">(model {signed} pts)</span>
+        </span>
       </div>
-      <p className="mt-4 text-label leading-snug text-muted">
-        For analytics and entertainment only. Not betting advice.
+      <p className="mt-1 text-label leading-snug text-muted">
+        Bookmaker consensus: median across bookmakers, margin removed. Not betting advice.
       </p>
-    </section>
+    </div>
   );
 }

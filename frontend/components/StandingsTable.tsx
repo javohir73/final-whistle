@@ -26,7 +26,12 @@ const ZONE_SWATCH: Record<StandingsZone["tone"], string> = {
 /** The qualification column has to fit QualificationBar's own fixed widths
  *  (bar + printed %), which grow at sm -- pin the header label and the cell to
  *  the same width so the Pts/GD columns stay aligned between the two. */
-const QUAL_COL = "w-[5.5rem] sm:w-36";
+const QUAL_COL = "w-[5.5rem] shrink-0 sm:w-36";
+
+/** Rank numeral slot, shared by the header spacer and every row so the club
+ *  column starts at the same x in both. Narrower below sm (see below), where
+ *  the numeral also steps down a size to fit it. */
+const RANK_COL = "w-5 shrink-0 sm:w-7";
 
 /** The optional numeric columns a caller can slot between the team cell and the
  *  qualification column. Football uses the GD/Pts default (`columns` omitted);
@@ -63,27 +68,47 @@ export const FULL_LEAGUE_COLUMNS: StandingsColumn[] = [
 /** Header label + width for each numeric column. All right-aligned; the widths
  *  keep the header row and the body cells in the same grid. `gloss` expands a
  *  format-knowledge label for first-time fans (title tooltip + accessible
- *  name); columns whose label says it all omit it. */
+ *  name); columns whose label says it all omit it.
+ *
+ *  Phone geometry (the 390px overlap bug): every numeric column is a FIXED box
+ *  (`shrink-0`, see colClass). As plain flex items they used to shrink -- by a
+ *  different amount in the header (whose "Team" label won't shrink past its
+ *  text) than in each body row (whose `min-w-0` rowheader collapses), which
+ *  slid the header a column off the numbers, and the crest + name then spilled
+ *  out of the squeezed rowheader over P/W/D. Now the club column is the only
+ *  flexible one and truncates instead. Widths step down below sm so a 360px
+ *  phone still has room for a club name, and `wideOnly` columns (GF/GA -- GD
+ *  already nets them) drop out below sm. Below 360px (320px phones) the
+ *  `xsHidden` tiebreak columns go too -- GD, the ladder's Diff -- which takes
+ *  the club name from ~3 characters to 8+. sm and up keep the original
+ *  widths. */
 const NUMERIC_HEADERS: Record<
   StandingsColumn,
-  { label: string; width: string; gloss?: string }
+  { label: string; width: string; gloss?: string; wideOnly?: boolean; xsHidden?: boolean }
 > = {
-  gd: { label: "GD", width: "w-10", gloss: "Goal difference" },
-  pts: { label: "Pts", width: "w-10", gloss: "Points" },
-  wl: { label: "W–L", width: "w-12", gloss: "Wins–losses" },
-  diff: { label: "Diff", width: "w-10", gloss: "Points difference" },
-  played: { label: "P", width: "w-10", gloss: "Games played" },
-  won: { label: "W", width: "w-8", gloss: "Won" },
-  drawn: { label: "D", width: "w-8", gloss: "Drawn" },
-  lost: { label: "L", width: "w-8", gloss: "Lost" },
-  gf: { label: "GF", width: "w-10", gloss: "Goals for" },
-  ga: { label: "GA", width: "w-10", gloss: "Goals against" },
+  gd: { label: "GD", width: "w-7 sm:w-10", gloss: "Goal difference", xsHidden: true },
+  pts: { label: "Pts", width: "w-7 sm:w-10", gloss: "Points" },
+  wl: { label: "W–L", width: "w-11 sm:w-12", gloss: "Wins–losses" },
+  diff: { label: "Diff", width: "w-9 sm:w-10", gloss: "Points difference", xsHidden: true },
+  played: { label: "P", width: "w-6 sm:w-10", gloss: "Games played" },
+  won: { label: "W", width: "w-5 sm:w-8", gloss: "Won" },
+  drawn: { label: "D", width: "w-5 sm:w-8", gloss: "Drawn" },
+  lost: { label: "L", width: "w-5 sm:w-8", gloss: "Lost" },
+  gf: { label: "GF", width: "w-10", gloss: "Goals for", wideOnly: true },
+  ga: { label: "GA", width: "w-10", gloss: "Goals against", wideOnly: true },
   top8: {
     label: "Top 8%",
-    width: "w-14",
+    width: "w-12 sm:w-14",
     gloss: "Projected chance of finishing in the top 8 and making the finals",
   },
 };
+
+/** The box a numeric column occupies -- identical for its header cell and
+ *  every body cell, which is what keeps the two rows on one grid. */
+function colClass(key: StandingsColumn): string {
+  const { width, wideOnly, xsHidden } = NUMERIC_HEADERS[key];
+  return cn("shrink-0", width, wideOnly && "hidden sm:block", xsHidden && "max-[359px]:hidden");
+}
 
 /** Shared right-aligned value-cell class (matches the existing GD cell). */
 const VALUE_CELL = "text-right text-body tabular-nums text-foreground";
@@ -139,31 +164,31 @@ function renderCell(key: StandingsColumn, row: StandingsTableRow) {
   switch (key) {
     case "gd":
       return (
-        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {signed(row.projected_goal_diff)}
         </span>
       );
     case "pts":
       return (
-        <span key={key} role="cell" className="w-10 text-right font-display text-sm font-bold tabular-nums">
+        <span key={key} role="cell" className={cn(colClass(key), "text-right font-display text-sm font-bold tabular-nums")}>
           {row.projected_points}
         </span>
       );
     case "wl":
       return (
-        <span key={key} role="cell" className={cn("w-12", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.wins}–{row.losses}
         </span>
       );
     case "diff":
       return (
-        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {signed(row.diff)}
         </span>
       );
     case "played":
       return (
-        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.played}
         </span>
       );
@@ -171,31 +196,31 @@ function renderCell(key: StandingsColumn, row: StandingsTableRow) {
     // backend that predates these fields must not read as "played nothing".
     case "won":
       return (
-        <span key={key} role="cell" className={cn("w-8", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.won ?? row.wins ?? ""}
         </span>
       );
     case "drawn":
       return (
-        <span key={key} role="cell" className={cn("w-8", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.drawn ?? row.draws ?? ""}
         </span>
       );
     case "lost":
       return (
-        <span key={key} role="cell" className={cn("w-8", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.lost ?? row.losses ?? ""}
         </span>
       );
     case "gf":
       return (
-        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.projected_goals_for ?? ""}
         </span>
       );
     case "ga":
       return (
-        <span key={key} role="cell" className={cn("w-10", VALUE_CELL)}>
+        <span key={key} role="cell" className={cn(colClass(key), VALUE_CELL)}>
           {row.goals_against ?? ""}
         </span>
       );
@@ -209,7 +234,8 @@ function renderCell(key: StandingsColumn, row: StandingsTableRow) {
           key={key}
           role="cell"
           className={cn(
-            "w-14 text-right text-body tabular-nums",
+            colClass(key),
+            "text-right text-body tabular-nums",
             p != null && p >= 0.5 ? "text-lime-deep" : "text-muted",
           )}
         >
@@ -220,18 +246,18 @@ function renderCell(key: StandingsColumn, row: StandingsTableRow) {
   }
 }
 
-/** The football GD + Pts body cells, rendered byte-for-byte as the pre-NRL
- *  component did. The default (no `columns`) path is the football surface, so
- *  the one documented narrowing to StandingRow is safe -- projected_* are
- *  required there. */
+/** The football GD + Pts body cells, rendered as the pre-NRL component did
+ *  (on the shared fixed column boxes). The default (no `columns`) path is the
+ *  football surface, so the one documented narrowing to StandingRow is safe --
+ *  projected_* are required there. */
 function footballNumericCells(row: StandingsTableRow) {
   const s = row as StandingRow;
   return (
     <>
-      <span role="cell" className="w-10 text-right text-body tabular-nums text-foreground">
+      <span role="cell" className={cn(colClass("gd"), VALUE_CELL)}>
         {s.projected_goal_diff > 0 ? `+${s.projected_goal_diff}` : s.projected_goal_diff}
       </span>
-      <span role="cell" className="w-10 text-right font-display text-sm font-bold tabular-nums">
+      <span role="cell" className={cn(colClass("pts"), "text-right font-display text-sm font-bold tabular-nums")}>
         {s.projected_points}
       </span>
     </>
@@ -280,8 +306,8 @@ export function StandingsTable({
             role="row"
             className="flex items-center border-b border-border border-l-[3px] border-l-transparent py-1.5 pl-1.5 text-mini font-medium uppercase tracking-[0.1em] text-muted"
           >
-            <span className="w-7 shrink-0" aria-hidden />
-            <span role="columnheader" className="flex-1">{teamHeader}</span>
+            <span className={RANK_COL} aria-hidden />
+            <span role="columnheader" className="min-w-0 flex-1 truncate">{teamHeader}</span>
             {columns ? (
               columns.map((key) => (
                 <span
@@ -289,15 +315,15 @@ export function StandingsTable({
                   role="columnheader"
                   title={NUMERIC_HEADERS[key].gloss}
                   aria-label={NUMERIC_HEADERS[key].gloss}
-                  className={cn(NUMERIC_HEADERS[key].width, "text-right")}
+                  className={cn(colClass(key), "text-right")}
                 >
                   {NUMERIC_HEADERS[key].label}
                 </span>
               ))
             ) : (
               <>
-                <span role="columnheader" title="Goal difference" aria-label="Goal difference" className="w-10 text-right">GD</span>
-                <span role="columnheader" title="Points" aria-label="Points" className="w-10 text-right">Pts</span>
+                <span role="columnheader" title="Goal difference" aria-label="Goal difference" className={cn(colClass("gd"), "text-right")}>GD</span>
+                <span role="columnheader" title="Points" aria-label="Points" className={cn(colClass("pts"), "text-right")}>Pts</span>
               </>
             )}
             {showQualification && (
@@ -337,9 +363,9 @@ export function StandingsTable({
                   <Link
                     href={`${teamBasePath}/${row.team_id}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="flex min-w-0 items-center gap-2.5 py-3 hover:text-lime-deep"
+                    className="flex min-w-0 items-center gap-1.5 py-3 hover:text-lime-deep sm:gap-2.5"
                   >
-                    <span className={cn("text-rank w-7 shrink-0 text-center", rankText === "text-gold" ? "text-gold-ink" : rankText || "text-muted")}>
+                    <span className={cn("text-rank text-center max-sm:text-lg", RANK_COL, rankText === "text-gold" ? "text-gold-ink" : rankText || "text-muted")}>
                       {rank}
                     </span>
                     <span className="shrink-0">
@@ -353,9 +379,12 @@ export function StandingsTable({
                         <TeamBadge team={row.team} size={22} />
                       )}
                     </span>
+                    {/* Phones: one line, ellipsis, never over the numbers
+                        (the full name stays in the link's accessible name).
+                        sm and up wrap as before. */}
                     <span
                       className={cn(
-                        "min-w-0 font-display font-bold leading-tight",
+                        "min-w-0 font-display font-bold leading-tight max-sm:truncate max-sm:text-sm",
                         highlighted && "text-lime-deep",
                       )}
                     >

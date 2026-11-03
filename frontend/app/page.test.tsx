@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import HomePage, { metadata } from "./page";
 import { AuthProvider } from "@/components/AuthProvider";
+import { PlatformHome } from "@/components/PlatformHome";
+import { getNrlTipsheetServer } from "@/lib/api";
 import * as session from "@/lib/session";
 
 // The home page carries the PremiumPromo section, which reads useAuth() — in
@@ -8,8 +10,15 @@ import * as session from "@/lib/session";
 // AuthProvider), so the test supplies it here too. Signed out: the promo's
 // visibility is covered by components/PremiumPromo.test.tsx, not this file.
 jest.mock("@/lib/session");
+// The home page's "Next up" strip fetches fixtures client-side after mount;
+// that late state update would otherwise log an act() warning here. The strip
+// has its own tests (components/play/NextUpStrip.test.tsx).
+jest.mock("@/components/play/NextUpStrip", () => ({ NextUpStrip: () => null }));
+// PlatformHome (an async server component) reads the NRL's current round.
+jest.mock("@/lib/api");
 beforeEach(() => {
   (session.getMe as jest.MockedFunction<typeof session.getMe>).mockResolvedValue(null);
+  (getNrlTipsheetServer as jest.MockedFunction<typeof getNrlTipsheetServer>).mockResolvedValue(null);
 });
 
 it("describes the platform rather than one competition", () => {
@@ -17,16 +26,21 @@ it("describes the platform rather than one competition", () => {
   expect(metadata.description).toContain("Football and NRL");
 });
 
-it("renders one clear route into every supported competition", () => {
-  render(
-    <AuthProvider>
-      <HomePage />
-    </AuthProvider>,
-  );
+it("renders one clear route into every supported competition", async () => {
+  // HomePage renders the async PlatformHome; resolve it as the server would.
+  const page = HomePage();
+  expect(page.type).toBe(PlatformHome);
+  render(<AuthProvider>{await PlatformHome(page.props)}</AuthProvider>);
 
+  // The first screen is the game, scoped to the visitor's competition (the
+  // EPL by default: no cookie or path in jsdom).
   expect(
-    screen.getByRole("heading", { name: "Your matchday, all in one place." }),
+    screen.getByRole("heading", { level: 1, name: "Beat the model at the Premier League." }),
   ).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Make your picks/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
   expect(screen.getByRole("link", { name: /Premier League/ })).toHaveAttribute(
     "href",
     "/football/epl",

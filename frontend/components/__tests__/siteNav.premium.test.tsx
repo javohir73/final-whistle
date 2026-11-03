@@ -1,8 +1,8 @@
 /** SiteNav — the persistent Premium link. It is rendered alongside ThemeToggle
- *  and AuthButton, outside both nav-link registries: PLATFORM_LINKS only feeds
- *  platform routes and COMPETITIONS[].navLinks only feeds competition routes,
- *  so a link placed in either would disappear on the other half of the site.
- *  The competition-route case below is that regression. */
+ *  and AuthButton, outside the five-tab template (lib/sports.ts navTabsFor),
+ *  so it is present on unscoped and competition routes alike. It carries the
+ *  competition only when the URL names one, and a way back only from a
+ *  competition page. */
 import { render, screen } from "@testing-library/react";
 import type { SessionUser } from "@/lib/session";
 
@@ -15,9 +15,10 @@ const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
 
 let mockPath = "/";
+let mockSearch = "";
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPath,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mockSearch),
 }));
 
 import { SiteNav } from "@/components/SiteNav";
@@ -40,6 +41,7 @@ const auth = (user: SessionUser | null, loading = false) => ({
 
 afterEach(() => {
   mockPath = "/";
+  mockSearch = "";
   jest.clearAllMocks();
 });
 
@@ -54,7 +56,7 @@ describe("SiteNav — Premium link (billing on)", () => {
     );
   });
 
-  it("keeps the link on a competition route, where the platform registry is gone", () => {
+  it("keeps the link on a competition route, with the competition and a way back", () => {
     mockUseAuth.mockReturnValue(auth(freeUser));
     mockPath = "/football/epl";
     render(<SiteNav />);
@@ -62,8 +64,29 @@ describe("SiteNav — Premium link (billing on)", () => {
       "href",
       "/premium?competition=epl&returnTo=%2Ffootball%2Fepl",
     );
-    // The competition registry still owns the link row itself.
+    // The five-tab template still owns the link row itself.
     expect(screen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();
+  });
+
+  it("carries a ?competition= scope but no returnTo from an unscoped route", () => {
+    mockUseAuth.mockReturnValue(auth(freeUser));
+    mockPath = "/play";
+    mockSearch = "competition=nrl";
+    render(<SiteNav />);
+    expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute(
+      "href",
+      "/premium?competition=nrl",
+    );
+  });
+
+  it("does not stamp a remembered competition onto the link", () => {
+    // fw_comp is a preference, not context the visitor gave this page.
+    document.cookie = "fw_comp=laliga; Path=/";
+    mockUseAuth.mockReturnValue(auth(freeUser));
+    mockPath = "/";
+    render(<SiteNav />);
+    expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute("href", "/premium");
+    document.cookie = "fw_comp=; Max-Age=0; Path=/";
   });
 
   it("shows the link to an anonymous visitor", () => {
@@ -126,6 +149,6 @@ describe("SiteNav — billing disabled", () => {
     isolatedRender(<IsolatedSiteNav />);
     expect(isolatedScreen.queryByRole("link", { name: "Premium" })).not.toBeInTheDocument();
     // ...and the rest of the bar is untouched.
-    expect(isolatedScreen.getByRole("link", { name: "Football" })).toBeInTheDocument();
+    expect(isolatedScreen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();
   });
 });

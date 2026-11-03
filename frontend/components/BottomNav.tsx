@@ -4,42 +4,14 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { NavIcon } from "@/components/NavIcon";
-import {
-  COMPETITIONS,
-  competitionFromPathname,
-  isCompetitionHomeHref,
-  isPlatformPathname,
-  normalizePathname,
-} from "@/lib/sports";
-import { useTournament } from "@/components/TournamentProvider";
+import { useCompetitionScope } from "@/components/TournamentProvider";
+import { isNavTabActive, navTabsFor, normalizePathname } from "@/lib/sports";
 import { cn } from "@/lib/utils";
 
-const PLATFORM_TABS = [
-  { href: "/", label: "Home", activePrefixes: [] },
-  { href: "/football/epl", label: "Football", activePrefixes: [] },
-  { href: "/nrl", label: "NRL", activePrefixes: [] },
-  { href: "/play", label: "Play", activePrefixes: [] },
-  {
-    href: "/leaderboard",
-    label: "You",
-    activePrefixes: ["/about", "/methodology", "/privacy", "/terms"],
-  },
-];
-
-function matches(pathname: string, prefixes: string[], href: string): boolean {
-  // Competition home links ("/football/wc26", "/nrl") need exact-match
-  // semantics — otherwise they prefix-match every sub-page of that
-  // competition (e.g. "/nrl" would stay lit on "/nrl/matches") and two tabs
-  // end up active at once.
-  if (isCompetitionHomeHref(href)) return pathname === href || prefixes.some((p) => hit(pathname, p));
-  return hit(pathname, href) || prefixes.some((p) => hit(pathname, p));
-}
-
-const hit = (pathname: string, prefix: string) =>
-  pathname === prefix || pathname.startsWith(prefix + "/");
-
-/** Mobile-only sticky bottom tab bar. Exactly five destinations — Home,
- *  Matches, Groups, Play and You — each one tap away, no overflow sheet. */
+/** Mobile-only sticky bottom tab bar: the same five tabs in the same order on
+ *  every route except /embed — Home, Fixtures, Table, Play, My picks — scoped
+ *  to the current competition (lib/sports.ts navTabsFor). Only the
+ *  destinations and the Table slot's word ("Ladder", "Groups") change. */
 export function BottomNav() {
   return (
     <Suspense fallback={<BottomNavContent queryCompetition={null} />}>
@@ -49,38 +21,19 @@ export function BottomNav() {
 }
 
 function BottomNavWithCompetition() {
-  const requested = useSearchParams().get("competition");
-  return (
-    <BottomNavContent
-      queryCompetition={requested && requested in COMPETITIONS ? requested : null}
-    />
-  );
+  return <BottomNavContent queryCompetition={useSearchParams().get("competition")} />;
 }
 
 function BottomNavContent({ queryCompetition }: { queryCompetition: string | null }) {
   // Through normalizePathname — same hydration contract as SiteNav: the root
-  // route revalidates under its "/index" alias and must still render the
-  // platform tabs the client computes for "/".
+  // route revalidates under its "/index" alias and must render what the
+  // client computes for "/".
   const pathname = normalizePathname(usePathname());
-  const { has_brackets } = useTournament();
+  const { competition } = useCompetitionScope(queryCompetition);
   // /embed/[matchId] is a standalone, partner-iframeable widget — it must not
   // carry the full site chrome.
   if (pathname === "/embed" || pathname.startsWith("/embed/")) return null;
-  // Floodlight P5 folded the old mutually-exclusive Bracket/Tips slot into one
-  // always-on Play tab, so this filter no longer removes anything (no navLink
-  // sets requiresBrackets/requiresLeagueFormat now) -- it's kept intact so the
-  // gating still works if any future tab reintroduces those flags.
-  const tabs =
-    isPlatformPathname(pathname)
-      ? PLATFORM_TABS
-      : COMPETITIONS[competitionFromPathname(pathname)].navLinks.filter(
-          (tab) =>
-            (!tab.requiresBrackets || has_brackets) &&
-            (!tab.requiresLeagueFormat || !has_brackets),
-        );
-  const competition = isPlatformPathname(pathname)
-    ? queryCompetition
-    : competitionFromPathname(pathname);
+  const tabs = navTabsFor(competition);
 
   // lg:hidden, not sm:hidden — paired with SiteNav's link row, which is
   // lg:flex for the same reason. The two must swap at the SAME breakpoint or
@@ -94,18 +47,19 @@ function BottomNavContent({ queryCompetition }: { queryCompetition: string | nul
     >
       <div className="mx-auto flex max-w-md items-stretch justify-around">
         {tabs.map((tab) => {
-          const active = matches(pathname, tab.activePrefixes, tab.href);
+          const active = isNavTabActive(tab, pathname);
           return (
             <Link
-              key={tab.href}
-              href={contextualHref(tab.href, competition)}
+              key={tab.id}
+              href={tab.href}
+              data-tab={tab.id}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex min-h-[44px] flex-1 flex-col items-center gap-1 py-2.5 text-label font-medium transition",
                 active ? "text-lime-deep" : "text-muted hover:text-foreground",
               )}
             >
-              <NavIcon name={tab.label} active={active} className="h-[23px] w-[23px]" />
+              <NavIcon id={tab.id} active={active} className="h-[23px] w-[23px]" />
               {tab.label}
             </Link>
           );
@@ -113,9 +67,4 @@ function BottomNavContent({ queryCompetition }: { queryCompetition: string | nul
       </div>
     </nav>
   );
-}
-
-function contextualHref(href: string, competition: string | null): string {
-  if (!competition || (href !== "/play" && href !== "/leaderboard")) return href;
-  return `${href}?competition=${competition}`;
 }

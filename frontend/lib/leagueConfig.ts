@@ -1,4 +1,4 @@
-/** League config for the football "Beat the AI" loop (design doc:
+/** League config for the football "Beat the model" loop (design doc:
  *  2026-07-24-league-score-predictions-design.md) -- the ONE place a league
  *  code/label lives on the frontend. Every component/lib function below this
  *  takes `league` as a prop/argument; nothing else should hardcode a league

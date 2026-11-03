@@ -16,12 +16,16 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: "automatic",
-    // Daylight theme background — matches the web --background token so there's
-    // no dark flash on launch or behind the safe-area insets / overscroll.
-    backgroundColor: "#0d1118",
+    // Floodlight canvas (#0a1410): the web app's default --background, the
+    // manifest and the browser theme-color. The WebView shows this before the
+    // page paints (launch) and behind overscroll and the safe areas, so any
+    // other value is a visible seam. Daylight is opt-in per browser and can't
+    // be known before the page loads, so the shell always paints Floodlight.
+    // (It was #0d1118, a leftover blue-black from the pre-Floodlight palette.)
+    backgroundColor: "#0a1410",
   },
   android: {
-    backgroundColor: "#0d1118",
+    backgroundColor: "#0a1410",
   },
 };
 

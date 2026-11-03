@@ -57,7 +57,10 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: https://pitchprophet-api.onrender.com
         run: npm run build
-      - name: Audit (informational)
-        # Non-blocking: the remaining Next.js advisories are tracked as an
-        # accepted risk in docs/POST-LAUNCH.md until the post-launch 15/16 upgrade.
-        run: npm audit --omit=dev || true
+      - name: Audit (runtime deps, high+)
+        # A real gate: any high or critical advisory in a production dependency
+        # fails the build. Dev-only tooling (eslint, jest, the Capacitor CLI) is
+        # excluded, and moderates are reported without blocking. This used to
+        # end in `|| true`, which let a critical Next.js RCE and the Capacitor
+        # app-origin advisory ship unnoticed.
+        run: npm audit --omit=dev --audit-level=high

@@ -84,7 +84,7 @@ it("shows the updating result and labels the prediction as pre-match while live"
   expect(screen.getByText("LIVE · 42′")).toBeInTheDocument();
   expect(screen.getByText("12–6")).toBeInTheDocument();
   expect(screen.getByText(/Pre-match model pick · Warriors 67%/)).toBeInTheDocument();
-  expect(screen.queryByText(/ML model margin/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Model margin/)).not.toBeInTheDocument();
 });
 
 it("formats a partial live score without adding punctuation for a missing minute", async () => {
