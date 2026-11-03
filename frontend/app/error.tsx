@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { captureClientError } from "@/components/SentryInit";
 
 /**
  * Route-level error boundary. If a render throws (e.g. a bad value reaching a
@@ -15,8 +16,10 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Surface for logging/Sentry; never swallow silently.
+    // Never swallow silently: the console for local debugging, Sentry for
+    // production (a no-op without a DSN; it can't throw).
     console.error(error);
+    captureClientError(error);
   }, [error]);
 
   return (

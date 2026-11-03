@@ -19,19 +19,27 @@ export function scrubClientSecrets(url: string): string {
   );
 }
 
-/** Initializes Sentry browser error tracking — only when NEXT_PUBLIC_SENTRY_DSN
- *  is configured (safe no-op otherwise). Loaded lazily so the SDK stays out of
- *  the main bundle until it's actually used. Captures client runtime errors;
- *  backend errors are tracked separately via the FastAPI Sentry integration. */
-export function SentryInit() {
-  useEffect(() => {
-    const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-    if (!dsn || typeof window === "undefined") return;
-    const w = window as unknown as { __sentryInited?: boolean };
-    if (w.__sentryInited) return;
-    w.__sentryInited = true;
-    import("@sentry/nextjs")
-      .then((Sentry) => {
+type SentryModule = typeof import("@sentry/nextjs");
+
+/** The one in-flight load + init of the browser SDK, shared by <SentryInit/>
+ *  and the error boundaries. */
+let sentryLoad: Promise<SentryModule | null> | null = null;
+
+/** Lazily loads and initializes Sentry browser error tracking -- only when
+ *  NEXT_PUBLIC_SENTRY_DSN is configured. Resolves to null when monitoring is
+ *  off (no DSN baked into the build) or the SDK chunk fails to load, so callers
+ *  treat null as "drop it" and a missing DSN can never throw. The SDK stays out
+ *  of the main bundle until it's actually used. Captures client runtime
+ *  errors; server errors go through instrumentation.ts (onRequestError) and
+ *  the backend through the FastAPI Sentry integration. */
+export function loadSentry(): Promise<SentryModule | null> {
+  const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+  if (!dsn || typeof window === "undefined") return Promise.resolve(null);
+  sentryLoad ??= import("@sentry/nextjs")
+    .then((Sentry) => {
+      const w = window as unknown as { __sentryInited?: boolean };
+      if (!w.__sentryInited) {
+        w.__sentryInited = true;
         Sentry.init({
           dsn,
           environment: process.env.NEXT_PUBLIC_ENV ?? "production",
@@ -45,10 +53,37 @@ export function SentryInit() {
           },
         });
         Sentry.setTag("model_version", process.env.NEXT_PUBLIC_MODEL_VERSION ?? "unknown");
-      })
-      .catch(() => {
-        /* never let monitoring break the app */
-      });
+      }
+      return Sentry;
+    })
+    .catch(() => null); // never let monitoring break the app
+  return sentryLoad;
+}
+
+/** Report an error that reached a React error boundary (app/error.tsx,
+ *  app/global-error.tsx). Fire-and-forget: a no-op without a DSN, and it never
+ *  throws, so the fallback UI always renders. global-error replaces the root
+ *  layout (and with it <SentryInit/>), which is why this initializes on demand.
+ *  A server-rendered error reaches the client as a sanitized message plus a
+ *  `digest`; tagging the digest ties the report to the server-side event that
+ *  onRequestError captured with the full stack. */
+export function captureClientError(error: Error & { digest?: string }): void {
+  void loadSentry().then((Sentry) => {
+    try {
+      Sentry?.captureException(
+        error,
+        error.digest ? { tags: { digest: error.digest } } : undefined,
+      );
+    } catch {
+      /* monitoring must never break the error page */
+    }
+  });
+}
+
+/** Initializes Sentry once per page load (see loadSentry). */
+export function SentryInit() {
+  useEffect(() => {
+    void loadSentry();
   }, []);
   return null;
 }

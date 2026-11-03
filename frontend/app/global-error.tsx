@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { captureClientError } from "@/components/SentryInit";
 
 /**
  * Last-resort boundary for errors thrown in the root layout itself. It replaces
@@ -16,6 +17,9 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error(error);
+    // The root layout crashed, so <SentryInit/> may never have mounted;
+    // captureClientError loads and initializes the SDK on demand (no DSN: no-op).
+    captureClientError(error);
   }, [error]);
 
   return (
