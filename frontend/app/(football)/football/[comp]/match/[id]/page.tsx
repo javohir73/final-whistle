@@ -6,6 +6,8 @@ import {
   renderMatchDetailPage,
 } from "@/app/match/[id]/MatchPageContent";
 
+export const revalidate = 60; // ISR window -- also needs generateStaticParams (even []) or the [comp] route stays dynamic
+
 // One scoped match surface for every wired football competition. Both metadata
 // and page data validate that the match belongs to the URL's competition.
 //

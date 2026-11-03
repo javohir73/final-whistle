@@ -5,6 +5,8 @@ import { getGroupsServer } from "@/lib/api";
 import { getCompetitionTournament } from "@/lib/tournament";
 import { StandingsClient } from "@/components/StandingsClient";
 
+export const revalidate = 60; // ISR window -- also needs generateStaticParams (even []) or the [comp] route stays dynamic
+
 // Canonical standings URL for league-format football competitions. WC26 keeps
 // its group-table implementation at /football/wc26/groups, even though the
 // visible navigation label is the clearer, prototype-aligned “Standings.”
