@@ -14,11 +14,13 @@ from app.chain_status import chain_pending, get_chain_status
 from app.models import (
     Group,
     HistoricalMatch,
+    LeagueScorePrediction,
     Match,
     Prediction,
     PredictionResult,
     Team,
     TeamTournamentState,
+    TipPlayer,
     Tournament,
     TournamentOdds,
 )
@@ -311,6 +313,50 @@ def test_post_results_chain_runs_end_to_end_and_rescores(db_session):
     assert summary["predictions"]["matches_predicted"] > 0
     assert "brackets" in summary  # leaderboard rescoring ran (0 brackets is fine)
     assert db_session.query(PredictionResult).filter_by(is_shadow=False).count() == 1
+
+
+def test_post_results_chain_grades_players_score_predictions_in_the_same_run(db_session):
+    """The whistle-time chain grades players' scoreline picks too. Left to
+    the 06:00 UTC pipeline, a finished match counted for the model's
+    leaderboard row hours before the players who called it got their points
+    (review H1)."""
+    _seed(db_session)
+    m = _first_group_match(db_session)
+    player = TipPlayer(device_id="3fa85f64-5717-4562-b3fc-2c963f66afa6", handle="Caller")
+    db_session.add(player)
+    db_session.flush()
+    pick = LeagueScorePrediction(
+        tournament_id=m.tournament_id, match_id=m.id, player_id=player.id,
+        predicted_home=2, predicted_away=1,
+        updated_at=datetime.now(timezone.utc) - timedelta(days=1),  # before _finish's kickoff
+    )
+    db_session.add(pick)
+    _finish(db_session, m, 2, 1)
+
+    summary = run_post_results_chain(db_session, MV, n_sims=120, tournament_sims=50)
+
+    assert summary["score_predictions"] == {"graded": 1}
+    db_session.refresh(pick)
+    assert (pick.points, pick.exact) == (5, True)
+    assert pick.graded_at is not None
+
+
+def test_post_results_chain_survives_a_score_predictions_grading_failure(db_session, monkeypatch):
+    """Best-effort, as in the daily pipeline: a grading failure is reported,
+    never allowed to fail the model's own chain (which would leave the
+    finished matches pending and re-run all of it)."""
+    _seed(db_session)
+    _finish(db_session, _first_group_match(db_session), 1, 0)
+
+    def boom(db):
+        raise RuntimeError("grading blew up")
+
+    monkeypatch.setattr("pipeline.league_score_predictions.grade", boom)
+
+    summary = run_post_results_chain(db_session, MV, n_sims=120, tournament_sims=50)
+
+    assert summary["score_predictions"] == {"graded": 0, "error": True}
+    assert summary["learning"]["evaluated_new"] == 1
 
 
 def test_post_results_chain_scopes_mixed_world_cup_and_ucl_groups(db_session):

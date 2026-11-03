@@ -560,15 +560,27 @@ def run_post_results_chain(
 ) -> dict:
     """Everything that should follow new results, in order: evaluate + update
     ratings → regenerate future predictions/simulations (which read the
-    effective ratings) → rescore the bracket leaderboard.
+    effective ratings) → rescore the bracket leaderboard → grade players'
+    scoreline picks.
 
     Callers clear the response cache afterwards (it's process-local, so it
     only means something inside the web process). Sim counts default lower
     than the daily pipeline's — this path runs opportunistically right after a
     final whistle, where freshness beats the last decimal of Monte-Carlo
     precision; the 06:00 UTC pipeline re-runs at full depth.
+
+    Grading the picks here, not only in the 06:00 UTC pipeline, gives players
+    their points in the same run that finishes the match; the model's
+    leaderboard row holds a match back until exactly then
+    (app.api.league_score_predictions._awaiting_grading), so without this
+    step both sides would sit on a finished match until the next morning.
+    Best-effort, exactly as the daily pipeline treats it: every step above
+    has already committed, so a failure rolls back only the grading pass's
+    own partial writes, is reported in the summary, and never fails the
+    chain -- the next chain run or the daily pipeline grades the picks.
     """
     from app.scoring import recompute_scores, knockout_results_from_db
+    from pipeline import league_score_predictions
     from pipeline.backfill_90min import backfill_90min_scores
 
     # Heal 90-minute scores BEFORE evaluating: result rows are append-only, so
@@ -583,6 +595,12 @@ def run_post_results_chain(
         tournament_sims=tournament_sims,
     )
     summary["brackets"] = recompute_scores(db, knockout_results=knockout_results_from_db(db))
+    try:
+        summary["score_predictions"] = {"graded": league_score_predictions.grade(db)}
+    except Exception:  # noqa: BLE001 - best-effort, log loudly and continue
+        db.rollback()
+        log.exception("score_predictions grading FAILED in the post-results chain (best-effort, continuing)")
+        summary["score_predictions"] = {"graded": 0, "error": True}
     return summary
 
 
