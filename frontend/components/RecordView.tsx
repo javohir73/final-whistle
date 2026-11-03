@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { CalibrationChart } from "@/components/CalibrationChart";
+// Lazy: recharts loads after hydration, not on /record's first load.
+import { CalibrationChartLazy } from "@/components/CalibrationChartLazy";
 import { cn } from "@/lib/utils";
 import type { ModelRecord, ModelRecordEntry } from "@/lib/types";
 
@@ -64,7 +65,7 @@ export function RecordView({ record }: { record: ModelRecord }) {
           An honest forecast hugs the dashed line. Noisy while the sample is small.
         </p>
         <div className="mt-5">
-          <CalibrationChart bins={record.calibration} />
+          <CalibrationChartLazy bins={record.calibration} />
         </div>
         <p className="mt-3 text-xs text-muted">Based on {n} scored matches (all win/draw/loss calls).</p>
       </section>

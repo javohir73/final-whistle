@@ -2,10 +2,11 @@ import { render, screen } from "@testing-library/react";
 import { RecordView } from "@/components/RecordView";
 import type { ModelRecord } from "@/lib/types";
 
-// recharts + ResponsiveContainer needs layout jsdom lacks; the chart has its own
-// test, so stub it here and assert the section renders.
-jest.mock("@/components/CalibrationChart", () => ({
-  CalibrationChart: () => <div data-testid="calibration-chart" />,
+// recharts + ResponsiveContainer needs layout jsdom lacks, and RecordView loads
+// it lazily (CalibrationChartLazy); both have their own tests, so stub the
+// lazy wrapper here and assert the section renders.
+jest.mock("@/components/CalibrationChartLazy", () => ({
+  CalibrationChartLazy: () => <div data-testid="calibration-chart" />,
 }));
 
 const base: ModelRecord = {

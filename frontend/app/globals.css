@@ -688,29 +688,6 @@ body {
   50%      { box-shadow: 0 0 0 3px hsl(var(--status-live) / 0.15); }
 }
 
-/* ===== AI "thinking" orb — Siri/Jarvis style ===== */
-@keyframes spinCW { to { transform: rotate(360deg); } }
-@keyframes spinCCW { to { transform: rotate(-360deg); } }
-.ai-spin-cw { animation: spinCW 18s linear infinite; }
-.ai-spin-cw-fast { animation: spinCW 7s linear infinite; }
-.ai-spin-ccw { animation: spinCCW 11s linear infinite; }
-/* Radar sweep that orbits the ring */
-.ai-sweep { animation: spinCW 2.6s linear infinite; }
-
-/* Breathing halo */
-@keyframes aiPulse {
-  0%, 100% { transform: scale(1); opacity: 0.45; }
-  50% { transform: scale(1.14); opacity: 0.85; }
-}
-.ai-pulse { animation: aiPulse 2.4s ease-in-out infinite; }
-
-/* Siri-style equalizer bar */
-@keyframes aiEq {
-  0%, 100% { transform: scaleY(0.28); }
-  50% { transform: scaleY(1); }
-}
-.ai-eq { transform-origin: center; animation: aiEq 0.9s ease-in-out infinite; }
-
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
@@ -743,9 +720,9 @@ body {
      named classes below. Catches Tailwind's `animate-pulse` (which ignores
      prefers-reduced-motion), the `transition-[width]` prob/qualification bars,
      the MatchTabs/BottomNav `transition`, and the skip-link/hero transitions —
-     none of which are in the explicit list. 0.01ms (not `none`) so components
-     that self-shorten via matchMedia, e.g. AICalculationReveal, still run once
-     and settle instead of being hard-killed mid-state. */
+     none of which are in the explicit list. 0.01ms (not `none`) so a component
+     that self-shortens via matchMedia still runs once and settles instead of
+     being hard-killed mid-state. */
   *,
   *::before,
   *::after {
@@ -759,12 +736,6 @@ body {
   .float,
   .float-slow,
   .spin-slow,
-  .ai-spin-cw,
-  .ai-spin-cw-fast,
-  .ai-spin-ccw,
-  .ai-sweep,
-  .ai-pulse,
-  .ai-eq,
   .status-live-ring {
     animation: none;
   }
