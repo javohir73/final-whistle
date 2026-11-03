@@ -6,7 +6,12 @@ import {
   renderTeamPage,
 } from "@/app/team/[id]/TeamPageContent";
 
-export const revalidate = 60; // ISR window -- also needs generateStaticParams (even []) or the [comp] route stays dynamic
+export const revalidate = 60; // ISR window: rendered on demand, then served from the CDN for 60 s
+// No paths are prebuilt (the competition/id space is data-driven); an empty
+// list is what switches this dynamic segment from per-request rendering to ISR.
+export async function generateStaticParams() {
+  return [];
+}
 
 // One scoped team surface for every wired football competition. Both metadata
 // and page data validate that the team belongs to the URL's competition.

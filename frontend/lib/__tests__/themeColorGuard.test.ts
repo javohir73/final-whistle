@@ -8,7 +8,6 @@ const FIXED_PALETTE_PATHS: Record<string, string> = {
   "app/embed/[matchId]/page.tsx": "partner embed has an explicit fixed palette",
   "app/layout.tsx": "browser chrome and pre-paint boot values must be literal",
   "app/manifest.ts": "PWA manifest colour is static by specification",
-  "components/AICalculationReveal.tsx": "CSS mask colour is alpha-only, not visible ink",
   "components/AccountMenu.tsx": "initials sit on invariant dark bg-pitch",
   "components/ClubBadge.tsx": "club and competition brand colours",
   "components/EmbedPredictionCard.tsx": "share card has an explicit fixed palette",

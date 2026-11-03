@@ -17,6 +17,7 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { CompetitionProvider, TournamentProvider } from "@/components/TournamentProvider";
 import { getTournament } from "@/lib/tournament";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsightsMount } from "@/components/SpeedInsightsMount";
 
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
@@ -74,7 +75,13 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const tournament = await getTournament();
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    <html
+      lang="en"
+      className={`${display.variable} ${body.variable}`}
+      // The theme boot script below adds .theme-daylight before React hydrates,
+      // which would otherwise log a className mismatch on every Daylight load.
+      suppressHydrationWarning
+    >
       <head>
         {/* Theme boot. MUST stay inline, synchronous, and first in <head>: it
             runs before the first paint, so a reader who chose Daylight never
@@ -164,6 +171,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </CompetitionProvider>
         </TournamentProvider>
         <Analytics />
+        <SpeedInsightsMount />
       </body>
     </html>
   );

@@ -58,7 +58,7 @@ The alternatives evaluated (and rejected for v1):
   risk rejection. Mitigation before submission: add native value — push
   notifications (match reminders, score alerts) are the natural first one and
   are already on the POST-LAUNCH list.
-- **Offline:** the shell inherits the PWA's fw-v2 service worker + offline.html,
+- **Offline:** the shell inherits the PWA's versioned service worker (`/sw.js?v=…`, see the header of `frontend/public/sw.js`) + offline.html,
   so offline behavior matches the installed PWA.
 - A backend/edge outage takes the native app down with it (same as the PWA).
 

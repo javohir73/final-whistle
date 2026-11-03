@@ -13,7 +13,12 @@ import { TeamHeader } from "@/components/TeamHeader";
 import { VenueSplits } from "@/components/nrl/VenueSplits";
 import type { NrlTeamFixture, NrlTeamResult } from "@/lib/types";
 
-export const revalidate = 60; // ISR window -- also needs generateStaticParams (even []) or the [id] route stays dynamic
+export const revalidate = 60; // ISR window: rendered on demand, then served from the CDN for 60 s
+// No paths are prebuilt (the competition/id space is data-driven); an empty
+// list is what switches this dynamic segment from per-request rendering to ISR.
+export async function generateStaticParams() {
+  return [];
+}
 
 /** NRL club profile: ladder slot + record, season snapshot, recent form, how
  *  the AI has fared on this club, upcoming fixtures with the club's win

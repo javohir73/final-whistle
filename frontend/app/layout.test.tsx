@@ -17,6 +17,7 @@ jest.mock("@/lib/tournament", () => ({
   })),
 }));
 jest.mock("@vercel/analytics/next", () => ({ Analytics: () => null }));
+jest.mock("@vercel/speed-insights/next", () => ({ SpeedInsights: () => null }));
 
 type El = ReactElement<{ children?: ReactNode; className?: string; initial?: unknown }>;
 
