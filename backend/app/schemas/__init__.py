@@ -213,6 +213,10 @@ class MatchSummaryOut(BaseModel):
     # left. Present only while the match is live; None otherwise (use the
     # pre-match `probabilities`).
     live_probabilities: ProbabilitiesOut | None = None
+    # Public competition code of the match's tournament ("wc26", "epl", ...),
+    # so a bare /match/:id link can be routed to /football/{competition}/...
+    # None when the tournament has no public code.
+    competition: str | None = None
 
 
 class StandingRowOut(BaseModel):
@@ -295,6 +299,11 @@ class TeamProfileOut(BaseModel):
     recent_form: list[FormResultOut]
     strengths: list[str]
     weaknesses: list[str]
+    # Public competition code this profile belongs to: the requested
+    # ?competition=, else the team's current one (see
+    # competition_scope.competition_for_team), so a bare /team/:id link can be
+    # routed to /football/{competition}/team/:id. None when it has none.
+    competition: str | None = None
 
 
 class ErrorBody(BaseModel):
