@@ -9,11 +9,67 @@ import { MatchCard } from "@/components/MatchCard";
 import { StandingsTable } from "@/components/StandingsTable";
 import { TeamSearch } from "@/components/TeamSearch";
 import { getGroups, getTeams, getUpcomingMatches } from "@/lib/api";
-import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { COMPETITIONS, footballMatchHref, type CompetitionId } from "@/lib/sports";
 import type { Group, MatchSummary, Team } from "@/lib/types";
 import { useFetch } from "@/lib/useFetch";
 import { useTimezone } from "@/lib/useTimezone";
 import { isLiveNow } from "@/lib/liveLabel";
+
+const DAY_MS = 86_400_000;
+/** "Also on" is the matchweek around the next kickoff: fixtures within this
+ *  many days either side of it. */
+const WINDOW_DAYS = 3;
+const ALSO_ON_COUNT = 4;
+
+function kickoffMs(match: MatchSummary): number {
+  return match.kickoff_utc ? Date.parse(match.kickoff_utc) : NaN;
+}
+
+/** Live now, or scheduled with its kickoff still ahead. A "scheduled" row
+ *  whose kickoff has passed is status lag or a ghost fixture -- never next. */
+function isUpcoming(match: MatchSummary, now: number): boolean {
+  if (isLiveNow(match)) return true;
+  const kickoff = kickoffMs(match);
+  return match.status === "scheduled" && !Number.isNaN(kickoff) && kickoff > now;
+}
+
+/** The hero: a live match, else the next kickoff -- never a played match
+ *  (the hero's CTA is "Make your pick"). */
+export function featuredMatch(matches: MatchSummary[], now: number = Date.now()): MatchSummary | null {
+  const live = matches.find((match) => isLiveNow(match));
+  if (live) return live;
+  return (
+    matches
+      .filter((match) => isUpcoming(match, now))
+      .sort((a, b) => kickoffMs(a) - kickoffMs(b))[0] ?? null
+  );
+}
+
+/** "Also on": the window of fixtures around the next kickoff (still to play
+ *  first, in kickoff order, then the latest results), or, with nothing in
+ *  that window, the last few played. The season list from /matches/upcoming
+ *  starts in August, so taking its head showed matchweek 1 all season. */
+export function alsoOnMatches(
+  matches: MatchSummary[],
+  feature: MatchSummary | null,
+  now: number = Date.now(),
+): { label: "Also on" | "Latest results"; matches: MatchSummary[] } {
+  const played = matches
+    .filter((match) => match.status === "finished" && !Number.isNaN(kickoffMs(match)))
+    .sort((a, b) => kickoffMs(b) - kickoffMs(a));
+  const anchor = feature ? kickoffMs(feature) : NaN;
+  if (feature && !Number.isNaN(anchor)) {
+    const inWindow = (match: MatchSummary) =>
+      match.match_id !== feature.match_id && Math.abs(kickoffMs(match) - anchor) <= WINDOW_DAYS * DAY_MS;
+    const ahead = matches
+      .filter((match) => isUpcoming(match, now) && inWindow(match))
+      .sort((a, b) => kickoffMs(a) - kickoffMs(b));
+    const recent = played.filter(inWindow);
+    const window = [...ahead, ...recent].slice(0, ALSO_ON_COUNT);
+    if (window.length > 0) return { label: "Also on", matches: window };
+  }
+  return { label: "Latest results", matches: played.slice(0, ALSO_ON_COUNT) };
+}
 
 interface CompetitionHomeProps {
   competition: CompetitionId;
@@ -68,20 +124,8 @@ export function CompetitionHome({
     () => (matchesState.status === "success" ? matchesState.data : initialMatches ?? []),
     [initialMatches, matchesState],
   );
-  const feature = useMemo(() => {
-    const now = Date.now();
-    const scheduled = matches
-      .filter((match) => {
-        if (match.status !== "scheduled" || !match.kickoff_utc) return false;
-        const kickoff = Date.parse(match.kickoff_utc);
-        return !Number.isNaN(kickoff) && kickoff > now;
-      })
-      .sort((a, b) => (a.kickoff_utc ?? "").localeCompare(b.kickoff_utc ?? ""));
-    return matches.find((match) => isLiveNow(match)) ?? scheduled[0] ?? matches[0] ?? null;
-  }, [matches]);
-  const alsoOn = matches
-    .filter((match) => match.match_id !== feature?.match_id)
-    .slice(0, 4);
+  const feature = useMemo(() => featuredMatch(matches), [matches]);
+  const alsoOn = useMemo(() => alsoOnMatches(matches, feature), [matches, feature]);
   const table = groups[0]?.standings ?? [];
   const basePath = config.basePath;
 
@@ -107,7 +151,7 @@ export function CompetitionHome({
             href="/play"
             className="mt-5 inline-flex min-h-[44px] items-center rounded-xl bg-win px-4 font-display text-sm font-bold text-pitch"
           >
-            Browse the Play slate
+            Beat the model in another league
           </Link>
         </section>
       </div>
@@ -139,19 +183,19 @@ export function CompetitionHome({
           comp={competition}
           tz={tz}
           badge="club"
-          href={feature ? `${basePath}/match/${feature.match_id}` : null}
+          href={feature ? `${footballMatchHref(competition, feature.match_id)}#pick` : null}
           eyebrow="Next up"
         />
       </div>
 
-      {alsoOn.length > 0 && (
+      {alsoOn.matches.length > 0 && (
         <section className="mt-7" aria-labelledby={`${competition}-also-on`}>
           <div className="mb-3 flex items-center justify-between">
             <h2
               id={`${competition}-also-on`}
               className="font-display text-label font-semibold uppercase tracking-wider text-muted"
             >
-              Also on
+              {alsoOn.label}
             </h2>
             <Link
               href={`${basePath}/fixtures`}
@@ -161,14 +205,14 @@ export function CompetitionHome({
             </Link>
           </div>
           <div className="flex flex-col gap-2.5">
-            {alsoOn.map((match) => (
+            {alsoOn.matches.map((match) => (
               <MatchCard
                 key={match.match_id}
                 match={match}
                 tz={tz}
                 variant="compact"
                 badge="club"
-                href={`${basePath}/match/${match.match_id}`}
+                href={footballMatchHref(competition, match.match_id)}
               />
             ))}
           </div>

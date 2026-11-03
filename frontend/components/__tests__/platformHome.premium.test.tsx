@@ -14,6 +14,8 @@ jest.mock("@/lib/constants", () => ({
 
 const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
+// The Next-up strip fetches client-side; covered by its own test.
+jest.mock("@/components/play/NextUpStrip", () => ({ NextUpStrip: () => null }));
 
 import { PlatformHome } from "@/components/PlatformHome";
 

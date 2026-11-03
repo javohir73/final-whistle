@@ -1,9 +1,13 @@
-import { render } from "@testing-library/react";
-import { PlatformHome } from "@/components/PlatformHome";
+import { render, screen, within } from "@testing-library/react";
+import { PlatformHome, nrlStatusLine } from "@/components/PlatformHome";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
 jest.mock("@/components/AuthProvider", () => ({
   useAuth: () => ({ user: null, loading: false }),
+}));
+// The Next-up strip fetches client-side; covered by its own test.
+jest.mock("@/components/play/NextUpStrip", () => ({
+  NextUpStrip: () => <section data-testid="next-up" />,
 }));
 
 const competitionIds: CompetitionId[] = Object.values(COMPETITIONS).map(
@@ -55,24 +59,18 @@ function isHoverTransformUtility(className: string): boolean {
 }
 
 describe("PlatformHome competition cards", () => {
-  it("gives every competition the shared branded treatment", () => {
+  it("gives every competition the shared branded treatment as a compact row", () => {
     const { container } = render(<PlatformHome />);
 
     for (const id of competitionIds) {
       const card = container.querySelector(`[data-competition-card="${id}"]`);
-      expect(card).toHaveClass("competition-card");
-      expect(card).toHaveClass("rounded-2xl");
+      expect(card).toHaveClass("competition-card", "competition-card--wide", "rounded-2xl", "min-h-[72px]");
+      expect(card).not.toHaveClass("h-[300px]");
+      expect(card?.querySelector("[data-competition-logo]")).toBeInTheDocument();
       expect(card?.querySelector(".competition-card__copy")).toBeInTheDocument();
       expect(card?.querySelector(".competition-card__arrow")).toBeInTheDocument();
     }
-
     expect(container.querySelectorAll("[data-competition-card]")).toHaveLength(6);
-    expect(container.querySelector('[data-competition-card="nrl"]')).toHaveClass(
-      "competition-card--wide",
-    );
-    expect(
-      container.querySelector('[data-competition-card="nrl"] .competition-card__wide-copy'),
-    ).toBeInTheDocument();
   });
 
   it("keeps Tailwind text colours off every authoritative competition card surface", () => {
@@ -92,68 +90,46 @@ describe("PlatformHome competition cards", () => {
     }
   });
 
-  it("gives the football row the approved larger Graphic split proportions", () => {
+  it("lists live competitions first and the World Cup under Past tournaments", () => {
     const { container } = render(<PlatformHome />);
-    const footballCards = Array.from(
-      container.querySelectorAll('[data-competition-card]:not([data-competition-card="nrl"])'),
-    );
-
-    expect(footballCards).toHaveLength(5);
-    expect(footballCards[0]?.parentElement).toHaveClass(
-      "competition-card-grid",
-      "items-start",
-      "sm:grid-cols-2",
-      "md:grid-cols-3",
-      "xl:grid-cols-5",
-    );
-    expect(footballCards[0]?.parentElement).not.toHaveClass("lg:grid-cols-5");
-
-    for (const card of footballCards) {
-      expect(card).toHaveClass(
-        "competition-card--compact",
-        "h-[300px]",
-        "p-5",
+    const group = (name: string) =>
+      Array.from(container.querySelectorAll(`[data-competition-group="${name}"] [data-competition-card]`)).map(
+        (card) => card.getAttribute("data-competition-card"),
       );
-      expect(card.querySelector("h3")).toHaveClass(
-        "text-[22px]",
-        "leading-[1.08]",
-      );
-      expect(card.querySelector(".competition-card__description")).toHaveClass(
-        "text-[11px]",
-        "leading-[1.4]",
-      );
-    }
 
-    for (const card of footballCards.filter(
-      (item) => item.getAttribute("data-competition-card") !== "wc26",
-    )) {
-      expect(card.querySelector("[data-competition-logo]")).toHaveStyle({
-        width: "60px",
-        height: "60px",
-      });
-    }
-
-    const worldCupCard = container.querySelector('[data-competition-card="wc26"]');
-    expect(worldCupCard?.querySelector("[data-competition-logo]")).toHaveStyle({
-      width: "84px",
-      height: "72px",
-    });
-    expect(worldCupCard?.querySelector("[data-competition-logo] img")).toHaveClass(
-      "object-cover",
-      "competition-card__wc26-mark",
-    );
+    expect(group("football")).toEqual(["epl", "laliga", "bundesliga", "ucl"]);
+    expect(group("rugby-league")).toEqual(["nrl"]);
+    expect(group("past")).toEqual(["wc26"]);
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Football", "Rugby league", "Past tournaments"]);
   });
 
-  it("keeps the wide NRL action readable instead of forcing it into the circular arrow", () => {
-    const { container } = render(<PlatformHome />);
-    const nrlAction = container.querySelector(
-      '[data-competition-card="nrl"] .competition-card__arrow',
-    );
+  it("gives each row a status line: picks open, league phase, NRL off-season, past tournament", () => {
+    render(<PlatformHome now={new Date("2026-11-03T09:00:00Z")} />);
 
-    expect(nrlAction).toHaveClass(
-      "competition-card__arrow--wide",
-      "whitespace-nowrap",
+    expect(screen.getByRole("link", { name: /Premier League/ })).toHaveTextContent("Score picks open");
+    expect(screen.getByRole("link", { name: /UEFA Champions League/ })).toHaveTextContent("League phase");
+    expect(screen.getByRole("link", { name: /National Rugby League/ })).toHaveTextContent(
+      "Season complete · back March 2027",
     );
-    expect(nrlAction).toHaveTextContent("Open NRL");
+    expect(screen.getByRole("link", { name: /World Cup 2026/ })).toHaveAttribute("href", "/football/wc26");
+  });
+
+  it("derives the NRL line from the calendar, so it can't go stale", () => {
+    expect(nrlStatusLine(new Date("2026-11-03T09:00:00Z"))).toBe("Season complete · back March 2027");
+    expect(nrlStatusLine(new Date("2027-02-10T09:00:00Z"))).toBe("Season complete · back March 2027");
+    expect(nrlStatusLine(new Date("2027-05-10T09:00:00Z"))).toBe("Round-by-round predictions, ladder and tips");
+  });
+
+  it("puts the Next-up strip under the hero and keeps 'Make your picks' pointed at /play", () => {
+    render(<PlatformHome />);
+
+    expect(screen.getByTestId("next-up")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Make your picks" })).toHaveAttribute("href", "/play");
+    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    expect(within(hero).queryByTestId("next-up")).toBeNull();
+    expect(
+      hero.compareDocumentPosition(screen.getByTestId("next-up")) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

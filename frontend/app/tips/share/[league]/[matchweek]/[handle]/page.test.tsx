@@ -36,7 +36,11 @@ it("renders the graded result, the CTA and the disclaimer", async () => {
     screen.getByText(/SwiftStriker123 went 7\/8 — the AI went\s*6\/8/),
   ).toBeInTheDocument();
   expect(screen.getByText("SwiftStriker123 beat the AI this matchweek")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Play against the AI/i })).toHaveAttribute("href", "/tips");
+  // Straight back into that league's open matchweek, not the old /tips page.
+  expect(screen.getByRole("link", { name: "Beat the model at the Premier League →" })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
   expect(screen.getByText(share.disclaimer)).toBeInTheDocument();
 });
 

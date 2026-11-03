@@ -1,7 +1,6 @@
 import { ImageResponse } from "next/og";
 import { Shell, OG_SIZE, OG_CONTENT_TYPE, ogFooter, C } from "@/lib/og";
 import { getLeagueTipsShareServer } from "@/lib/api";
-import { getTournament } from "@/lib/tournament";
 import { leagueLabel } from "@/lib/leagueConfig";
 
 export const size = OG_SIZE;
@@ -19,15 +18,12 @@ export default async function Image({
 }) {
   const { league, matchweek: matchweekParam, handle } = await params;
   const matchweek = parseIntParam(matchweekParam);
-  const [share, tournament] = await Promise.all([
-    matchweek != null ? getLeagueTipsShareServer(league, matchweek, handle).catch(() => null) : Promise.resolve(null),
-    // Unlike the NRL share image (which hardcodes an "NRL" footer because NRL
-    // sits alongside the site's real "active tournament" concept), football
-    // IS that concept -- so the footer names whatever league is actually
-    // live rather than a literal string.
-    getTournament(),
-  ]);
-  const footer = ogFooter(tournament.name);
+  const share =
+    matchweek != null ? await getLeagueTipsShareServer(league, matchweek, handle).catch(() => null) : null;
+  // The footer names the league this card is about -- never the pipeline's
+  // "active tournament", which captioned Premier League results "UEFA
+  // Champions League" once the UCL was activated.
+  const footer = ogFooter(leagueLabel(league));
 
   if (!share) {
     return new ImageResponse(

@@ -12,7 +12,7 @@
  *  groups' leaf components are stubbed the same way components/{leagueTips,nrl}/
  *  *.test.tsx do -- this test is about the composition, not each picker's own
  *  fetch machinery. */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import PlayPage from "./page";
 import {
   getKnockoutOddsServer,
@@ -89,21 +89,89 @@ beforeEach(() => {
 });
 afterEach(() => jest.resetAllMocks());
 
-it("renders the prototype slate grouped by competition", async () => {
+const sectionOrder = () =>
+  Array.from(document.querySelectorAll("[data-play-section]")).map((el) =>
+    el.getAttribute("data-play-section"),
+  );
+const sectionToggle = (name: RegExp) => screen.getByRole("button", { name });
+
+it("is the 'Beat the model' hub: live leagues, then the NRL, the World Cup under past tournaments", async () => {
   render(await PlayPage({}));
 
-  expect(screen.getByRole("heading", { level: 1, name: "The slate" })).toBeInTheDocument();
-  for (const name of [
-    "Premier League",
-    "La Liga",
-    "Bundesliga",
-    "UEFA Champions League",
-    "World Cup 2026",
-    "NRL",
-  ]) {
-    expect(screen.getByRole("heading", { name })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Beat the model" })).toBeInTheDocument();
+  expect(screen.queryByText(/slate/i)).not.toBeInTheDocument();
+  expect(sectionOrder()).toEqual(["epl", "laliga", "bundesliga", "nrl", "wc26"]);
+  expect(screen.getByRole("heading", { name: "Past tournaments" })).toBeInTheDocument();
+  for (const name of [/^Premier League/, /^La Liga/, /^Bundesliga/, /^NRL/, /^World Cup 2026/]) {
+    expect(sectionToggle(name)).toBeInTheDocument();
   }
-  expect(document.querySelectorAll("[data-competition-logo]")).toHaveLength(10);
+  // The World Cup arrives collapsed; the requested league arrives open.
+  expect(sectionToggle(/^World Cup 2026/)).toHaveAttribute("aria-expanded", "false");
+  expect(sectionToggle(/^Premier League/)).toHaveAttribute("aria-expanded", "true");
+});
+
+it("hides the Champions League row until its tips are live", async () => {
+  render(await PlayPage({}));
+  expect(screen.queryByRole("button", { name: /UEFA Champions League/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/tips open when/i)).not.toBeInTheDocument();
+});
+
+it("says so, and points at the fixtures, when the requested competition can't be played yet", async () => {
+  render(await playPage("ucl"));
+
+  expect(screen.getByRole("status")).toHaveTextContent("UEFA Champions League picks aren't open yet.");
+  expect(screen.getByRole("link", { name: /See its fixtures/ })).toHaveAttribute(
+    "href",
+    "/football/ucl/fixtures",
+  );
+  expect(sectionOrder()).toEqual(["epl", "laliga", "bundesliga", "nrl", "wc26"]);
+});
+
+it("lists the requested competition first", async () => {
+  render(await playPage("bundesliga"));
+  expect(sectionOrder()).toEqual(["bundesliga", "epl", "laliga", "nrl", "wc26"]);
+
+  render(await playPage("nrl"));
+  expect(sectionOrder().slice(5)).toEqual(["nrl", "epl", "laliga", "bundesliga", "wc26"]);
+});
+
+it("opens more than one section at a time, and closes one on a second tap", async () => {
+  render(await PlayPage({}));
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+
+  fireEvent.click(sectionToggle(/^La Liga/));
+  expect(screen.getByTestId("picker-laliga")).toBeInTheDocument();
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+  expect(sectionToggle(/^La Liga/)).toHaveAttribute("aria-expanded", "true");
+
+  fireEvent.click(sectionToggle(/^Premier League/));
+  expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
+  expect(screen.getByTestId("picker-laliga")).toBeInTheDocument();
+});
+
+it("opens the NRL alongside a league without a round trip to the server", async () => {
+  render(await PlayPage({}));
+  fireEvent.click(sectionToggle(/^NRL/));
+  expect(screen.getByTestId("nrl-play-round")).toHaveTextContent("2026-2");
+  expect(screen.getByTestId("picker-epl")).toBeInTheDocument();
+});
+
+it("shows one off-season card for a finished NRL season", async () => {
+  mockTipsheet.mockResolvedValue({
+    ...tipsheet,
+    round: 31,
+    matches: [{
+      id: 2152, match_no: 213, kickoff_utc: "2026-10-04T08:30:00+00:00", venue: "Accor Stadium",
+      home: "Roosters", away: "Knights", home_team_id: 1, away_team_id: 2,
+      score_home: 19, score_away: 18, status: "finished", prediction: null,
+    }],
+  });
+  render(await playPage("nrl"));
+
+  expect(sectionToggle(/^NRL/)).toHaveTextContent("Season complete · back March 2027");
+  expect(screen.getByText("2026 season complete")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /The model's 2026 record/ })).toHaveAttribute("href", "/nrl/record");
+  expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
 });
 
 it("mounts only the selected competition's interactive section", async () => {
@@ -152,8 +220,8 @@ it("degrades to the empty state (no round line, no crash) when the tipsheet is n
   mockTipsheet.mockResolvedValue(null);
   render(await playPage("nrl"));
 
-  expect(screen.getByRole("heading", { name: "Premier League" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "NRL" })).toBeInTheDocument();
+  expect(sectionToggle(/^Premier League/)).toBeInTheDocument();
+  expect(sectionToggle(/^NRL/)).toBeInTheDocument();
   expect(screen.queryByText(/^Round \d/)).not.toBeInTheDocument();
   // No fabricated season/round: the loop is replaced by the honest empty state.
   expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
@@ -164,8 +232,8 @@ it("degrades to the empty state (no crash) when the NRL tipsheet fetch rejects",
   mockTipsheet.mockRejectedValue(new Error("upstream down"));
   render(await playPage("nrl"));
 
-  expect(screen.getByRole("heading", { name: "Premier League" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "NRL" })).toBeInTheDocument();
+  expect(sectionToggle(/^Premier League/)).toBeInTheDocument();
+  expect(sectionToggle(/^NRL/)).toBeInTheDocument();
   expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
   expect(screen.getByText("NRL tips aren't available right now.")).toBeInTheDocument();
 });
@@ -203,6 +271,9 @@ it("mounts the requested league picker and keeps the other leagues closed", asyn
   expect(screen.queryByTestId("picker-epl")).not.toBeInTheDocument();
   expect(screen.queryByTestId("picker-bundesliga")).not.toBeInTheDocument();
   expect(screen.queryByTestId("picker-ucl")).not.toBeInTheDocument();
-  expect(mockTipsheet).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
+  // The (ISR-cached) round is fetched so the NRL section can open in place;
+  // the World Cup's odds are only fetched when the World Cup is requested.
+  expect(mockTipsheet).toHaveBeenCalledWith();
   expect(mockKnockoutOdds).not.toHaveBeenCalled();
 });

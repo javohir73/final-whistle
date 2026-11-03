@@ -1,13 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getNrlLadderServer, getNrlMatchesServer, getOriginSeriesServer } from "@/lib/api";
+import {
+  getNrlLadderServer,
+  getNrlMatchesServer,
+  getNrlRecordServer,
+  getOriginSeriesServer,
+} from "@/lib/api";
 import { StandingsTable } from "@/components/StandingsTable";
 import { IntelPanel } from "@/components/IntelPanel";
 import { FeatureHero } from "@/components/FeatureHero";
 import { TimelineSpine } from "@/components/TimelineSpine";
 import { ladderRowsToStandings, nrlExpectedMargin, nrlMatchHref, nrlMatchToSummary } from "@/lib/nrlAdapters";
+import { isNrlLiveNow } from "@/lib/nrlLive";
 import { COMPETITIONS } from "@/lib/sports";
+import type { LadderResponse, NrlMatch, NrlMatchesResponse, NrlRecord, NrlRound, OriginSeriesResponse } from "@/lib/types";
 
 export const revalidate = 300;
 
@@ -16,8 +23,38 @@ export const metadata: Metadata = {
   description: "Match predictions from the FinalWhistle ML model, ladder and model record for the NRL season.",
 };
 
-/** NRL home: current-round fixtures + mini ladder + movers. The "current"
- *  round is the first round containing a scheduled match (else the last). */
+/** A season with nothing left to play is only "complete" once its last game
+ *  is a decided single-match round (the Grand Final) or play stopped weeks
+ *  ago -- the few days between round 27 and the finals draw must not read as
+ *  the end of the season. */
+const SEASON_OVER_AFTER_DAYS = 21;
+
+/** Still worth leading with: in play right now, or scheduled for later. A
+ *  "scheduled" row whose kickoff has passed is status lag or a ghost, never a
+ *  feature. */
+function isLiveOrUpcoming(m: NrlMatch, now: Date): boolean {
+  if (isNrlLiveNow(m, now)) return true;
+  return m.status === "scheduled" && (m.kickoff_utc == null || Date.parse(m.kickoff_utc) > now.getTime());
+}
+
+/** The premiers, when the season's last round is a single decided match. */
+function premierOf(rounds: NrlRound[]): string | null {
+  const last = rounds[rounds.length - 1];
+  const final = last?.matches.length === 1 ? last.matches[0] : null;
+  if (!final || final.status !== "finished" || final.score_home == null || final.score_away == null) return null;
+  if (final.score_home === final.score_away) return null;
+  return final.score_home > final.score_away ? final.home : final.away;
+}
+
+function lastKickoff(rounds: NrlRound[]): number | null {
+  const times = rounds.flatMap((r) => r.matches.map((m) => (m.kickoff_utc ? Date.parse(m.kickoff_utc) : NaN)));
+  const valid = times.filter((t) => !Number.isNaN(t));
+  return valid.length ? Math.max(...valid) : null;
+}
+
+/** NRL home: current-round fixtures + mini ladder + movers in season; once
+ *  nothing is left to play, an off-season state (premiers, the model's season
+ *  record, when it's back, and a way into a live competition meanwhile). */
 export default async function NrlHomePage() {
   const [fixtures, ladder, origin] = await Promise.all([
     getNrlMatchesServer().catch(() => null),
@@ -26,22 +63,37 @@ export default async function NrlHomePage() {
   ]);
   if (!fixtures) notFound();
 
-  const current =
-    fixtures.rounds.find((r) => r.matches.some((m) => m.status === "scheduled")) ??
-    fixtures.rounds[fixtures.rounds.length - 1];
+  const now = new Date();
+  const current = fixtures.rounds.find((r) => r.matches.some((m) => isLiveOrUpcoming(m, now)));
 
-  // The feature: the round's first still-to-play match (else its first match).
-  // It leads as the FeatureHero, so the timeline below excludes it — no dupes.
-  const featured =
-    current?.matches.find((m) => m.status === "scheduled") ?? current?.matches[0] ?? null;
-  const roundMatches = (current?.matches ?? []).filter((m) => m.id !== featured?.id);
+  if (!current) {
+    const premier = premierOf(fixtures.rounds);
+    const last = lastKickoff(fixtures.rounds);
+    const seasonOver =
+      premier != null || (last != null && now.getTime() - last > SEASON_OVER_AFTER_DAYS * 86_400_000);
+    if (seasonOver) {
+      const record = await getNrlRecordServer().catch(() => null);
+      return <OffSeason fixtures={fixtures} premier={premier} record={record} ladder={ladder} origin={origin} />;
+    }
+  }
+
+  // Between rounds (nothing live or scheduled yet, season not over) the last
+  // round stays on screen as results and the hero shows its honest empty
+  // state -- a played match is never dressed up as tonight's feature.
+  const round = current ?? fixtures.rounds[fixtures.rounds.length - 1];
+  const featured = current
+    ? current.matches.find((m) => isNrlLiveNow(m, now)) ??
+      current.matches.find((m) => isLiveOrUpcoming(m, now)) ??
+      null
+    : null;
+  const roundMatches = (round?.matches ?? []).filter((m) => m.id !== featured?.id);
 
   // Per-card maps keyed by match_id (= NrlMatch.id) — the detail href and the
   // model's expected margin, threaded onto each compact card in the spine.
   const cardHref: Record<number, string | null> = {};
   const cardMargin: Record<number, number | null> = {};
   for (const m of roundMatches) {
-    cardHref[m.id] = nrlMatchHref(fixtures.season, current?.round, m.match_no);
+    cardHref[m.id] = nrlMatchHref(fixtures.season, round?.round, m.match_no);
     cardMargin[m.id] = nrlExpectedMargin(m);
   }
 
@@ -49,7 +101,7 @@ export default async function NrlHomePage() {
     <div>
       <h1 className="font-display text-2xl font-extrabold">NRL · Season {fixtures.season}</h1>
       <p className="mt-1 text-sm text-muted">
-        Round {current?.round ?? "—"} · model predictions frozen at kickoff
+        Round {round?.round ?? "—"} · model predictions frozen at kickoff
       </p>
 
       <div className="mt-6">
@@ -60,7 +112,7 @@ export default async function NrlHomePage() {
           badge="club"
           href={
             featured
-              ? nrlMatchHref(fixtures.season, current?.round, featured.match_no)
+              ? nrlMatchHref(fixtures.season, round?.round, featured.match_no)
               : undefined
           }
           margin={featured ? nrlExpectedMargin(featured) : null}
@@ -69,36 +121,15 @@ export default async function NrlHomePage() {
 
       <IntelPanel sport="nrl" />
 
-      {origin ? (
-        <Link
-          href="/nrl/origin"
-          className="glass mt-6 block rounded-2xl p-4 transition hover:bg-white/5"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-                State of Origin · {origin.season}
-              </p>
-              <p className="mt-1 font-display text-lg font-extrabold">
-                NSW Blues {origin.series.blues_wins} – {origin.series.maroons_wins} QLD
-                Maroons
-                {origin.series.drawn_games ? ` · ${origin.series.drawn_games} drawn` : ""}
-              </p>
-            </div>
-            <span className="shrink-0 text-xs font-semibold text-lime-deep">
-              Series &amp; model →
-            </span>
-          </div>
-        </Link>
-      ) : null}
+      <OriginTeaser origin={origin} />
 
       <div className="mt-6 grid gap-4 md:grid-cols-[1fr_320px]">
         {roundMatches.length > 0 ? (
           <TimelineSpine
             days={[
               {
-                key: `round-${current?.round ?? "tbc"}`,
-                heading: `Round ${current?.round ?? "TBC"}`,
+                key: `round-${round?.round ?? "tbc"}`,
+                heading: `Round ${round?.round ?? "TBC"}`,
                 matches: roundMatches.map(nrlMatchToSummary),
               },
             ]}
@@ -110,27 +141,121 @@ export default async function NrlHomePage() {
         ) : (
           <p className="text-sm text-muted">No other fixtures this round.</p>
         )}
-        {ladder ? (
-          <div className="glass h-fit rounded-2xl p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-                Ladder
-              </span>
-              <Link href="/nrl/ladder" className="text-xs font-semibold text-lime-deep">
-                Full ladder →
-              </Link>
-            </div>
-            <StandingsTable
-              standings={ladderRowsToStandings(ladder.rows).slice(0, 4)}
-              zones={COMPETITIONS.nrl.zones}
-              badge="club"
-              teamBasePath="/nrl/team"
-              teamHeader="Club"
-              columns={["pts"]}
-            />
-          </div>
-        ) : null}
+        <MiniLadder ladder={ladder} label="Ladder" />
       </div>
+    </div>
+  );
+}
+
+function OffSeason({
+  fixtures,
+  premier,
+  record,
+  ladder,
+  origin,
+}: {
+  fixtures: NrlMatchesResponse;
+  premier: string | null;
+  record: NrlRecord | null;
+  ladder: LadderResponse | null;
+  origin: OriginSeriesResponse | null;
+}) {
+  const season = fixtures.season;
+  const accuracy =
+    record && record.evaluated_matches > 0 && record.winner_accuracy != null
+      ? Math.round(record.winner_accuracy * 100)
+      : null;
+
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-extrabold">NRL · Season {season}</h1>
+      <p className="mt-1 text-sm text-muted">Season complete · final ladder and the model&apos;s record</p>
+
+      <section
+        aria-labelledby="nrl-off-season"
+        className="glass relative mt-6 overflow-hidden rounded-[16px] p-5"
+      >
+        <span aria-hidden className="floodlight-glow pointer-events-none absolute inset-0" />
+        <div className="relative">
+          <h2 id="nrl-off-season" className="font-display text-headline font-extrabold tracking-tight">
+            {season} season complete
+          </h2>
+          {premier ? (
+            <p className="mt-1.5 text-body font-semibold">{premier} are the {season} premiers.</p>
+          ) : null}
+          {accuracy != null && record ? (
+            <Link
+              href="/nrl/record"
+              className="mt-2 inline-flex text-sm font-semibold text-lime-deep underline-offset-2 hover:underline"
+            >
+              The model called {accuracy}% of winners across {record.evaluated_matches} graded matches →
+            </Link>
+          ) : null}
+          <p className="mt-3 text-sm text-muted">Back for Round 1, March {season + 1}.</p>
+          <Link
+            href="/play?competition=epl"
+            className="mt-4 flex min-h-[44px] items-center justify-center rounded-[12px] bg-win px-4 font-display text-sm font-semibold text-action-ink transition hover:brightness-[1.06] sm:inline-flex"
+          >
+            Play the Premier League meanwhile
+          </Link>
+        </div>
+      </section>
+
+      <OriginTeaser origin={origin} />
+
+      <div className="mt-6 max-w-md">
+        <MiniLadder ladder={ladder} label="Final ladder" />
+      </div>
+    </div>
+  );
+}
+
+function OriginTeaser({ origin }: { origin: OriginSeriesResponse | null }) {
+  if (!origin) return null;
+  return (
+    <Link
+      href="/nrl/origin"
+      className="glass mt-6 block rounded-2xl p-4 transition hover:bg-white/5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
+            State of Origin · {origin.season}
+          </p>
+          <p className="mt-1 font-display text-lg font-extrabold">
+            NSW Blues {origin.series.blues_wins} – {origin.series.maroons_wins} QLD
+            Maroons
+            {origin.series.drawn_games ? ` · ${origin.series.drawn_games} drawn` : ""}
+          </p>
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-lime-deep">
+          Series &amp; model →
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+function MiniLadder({ ladder, label }: { ladder: LadderResponse | null; label: string }) {
+  if (!ladder) return null;
+  return (
+    <div className="glass h-fit rounded-2xl p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-display text-label font-semibold uppercase tracking-wider text-muted">
+          {label}
+        </span>
+        <Link href="/nrl/ladder" className="text-xs font-semibold text-lime-deep">
+          Full ladder →
+        </Link>
+      </div>
+      <StandingsTable
+        standings={ladderRowsToStandings(ladder.rows).slice(0, 4)}
+        zones={COMPETITIONS.nrl.zones}
+        badge="club"
+        teamBasePath="/nrl/team"
+        teamHeader="Club"
+        columns={["pts"]}
+      />
     </div>
   );
 }

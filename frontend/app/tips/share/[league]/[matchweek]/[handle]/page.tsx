@@ -92,10 +92,10 @@ export default async function LeagueTipsShareCardPage({
       </div>
 
       <Link
-        href="/tips"
+        href={`/play?competition=${encodeURIComponent(share.league)}`}
         className="inline-block rounded-lg bg-win px-6 py-3 text-sm font-bold text-pitch transition hover:brightness-110"
       >
-        Play against the AI →
+        Beat the model at the {leagueLabel(share.league)} →
       </Link>
 
       <p className="text-xs leading-relaxed text-muted">{share.disclaimer}</p>
