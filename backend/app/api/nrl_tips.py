@@ -22,7 +22,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, aliased
 
 from app.api.nrl_live import _LIVE_STATE_GRACE, _MATCH_DURATION
@@ -51,37 +50,37 @@ def _current_round(db: Session, season: int, now: datetime | None = None) -> int
     whole season is played), the latest round that has any matches at all.
     Same rule as league_score_predictions._current_matchweek.
 
-    Open means scheduled and not yet kicked off, or in play and still inside
-    the line app.api.nrl_live.live_state_is_stale draws for a live claim
-    (the poller's _MATCH_DURATION window plus _LIVE_STATE_GRACE for golden
-    point) -- past it a row still in play is frozen data, not a game. The
-    cutoff uses >=, that function's exact complement, so every NRL surface
-    agrees on when a match stops being live. An undated fixture still
-    counts, sorting after every dated one. This was `status != "finished"`,
-    which let a row that will never finish -- a postponed/cancelled one, or a
-    played match nrl-refresh's twice-weekly ingest hasn't flipped yet (it can
-    lag by days) -- pin the round. NRL ingest never writes "in_play" (live
-    state is time-based, see pipeline.sports.nrl_live_poll), so a match being
-    played right now reads as not open; the round still moves on only once
-    nothing in it is left to tip. "in_play" stays in the rule so it holds if
-    the feed ever does.
+    Open means a dated scheduled or in-play match whose kickoff is still
+    inside the line app.api.nrl_live.live_state_is_stale draws for a live
+    claim (the poller's _MATCH_DURATION window plus _LIVE_STATE_GRACE for
+    golden point): a game yet to start, or one plausibly in progress. NRL
+    ingest never writes "in_play" -- live state is time-based, see
+    pipeline.sports.nrl_live_poll -- so a game being played is a
+    `scheduled` row whose kickoff has passed, and it holds its round until
+    that line rather than flipping the default to the next round the moment
+    a round's last game kicks off (review L4). "in_play" gets the same
+    window in case the feed ever writes it. The cutoff uses >=, that
+    function's exact complement, so every NRL surface agrees on when a game
+    stops being live.
+
+    Past the line, a `scheduled` row is a status nrl-refresh's ingest hasn't
+    caught up on (it can lag by days); the old `status != "finished"` rule
+    let such a row -- or a postponed/cancelled one -- pin the round. An
+    undated row never counts (review L3): it can't be tipped, and counting
+    it let a round-3 leftover beat a played round 10.
 
     `now` defaults to the server clock; tests pin it."""
     now = to_aware_utc(now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    in_play_cutoff = now - (_MATCH_DURATION + _LIVE_STATE_GRACE)
+    live_cutoff = now - (_MATCH_DURATION + _LIVE_STATE_GRACE)
     upcoming = (
         db.query(SportMatch.round)
         .filter(
             SportMatch.sport == "nrl", SportMatch.season == season,
-            or_(
-                and_(SportMatch.status == "in_play",
-                     or_(SportMatch.kickoff_utc.is_(None), SportMatch.kickoff_utc >= in_play_cutoff)),
-                and_(SportMatch.status == "scheduled",
-                     or_(SportMatch.kickoff_utc.is_(None), SportMatch.kickoff_utc > now)),
-            ),
+            SportMatch.status.in_(("scheduled", "in_play")),
+            SportMatch.kickoff_utc.isnot(None),
+            SportMatch.kickoff_utc >= live_cutoff,
         )
-        .order_by(SportMatch.kickoff_utc.is_(None), SportMatch.kickoff_utc.asc(),
-                  SportMatch.match_no.asc())
+        .order_by(SportMatch.kickoff_utc.asc(), SportMatch.match_no.asc())
         .first()
     )
     if upcoming is not None:

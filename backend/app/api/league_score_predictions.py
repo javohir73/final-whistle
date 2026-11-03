@@ -42,7 +42,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, load_only, undefer
 
@@ -89,6 +89,15 @@ _LEADERBOARD_MIN_PARTICIPANTS = 1
 # the row. Generated handles never contain a space, so it can't collide with
 # one. Same name as nrl_user_tips._MODEL_HANDLE.
 _MODEL_HANDLE = "FinalWhistle model"
+
+# Every Match column the model's row reads (_gradeable, _final_score,
+# _kickoff_locked_prediction, and the season board's matchweek). The boards
+# load only these, never the JSON goal/card/injury payloads; listing the
+# deferred matchweek here also loads it, so no per-row lazy load.
+_MODEL_ROW_MATCH_COLUMNS = (
+    Match.matchweek, Match.status, Match.kickoff_utc, Match.score_home, Match.score_away,
+    Match.score_home_90, Match.score_away_90,
+)
 
 _HANDLE_ADJECTIVES = (
     "Swift", "Brave", "Clutch", "Steady", "Fearless", "Sharp", "Bold",
@@ -225,44 +234,90 @@ def _model_out(pred: Prediction | None) -> dict | None:
     }
 
 
-def _graded(m: Match) -> bool:
-    """Whether the (pipeline-owned) grading pass scores predictions on `m`:
+def _gradeable(m: Match) -> bool:
+    """Whether the (pipeline-owned) grading pass can score predictions on `m`:
     finished, with a kickoff to lock against and a final score -- the same
-    three conditions pipeline.league_score_predictions.grade() applies, so
-    the model's leaderboard row only ever counts a match a player's row can
-    be graded on too. A live score on an in-play match is not a result."""
+    three conditions pipeline.league_score_predictions.grade() applies. A
+    live score on an in-play match is not a result. Whether that pass has
+    actually RUN on the match yet is _awaiting_grading's question."""
     return m.status == FINISHED and m.kickoff_utc is not None and _final_score(m) is not None
 
 
+def _awaiting_grading(db: Session, match_ids: list[int]) -> set[int]:
+    """The matches among `match_ids` with at least one grade-eligible player
+    pick -- stamped at or before kickoff, the grading pass's own filter --
+    not graded yet. Live refresh marks a match finished minutes after full
+    time, but picks are graded by pipeline.league_score_predictions.grade()
+    (post-results chain, daily pipeline); until it has run, the model's row
+    must not count the match either, or it banks points the players who
+    called the score don't have yet (review H1). A pick stamped after
+    kickoff is never graded, so it never holds the model back."""
+    if not match_ids:
+        return set()
+    return {
+        match_id
+        for (match_id,) in (
+            db.query(LeagueScorePrediction.match_id)
+            .join(Match, LeagueScorePrediction.match_id == Match.id)
+            .filter(
+                LeagueScorePrediction.match_id.in_(match_ids),
+                LeagueScorePrediction.graded_at.is_(None),
+                Match.kickoff_utc.isnot(None),
+                LeagueScorePrediction.updated_at <= Match.kickoff_utc,
+            )
+            .distinct()
+            .all()
+        )
+    }
+
+
 def _model_predictions_by_match(db: Session, match_ids: list[int]) -> dict[int, list[Prediction]]:
-    """Every production Prediction row for `match_ids`, grouped per match in
-    the created_at desc, id desc order _kickoff_locked_prediction expects.
+    """The kickoff-locked production Prediction of each of `match_ids`, as
+    the one-row list per match _kickoff_locked_prediction takes.
+
+    The log is append-only -- a row per pipeline run per scheduled match,
+    plus shadow twins and a re-prediction after every post-results chain --
+    so a season's finished matches carry tens of thousands of rows (review
+    M3). The winning row is picked in SQL with the row_number() pattern
+    matches.upcoming_matches uses: per match, created_at desc, id desc, over
+    exactly the rows _kickoff_locked_prediction would consider (created_at
+    <= kickoff_utc when there is a kickoff). load_only then fetches only what
+    the reveal and scoring paths read, never the JSON reasons/features/
+    writeup payloads.
 
     is_shadow.is_(False): shadow twins (odds/availability/offsets/rest) share
     created_at with the production row (same generate_predictions
     transaction) but are written AFTER it, so they'd win the created_at desc,
-    id desc tiebreak in _kickoff_locked_prediction if not excluded here --
-    mirrors learning_loop._frozen_prediction and every other public-facing
-    Prediction read (predictions.py, prob_history.py, serializers.py).
-
-    load_only: the log is append-only (a row per pipeline run per scheduled
-    match, plus its shadow twins), so a season leaderboard's graded matches
-    carry thousands of rows -- fetch only what the reveal and scoring paths
-    here read, never the JSON reasons/features/writeup payloads."""
+    id desc tiebreak if not excluded -- mirrors learning_loop.
+    _frozen_prediction and every other public-facing Prediction read
+    (predictions.py, prob_history.py, serializers.py)."""
     if not match_ids:
         return {}
+    ranked = (
+        select(
+            Prediction.id.label("prediction_id"),
+            func.row_number()
+            .over(partition_by=Prediction.match_id,
+                  order_by=(Prediction.created_at.desc(), Prediction.id.desc()))
+            .label("row_number"),
+        )
+        .join(Match, Prediction.match_id == Match.id)
+        .where(
+            Prediction.match_id.in_(match_ids),
+            Prediction.is_shadow.is_(False),
+            or_(Match.kickoff_utc.is_(None), Prediction.created_at <= Match.kickoff_utc),
+        )
+        .subquery()
+    )
     preds = (
         db.query(Prediction)
         .options(load_only(Prediction.match_id, Prediction.created_at, Prediction.model_version,
                            Prediction.predicted_score_home, Prediction.predicted_score_away))
-        .filter(Prediction.match_id.in_(match_ids), Prediction.is_shadow.is_(False))
-        .order_by(Prediction.created_at.desc(), Prediction.id.desc())
+        .join(ranked, Prediction.id == ranked.c.prediction_id)
+        .filter(ranked.c.row_number == 1)
         .all()
     )
-    preds_by_match: dict[int, list[Prediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
-    return preds_by_match
+    return {p.match_id: [p] for p in preds}
 
 
 def _model_scores(preds_by_match: dict[int, list[Prediction]], matches: list[Match]) -> list[tuple[Match, int, bool]]:
@@ -285,11 +340,15 @@ def _model_scores(preds_by_match: dict[int, list[Prediction]], matches: list[Mat
 
 
 def _model_leaderboard_scores(db: Session, matches: list[Match]) -> list[tuple[Match, int, bool]]:
-    """_model_scores over the GRADED subset of a leaderboard's matches: the
-    model plays every fixture, so its row is scored on each one the grading
-    pass has a result for, whether or not any player predicted it."""
-    graded = [m for m in matches if _graded(m)]
-    return _model_scores(_model_predictions_by_match(db, [m.id for m in graded]), graded)
+    """_model_scores over a leaderboard's SETTLED matches: gradeable, with no
+    eligible player pick still awaiting the grading pass. The model plays
+    every fixture, so its row is scored on each settled one whether or not
+    any player predicted it -- but never on a match before the players on
+    it have their points, so the two sides can't disagree."""
+    gradeable = [m for m in matches if _gradeable(m)]
+    waiting = _awaiting_grading(db, [m.id for m in gradeable])
+    settled = [m for m in gradeable if m.id not in waiting]
+    return _model_scores(_model_predictions_by_match(db, [m.id for m in settled]), settled)
 
 
 def _leaderboard_rank(entry: dict) -> tuple:
@@ -306,18 +365,19 @@ def _current_matchweek(db: Session, tournament_id: int, now: datetime | None = N
     _current_round, scoped to tournament_id instead of (sport, season) since
     one Tournament row already IS one season for a football league.
 
-    Open means scheduled and not yet kicked off, or in play and within
-    MATCH_MAX_DURATION_HOURS of kickoff. A `scheduled` row whose kickoff has
-    passed is a status the feed never caught up on -- a duplicate-team ghost
-    fixture from August, or a played match the refresh hasn't flipped yet --
-    and it pinned Play to a matchweek nobody can play (UX rebuild plan
-    2026-11 §1.2: La Liga on matchweek 2 and Bundesliga on matchweek 1 in
-    November, EPL on an all-played matchweek 9). An `in_play` row past
-    /api/health's own line (app.data_freshness) is just as impossible: nobody
-    is still playing, the feed that should have finished it stopped reaching
-    us. The cutoff uses >=, the exact complement of stuck_matches' `<`, so a
-    row is never both stuck there and open here. An undated fixture is still
-    open, but sorts after every dated one.
+    Open means dated, and either scheduled and not yet kicked off or in play
+    and within MATCH_MAX_DURATION_HOURS of kickoff. A `scheduled` row whose
+    kickoff has passed is a status the feed never caught up on -- a
+    duplicate-team ghost fixture from August, or a played match the refresh
+    hasn't flipped yet -- and it pinned Play to a matchweek nobody can play
+    (UX rebuild plan 2026-11 §1.2: La Liga on matchweek 2 and Bundesliga on
+    matchweek 1 in November, EPL on an all-played matchweek 9). An `in_play`
+    row past /api/health's own line (app.data_freshness) is just as
+    impossible: nobody is still playing, the feed that should have finished
+    it stopped reaching us. The cutoff uses >=, the exact complement of
+    stuck_matches' `<`, so a row is never both stuck there and open here. An
+    undated row never counts (review L3): a ghost or a date still TBD can't
+    be played, and counting it let a matchweek-3 leftover beat matchweek 10.
 
     Postponed/suspended fixtures are intentionally excluded until the provider
     gives them a new playable state. Otherwise an old stopped fixture pins the
@@ -331,14 +391,13 @@ def _current_matchweek(db: Session, tournament_id: int, now: datetime | None = N
         .filter(
             Match.tournament_id == tournament_id,
             Match.matchweek.isnot(None),
+            Match.kickoff_utc.isnot(None),
             or_(
-                and_(Match.status == IN_PLAY,
-                     or_(Match.kickoff_utc.is_(None), Match.kickoff_utc >= in_play_cutoff)),
-                and_(Match.status == SCHEDULED,
-                     or_(Match.kickoff_utc.is_(None), Match.kickoff_utc > now)),
+                and_(Match.status == IN_PLAY, Match.kickoff_utc >= in_play_cutoff),
+                and_(Match.status == SCHEDULED, Match.kickoff_utc > now),
             ),
         )
-        .order_by(Match.kickoff_utc.is_(None), Match.kickoff_utc.asc(), Match.id.asc())
+        .order_by(Match.kickoff_utc.asc(), Match.id.asc())
         .first()
     )
     if upcoming is not None:
@@ -665,6 +724,7 @@ def predictions_leaderboard(league: str, matchweek: int, db: Session = Depends(g
     tournament = _resolve_league(db, league)
     matches = (
         db.query(Match)
+        .options(load_only(*_MODEL_ROW_MATCH_COLUMNS))
         .filter(Match.tournament_id == tournament.id, Match.matchweek == matchweek)
         .all()
     )
@@ -751,8 +811,7 @@ def predictions_leaderboard_season(league: str, db: Session = Depends(get_db)):
             })
     finished = (
         db.query(Match)
-        # Deferred column (see predictions_summary) read per scored match below.
-        .options(undefer(Match.matchweek))
+        .options(load_only(*_MODEL_ROW_MATCH_COLUMNS))
         .filter(Match.tournament_id == tournament.id, Match.status == FINISHED)
         .all()
     )

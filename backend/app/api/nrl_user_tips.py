@@ -34,7 +34,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import inspect
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, load_only
 
@@ -85,6 +85,13 @@ _LEADERBOARD_MIN_PARTICIPANTS = 1
 # one. Same name as league_score_predictions._MODEL_HANDLE.
 _MODEL_HANDLE = "FinalWhistle model"
 
+# Every SportMatch column the model's row reads (_gradeable,
+# _kickoff_locked_prediction, the season board's round): the boards load
+# only these.
+_MODEL_ROW_MATCH_COLUMNS = (
+    SportMatch.round, SportMatch.status, SportMatch.kickoff_utc, SportMatch.score_home, SportMatch.score_away,
+)
+
 _HANDLE_ADJECTIVES = (
     "Swift", "Brave", "Clutch", "Steady", "Fearless", "Rugged", "Sharp",
     "Bold", "Lightning", "Iron", "Golden", "Silent",
@@ -124,35 +131,77 @@ def _scores_point(pick: str, outcome: str) -> bool:
     return outcome == "draw" or pick == outcome
 
 
-def _graded(m: SportMatch) -> bool:
-    """Whether the (pipeline-owned) grading pass scores tips on `m`: finished,
-    with a kickoff to lock against and a final score -- the same conditions
-    pipeline.sports.nrl_user_tips.grade() applies, so the model's
-    leaderboard row only ever counts a match a tipper's row can be graded on
-    too."""
+def _gradeable(m: SportMatch) -> bool:
+    """Whether the (pipeline-owned) grading pass can score tips on `m`:
+    finished, with a kickoff to lock against and a final score -- the same
+    conditions pipeline.sports.nrl_user_tips.grade() applies. Whether that
+    pass has actually RUN on the match yet is _awaiting_grading's question."""
     return m.status == "finished" and m.kickoff_utc is not None and _actual_outcome(m) is not None
 
 
+def _awaiting_grading(db: Session, match_ids: list[int]) -> set[int]:
+    """The matches among `match_ids` with at least one grade-eligible tip --
+    stamped at or before kickoff, the grading pass's own filter -- not
+    graded yet. The live poller (pipeline.sports.nrl_live_poll) marks a
+    match finished at full time, but tips are graded only by nrl-refresh,
+    hours later; until then the model's row must not count the match either,
+    or it banks a point the tippers who called it don't have yet (review H1,
+    which the NRL side shares). A tip stamped after kickoff is never graded,
+    so it never holds the model back."""
+    if not match_ids:
+        return set()
+    return {
+        match_id
+        for (match_id,) in (
+            db.query(UserTip.match_id)
+            .join(SportMatch, UserTip.match_id == SportMatch.id)
+            .filter(
+                UserTip.match_id.in_(match_ids),
+                UserTip.graded_at.is_(None),
+                SportMatch.kickoff_utc.isnot(None),
+                UserTip.updated_at <= SportMatch.kickoff_utc,
+            )
+            .distinct()
+            .all()
+        )
+    }
+
+
 def _model_predictions_by_match(db: Session, match_ids: list[int]) -> dict[int, list[SportPrediction]]:
-    """Every SportPrediction row for `match_ids`, grouped per match in the
-    created_at desc, id desc order nrl_tips._kickoff_locked_prediction
-    expects. load_only: a season leaderboard reads the rows for every graded
-    match of the season, so fetch only what the pick and its margin need,
-    never preview_text."""
+    """The kickoff-locked SportPrediction of each of `match_ids`, as the
+    one-row list per match nrl_tips._kickoff_locked_prediction takes. Picked
+    in SQL with row_number() -- per match, created_at desc, id desc, over
+    exactly the rows that function would consider (created_at <=
+    kickoff_utc when there is a kickoff) -- so a season leaderboard never
+    materialises every run's row for every match to pick one in Python
+    (review M3). load_only then fetches just what the pick and its margin
+    need, never preview_text."""
     if not match_ids:
         return {}
+    ranked = (
+        select(
+            SportPrediction.id.label("prediction_id"),
+            func.row_number()
+            .over(partition_by=SportPrediction.match_id,
+                  order_by=(SportPrediction.created_at.desc(), SportPrediction.id.desc()))
+            .label("row_number"),
+        )
+        .join(SportMatch, SportPrediction.match_id == SportMatch.id)
+        .where(
+            SportPrediction.match_id.in_(match_ids),
+            or_(SportMatch.kickoff_utc.is_(None), SportPrediction.created_at <= SportMatch.kickoff_utc),
+        )
+        .subquery()
+    )
     preds = (
         db.query(SportPrediction)
         .options(load_only(SportPrediction.match_id, SportPrediction.created_at, SportPrediction.p_home,
                            SportPrediction.p_draw, SportPrediction.p_away, SportPrediction.expected_margin))
-        .filter(SportPrediction.match_id.in_(match_ids))
-        .order_by(SportPrediction.created_at.desc(), SportPrediction.id.desc())
+        .join(ranked, SportPrediction.id == ranked.c.prediction_id)
+        .filter(ranked.c.row_number == 1)
         .all()
     )
-    preds_by_match: dict[int, list[SportPrediction]] = {}
-    for p in preds:
-        preds_by_match.setdefault(p.match_id, []).append(p)
-    return preds_by_match
+    return {p.match_id: [p] for p in preds}
 
 
 def _model_scores(preds_by_match: dict[int, list[SportPrediction]],
@@ -174,11 +223,27 @@ def _model_scores(preds_by_match: dict[int, list[SportPrediction]],
 
 
 def _model_leaderboard_scores(db: Session, matches: list[SportMatch]) -> list[tuple[SportMatch, int]]:
-    """_model_scores over the GRADED subset of a leaderboard's matches: the
-    model tips every fixture, so its row is scored on each one the grading
-    pass has a result for, whether or not anyone else tipped it."""
-    graded = [m for m in matches if _graded(m)]
-    return _model_scores(_model_predictions_by_match(db, [m.id for m in graded]), graded)
+    """_model_scores over a leaderboard's SETTLED matches: gradeable, with no
+    eligible tip still awaiting the grading pass. The model tips every
+    fixture, so its row is scored on each settled one whether or not anyone
+    else tipped it -- but never on a match before the tippers on it have
+    their points, so the two sides can't disagree."""
+    gradeable = [m for m in matches if _gradeable(m)]
+    waiting = _awaiting_grading(db, [m.id for m in gradeable])
+    settled = [m for m in gradeable if m.id not in waiting]
+    return _model_scores(_model_predictions_by_match(db, [m.id for m in settled]), settled)
+
+
+def _leaderboard_rank(margin_key: str):
+    """Sort key for either board: points desc, then the margin tiebreak asc
+    (`round_margin` weekly, `total_margin` season; a missing one sorts last),
+    then tippers ahead of the model on a full tie, then handle asc -- the
+    football boards' order, so tied tippers can't swap between requests."""
+    def key(entry: dict) -> tuple:
+        margin = entry[margin_key]
+        return (-entry["points"], margin if margin is not None else float("inf"),
+                entry["is_model"], entry["handle"])
+    return key
 
 
 def _tip_streaks(items: list[tuple[UserTip, SportMatch]]) -> tuple[int, int]:
@@ -520,6 +585,7 @@ def tips_leaderboard(season: int, round: int, db: Session = Depends(get_db)):
     only, never the model. Never returns a device_id."""
     matches = (
         db.query(SportMatch)
+        .options(load_only(*_MODEL_ROW_MATCH_COLUMNS))
         .filter(SportMatch.sport == "nrl", SportMatch.season == season, SportMatch.round == round)
         .all()
     )
@@ -556,8 +622,7 @@ def tips_leaderboard(season: int, round: int, db: Session = Depends(get_db)):
         "round_margin": None,
         "is_model": True,
     })
-    entries.sort(key=lambda e: (-e["points"], e["round_margin"] if e["round_margin"] is not None else float("inf"),
-                                e["is_model"]))
+    entries.sort(key=_leaderboard_rank("round_margin"))
 
     return {
         "season": season, "round": round,
@@ -633,6 +698,7 @@ def tips_leaderboard_season(season: int, db: Session = Depends(get_db)):
             })
     finished = (
         db.query(SportMatch)
+        .options(load_only(*_MODEL_ROW_MATCH_COLUMNS))
         .filter(SportMatch.sport == "nrl", SportMatch.season == season, SportMatch.status == "finished")
         .all()
     )
@@ -644,8 +710,7 @@ def tips_leaderboard_season(season: int, db: Session = Depends(get_db)):
         "rounds_played": len({m.round for m, _ in model_scores}),
         "is_model": True,
     })
-    entries.sort(key=lambda e: (-e["points"], e["total_margin"] if e["total_margin"] is not None else float("inf"),
-                                e["is_model"]))
+    entries.sort(key=_leaderboard_rank("total_margin"))
 
     return {
         "season": season,

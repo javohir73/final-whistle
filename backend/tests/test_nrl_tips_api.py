@@ -389,23 +389,43 @@ def test_current_round_nothing_open_falls_back_to_latest_round(client):
     assert nrl_tips._current_round(db, 2026, now=_NOW) == 27
 
 
-def test_current_round_undated_scheduled_fixture_is_open_but_sorts_after_dated(client):
+def test_current_round_undated_fixture_never_picks_the_default(client):
+    """An undated fixture must never choose the default round, not even when
+    nothing else is open (review L3): played through round 10 with an
+    undated round-3 row left over, the default is round 10."""
     _, TestingSession = client
     db = TestingSession()
     storm, eels = _team(db, "Storm"), _team(db, "Eels")
-    _nrl_match(db, 5, 1, storm, eels, None)  # kickoff not announced yet: still tippable
-    _nrl_match(db, 9, 1, storm, eels, _NOW - timedelta(days=2), status="finished",
+    _nrl_match(db, 3, 1, storm, eels, None)  # undated ghost
+    _nrl_match(db, 10, 1, storm, eels, _NOW - timedelta(days=2), status="finished",
                score_home=8, score_away=4)
     db.commit()
 
-    # The undated fixture is open, so it wins over the latest-round fallback (9).
-    assert nrl_tips._current_round(db, 2026, now=_NOW) == 5
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 10
 
-    _nrl_match(db, 10, 1, storm, eels, _NOW + timedelta(days=3))
+    _nrl_match(db, 11, 1, storm, eels, _NOW + timedelta(days=3))
     db.commit()
 
-    # Any dated open fixture sorts ahead of the undated one, even a later round's.
-    assert nrl_tips._current_round(db, 2026, now=_NOW) == 10
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 11
+
+
+def test_current_round_holds_while_its_last_game_is_being_played(client):
+    """Review L4: NRL ingest never writes in_play, so a game in progress is a
+    `scheduled` row whose kickoff has passed. Inside the live window every
+    NRL surface uses it still holds its round; past it, the round moves on."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    last_kickoff = _NOW - timedelta(minutes=30)
+    _nrl_match(db, 5, 1, storm, eels, _NOW - timedelta(days=2), status="finished",
+               score_home=20, score_away=12)
+    _nrl_match(db, 5, 2, storm, eels, last_kickoff)  # the round's last game, 30 minutes in
+    _nrl_match(db, 6, 1, storm, eels, _NOW + timedelta(days=4))
+    db.commit()
+
+    assert nrl_tips._current_round(db, 2026, now=_NOW) == 5
+    # Same rows, three hours after that kickoff.
+    assert nrl_tips._current_round(db, 2026, now=last_kickoff + timedelta(hours=3)) == 6
 
 
 def test_record_is_all_time_not_scoped_to_the_requested_season(client):

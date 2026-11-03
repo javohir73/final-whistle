@@ -10,9 +10,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import nrl_user_tips as nut
 from app.db import Base, get_db
 from app.main import app
 from app.models import SportMatch, SportPrediction, SportTeam, TipPlayer, UserTip
+from pipeline.sports.nrl_user_tips import grade as grade_tips
 
 ALLOWED_ORIGIN = "http://localhost:3000"
 DEVICE_A = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
@@ -874,6 +876,95 @@ def test_season_leaderboard_ranks_a_tipper_against_the_models_season_total(clien
         {"handle": MODEL_HANDLE, "points": 1, "total_margin": None, "rounds_played": 2, "is_model": True},
     ]
     assert DEVICE_A not in r.text
+
+
+def test_model_row_waits_until_the_tips_on_a_match_are_graded(client):
+    """Review H1, NRL side: the live poller marks a match finished at full
+    time, but tips are graded only by nrl-refresh, hours later. Until then
+    the model must not bank the match -- level at 0 with a tipper who got it
+    right, then level at 1 once graded."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kick = datetime.now(timezone.utc) - timedelta(hours=3)
+    m = _match(db, 2026, 9, 1, storm, eels, kick, status="finished", score_home=22, score_away=10)
+    _prediction(db, m, p_home=0.7)  # the model picked home: right
+    player = TipPlayer(device_id=DEVICE_A, handle="WaitingTipper")
+    db.add(player)
+    db.flush()
+    db.add(UserTip(match_id=m.id, player_id=player.id, pick="home", updated_at=kick - timedelta(days=1)))
+    db.commit()
+
+    def boards():
+        weekly = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 9}).json()
+        season = c.get("/api/nrl/tips/leaderboard/season", params={"season": 2026}).json()
+        return weekly, season
+
+    weekly, season = boards()
+    assert weekly["entries"] == [
+        {"handle": "WaitingTipper", "points": 0, "round_margin": None, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 0, "round_margin": None, "is_model": True},
+    ]
+    assert season["participant_count"] == 0
+    assert season["entries"] == [
+        {"handle": MODEL_HANDLE, "points": 0, "total_margin": None, "rounds_played": 0, "is_model": True},
+    ]
+
+    assert grade_tips(db) == 1
+
+    weekly, season = boards()
+    assert weekly["entries"] == [
+        {"handle": "WaitingTipper", "points": 1, "round_margin": None, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 1, "round_margin": None, "is_model": True},
+    ]
+    assert season["participant_count"] == 1
+    assert season["entries"] == [
+        {"handle": "WaitingTipper", "points": 1, "total_margin": None, "rounds_played": 1, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 1, "total_margin": None, "rounds_played": 1, "is_model": True},
+    ]
+
+
+def test_leaderboards_break_a_full_tie_by_handle(client):
+    """Review L8: tippers level on every ranking key are ordered by handle,
+    like the football boards, so the order can't shuffle between requests."""
+    c, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    m = _match(db, 2026, 5, 1, storm, eels, datetime.now(timezone.utc) - timedelta(days=1),
+               status="finished", score_home=20, score_away=10)
+    db.flush()
+    for i, handle in enumerate(("Zeta", "Alpha", "Mike")):  # inserted out of order
+        _seed_season_player(db, m, f"dddddddd-0000-4000-8000-{i:012d}", handle, 1, 4)
+    db.commit()
+
+    weekly = c.get("/api/nrl/tips/leaderboard", params={"season": 2026, "round": 5}).json()
+    season = c.get("/api/nrl/tips/leaderboard/season", params={"season": 2026}).json()
+
+    assert [e["handle"] for e in weekly["entries"]] == ["Alpha", "Mike", "Zeta", MODEL_HANDLE]
+    assert [e["handle"] for e in season["entries"]] == ["Alpha", "Mike", "Zeta", MODEL_HANDLE]
+
+
+def test_model_predictions_are_narrowed_to_one_kickoff_locked_row_per_match_in_sql(client):
+    """Review M3: one kickoff-locked row per match, selected in SQL -- the row
+    nrl_tips._kickoff_locked_prediction would pick."""
+    _, TestingSession = client
+    db = TestingSession()
+    storm, eels = _team(db, "Storm"), _team(db, "Eels")
+    kick = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
+    locked = _match(db, 2026, 25, 1, storm, eels, kick, status="finished", score_home=10, score_away=12)
+    for day in range(4, 0, -1):  # four runs; the last is a day before kickoff
+        last_before_kickoff = _prediction(db, locked, p_home=0.5 + day / 100, created_at=kick - timedelta(days=day))
+    _prediction(db, locked, p_home=0.9, created_at=kick + timedelta(minutes=10))  # after kickoff
+    undated = _match(db, 2026, 26, 1, storm, eels, None)
+    _prediction(db, undated, created_at=datetime(2026, 9, 5, tzinfo=timezone.utc))
+    newest = _prediction(db, undated, created_at=datetime(2026, 9, 6, tzinfo=timezone.utc))
+    db.commit()
+
+    by_match = nut._model_predictions_by_match(db, [locked.id, undated.id])
+
+    assert {mid: [p.id for p in rows] for mid, rows in by_match.items()} == {
+        locked.id: [last_before_kickoff.id], undated.id: [newest.id],
+    }
 
 
 # ---------------------------------------------------------------------------

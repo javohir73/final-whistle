@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,6 +17,7 @@ from app.data_freshness import MATCH_MAX_DURATION_HOURS, stuck_matches
 from app.db import Base, get_db
 from app.main import app
 from app.models import LeagueScorePrediction, Match, Prediction, SportMatch, SportTeam, Team, Tournament, TipPlayer, UserTip
+from pipeline.league_score_predictions import grade as grade_score_predictions
 
 ALLOWED_ORIGIN = "http://localhost:3000"
 DEVICE_A = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
@@ -625,23 +626,26 @@ def test_current_matchweek_nothing_open_falls_back_to_latest_matchweek(client):
     assert lsp._current_matchweek(db, epl.id, now=_NOW) == 38
 
 
-def test_current_matchweek_undated_scheduled_fixture_is_open_but_sorts_after_dated(client):
+def test_current_matchweek_undated_fixture_never_picks_the_default(client):
+    """An undated fixture (a ghost, or a rescheduled date still TBD) must
+    never choose the default -- not even when nothing else is open (review
+    L3). Played through matchweek 10 with an undated matchweek-3 row left
+    over, the default is matchweek 10, not 3."""
     _, TestingSession = client
     db = TestingSession()
     epl = _epl(db)
     ars, che, bha, whu = (_team(db, n) for n in ("Arsenal", "Chelsea", "Brighton", "West Ham"))
-    _match(db, epl, ars, che, 3, None)  # kickoff not announced yet: still playable
-    _match(db, epl, bha, whu, 7, _NOW - timedelta(days=2), status="finished", score_home=0, score_away=2)
+    _match(db, epl, ars, che, 3, None)  # undated scheduled ghost
+    _match(db, epl, bha, whu, 3, None, status="in_play")  # undated in play: no clock to bound it either
+    _match(db, epl, ars, bha, 10, _NOW - timedelta(days=2), status="finished", score_home=0, score_away=2)
     db.commit()
 
-    # The undated fixture is open, so it wins over the latest-played fallback (7).
-    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 3
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 10
 
-    _match(db, epl, bha, ars, 9, _NOW + timedelta(days=5))
+    _match(db, epl, che, whu, 11, _NOW + timedelta(days=5))
     db.commit()
 
-    # Any dated open fixture sorts ahead of the undated one, even a later matchweek's.
-    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 9
+    assert lsp._current_matchweek(db, epl.id, now=_NOW) == 11
 
 
 def test_mine_matchweek_not_found_404(client):
@@ -1158,6 +1162,150 @@ def test_season_leaderboard_ranks_a_player_against_the_models_season_total(clien
         {"handle": "SeasonSolo", "points": 2, "exact_count": 0, "matchweeks_played": 1, "is_model": False},
     ]
     assert DEVICE_A not in r.text
+
+
+def test_model_row_waits_until_the_players_picks_on_a_match_are_graded(client):
+    """Review H1, the reviewer's repro: live refresh flips a match to
+    finished minutes after full time, but players' picks are graded by a
+    separate pass. Until it has run, the model must not bank the match --
+    the model and a player who both called 2-1 are level at 0, then level at
+    5 once graded, and /summary agrees with the boards throughout."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    now = datetime.now(timezone.utc)
+    m = _match(db, epl, ars, che, 10, now - timedelta(hours=3), status="finished",
+               score_home=2, score_away=1, score_home_90=2, score_away_90=1)
+    _prediction(db, m, 2, 1)
+    player = TipPlayer(device_id=DEVICE_A, handle="SwiftStriker7")
+    db.add(player)
+    db.flush()
+    db.add(LeagueScorePrediction(
+        tournament_id=epl.id, match_id=m.id, player_id=player.id,
+        predicted_home=2, predicted_away=1, updated_at=now - timedelta(days=2),
+    ))
+    db.commit()
+
+    def boards():
+        weekly = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 10}).json()
+        season = c.get("/api/leagues/epl/tips/leaderboard/season").json()
+        summary = c.get("/api/leagues/epl/tips/summary", params={"device_id": DEVICE_A}).json()
+        return weekly, season, summary
+
+    weekly, season, summary = boards()
+    assert weekly["entries"] == [
+        {"handle": "SwiftStriker7", "points": 0, "exact_count": 0, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 0, "exact_count": 0, "is_model": True},
+    ]
+    assert season["participant_count"] == 0
+    assert season["entries"] == [
+        {"handle": MODEL_HANDLE, "points": 0, "exact_count": 0, "matchweeks_played": 0, "is_model": True},
+    ]
+    assert summary["matchweeks"] == []
+
+    assert grade_score_predictions(db) == 1
+
+    weekly, season, summary = boards()
+    assert weekly["entries"] == [
+        {"handle": "SwiftStriker7", "points": 5, "exact_count": 1, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 5, "exact_count": 1, "is_model": True},
+    ]
+    assert season["participant_count"] == 1
+    assert season["entries"] == [
+        {"handle": "SwiftStriker7", "points": 5, "exact_count": 1, "matchweeks_played": 1, "is_model": False},
+        {"handle": MODEL_HANDLE, "points": 5, "exact_count": 1, "matchweeks_played": 1, "is_model": True},
+    ]
+    assert summary["matchweeks"] == [
+        {"matchweek": 10, "your_points": 5, "model_points": 5, "matches_played": 1},
+    ]
+
+
+def test_a_pick_the_grader_will_never_score_does_not_hold_the_model_back(client):
+    """Only a grade-eligible pick (stamped at or before kickoff, the grading
+    pass's own filter) holds the model's points; one stamped after kickoff is
+    never graded, so it must not freeze the model's row for good."""
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    now = datetime.now(timezone.utc)
+    ko = now - timedelta(hours=3)
+    m = _match(db, epl, ars, che, 10, ko, status="finished", score_home=2, score_away=1)
+    _prediction(db, m, 2, 1)
+    player = TipPlayer(device_id=DEVICE_A, handle="LateStamp")
+    db.add(player)
+    db.flush()
+    db.add(LeagueScorePrediction(
+        tournament_id=epl.id, match_id=m.id, player_id=player.id,
+        predicted_home=2, predicted_away=1, updated_at=ko + timedelta(minutes=10),
+    ))
+    db.commit()
+
+    body = c.get("/api/leagues/epl/tips/leaderboard", params={"matchweek": 10}).json()
+
+    assert body["entries"][0] == {"handle": MODEL_HANDLE, "points": 5, "exact_count": 1, "is_model": True}
+
+
+def test_model_predictions_are_narrowed_to_one_kickoff_locked_row_per_match_in_sql(client):
+    """Review M3: the append-only log carries a row per pipeline run per
+    match (plus shadow twins), so the model's rows are narrowed to the single
+    kickoff-locked one per match in SQL -- the row _kickoff_locked_prediction
+    would pick -- never materialised by the hundred to pick one in Python."""
+    _, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    ko = datetime(2026, 10, 1, 15, 0, tzinfo=timezone.utc)
+    locked = _match(db, epl, ars, che, 6, ko, status="finished", score_home=1, score_away=0)
+    for day in range(5, 0, -1):  # five daily runs; the last is a day before kickoff
+        last_before_kickoff = _prediction(db, locked, day % 3, 0, created_at=ko - timedelta(days=day))
+    _prediction(db, locked, 0, 0, created_at=ko - timedelta(days=1), is_shadow=True)  # same instant
+    _prediction(db, locked, 4, 4, created_at=ko + timedelta(hours=1))  # after kickoff
+    undated = _match(db, epl, ars, che, 7, None)
+    _prediction(db, undated, 1, 1, created_at=ko - timedelta(days=2))
+    newest = _prediction(db, undated, 2, 2, created_at=ko - timedelta(days=1))
+    never_predicted = _match(db, epl, ars, che, 8, ko + timedelta(days=7))
+    db.commit()
+
+    by_match = lsp._model_predictions_by_match(db, [locked.id, undated.id, never_predicted.id])
+
+    assert {mid: [p.id for p in rows] for mid, rows in by_match.items()} == {
+        locked.id: [last_before_kickoff.id], undated.id: [newest.id],
+    }
+
+
+def test_season_board_query_count_stays_flat_as_the_season_grows(client):
+    c, TestingSession = client
+    db = TestingSession()
+    epl = _epl(db)
+    ars, che = _team(db, "Arsenal"), _team(db, "Chelsea")
+    start = datetime.now(timezone.utc) - timedelta(days=200)
+
+    def play(first, count, runs_per_match):
+        for i in range(first, first + count):
+            m = _match(db, epl, ars, che, i // 10 + 1, start + timedelta(days=i), status="finished",
+                       score_home=1, score_away=0)
+            for k in range(runs_per_match):
+                _prediction(db, m, 1, 0, created_at=m.kickoff_utc - timedelta(days=k + 1))
+        db.commit()
+
+    statements = []
+    event.listen(TestingSession.kw["bind"], "before_cursor_execute",
+                 lambda *args, **kw: statements.append(args[2]))
+
+    def season_board():
+        statements.clear()
+        body = c.get("/api/leagues/epl/tips/leaderboard/season").json()
+        return body["entries"][0]["points"], len(statements)
+
+    play(0, 3, 2)
+    small_points, small_sql = season_board()
+    play(3, 27, 12)
+    big_points, big_sql = season_board()
+
+    assert (small_points, big_points) == (3 * 5, 30 * 5)
+    assert big_sql == small_sql  # ten times the matches, six times the rows each: same queries
 
 
 # ---------------------------------------------------------------------------
