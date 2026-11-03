@@ -83,8 +83,37 @@ function hasOpenFixture(matches: LeagueTipsMineMatch[], now: number): boolean {
 
 /** "done" only when every fixture is settled; anything still in play or
  *  awaiting a result is "locked" -- the same word the rows use. */
-function closedWeekLabel(matches: LeagueTipsMineMatch[]): "done" | "locked" {
-  return matches.every((m) => m.status === "finished" || m.status === "cancelled") ? "done" : "locked";
+function weekIsDone(matches: LeagueTipsMineMatch[]): boolean {
+  return matches.every((m) => m.status === "finished" || m.status === "cancelled");
+}
+
+/** A row the provider still calls "scheduled" a day after its kickoff is a
+ *  ghost (a duplicate fixture row, e.g. "Racing Santander" next to the real
+ *  "Real Racing Club de Santander"), not a late kickoff: it will never be
+ *  played or graded, so it is neither shown nor counted as pickable. Inside
+ *  the day it is ordinary status lag and stays listed, locked. */
+const GHOST_AFTER_MS = 24 * 60 * 60 * 1000;
+
+function isGhost(match: LeagueTipsMineMatch, now: number): boolean {
+  return (
+    match.status === "scheduled" &&
+    match.kickoff_utc != null &&
+    now - new Date(match.kickoff_utc).getTime() > GHOST_AFTER_MS
+  );
+}
+
+/** How far the safety net may walk forward from the server's "current"
+ *  matchweek before it gives up and shows where it got to. */
+const MAX_AUTO_ADVANCE_HOPS = 12;
+
+/** The one line explaining an auto-advance from `from` to `shown`. */
+function advanceNoticeText(from: number, shown: number, allDone: boolean): string | null {
+  if (shown <= from) return null;
+  const last = shown - 1;
+  const state = allDone ? "done" : "locked";
+  return last === from
+    ? `Matchweek ${from} is ${state} — showing Matchweek ${shown}`
+    : `Matchweeks ${from}–${last} are ${state} — showing Matchweek ${shown}`;
 }
 
 /** "Beat the AI's scoreline" (design doc: League Score Predictions,
@@ -136,13 +165,17 @@ export function LeagueTipsPicker({
   const [draftHome, setDraftHome] = useState<Record<number, string>>({});
   const [draftAway, setDraftAway] = useState<Record<number, string>>({});
   // Safety net: the server's "current" matchweek can be one with nothing left
-  // to pick (a status update lagging after kickoff, or a ghost fixture still
-  // marked scheduled). The initial, server-resolved load then moves on to the
-  // next matchweek exactly once per league -- never after the player's own
-  // prev/next, and never twice, so it cannot loop. `advancing` keeps the
-  // locked week off screen (and away from onMatchweekChange) until the
-  // advance resolves; `advanceNotice` is the one-line "why".
+  // to pick (a status update lagging after kickoff, ghost fixtures keeping an
+  // August matchweek "current"). The initial, server-resolved load then walks
+  // forward, one matchweek per request through the same path as the "next"
+  // button, until a matchweek has something to pick -- at most
+  // MAX_AUTO_ADVANCE_HOPS requests, once per league, never after the
+  // player's own prev/next, and only while the server keeps moving forward,
+  // so it cannot loop. The run lives in a ref (it spans several loads);
+  // `advancing` keeps the skipped weeks off screen and away from
+  // onMatchweekChange until it ends; `advanceNotice` is the one-line "why".
   const autoAdvancedFor = useRef<string | null>(null);
+  const advanceRun = useRef<{ from: number; hops: number; allDone: boolean } | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [advanceNotice, setAdvanceNotice] = useState<string | null>(null);
 
@@ -154,11 +187,13 @@ export function LeagueTipsPicker({
     getMyLeagueTips(league, deviceId, requested ?? undefined)
       .then((res) => {
         if (!live) return;
+        const loadedAt = Date.now();
+        const matches = res.matches.filter((m) => !isGhost(m, loadedAt));
         // Fill in any locally-cached prediction the server doesn't know
         // about yet (e.g. a submit that raced this load) -- server truth
         // wins per match. Mirrors PlayRound's merge-on-load.
         const cache = readCache(league, res.matchweek);
-        const merged = res.matches.map((m) => {
+        const merged = matches.map((m) => {
           if (m.your_prediction || !cache[m.id]) return m;
           const c = cache[m.id];
           const your_prediction: LeagueTipsMineYourPrediction = {
@@ -171,20 +206,33 @@ export function LeagueTipsPicker({
         reportViewerHandle(res.handle);
         setSeasonNotStarted(false);
         setBoundary({ prev: false, next: false });
-        if (
-          requested == null &&
-          autoAdvancedFor.current !== league &&
-          !hasOpenFixture(res.matches, Date.now())
-        ) {
+        const open = hasOpenFixture(matches, loadedAt);
+        const run = advanceRun.current;
+        if (requested == null && autoAdvancedFor.current !== league && !open) {
+          // Start a run from the server-resolved week.
           autoAdvancedFor.current = league;
+          advanceRun.current = { from: res.matchweek, hops: 1, allDone: weekIsDone(matches) };
           setAdvancing(true);
           setRequested(res.matchweek + 1); // same request path as the "next" button
           return;
         }
-        if (advancing && current && res.matchweek !== current.matchweek) {
-          setAdvanceNotice(
-            `Matchweek ${current.matchweek} is ${closedWeekLabel(current.matches)} — showing Matchweek ${res.matchweek}`,
-          );
+        if (
+          run &&
+          !open &&
+          run.hops < MAX_AUTO_ADVANCE_HOPS &&
+          requested != null &&
+          res.matchweek >= requested // the server is still moving forward
+        ) {
+          run.hops += 1;
+          run.allDone = run.allDone && weekIsDone(matches);
+          setRequested(res.matchweek + 1);
+          return;
+        }
+        if (run) {
+          // The run ends here: something to pick, the hop cap, or a server
+          // that stopped moving forward.
+          advanceRun.current = null;
+          setAdvanceNotice(advanceNoticeText(run.from, res.matchweek, run.allDone));
         }
         setAdvancing(false);
         onMatchweekChange?.(res.matchweek);
@@ -200,9 +248,12 @@ export function LeagueTipsPicker({
           // last good matchweek and just flag that direction as exhausted.
           setBoundary((b) => ({ ...b, [requested < current.matchweek ? "prev" : "next"]: true }));
           setNavError(`No ${league} matches loaded for that matchweek yet.`);
-          if (advancing) {
-            // The auto-advance found nothing after the loaded week: stay on
-            // it, now announced as the week on screen.
+          const run = advanceRun.current;
+          if (run) {
+            // The run walked off the end of the loaded fixtures: stay on the
+            // last week it loaded, now announced as the week on screen.
+            advanceRun.current = null;
+            setAdvanceNotice(advanceNoticeText(run.from, current.matchweek, run.allDone));
             setAdvancing(false);
             onMatchweekChange?.(current.matchweek);
           }
@@ -312,9 +363,9 @@ export function LeagueTipsPicker({
     return (
       <section>
         <h2 className="mb-2.5 px-0.5 text-label font-semibold uppercase tracking-wider text-muted">
-          Beat the AI
+          Beat the model
         </h2>
-        <Empty label="The season hasn't kicked off yet — check back once fixtures are loaded to start beating the AI." />
+        <Empty label="The season hasn't kicked off yet — check back once fixtures are loaded to start beating the model." />
       </section>
     );
   }
@@ -325,8 +376,9 @@ export function LeagueTipsPicker({
   const nextWeek = current.matchweek + 1;
   const open = hasOpenFixture(current.matches, now.getTime());
 
-  // Explicit navigation always wins over the safety net's notice.
+  // Explicit navigation always wins over the safety net and its notice.
   function goTo(matchweek: number) {
+    advanceRun.current = null;
     setAdvanceNotice(null);
     setRequested(matchweek);
   }
@@ -334,7 +386,7 @@ export function LeagueTipsPicker({
   return (
     <section>
       <div className="mb-2.5 flex items-center justify-between gap-3 px-0.5">
-        <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Beat the AI</h2>
+        <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Beat the model</h2>
         {current.handle ? <span className="text-xs text-muted">Playing as {current.handle}</span> : null}
       </div>
 
@@ -468,7 +520,7 @@ function PredictionRow({
         {showModel && match.model ? (
           <span className="inline-flex items-center rounded-md bg-surface-2 px-2 py-0.5 font-display text-xs font-bold tabular-nums text-foreground">
             <span className="mr-1.5 align-middle text-note font-semibold uppercase tracking-wide text-muted">
-              ML model
+              Model
             </span>
             {formatScore(match.model.predicted_home, match.model.predicted_away)}
           </span>
