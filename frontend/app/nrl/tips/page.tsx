@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getNrlTipsheetServer } from "@/lib/api";
-import { nrlSeasonState } from "@/lib/nrlTips";
+import { nrlSeasonStart, nrlSeasonState, nrlStartLabel } from "@/lib/nrlTips";
 import { TipsheetBlock } from "@/components/nrl/TipsheetBlock";
 import { NrlTipsPlaySection } from "@/components/nrl/NrlTipsPlaySection";
 
@@ -22,7 +22,9 @@ export const metadata: Metadata = {
 export default async function NrlTipsPage() {
   const tipsheet = await getNrlTipsheetServer().catch(() => null);
   if (!tipsheet) notFound();
-  const seasonComplete = nrlSeasonState(tipsheet.matches) === "complete";
+  const rounds = [{ matches: tipsheet.matches }];
+  const seasonState = nrlSeasonState(rounds);
+  const opensAt = seasonState === "pre-season" ? nrlSeasonStart(rounds) : null;
 
   return (
     <div>
@@ -38,12 +40,16 @@ export default async function NrlTipsPage() {
        *  entry point (glass, full-card Link, small-caps label + "→" line).
        *  Once the season is over there is no run home left to predict, so the
        *  card points at a competition that is being played instead. */}
-      {seasonComplete ? (
+      {seasonState === "complete" || seasonState === "pre-season" ? (
         <Link href="/play?competition=epl" className="glass mt-6 block rounded-2xl p-4 transition hover:bg-white/5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-                {tipsheet.season} season complete · back March {tipsheet.season + 1}
+                {seasonState === "complete"
+                  ? `${tipsheet.season} season complete · back March ${tipsheet.season + 1}`
+                  : opensAt
+                    ? `Season ${tipsheet.season} starts ${nrlStartLabel(opensAt)}`
+                    : `Season ${tipsheet.season} starts soon`}
               </p>
               <p className="mt-1 font-display text-lg font-extrabold">Play the Premier League meanwhile</p>
             </div>

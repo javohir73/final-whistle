@@ -78,3 +78,12 @@ it("never promises a competition it can't resolve", () => {
   expect(heroCopy(null, NOVEMBER)).toEqual({ headline: "Beat the model.", playHref: "/play?competition=epl", nextUp: "epl" });
   expect(heroCopy("bundesliga", NOVEMBER).headline).toBe("Beat the model at the Bundesliga.");
 });
+
+it("lets the NRL's current round, not the calendar, decide whether NRL picks are open", () => {
+  mockScope.mockReturnValue({ competition: "nrl", fromUrl: false });
+  const { rerender } = render(<PlatformHero now={NOVEMBER} nrlPlayable />);
+  expect(screen.getByRole("heading", { level: 1, name: "Beat the model at the NRL." })).toBeInTheDocument();
+
+  rerender(<PlatformHero now={MAY} nrlPlayable={false} />);
+  expect(screen.getByRole("heading", { level: 1, name: "Beat the model." })).toBeInTheDocument();
+});

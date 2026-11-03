@@ -13,8 +13,9 @@ import { FeatureHero } from "@/components/FeatureHero";
 import { TimelineSpine } from "@/components/TimelineSpine";
 import { ladderRowsToStandings, nrlExpectedMargin, nrlMatchHref, nrlMatchToSummary } from "@/lib/nrlAdapters";
 import { isNrlLiveNow } from "@/lib/nrlLive";
+import { isNrlOpenMatch, nrlSeasonStart, nrlSeasonState, nrlStartLabel } from "@/lib/nrlTips";
 import { COMPETITIONS } from "@/lib/sports";
-import type { LadderResponse, NrlMatch, NrlMatchesResponse, NrlRecord, NrlRound, OriginSeriesResponse } from "@/lib/types";
+import type { LadderResponse, NrlMatchesResponse, NrlRecord, NrlRound, OriginSeriesResponse } from "@/lib/types";
 
 export const revalidate = 300;
 
@@ -22,20 +23,6 @@ export const metadata: Metadata = {
   title: "NRL predictions — FinalWhistle",
   description: "Match predictions from the FinalWhistle model, the ladder and the model's record for the NRL season.",
 };
-
-/** A season with nothing left to play is only "complete" once its last game
- *  is a decided single-match round (the Grand Final) or play stopped weeks
- *  ago -- the few days between round 27 and the finals draw must not read as
- *  the end of the season. */
-const SEASON_OVER_AFTER_DAYS = 21;
-
-/** Still worth leading with: in play right now, or scheduled for later. A
- *  "scheduled" row whose kickoff has passed is status lag or a ghost, never a
- *  feature. */
-function isLiveOrUpcoming(m: NrlMatch, now: Date): boolean {
-  if (isNrlLiveNow(m, now)) return true;
-  return m.status === "scheduled" && (m.kickoff_utc == null || Date.parse(m.kickoff_utc) > now.getTime());
-}
 
 /** The premiers, when the season's last round is a single decided match. */
 function premierOf(rounds: NrlRound[]): string | null {
@@ -46,15 +33,12 @@ function premierOf(rounds: NrlRound[]): string | null {
   return final.score_home > final.score_away ? final.home : final.away;
 }
 
-function lastKickoff(rounds: NrlRound[]): number | null {
-  const times = rounds.flatMap((r) => r.matches.map((m) => (m.kickoff_utc ? Date.parse(m.kickoff_utc) : NaN)));
-  const valid = times.filter((t) => !Number.isNaN(t));
-  return valid.length ? Math.max(...valid) : null;
-}
-
-/** NRL home: current-round fixtures + mini ladder + movers in season; once
- *  nothing is left to play, an off-season state (premiers, the model's season
- *  record, when it's back, and a way into a live competition meanwhile). */
+/** NRL home, by where the season stands (lib/nrlTips.ts nrlSeasonState, the
+ *  rule /play, /nrl/tips and the home page share): current-round fixtures,
+ *  mini ladder and movers in season; once nothing is left to play, an
+ *  off-season state (premiers, the model's record, when it's back, a way into
+ *  a live competition); and once next season's draw is loaded but Round 1 is
+ *  weeks away, a pre-season state -- never a March fixture as the feature. */
 export default async function NrlHomePage() {
   const [fixtures, ladder, origin] = await Promise.all([
     getNrlMatchesServer().catch(() => null),
@@ -64,18 +48,21 @@ export default async function NrlHomePage() {
   if (!fixtures) notFound();
 
   const now = new Date();
-  const current = fixtures.rounds.find((r) => r.matches.some((m) => isLiveOrUpcoming(m, now)));
-
-  if (!current) {
-    const premier = premierOf(fixtures.rounds);
-    const last = lastKickoff(fixtures.rounds);
-    const seasonOver =
-      premier != null || (last != null && now.getTime() - last > SEASON_OVER_AFTER_DAYS * 86_400_000);
-    if (seasonOver) {
-      const record = await getNrlRecordServer().catch(() => null);
-      return <OffSeason fixtures={fixtures} premier={premier} record={record} ladder={ladder} origin={origin} />;
-    }
+  const seasonState = nrlSeasonState(fixtures.rounds, now);
+  if (seasonState === "pre-season") {
+    const record = await getNrlRecordServer().catch(() => null);
+    return (
+      <PreSeason season={fixtures.season} startIso={nrlSeasonStart(fixtures.rounds)} record={record} origin={origin} />
+    );
   }
+  if (seasonState === "complete") {
+    const record = await getNrlRecordServer().catch(() => null);
+    return (
+      <OffSeason fixtures={fixtures} premier={premierOf(fixtures.rounds)} record={record} ladder={ladder} origin={origin} />
+    );
+  }
+
+  const current = fixtures.rounds.find((r) => r.matches.some((m) => isNrlOpenMatch(m, now)));
 
   // Between rounds (nothing live or scheduled yet, season not over) the last
   // round stays on screen as results and the hero shows its honest empty
@@ -83,7 +70,7 @@ export default async function NrlHomePage() {
   const round = current ?? fixtures.rounds[fixtures.rounds.length - 1];
   const featured = current
     ? current.matches.find((m) => isNrlLiveNow(m, now)) ??
-      current.matches.find((m) => isLiveOrUpcoming(m, now)) ??
+      current.matches.find((m) => isNrlOpenMatch(m, now)) ??
       null
     : null;
   const roundMatches = (round?.matches ?? []).filter((m) => m.id !== featured?.id);
@@ -116,6 +103,7 @@ export default async function NrlHomePage() {
               : undefined
           }
           margin={featured ? nrlExpectedMargin(featured) : null}
+          eyebrow="Next up"
         />
       </div>
 
@@ -206,6 +194,67 @@ function OffSeason({
       <div className="mt-6 max-w-md">
         <MiniLadder ladder={ladder} label="Final ladder" />
       </div>
+    </div>
+  );
+}
+
+/** Next season's draw is loaded and Round 1 is weeks away: no feature card,
+ *  movers or (all-zero) ladder -- when it starts, where the draw is, the
+ *  model's last-season record, and a live competition meanwhile. */
+function PreSeason({
+  season,
+  startIso,
+  record,
+  origin,
+}: {
+  season: number;
+  startIso: string | null;
+  record: NrlRecord | null;
+  origin: OriginSeriesResponse | null;
+}) {
+  const accuracy =
+    record && record.evaluated_matches > 0 && record.winner_accuracy != null
+      ? Math.round(record.winner_accuracy * 100)
+      : null;
+
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-extrabold">NRL · Season {season}</h1>
+      <p className="mt-1 text-sm text-muted">Pre-season · the {season} draw is out</p>
+
+      <section
+        aria-labelledby="nrl-pre-season"
+        className="glass relative mt-6 overflow-hidden rounded-[16px] p-5"
+      >
+        <span aria-hidden className="floodlight-glow pointer-events-none absolute inset-0" />
+        <div className="relative">
+          <h2 id="nrl-pre-season" className="font-display text-headline font-extrabold tracking-tight">
+            Season {season} starts {startIso ? nrlStartLabel(startIso) : "soon"} · draw is out
+          </h2>
+          {accuracy != null && record ? (
+            <Link
+              href="/nrl/record"
+              className="mt-2 inline-flex text-sm font-semibold text-lime-deep underline-offset-2 hover:underline"
+            >
+              Last season the model called {accuracy}% of winners across {record.evaluated_matches} graded matches →
+            </Link>
+          ) : null}
+          <Link
+            href="/nrl/matches"
+            className="mt-2 block text-sm font-semibold text-lime-deep underline-offset-2 hover:underline"
+          >
+            See the {season} draw →
+          </Link>
+          <Link
+            href="/play?competition=epl"
+            className="mt-4 flex min-h-[44px] items-center justify-center rounded-[12px] bg-win px-4 font-display text-sm font-semibold text-action-ink transition hover:brightness-[1.06] sm:inline-flex"
+          >
+            Play the Premier League meanwhile
+          </Link>
+        </div>
+      </section>
+
+      <OriginTeaser origin={origin} />
     </div>
   );
 }

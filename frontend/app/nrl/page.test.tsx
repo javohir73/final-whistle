@@ -16,6 +16,7 @@ import {
   getOriginSeriesServer,
 } from "@/lib/api";
 import type { NrlMatch, NrlMatchesResponse, NrlPrediction, NrlRecord, OriginSeriesResponse } from "@/lib/types";
+import { nrlStartLabel } from "@/lib/nrlTips";
 
 jest.mock("@/lib/api");
 // IntelPanel fetches market intel in a client effect; irrelevant here, but
@@ -240,4 +241,51 @@ it("between rounds, keeps the season view with an honest empty hero -- not 'seas
   expect(screen.queryByRole("heading", { name: /season complete/ })).not.toBeInTheDocument();
   expect(screen.getByText("No featured match right now")).toBeInTheDocument();
   expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
+});
+
+// ---- Pre-season: next season's draw is loaded, Round 1 is months away (M3) --
+
+const upcoming = (id: number, daysAhead: number, home: string, away: string): NrlMatch => ({
+  id, match_no: id, kickoff_utc: daysFromNow(daysAhead), venue: "Accor Stadium",
+  home, away, home_team_id: id * 2, away_team_id: id * 2 + 1,
+  score_home: null, score_away: null, status: "scheduled", prediction: null,
+});
+
+it("shows a pre-season state, not a 'feature', once next season's draw is loaded", async () => {
+  const draw: NrlMatchesResponse = {
+    season: 2027,
+    disclaimer: "For analytics and entertainment only. Not betting advice.",
+    rounds: [
+      { round: 1, matches: [upcoming(1, 100, "Roosters", "Rabbitohs"), upcoming(2, 101, "Storm", "Panthers")] },
+      { round: 2, matches: [upcoming(3, 107, "Broncos", "Cowboys")] },
+    ],
+  };
+  mockMatches.mockResolvedValue(draw);
+  mockRecord.mockResolvedValue(record);
+  render(await NrlHomePage());
+
+  const opener = nrlStartLabel(draw.rounds[0].matches[0].kickoff_utc!);
+  expect(screen.getByRole("heading", { name: `Season 2027 starts ${opener} · draw is out` })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Last season the model called 64% of winners/ })).toHaveAttribute(
+    "href",
+    "/nrl/record",
+  );
+  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
+  expect(screen.getByRole("link", { name: /See the 2027 draw/ })).toHaveAttribute("href", "/nrl/matches");
+  // No feature card for a March fixture, no movers, no all-zero ladder.
+  expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Tonight's feature|Next up/i)).not.toBeInTheDocument();
+  expect(screen.queryByTestId("intel-panel")).not.toBeInTheDocument();
+  expect(screen.queryByText("Roosters")).not.toBeInTheDocument();
+});
+
+it("in season, labels the hero 'Next up', never 'Tonight's feature'", async () => {
+  mockMatches.mockResolvedValue(fixtures);
+  render(await NrlHomePage());
+
+  expect(screen.getByText("Next up")).toBeInTheDocument();
+  expect(screen.queryByText(/Tonight's feature/i)).not.toBeInTheDocument();
 });

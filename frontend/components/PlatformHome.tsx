@@ -2,15 +2,46 @@ import Link from "next/link";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { PremiumPromo } from "@/components/PremiumPromo";
 import { PlatformHero } from "@/components/play/PlatformHero";
+import { getNrlTipsheetServer } from "@/lib/api";
 import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
-import { isNrlOffSeasonDate, nrlReturnYear } from "@/lib/nrlTips";
+import {
+  isNrlOffSeasonDate,
+  nrlReturnYear,
+  nrlSeasonStart,
+  nrlSeasonState,
+  nrlStartLabel,
+} from "@/lib/nrlTips";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import type { NrlTipsheet } from "@/lib/types";
 
-/** Derived from the date (this page is static, re-evaluated on every deploy)
- *  so the line can't rot the way the hard-coded "2026 season" card did. */
+/** Calendar-only fallback for when the NRL round can't be fetched. */
 export function nrlStatusLine(now: Date = new Date()): string {
   if (!isNrlOffSeasonDate(now)) return "Round-by-round predictions, ladder and tips";
   return `Season complete · back March ${nrlReturnYear(now)}`;
+}
+
+/** The NRL row's status line, and whether NRL picks are open, from the
+ *  current-round tipsheet through the same season rule as /nrl and /play
+ *  (lib/nrlTips.ts) -- the calendar is only the fallback without data. */
+export function nrlHomeStatus(
+  tipsheet: NrlTipsheet | null,
+  now: Date = new Date(),
+): { line: string; playable: boolean } {
+  if (!tipsheet) return { line: nrlStatusLine(now), playable: !isNrlOffSeasonDate(now) };
+  const rounds = [{ matches: tipsheet.matches }];
+  switch (nrlSeasonState(rounds, now)) {
+    case "pre-season": {
+      const start = nrlSeasonStart(rounds);
+      return {
+        line: start ? `Season ${tipsheet.season} starts ${nrlStartLabel(start)}` : `Season ${tipsheet.season} starts soon`,
+        playable: false,
+      };
+    }
+    case "complete":
+      return { line: `Season complete · back March ${tipsheet.season + 1}`, playable: false };
+    default:
+      return { line: `Round ${tipsheet.round} · predictions, ladder and tips`, playable: true };
+  }
 }
 
 function footballStatusLine(id: CompetitionId): string {
@@ -83,10 +114,14 @@ function CompetitionRow({
  * game (beat the model at your competition) and the next fixtures to pick on
  * the first screen, then where else to go. The World Cup sits under "Past
  * tournaments", below everything live. */
-export function PlatformHome({ now }: { now?: Date } = {}) {
+export async function PlatformHome({ now = new Date() }: { now?: Date } = {}) {
+  // ISR-cached (lib/api getServer), so the page now refreshes the NRL line
+  // instead of freezing it at build time.
+  const nrl = nrlHomeStatus(await getNrlTipsheetServer().catch(() => null), now);
+
   return (
     <div className="-mt-8">
-      <PlatformHero now={now} />
+      <PlatformHero now={now} nrlPlayable={nrl.playable} />
 
       <section id="competitions" className="scroll-mt-32 py-10 sm:py-14">
         <div className="mb-5 flex items-end justify-between gap-4">
@@ -111,7 +146,7 @@ export function PlatformHome({ now }: { now?: Date } = {}) {
           Rugby league
         </h3>
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4" data-competition-group="rugby-league">
-          <CompetitionRow id="nrl" name="National Rugby League" status={nrlStatusLine(now)} />
+          <CompetitionRow id="nrl" name="National Rugby League" status={nrl.line} />
         </div>
 
         <h3 className="mb-2.5 mt-6 text-label font-bold uppercase tracking-[0.12em] text-muted">

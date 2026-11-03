@@ -19,6 +19,7 @@ import {
   getNrlTipsheetServer,
 } from "@/lib/api";
 import { readServerCompetition } from "@/lib/competitionServer";
+import { nrlStartLabel } from "@/lib/nrlTips";
 import type { NrlTipsheet, TournamentOdds } from "@/lib/types";
 
 jest.mock("@/lib/api");
@@ -322,3 +323,41 @@ it.each(["toString", "constructor", "__proto__", "premier-league"])(
     expect(screen.queryByText(/picks aren't open yet/)).not.toBeInTheDocument();
   },
 );
+
+// ---- NRL pre-season: the next draw is loaded, Round 1 is months away (M3) ----
+
+it("keeps the NRL row closed as 'Opens {date}' when next season's draw is loaded", async () => {
+  const opener = new Date(Date.now() + 100 * 86_400_000).toISOString();
+  mockTipsheet.mockResolvedValue({
+    ...tipsheet,
+    season: 2027,
+    round: 1,
+    matches: [{
+      id: 3001, match_no: 1, kickoff_utc: opener, venue: "Accor Stadium",
+      home: "Roosters", away: "Rabbitohs", home_team_id: 1, away_team_id: 2,
+      score_home: null, score_away: null, status: "scheduled", prediction: null,
+    }],
+  });
+  render(await playPage("nrl"));
+
+  expect(sectionToggle(/^NRL/)).toHaveTextContent(`Opens ${nrlStartLabel(opener, "short")}`);
+  expect(screen.getByText(`The 2027 season starts ${nrlStartLabel(opener)}.`)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /See the draw/ })).toHaveAttribute("href", "/nrl/matches");
+  expect(screen.queryByTestId("nrl-play-round")).not.toBeInTheDocument();
+});
+
+it("keeps the NRL row open in season and closes it when a final is stuck in play", async () => {
+  mockTipsheet.mockResolvedValue({
+    ...tipsheet,
+    round: 31,
+    matches: [{
+      id: 2152, match_no: 213, kickoff_utc: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      venue: "Accor Stadium", home: "Roosters", away: "Knights", home_team_id: 1, away_team_id: 2,
+      score_home: 19, score_away: 18, status: "in_play", prediction: null,
+    }],
+  });
+  render(await playPage("nrl"));
+
+  // A month-old "in_play" final no longer holds the season open (L12).
+  expect(sectionToggle(/^NRL/)).toHaveTextContent("Season complete · back March 2027");
+});

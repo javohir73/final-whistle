@@ -8,7 +8,7 @@ import { NrlTipsPlaySection } from "@/components/nrl/NrlTipsPlaySection";
 import { PlayBracketCard, type BracketChampion } from "@/components/play/PlayBracketCard";
 import { PlayLeaderboard } from "@/components/play/PlayLeaderboard";
 import { ACTIVE_LEAGUES } from "@/lib/leagueConfig";
-import type { NrlSeasonState } from "@/lib/nrlTips";
+import { nrlStartLabel, type NrlSeasonState } from "@/lib/nrlTips";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 import type { NrlTipsheet } from "@/lib/types";
 
@@ -23,6 +23,8 @@ interface PlayHubProps {
   /** Where the NRL season stands (lib/nrlTips.ts nrlSeasonState); null
    *  without a tipsheet. */
   nrlState: NrlSeasonState | null;
+  /** Pre-season only: the season's first kickoff (ISO), for "Opens …". */
+  nrlOpensAt?: string | null;
   /** Whether the World Cup has a knockout bracket to link to. */
   hasBrackets: boolean;
   /** Predicted champion surfaced on the bracket card, or null (plain link). */
@@ -51,6 +53,7 @@ export function PlayHub({
   selectedCompetition,
   nrlTipsheet,
   nrlState,
+  nrlOpensAt = null,
   hasBrackets,
   champion,
 }: PlayHubProps) {
@@ -113,11 +116,15 @@ export function PlayHub({
     if (id === "nrl") {
       const season = nrlTipsheet?.season;
       const subtitle =
-        nrlState === "complete" && season != null
-          ? `Season complete · back March ${season + 1}`
-          : nrlTipsheet
-            ? `Round ${nrlTipsheet.round} · ${nrlTipsheet.season}`
-            : "Round tips";
+        nrlState === "pre-season"
+          ? nrlOpensAt
+            ? `Opens ${nrlStartLabel(nrlOpensAt, "short")}`
+            : `Season ${season} opens soon`
+          : nrlState === "complete" && season != null
+            ? `Season complete · back March ${season + 1}`
+            : nrlTipsheet
+              ? `Round ${nrlTipsheet.round} · ${nrlTipsheet.season}`
+              : "Round tips";
       return (
         <PlayCompetitionSection
           key={id}
@@ -137,6 +144,8 @@ export function PlayHub({
             </div>
           ) : nrlState === "complete" ? (
             <NrlOffSeasonCard season={nrlTipsheet.season} />
+          ) : nrlState === "pre-season" ? (
+            <NrlPreSeasonCard season={nrlTipsheet.season} opensAt={nrlOpensAt} />
           ) : (
             <NrlTipsPlaySection
               season={nrlTipsheet.season}
@@ -222,6 +231,27 @@ function NrlOffSeasonCard({ season }: { season: number }) {
       <Link href="/nrl/record" className="mt-3 inline-flex text-sm font-semibold text-lime-deep hover:underline">
         The model&apos;s {season} record →
       </Link>
+    </div>
+  );
+}
+
+/** Next season's draw is out but Round 1 is weeks away: the row stays closed
+ *  until the run-in, with the date and a way to the draw. */
+function NrlPreSeasonCard({ season, opensAt }: { season: number; opensAt: string | null }) {
+  return (
+    <div className="glass mt-3 rounded-2xl p-4">
+      <p className="font-display text-lg font-extrabold">
+        {opensAt ? `The ${season} season starts ${nrlStartLabel(opensAt)}.` : `The ${season} season is coming.`}
+      </p>
+      <p className="mt-1 text-body text-muted">The draw is out. Round tips open closer to kickoff.</p>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+        <Link href="/nrl/matches" className="inline-flex text-sm font-semibold text-lime-deep hover:underline">
+          See the draw →
+        </Link>
+        <Link href="/nrl/record" className="inline-flex text-sm font-semibold text-lime-deep hover:underline">
+          The model&apos;s record →
+        </Link>
+      </div>
     </div>
   );
 }

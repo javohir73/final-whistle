@@ -26,13 +26,19 @@ export interface HeroCopy {
 }
 
 /** The hero for the visitor's current competition. A competition with no
- *  picks open right now (the NRL off-season, the Champions League before its
- *  tips switch on, the finished World Cup, or nothing resolved at all) gets
- *  the plain "Beat the model." and a way into the Premier League instead of
- *  a promise it can't keep. */
-export function heroCopy(competition: CompetitionId | null | undefined, now: Date = new Date()): HeroCopy {
+ *  picks open right now (the NRL off- or pre-season, the Champions League
+ *  before its tips switch on, the finished World Cup, or nothing resolved at
+ *  all) gets the plain "Beat the model." and a way into the Premier League
+ *  instead of a promise it can't keep. `nrlPlayable` comes from the NRL's
+ *  current round (the shared season rule); the calendar is only a fallback. */
+export function heroCopy(
+  competition: CompetitionId | null | undefined,
+  now: Date = new Date(),
+  nrlPlayable?: boolean,
+): HeroCopy {
   const footballLeague = competition != null && ACTIVE_LEAGUES.includes(competition);
-  const playable = footballLeague || (competition === "nrl" && !isNrlOffSeasonDate(now));
+  const nrlOpen = nrlPlayable ?? !isNrlOffSeasonDate(now);
+  const playable = footballLeague || (competition === "nrl" && nrlOpen);
   const name = playable && competition ? PLAY_NAME[competition] : undefined;
   if (!competition || !name) {
     return { headline: "Beat the model.", playHref: "/play?competition=epl", nextUp: "epl" };
@@ -56,9 +62,9 @@ function ArrowIcon() {
 /** The home page's first screen: what the game is, for the competition the
  *  visitor follows (the nav's scope: URL -> remembered -> EPL), the way in,
  *  and the next fixtures to pick -- all inside the first mobile screen. */
-export function PlatformHero({ now }: { now?: Date }) {
+export function PlatformHero({ now, nrlPlayable }: { now?: Date; nrlPlayable?: boolean }) {
   const { competition } = useCompetitionScope();
-  const copy = heroCopy(competition, now);
+  const copy = heroCopy(competition, now, nrlPlayable);
 
   return (
     <section className="relative left-1/2 w-screen -translate-x-1/2 overflow-hidden border-b border-border pb-8 pt-6 sm:pb-12 sm:pt-12 lg:pb-16 lg:pt-16">

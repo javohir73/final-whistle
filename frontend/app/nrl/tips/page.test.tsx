@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import NrlTipsPage from "./page";
 import { getNrlTipsheetServer } from "@/lib/api";
 import type { NrlTipsheet } from "@/lib/types";
+import { nrlStartLabel } from "@/lib/nrlTips";
 
 jest.mock("@/lib/api");
 const mockTipsheet = getNrlTipsheetServer as jest.MockedFunction<typeof getNrlTipsheetServer>;
@@ -99,4 +100,22 @@ it("swaps the finals-race teaser for a live competition once the season is over"
     "/play?competition=epl",
   );
   expect(screen.getByText(/2026 season complete · back March 2027/)).toBeInTheDocument();
+});
+
+it("points at a live competition in the pre-season too, with the season's start date", async () => {
+  const opener = new Date(Date.now() + 100 * 86_400_000).toISOString();
+  mockTipsheet.mockResolvedValue({
+    ...fixtures,
+    season: 2027,
+    round: 1,
+    matches: [{ ...fixtures.matches[0], kickoff_utc: opener, status: "scheduled" }],
+  });
+  render(await NrlTipsPage());
+
+  expect(screen.queryByRole("link", { name: /run home/i })).not.toBeInTheDocument();
+  expect(screen.getByText(`Season 2027 starts ${nrlStartLabel(opener)}`)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
+    "href",
+    "/play?competition=epl",
+  );
 });

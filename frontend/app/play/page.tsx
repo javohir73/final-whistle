@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getKnockoutOddsServer, getNrlTipsheetServer } from "@/lib/api";
 import { parseCompetition } from "@/lib/competitionPrefs";
 import { readServerCompetition } from "@/lib/competitionServer";
-import { nrlSeasonState } from "@/lib/nrlTips";
+import { nrlSeasonStart, nrlSeasonState } from "@/lib/nrlTips";
 import { getCompetitionTournament } from "@/lib/tournament";
 import type { TournamentOdds } from "@/lib/types";
 import type { BracketChampion } from "@/components/play/PlayBracketCard";
@@ -67,11 +67,16 @@ export default async function PlayPage({ searchParams }: PlayPageProps) {
   const hasBrackets = tournament?.has_brackets ?? COMPETITIONS.wc26.hasBracket;
   const champion = hasBrackets && odds ? topChampion(odds) : null;
 
+  // The tipsheet is the current round; the shared rule reads it as a draw of one.
+  const nrlRounds = nrlTipsheet ? [{ matches: nrlTipsheet.matches }] : null;
+  const nrlState = nrlRounds ? nrlSeasonState(nrlRounds) : null;
+
   return (
     <PlayHub
       selectedCompetition={selectedCompetition}
       nrlTipsheet={nrlTipsheet}
-      nrlState={nrlTipsheet ? nrlSeasonState(nrlTipsheet.matches) : null}
+      nrlState={nrlState}
+      nrlOpensAt={nrlState === "pre-season" && nrlRounds ? nrlSeasonStart(nrlRounds) : null}
       hasBrackets={hasBrackets}
       champion={champion}
     />
