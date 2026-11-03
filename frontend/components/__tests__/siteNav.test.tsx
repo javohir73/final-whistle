@@ -1,13 +1,12 @@
-/** Top bar nav link row — mirrors BottomNav. Floodlight P5 folded the old
- *  Bracket/Tips slot into one always-on Play link, so the link row no longer
- *  flips with has_brackets (C6/D6, docs/LEAGUE-PIVOT-PLAN.md); Play is present
- *  in either format. */
-import { render, screen } from "@testing-library/react";
+/** Top bar: the desktop link row is the same five-tab template as BottomNav
+ *  (lib/sports.ts navTabsFor), and the competition chip shows on EVERY route
+ *  -- including /, /play and /leaderboard, where it used to be missing. */
+import { render, screen, within } from "@testing-library/react";
 import { SiteNav } from "@/components/SiteNav";
-import { TournamentProvider } from "@/components/TournamentProvider";
+import { BottomNav } from "@/components/BottomNav";
 import { AuthProvider } from "@/components/AuthProvider";
+import { COMPETITION_COOKIE, writeCompetitionCookie } from "@/lib/competitionPrefs";
 import * as session from "@/lib/session";
-import type { ActiveTournament } from "@/lib/types";
 
 // SiteNav renders AuthButton, which requires AuthProvider's context.
 jest.mock("@/lib/session");
@@ -21,130 +20,102 @@ jest.mock("next/navigation", () => ({
 }));
 
 beforeEach(() => {
-  mockGetMe.mockResolvedValue(null); // signed out — irrelevant to nav gating
+  mockGetMe.mockResolvedValue(null); // signed out — irrelevant to nav scoping
 });
 afterEach(() => {
   mockPath = "/";
   mockParams = new URLSearchParams();
+  document.cookie = `${COMPETITION_COOKIE}=; Max-Age=0; Path=/`;
   jest.resetAllMocks();
 });
 
-const LEAGUE: ActiveTournament = {
-  id: 1,
-  name: "Premier League 2026-27",
-  year: 2026,
-  format: "league",
-  has_brackets: false,
+const renderNav = (path: string, query = "") => {
+  mockPath = path;
+  mockParams = new URLSearchParams(query);
+  return render(
+    <AuthProvider>
+      <SiteNav />
+    </AuthProvider>,
+  );
 };
 
-const renderNav = (tournament?: ActiveTournament) => {
-  const nav = <AuthProvider><SiteNav /></AuthProvider>;
-  return render(tournament ? <TournamentProvider tournament={tournament}>{nav}</TournamentProvider> : nav);
-};
+/** The lg link row (the header's only div of nav links). */
+const row = () => within(document.querySelector("header nav > div") as HTMLElement);
+const rowLabels = () => row().getAllByRole("link").map((a) => a.textContent);
+const chip = () => screen.getByRole("button", { expanded: false, name: /^[A-Z0-9]+$/ });
 
-it("shows platform-level destinations on the general home", () => {
-  renderNav();
-  expect(screen.getByRole("link", { name: "Football" })).toHaveAttribute(
-    "href",
-    "/football/epl",
-  );
-  expect(screen.getByRole("link", { name: "NRL" })).toHaveAttribute("href", "/nrl");
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/play");
+it.each(["/", "/play", "/leaderboard", "/premium", "/methodology", "/football/epl", "/nrl"])(
+  "shows the five tabs and the competition chip on %s",
+  (path) => {
+    renderNav(path);
+    expect(rowLabels()).toHaveLength(5);
+    expect(rowLabels()[0]).toBe("Home");
+    expect(rowLabels()[4]).toBe("My picks");
+    expect(screen.getByRole("button", { name: path === "/nrl" ? "NRL" : "EPL" })).toHaveAttribute(
+      "aria-haspopup",
+      "dialog",
+    );
+  },
+);
+
+it("treats the root's /index ISR alias as the platform home (EPL scope, not WC26)", () => {
+  // On Vercel, ISR revalidation of "/" renders with usePathname() === "/index".
+  // The server must produce what the client renders for "/" or hydration
+  // fails site-wide (React #418).
+  renderNav("/index");
+  expect(chip()).toHaveTextContent("EPL");
   expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Bracket" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Tips" })).not.toBeInTheDocument();
+  expect(row().getByRole("link", { name: "Home" })).toHaveAttribute("href", "/football/epl");
 });
 
-it("treats the root route's ISR alias (/index) as the platform home, not WC26", () => {
-  // On Vercel, ISR revalidation of "/" renders with usePathname() === "/index"
-  // (the route's internal name). The server must produce the same platform nav
-  // the client renders for "/", or hydration fails site-wide (React #418).
-  mockPath = "/index";
-  renderNav();
-  expect(screen.getByRole("link", { name: "Football" })).toHaveAttribute(
-    "href",
-    "/football/epl",
-  );
-  expect(screen.getByRole("link", { name: "NRL" })).toHaveAttribute("href", "/nrl");
-  expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
-});
-
-it("keeps shared Play navigation platform-level instead of implying WC26", () => {
-  mockPath = "/play";
-  renderNav();
-  expect(screen.getByRole("link", { name: "Football" })).toHaveAttribute(
-    "href",
-    "/football/epl",
-  );
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
-});
-
-it("keeps the selected competition between shared Play and You routes", () => {
-  mockPath = "/play";
-  mockParams = new URLSearchParams("competition=nrl");
-  renderNav();
-
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
-    "href", "/play?competition=nrl",
-  );
-  expect(screen.getByRole("link", { name: "You" })).toHaveAttribute(
-    "href", "/leaderboard?competition=nrl",
-  );
-});
-
-it("keeps Premium navigation platform-level instead of implying WC26", () => {
-  mockPath = "/premium";
-  renderNav();
-  expect(screen.getByRole("link", { name: "Football" })).toHaveAttribute(
-    "href",
-    "/football/epl",
-  );
-  expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
-});
-
-it("keeps the Play link (never Bracket/Tips) when the active tournament has no bracket", () => {
-  mockPath = "/football/epl";
-  renderNav(LEAGUE);
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
-  expect(screen.getByRole("link", { name: "You" })).toHaveAttribute(
-    "href",
-    "/leaderboard?competition=epl",
-  );
-  expect(screen.queryByRole("link", { name: "Bracket" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Tips" })).not.toBeInTheDocument();
-  // Every other football link stays.
-  expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
-  // League navigation keeps its competition-specific terminology.
-  expect(screen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Standings" })).toBeInTheDocument();
-});
-
-it("uses Champions League league-phase navigation without advertising a bracket", () => {
-  mockPath = "/football/ucl";
-  renderNav(LEAGUE);
+it("scopes the chip and tabs to the URL on competition routes", () => {
+  renderNav("/football/ucl/standings");
   expect(screen.getByRole("button", { name: "UCL" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "League phase" })).toHaveAttribute(
+  expect(row().getByRole("link", { name: "Table" })).toHaveAttribute(
     "href",
     "/football/ucl/standings",
   );
-  expect(screen.getByRole("link", { name: "Fixtures" })).toHaveAttribute(
-    "href",
-    "/football/ucl/fixtures",
-  );
+  expect(row().getByRole("link", { name: "Table" })).toHaveAttribute("aria-current", "page");
+  // No bracket is advertised for a league.
   expect(screen.queryByRole("link", { name: "Bracket" })).not.toBeInTheDocument();
 });
 
-it("swaps the NRL fifth link for the shared Play hub -> /play (leaderboard alias dropped from nav, not the route)", () => {
-  mockPath = "/nrl";
-  renderNav();
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/play?competition=nrl");
-  expect(screen.queryByRole("link", { name: "You" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Tips" })).not.toBeInTheDocument();
+it("scopes /play to ?competition= and lights Play", () => {
+  renderNav("/play", "competition=nrl");
+  expect(screen.getByRole("button", { name: "NRL" })).toBeInTheDocument();
+  expect(row().getByRole("link", { name: "Play" })).toHaveAttribute("href", "/nrl/tips");
+  expect(row().getByRole("link", { name: "Play" })).toHaveAttribute("aria-current", "page");
+  expect(row().getByRole("link", { name: "My picks" })).toHaveAttribute(
+    "href",
+    "/leaderboard?competition=nrl",
+  );
+});
+
+it("scopes unscoped routes to the remembered competition (fw_comp)", () => {
+  writeCompetitionCookie("laliga");
+  renderNav("/leaderboard");
+  expect(screen.getByRole("button", { name: "LaLiga" })).toBeInTheDocument();
+  expect(row().getByRole("link", { name: "My picks" })).toHaveAttribute("aria-current", "page");
+  expect(row().getByRole("link", { name: "Home" })).toHaveAttribute("href", "/football/laliga");
+});
+
+it("renders the same tab set as BottomNav for the same route", () => {
+  for (const path of ["/", "/nrl/ladder", "/football/wc26/groups", "/play"]) {
+    const { unmount } = renderNav(path);
+    const header = rowLabels();
+    const headerHrefs = row()
+      .getAllByRole("link")
+      .map((a) => a.getAttribute("href"));
+    unmount();
+    const bar = render(<BottomNav />);
+    const bottom = within(screen.getByRole("navigation", { name: "Primary" }));
+    expect(bottom.getAllByRole("link").map((a) => a.textContent)).toEqual(header);
+    expect(bottom.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(headerHrefs);
+    bar.unmount();
+  }
+});
+
+it("renders no chrome on the partner embed", () => {
+  const { container } = renderNav("/embed/198");
+  expect(container.querySelector("header")).toBeNull();
 });

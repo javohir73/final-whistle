@@ -1,47 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
-import {
-  COMPETITIONS,
-  accentInkVar,
-  competitionFromPathname,
-  competitionsForSport,
-  type Competition,
-  type CompetitionId,
-  type SportId,
-} from "@/lib/sports";
-import {
-  clearPinnedCompetition,
-  readPinnedCompetition,
-  writePinnedCompetition,
-} from "@/lib/competitionPrefs";
+import { useCompetitionScope, usePreferredCompetition } from "@/components/TournamentProvider";
+import { COMPETITIONS, accentInkVar, type Competition, type CompetitionId } from "@/lib/sports";
+import { clearCompetitionCookie, writeCompetitionCookie } from "@/lib/competitionPrefs";
+import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
-/** Displayed in this order regardless of COMPETITIONS' insertion order --
- *  football first (it's most of the product today), NRL after. */
-const SPORT_SECTIONS: Array<{ sport: SportId; heading: string }> = [
-  { sport: "football", heading: "Football" },
-  { sport: "nrl", heading: "NRL" },
+/** Display order and grouping. Finished tournaments (registry `archived`)
+ *  move to their own section instead of sitting among live competitions. */
+const SECTIONS: Array<{ heading: string; includes: (c: Competition) => boolean }> = [
+  { heading: "Football", includes: (c) => c.sport === "football" && !c.archived },
+  { heading: "Rugby league", includes: (c) => c.sport === "nrl" && !c.archived },
+  { heading: "Past tournaments", includes: (c) => c.archived },
 ];
 
-/** Pinned competition sorts first within its own sport section; everything
- *  else keeps COMPETITIONS' stable insertion order. */
-function orderedForSection(
-  sport: SportId,
-  pinned: CompetitionId | null
-): Competition[] {
-  const list = competitionsForSport(sport);
-  const pinnedIdx = pinned ? list.findIndex((c) => c.id === pinned) : -1;
-  if (pinnedIdx <= 0) return list;
-  const reordered = list.slice();
-  const [pin] = reordered.splice(pinnedIdx, 1);
-  reordered.unshift(pin);
-  return reordered;
-}
+const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function ChevronIcon() {
   return (
@@ -91,36 +68,31 @@ function StarIcon({ filled }: { filled: boolean }) {
   );
 }
 
-/** Header trigger + full-screen typographic competition switcher (Floodlight
- *  P1 slice p1-s5). Replaces SportSwitcher: one sport toggle grows into one
- *  overlay listing every competition, section-separated by sport, with a
- *  starrable pin that persists in localStorage (lib/competitionPrefs.ts).
- *  P1 keeps this minimal and token-based -- it's the one new surface this
- *  phase ships; no other screen gets a visual pass. */
-export function CompetitionOverlay() {
-  const pathname = usePathname();
-  const active = competitionFromPathname(pathname);
+/** Header chip + full-screen competition switcher. Shown on every route: the
+ *  chip names the competition the shell is scoped to (SiteNav passes it in;
+ *  standalone it resolves the same scope itself). The star sets the default
+ *  competition -- the fw_comp cookie the server reads (lib/competitionPrefs.ts)
+ *  -- so it now changes what /, /play and /leaderboard open on, instead of
+ *  only reordering this list. */
+export function CompetitionOverlay({ competition }: { competition?: CompetitionId }) {
+  const scope = useCompetitionScope();
+  const active = competition ?? scope.competition;
+  const preferred = usePreferredCompetition();
   const [open, setOpen] = useState(false);
-  // Starts null on the server render and every first client render so SSR
-  // and the initial hydration pass agree -- the real value only exists in
-  // localStorage, read after mount.
-  const [pinned, setPinned] = useState<CompetitionId | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    setPinned(readPinnedCompetition());
-  }, []);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const close = () => {
     setOpen(false);
     triggerRef.current?.focus();
   };
 
-  // Escape closes -- P1's "focus-trapped enough" bar; a full Tab-cycle trap
-  // isn't required for this slice.
+  // Move focus into the dialog when it opens (the close button, first in tab
+  // order), and close on Escape from anywhere.
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
+    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -128,14 +100,40 @@ export function CompetitionOverlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const togglePin = (id: CompetitionId) => {
-    if (pinned === id) {
-      clearPinnedCompetition();
-      setPinned(null);
-    } else {
-      writePinnedCompetition(id);
-      setPinned(id);
+  // Focus trap: Tab and Shift+Tab cycle inside the dialog.
+  const onDialogKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const current = document.activeElement;
+    if (e.shiftKey && (current === first || !dialogRef.current.contains(current))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (current === last || !dialogRef.current.contains(current))) {
+      e.preventDefault();
+      first.focus();
     }
+  };
+
+  const choose = (id: CompetitionId) => {
+    if (id !== active) {
+      // Written now rather than left to the navigation, so the provider's
+      // URL sync sees no change and the switch is counted once, as "switcher".
+      writeCompetitionCookie(id);
+      trackEvent("competition_switch", { from: active, to: id, source: "switcher" });
+    }
+    close();
+  };
+
+  const toggleDefault = (id: CompetitionId) => {
+    if (preferred === id) {
+      clearCompetitionCookie();
+      return;
+    }
+    writeCompetitionCookie(id);
+    trackEvent("competition_switch", { from: preferred ?? active, to: id, source: "set_default" });
   };
 
   return (
@@ -168,11 +166,13 @@ export function CompetitionOverlay() {
       {open &&
         createPortal(
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Choose a competition"
             className="fixed inset-0 z-[60] overflow-y-auto bg-background/95 backdrop-blur-xl"
             onClick={close}
+            onKeyDown={onDialogKeyDown}
           >
             <div
               className="mx-auto max-w-3xl px-6 py-16 sm:py-24"
@@ -187,18 +187,22 @@ export function CompetitionOverlay() {
                 <CloseIcon />
               </button>
 
-              {SPORT_SECTIONS.map(({ sport, heading }) => {
-                const list = orderedForSection(sport, pinned);
+              {SECTIONS.map(({ heading, includes }) => {
+                const list = Object.values(COMPETITIONS).filter(includes);
                 if (list.length === 0) return null;
                 return (
-                  <section key={sport} className="mb-12 last:mb-0">
+                  <section key={heading} className="mb-12 last:mb-0">
                     <h2 className="mb-4 text-label font-semibold uppercase tracking-[0.08em] text-muted">
                       {heading}
                     </h2>
                     <ul>
                       {list.map((c) => {
                         const isActive = c.id === active;
-                        const isPinned = pinned === c.id;
+                        const isDefault = preferred === c.id;
+                        // "NRL NRL": the code chip only earns its place when
+                        // it says something the name does not.
+                        const showCode =
+                          c.shortLabel.toLowerCase() !== c.label.toLowerCase();
                         const row = (
                           <>
                             <CompetitionLogo competition={c.id} size={42} />
@@ -214,19 +218,22 @@ export function CompetitionOverlay() {
                             >
                               {c.label}
                             </span>
-                            <span
-                              className="rounded-full px-2 py-0.5 text-label font-bold uppercase tracking-wide"
-                              style={{
-                                backgroundColor: `hsl(var(${c.accentVar}) / 0.12)`,
-                                // Shared with CompEyebrowChip. These two used
-                                // to carry separate inline ternaries and had
-                                // already drifted apart — the eyebrow routed
-                                // NRL through its ink, this one did not.
-                                color: `hsl(var(${accentInkVar(c.id)}))`,
-                              }}
-                            >
-                              {c.shortLabel}
-                            </span>
+                            {showCode && (
+                              <span
+                                aria-hidden="true"
+                                className="rounded-full px-2 py-0.5 text-label font-bold uppercase tracking-wide"
+                                style={{
+                                  backgroundColor: `hsl(var(${c.accentVar}) / 0.12)`,
+                                  // Shared with CompEyebrowChip. These two used
+                                  // to carry separate inline ternaries and had
+                                  // already drifted apart — the eyebrow routed
+                                  // NRL through its ink, this one did not.
+                                  color: `hsl(var(${accentInkVar(c.id)}))`,
+                                }}
+                              >
+                                {c.shortLabel}
+                              </span>
+                            )}
                             {!c.enabled && (
                               <span className="rounded-full bg-surface-2 px-2 py-0.5 text-label font-semibold uppercase tracking-wide text-muted">
                                 Soon
@@ -242,7 +249,7 @@ export function CompetitionOverlay() {
                             {c.enabled ? (
                               <Link
                                 href={c.basePath}
-                                onClick={close}
+                                onClick={() => choose(c.id)}
                                 aria-current={isActive ? "page" : undefined}
                                 className="flex flex-1 flex-wrap items-center gap-3"
                               >
@@ -259,19 +266,18 @@ export function CompetitionOverlay() {
                             {c.enabled && (
                               <button
                                 type="button"
-                                onClick={() => togglePin(c.id)}
-                                aria-pressed={isPinned}
-                                aria-label={
-                                  isPinned
-                                    ? `Unpin ${c.label}`
-                                    : `Pin ${c.label}`
-                                }
+                                onClick={() => toggleDefault(c.id)}
+                                // A toggle keeps one name; aria-pressed carries
+                                // the state ("Set NRL as default, pressed").
+                                aria-pressed={isDefault}
+                                aria-label={`Set ${c.label} as default`}
+                                title={isDefault ? "Your default competition" : "Set as default"}
                                 className={cn(
                                   "grid h-11 w-11 shrink-0 place-items-center rounded-full transition hover:bg-surface-2 hover:text-foreground",
-                                  isPinned ? "text-lime-deep" : "text-muted"
+                                  isDefault ? "text-lime-deep" : "text-muted"
                                 )}
                               >
-                                <StarIcon filled={isPinned} />
+                                <StarIcon filled={isDefault} />
                               </button>
                             )}
                           </li>

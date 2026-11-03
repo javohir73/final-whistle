@@ -1,16 +1,11 @@
-/** Bottom nav (Daylight IA): exactly five first-class tabs — Home, Fixtures,
- *  Play, Standings, You — no overflow sheet. Floodlight P5 folded the old
- *  mutually-exclusive Bracket/Tips slot into the always-on Play tab. Every key
- *  route lights its tab, including detail pages like /football/wc26/match/[id]
- *  that don't share the tab's prefix. Paths below use the Floodlight P1
- *  /football/wc26/... scheme (lib/sports.ts's COMPETITIONS.wc26) since BottomNav
- *  now derives its tabs from the registry, not the legacy un-namespaced routes
- *  those hrefs used to point at (still 301-redirected in next.config.mjs, but no
- *  longer what the nav itself renders). */
-import { render, screen } from "@testing-library/react";
+/** Bottom nav (UX rebuild plan 2026-11 §3.1): ONE five-tab shell on every
+ *  route except /embed -- Home, Fixtures, Table, Play, My picks -- scoped to
+ *  the current competition. The set and order never change; only the
+ *  destinations (and the Table slot's word) follow the scope, which resolves
+ *  URL -> ?competition= -> fw_comp cookie -> EPL. */
+import { act, render, screen } from "@testing-library/react";
 import { BottomNav } from "@/components/BottomNav";
-import { TournamentProvider } from "@/components/TournamentProvider";
-import type { ActiveTournament } from "@/lib/types";
+import { COMPETITION_COOKIE, writeCompetitionCookie } from "@/lib/competitionPrefs";
 
 let mockPath = "/";
 let mockParams = new URLSearchParams();
@@ -19,125 +14,217 @@ jest.mock("next/navigation", () => ({
   useSearchParams: () => mockParams,
 }));
 
-const renderAt = (path: string) => {
+const renderAt = (path: string, query = "") => {
   mockPath = path;
+  mockParams = new URLSearchParams(query);
   return render(<BottomNav />);
 };
 
+const tabs = () => screen.getAllByRole("link");
+const labels = () => tabs().map((a) => a.textContent);
+const hrefs = () => tabs().map((a) => a.getAttribute("href"));
 const current = () =>
-  screen
-    .getAllByRole("link")
+  tabs()
     .filter((a) => a.getAttribute("aria-current") === "page")
     .map((a) => a.textContent);
 
 afterEach(() => {
   mockPath = "/";
   mockParams = new URLSearchParams();
+  document.cookie = `${COMPETITION_COOKIE}=; Max-Age=0; Path=/`;
 });
 
-it("exposes exactly five platform destinations on the general home", () => {
-  renderAt("/");
-  for (const label of ["Home", "Football", "NRL", "Play", "You"]) {
-    expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument();
-  }
-  expect(screen.getAllByRole("link")).toHaveLength(5);
-  // Floodlight P5: the old Bracket/Tips tabs folded into Play.
-  expect(screen.queryByRole("link", { name: /Bracket/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: /^Tips/ })).not.toBeInTheDocument();
-  // The old "More" overflow control is gone.
-  expect(screen.queryByRole("button", { name: /More/ })).not.toBeInTheDocument();
-});
+const FIVE = ["Home", "Fixtures", "Table", "Play", "My picks"];
 
-it("renders the platform tabs with Home active under the root's /index ISR alias", () => {
-  // Same hydration contract as SiteNav: the server-side "/index" render must
-  // match what the client produces for "/".
-  renderAt("/index");
-  for (const label of ["Home", "Football", "NRL", "Play", "You"]) {
-    expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument();
-  }
-  expect(current()).toEqual(["Home"]);
-});
-
-it("keeps shared routes in the platform navigation", () => {
-  renderAt("/play");
-  expect(screen.getByRole("link", { name: /Football/ })).toHaveAttribute(
-    "href",
+describe("one shell, same five tabs everywhere", () => {
+  it.each([
+    "/",
+    "/play",
+    "/leaderboard",
+    "/premium",
+    "/methodology",
+    "/record",
+    "/football",
     "/football/epl",
-  );
-  expect(current()).toEqual(["Play"]);
+    "/football/epl/match/198",
+    "/football/laliga/standings",
+    "/football/ucl/standings",
+    "/reset-password",
+    "/tips/share/epl/9/pete",
+  ])("renders Home · Fixtures · Table · Play · My picks on %s", (path) => {
+    renderAt(path);
+    expect(labels()).toEqual(FIVE);
+  });
+
+  it("keeps the order and ids for NRL and WC26; only the Table word changes", () => {
+    renderAt("/nrl");
+    expect(labels()).toEqual(["Home", "Fixtures", "Ladder", "Play", "My picks"]);
+    const nrlIds = tabs().map((a) => a.getAttribute("data-tab"));
+    expect(nrlIds).toEqual(["home", "fixtures", "table", "play", "mypicks"]);
+  });
+
+  it("labels WC26's table Groups", () => {
+    renderAt("/football/wc26");
+    expect(labels()).toEqual(["Home", "Fixtures", "Groups", "Play", "My picks"]);
+  });
+
+  it("calls UCL's table slot Table (League phase is a page heading)", () => {
+    renderAt("/football/ucl");
+    expect(labels()).toEqual(FIVE);
+    expect(screen.queryByRole("link", { name: /League phase/ })).not.toBeInTheDocument();
+  });
+
+  it("renders nothing on the partner embed", () => {
+    const { container } = renderAt("/embed/198");
+    expect(container).toBeEmptyDOMElement();
+  });
 });
 
-it("keeps the selected competition between shared Play and You routes", () => {
-  mockPath = "/play";
-  mockParams = new URLSearchParams("competition=nrl");
-  render(<BottomNav />);
+describe("destinations follow the competition scope", () => {
+  it("routes a football league's tabs into its own space", () => {
+    renderAt("/football/laliga/fixtures");
+    expect(hrefs()).toEqual([
+      "/football/laliga",
+      "/football/laliga/fixtures",
+      "/football/laliga/standings",
+      "/play?competition=laliga",
+      "/leaderboard?competition=laliga",
+    ]);
+  });
 
-  expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute(
-    "href", "/play?competition=nrl",
-  );
-  expect(screen.getByRole("link", { name: "You" })).toHaveAttribute(
-    "href", "/leaderboard?competition=nrl",
-  );
+  it("routes NRL to its own slugs and its own Play surface", () => {
+    renderAt("/nrl/ladder");
+    expect(hrefs()).toEqual([
+      "/nrl",
+      "/nrl/matches",
+      "/nrl/ladder",
+      "/nrl/tips",
+      "/leaderboard?competition=nrl",
+    ]);
+  });
+
+  it("routes WC26's table to its group tables", () => {
+    renderAt("/football/wc26/fixtures");
+    expect(screen.getByRole("link", { name: /Groups/ })).toHaveAttribute(
+      "href",
+      "/football/wc26/groups",
+    );
+  });
+
+  it("defaults unscoped routes to the Premier League, never WC26", () => {
+    renderAt("/");
+    expect(hrefs()[0]).toBe("/football/epl");
+    expect(hrefs().join(" ")).not.toContain("wc26");
+  });
+
+  it("keeps a ?competition= scope on Play and My picks", () => {
+    renderAt("/play", "competition=nrl");
+    expect(hrefs()).toEqual([
+      "/nrl",
+      "/nrl/matches",
+      "/nrl/ladder",
+      "/nrl/tips",
+      "/leaderboard?competition=nrl",
+    ]);
+  });
+
+  it("ignores a bogus ?competition= value (including prototype keys)", () => {
+    renderAt("/play", "competition=toString");
+    expect(hrefs()[0]).toBe("/football/epl");
+  });
+
+  it("scopes unscoped routes to the fw_comp cookie", () => {
+    writeCompetitionCookie("nrl");
+    renderAt("/methodology");
+    expect(hrefs()[0]).toBe("/nrl");
+    expect(labels()[2]).toBe("Ladder");
+  });
+
+  it("lets the URL beat the cookie", () => {
+    writeCompetitionCookie("nrl");
+    renderAt("/football/bundesliga");
+    expect(hrefs()[0]).toBe("/football/bundesliga");
+  });
+
+  it("re-scopes live when the cookie changes (switcher / Set as default)", () => {
+    renderAt("/");
+    expect(hrefs()[0]).toBe("/football/epl");
+    act(() => writeCompetitionCookie("ucl"));
+    expect(hrefs()[0]).toBe("/football/ucl");
+  });
 });
 
-it.each([
-  ["/football/wc26", "Home"],
-  ["/football/wc26/team/3", "Home"], // team profiles open from the home hub
-  ["/football/wc26/fixtures", "Fixtures"],
-  ["/football/wc26/match/12", "Fixtures"], // singular detail route still lights Fixtures
-  ["/football/wc26/groups", "Standings"],
-  ["/football/wc26/groups/2", "Standings"], // group detail still lights Standings
-  ["/play", "Play"], // the hub itself lights Play
-  ["/tips", "Play"], // Play subsumes the league-tips route (activePrefix)
-  ["/football/wc26/bracket", "Play"], // ...and the projected-bracket route the user actually lands on (legacy /brackets 301s here)
-  ["/football/ucl", "Home"],
-  ["/football/ucl/fixtures", "Fixtures"],
-  ["/football/ucl/match/31", "Fixtures"],
-  ["/football/ucl/standings", "League phase"],
-  ["/leaderboard", "You"], // cross-cutting, not namespaced in P1
-  ["/about", "You"], // relocated info pages light the You hub
-  ["/methodology", "You"],
-  ["/record", "You"], // the live track record nests under the You hub
-])("marks the right tab active on %s", (path, label) => {
-  renderAt(path);
-  expect(current()).toContain(label);
+describe("active state", () => {
+  it.each([
+    ["/football/epl", "Home"], // exact match only
+    ["/football/epl/fixtures", "Fixtures"],
+    ["/football/epl/match/198", "Fixtures"], // match pages light Fixtures
+    ["/football/epl/standings", "Table"],
+    ["/football/ucl/standings", "Table"],
+    ["/football/wc26/groups", "Groups"],
+    ["/football/wc26/groups/2", "Groups"],
+    ["/football/wc26/bracket", "Play"],
+    ["/play", "Play"],
+    ["/tips", "Play"],
+    ["/nrl", "Home"],
+    ["/nrl/matches", "Fixtures"],
+    ["/nrl/match/2026/27/1", "Fixtures"],
+    ["/nrl/round/27", "Fixtures"],
+    ["/nrl/ladder", "Ladder"],
+    ["/nrl/run-home", "Ladder"],
+    ["/nrl/tips", "Play"],
+    ["/nrl/leaderboard", "My picks"],
+    ["/nrl/record", "My picks"],
+    ["/leaderboard", "My picks"],
+    ["/record", "My picks"],
+    ["/about", "My picks"],
+    ["/methodology", "My picks"],
+    ["/privacy", "My picks"],
+    ["/terms", "My picks"],
+  ])("lights exactly one tab on %s (%s)", (path, label) => {
+    renderAt(path);
+    expect(current()).toEqual([label]);
+  });
+
+  it.each(["/", "/index", "/premium", "/football", "/football/epl/team/3", "/nrl/origin"])(
+    "lights no tab on %s",
+    (path) => {
+      renderAt(path);
+      expect(current()).toEqual([]);
+    },
+  );
+
+  it("does not light Home on a competition's sub-pages", () => {
+    renderAt("/football/epl/fixtures");
+    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("matches whole segments only", () => {
+    renderAt("/playoffs");
+    expect(current()).toEqual([]);
+  });
 });
 
-it("gives every competition tab an icon, including League phase", () => {
-  // "League phase" (UCL's standings label) was the one text-only item in an
-  // otherwise icon+label bar — NavIcon had no glyph mapped for the label.
-  renderAt("/football/ucl/standings");
-  for (const link of screen.getAllByRole("link")) {
-    expect(link.querySelector("svg")).not.toBeNull();
+it("treats the root's /index ISR alias exactly like /", () => {
+  renderAt("/index");
+  const atIndex = hrefs();
+  document.body.innerHTML = "";
+  renderAt("/");
+  expect(hrefs()).toEqual(atIndex);
+});
+
+it("gives every tab an icon (looked up by id, not label)", () => {
+  for (const path of ["/football/ucl/standings", "/nrl/ladder", "/football/wc26"]) {
+    const { unmount } = renderAt(path);
+    for (const link of tabs()) expect(link.querySelector("svg")).not.toBeNull();
+    unmount();
   }
-  expect(screen.getByRole("link", { name: /League phase/ })).toBeInTheDocument();
 });
 
-it.each([
-  ["/nrl", "Home"],
-  ["/nrl/matches", "Matches"],
-  ["/nrl/ladder", "Ladder"],
-  ["/nrl/record", "Record"],
-  ["/nrl/tips", "Play"], // Play subsumes the NRL tips route (activePrefix)
-])("marks exactly one NRL tab active on %s", (path, label) => {
-  renderAt(path);
-  // Regression: "/nrl" used to prefix-match every /nrl/* sub-page, so Home
-  // stayed lit alongside the true tab — exactly one tab must be active.
-  expect(current()).toEqual([label]);
-});
-
-it("swaps the NRL fifth tab for the shared Play hub (leaderboard alias dropped from the tab bar, not the route)", () => {
-  renderAt("/nrl");
-  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play?competition=nrl");
-  expect(screen.queryByRole("link", { name: "You" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: /Tips/ })).not.toBeInTheDocument();
-  expect(screen.getAllByRole("link")).toHaveLength(5);
-});
-
-it("uses the deep lime for the active tab on the light canvas", () => {
-  renderAt("/football/wc26");
-  const home = screen.getByRole("link", { name: /Home/ });
-  expect(home.className).toContain("text-lime-deep");
+it("keeps 44px targets and the deep lime for the active tab", () => {
+  renderAt("/football/epl");
+  for (const link of tabs()) expect(link.className).toContain("min-h-[44px]");
+  expect(screen.getByRole("link", { name: "Home" }).className).toContain("text-lime-deep");
 });
 
 it("keeps the safe-area inset on the fixed bar", () => {
@@ -147,44 +234,4 @@ it("keeps the safe-area inset on the fixed bar", () => {
   // can't represent env() inline styles).
   expect(nav.className).toContain("safe-bottom");
   expect(nav.className).toContain("safe-x");
-});
-
-// Floodlight P5: Play is always-on -- unlike the old Bracket/Tips pair it no
-// longer flips with has_brackets (C6/D6, docs/LEAGUE-PIVOT-PLAN.md). The tab
-// bar stays five wide with Play in the fifth slot, in either format.
-const LEAGUE: ActiveTournament = {
-  id: 1,
-  name: "Premier League 2026-27",
-  year: 2026,
-  format: "league",
-  has_brackets: false,
-};
-
-it("keeps the Play tab (never a separate Bracket/Tips) when the tournament has no bracket", () => {
-  mockPath = "/football/epl";
-  render(
-    <TournamentProvider tournament={LEAGUE}>
-      <BottomNav />
-    </TournamentProvider>,
-  );
-  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
-  expect(screen.getByRole("link", { name: /You/ })).toHaveAttribute(
-    "href",
-    "/leaderboard?competition=epl",
-  );
-  expect(screen.queryByRole("link", { name: /Bracket/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: /Tips/ })).not.toBeInTheDocument();
-  // Still exactly five, never six.
-  expect(screen.getAllByRole("link")).toHaveLength(5);
-});
-
-it("keeps the Play tab with no provider on a World Cup route", () => {
-  renderAt("/football/wc26");
-  expect(screen.getByRole("link", { name: /Play/ })).toHaveAttribute("href", "/play?competition=wc26");
-  expect(screen.queryByRole("link", { name: /Bracket/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: /Tips/ })).not.toBeInTheDocument();
-  expect(screen.getAllByRole("link")).toHaveLength(5);
 });

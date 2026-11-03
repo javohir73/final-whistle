@@ -1,112 +1,13 @@
-/** Per-sport navigation config (spec 2026-07-09, Template A).
- *  Adding a sport = adding an entry here; SiteNav/BottomNav derive from it. */
+/** Competition registry and the one navigation template derived from it.
+ *  Adding a competition = adding an entry to COMPETITIONS; SiteNav, BottomNav,
+ *  the switcher, the sitemap and the /football hub all derive from it. */
 export type SportId = "football" | "nrl";
 
-export interface SportNavLink {
-  href: string;
-  label: string;
-  activePrefixes: string[];
-  /** Was the gate on football's Bracket tab (hidden when the active tournament
-   *  had no knockout bracket, C6). Floodlight P5 folded the mutually-exclusive
-   *  Bracket + Tips pair into one always-on Play tab (the '/play' entries
-   *  below), so no nav entry sets this anymore -- but BottomNav/SiteNav still
-   *  reference it in their filter, where a link without the flag always passes,
-   *  so the field stays defined and the filter is a harmless no-op. */
-  requiresBrackets?: boolean;
-  /** Was the inverse gate on the Tips tab that took the slot Bracket vacated in
-   *  league format (design doc: League Score Predictions, 2026-07-24). Same
-   *  story as requiresBrackets: Play now subsumes that single mutually-exclusive
-   *  slot, so nothing sets this, but the field stays for the (now no-op)
-   *  BottomNav/SiteNav filter. */
-  requiresLeagueFormat?: boolean;
-}
-
-export const SPORTS: Record<
-  SportId,
-  { id: SportId; label: string; basePath: string; navLinks: SportNavLink[] }
-> = {
-  football: {
-    id: "football",
-    label: "Football",
-    basePath: "",
-    navLinks: [
-      { href: "/", label: "Home", activePrefixes: ["/team"] },
-      { href: "/matches", label: "Matches", activePrefixes: ["/matches", "/match"] },
-      { href: "/groups", label: "Groups", activePrefixes: [] },
-      // Floodlight P5: one always-on Play tab subsumes the old mutually-exclusive
-      // Bracket/Tips slot (both /brackets and /tips stay live and are linked from
-      // the hub). Home/Matches/Groups/Play/You keeps the five-destination cap
-      // (BottomNav.tsx). Mirrors NRL's own Play slot below.
-      { href: "/play", label: "Play", activePrefixes: ["/tips", "/brackets"] },
-      {
-        href: "/leaderboard",
-        label: "You",
-        activePrefixes: ["/about", "/methodology", "/privacy", "/terms", "/record"],
-      },
-    ],
-  },
-  nrl: {
-    id: "nrl",
-    label: "NRL",
-    basePath: "/nrl",
-    navLinks: [
-      { href: "/nrl", label: "Home", activePrefixes: [] },
-      { href: "/nrl/matches", label: "Matches", activePrefixes: [] },
-      { href: "/nrl/ladder", label: "Ladder", activePrefixes: [] },
-      { href: "/nrl/record", label: "Record", activePrefixes: [] },
-      // Floodlight P5: the NRL tips slot becomes the shared Play tab (the hub
-      // groups NRL's tips under its own heading). /nrl/tips stays a live route,
-      // linked from the hub; /nrl/leaderboard likewise stays aliased but off the
-      // tab bar. Five-destination cap holds (BottomNav.tsx).
-      { href: "/play", label: "Play", activePrefixes: ["/nrl/tips"] },
-    ],
-  },
-};
-
-export function sportFromPathname(pathname: string): SportId {
-  return pathname === "/nrl" || pathname.startsWith("/nrl/") ? "nrl" : "football";
-}
-
-/** Every sport's home href ("/", "/nrl", ...), derived from `basePath` so a
- *  new sport's home link never has to be special-cased in nav components.
- *  Home links need exact-match active state — unlike other nav links, they
- *  must not light up for every sub-page under the sport (see isSportHomeHref). */
-const SPORT_HOME_HREFS = new Set(
-  Object.values(SPORTS).map((sport) => sport.basePath || "/"),
-);
-
-export function isSportHomeHref(href: string): boolean {
-  return SPORT_HOME_HREFS.has(href);
-}
-
-/** Equivalent-page mapping between sports; falls back to the sport's home. */
-const EQUIVALENTS: Array<[string, string]> = [
-  ["/matches", "/nrl/matches"],
-  ["/leaderboard", "/nrl/leaderboard"],
-  // Floodlight P5: the Play hub is the shared predictions destination in both
-  // sports (the old /tips <-> /nrl/tips row folded into it), so switching sport
-  // on /play stays on /play.
-  ["/play", "/play"],
-];
-
-export function switchSportHref(pathname: string, target: SportId): string {
-  const home = target === "nrl" ? "/nrl" : "/";
-  for (const [foot, nrl] of EQUIVALENTS) {
-    const [from, to] = target === "nrl" ? [foot, nrl] : [nrl, foot];
-    if (pathname === from || pathname.startsWith(from + "/")) return to;
-  }
-  return home;
-}
-
 /* ============================================================================
- * Competition registry (Floodlight P1 slice p1-s2) -- grows this file from a
- * per-SPORT nav config into a per-COMPETITION config registry: nav links,
- * terminology, standings zones, tab gating (Bracket vs Tips), and a per-comp
- * accent color all live on one Competition record. Everything above this line
- * (SportId, SPORTS, sportFromPathname, isSportHomeHref, switchSportHref) is
- * untouched -- SiteNav/BottomNav/SportSwitcher keep compiling against it
- * unchanged until slice 4 repoints them at COMPETITIONS. This slice is pure
- * plumbing: no consumer sees a behavior change.
+ * Competition registry (Floodlight P1 slice p1-s2): terminology, standings
+ * zones, surface gating (bracket/groups/tips) and a per-comp accent color all
+ * live on one Competition record. The nav tabs are NOT hand-written per
+ * competition any more -- navTabsFor() below generates them from one template.
  * ========================================================================= */
 
 /** One entry per football league/tournament, plus NRL as its own "competition"
@@ -149,9 +50,12 @@ export interface Competition {
    *  league's teams. ACTIVE_LEAGUES remains the separate prediction safety
    *  gate in lib/leagueConfig.ts. */
   enabled: boolean;
-  terms: { fixtures: string; standings: string }; // football vs NRL vocabulary
+  /** A finished tournament kept as an archive (WC26 since July 2026): listed
+   *  under "Past tournaments" in the switcher and the /football hub, and never
+   *  chosen as anyone's default competition. Its URLs keep resolving. */
+  archived: boolean;
+  terms: { fixtures: string; standings: string }; // page-heading vocabulary (nav labels come from navTabsFor)
   zones: StandingsZone[]; // StandingsTable input; [] where N/A
-  navLinks: SportNavLink[]; // per-competition tabs; reuses SportNavLink (slice 4 repoints nav consumers to read these instead of SPORTS[sport].navLinks)
 }
 
 /** Reasonable default zone banding for a 20-team European league table:
@@ -186,23 +90,9 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasGroups: false,
     hasTips: true,
     enabled: true,
+    archived: false,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: EUROPEAN_LEAGUE_ZONES,
-    navLinks: [
-      { href: "/football/epl", label: "Home", activePrefixes: ["/football/epl/team"] },
-      {
-        href: "/football/epl/fixtures",
-        label: "Fixtures",
-        activePrefixes: ["/football/epl/fixtures", "/football/epl/match"],
-      },
-      { href: "/play", label: "Play", activePrefixes: ["/tips", "/brackets"] },
-      { href: "/football/epl/standings", label: "Standings", activePrefixes: ["/football/epl/standings"] },
-      {
-        href: "/leaderboard",
-        label: "You",
-        activePrefixes: ["/about", "/methodology", "/privacy", "/terms", "/record"],
-      },
-    ],
   },
   laliga: {
     id: "laliga",
@@ -217,23 +107,9 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasGroups: false,
     hasTips: true,
     enabled: true,
+    archived: false,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: EUROPEAN_LEAGUE_ZONES,
-    navLinks: [
-      { href: "/football/laliga", label: "Home", activePrefixes: ["/football/laliga/team"] },
-      {
-        href: "/football/laliga/fixtures",
-        label: "Fixtures",
-        activePrefixes: ["/football/laliga/fixtures", "/football/laliga/match"],
-      },
-      { href: "/play", label: "Play", activePrefixes: ["/tips", "/brackets"] },
-      { href: "/football/laliga/standings", label: "Standings", activePrefixes: ["/football/laliga/standings"] },
-      {
-        href: "/leaderboard",
-        label: "You",
-        activePrefixes: ["/about", "/methodology", "/privacy", "/terms", "/record"],
-      },
-    ],
   },
   bundesliga: {
     id: "bundesliga",
@@ -248,27 +124,9 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasGroups: false,
     hasTips: true,
     enabled: true,
+    archived: false,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: BUNDESLIGA_ZONES,
-    navLinks: [
-      { href: "/football/bundesliga", label: "Home", activePrefixes: ["/football/bundesliga/team"] },
-      {
-        href: "/football/bundesliga/fixtures",
-        label: "Fixtures",
-        activePrefixes: ["/football/bundesliga/fixtures", "/football/bundesliga/match"],
-      },
-      { href: "/play", label: "Play", activePrefixes: ["/tips", "/brackets"] },
-      {
-        href: "/football/bundesliga/standings",
-        label: "Standings",
-        activePrefixes: ["/football/bundesliga/standings"],
-      },
-      {
-        href: "/leaderboard",
-        label: "You",
-        activePrefixes: ["/about", "/methodology", "/privacy", "/terms", "/record"],
-      },
-    ],
   },
   ucl: {
     id: "ucl",
@@ -289,29 +147,11 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     // available on fixture and match pages throughout qualifying.
     hasTips: false,
     enabled: true,
+    archived: false,
     terms: { fixtures: "Fixtures", standings: "League phase" },
     zones: [
       { from: 1, to: 8, label: "Round of 16", tone: "cl" },
       { from: 9, to: 24, label: "Knockout phase play-offs", tone: "europa" },
-    ],
-    navLinks: [
-      { href: "/football/ucl", label: "Home", activePrefixes: ["/football/ucl/team"] },
-      {
-        href: "/football/ucl/fixtures",
-        label: "Fixtures",
-        activePrefixes: ["/football/ucl/fixtures", "/football/ucl/match"],
-      },
-      { href: "/play", label: "Play", activePrefixes: ["/tips", "/brackets"] },
-      {
-        href: "/football/ucl/standings",
-        label: "League phase",
-        activePrefixes: ["/football/ucl/standings"],
-      },
-      {
-        href: "/leaderboard",
-        label: "You",
-        activePrefixes: ["/about", "/methodology", "/privacy", "/terms", "/record"],
-      },
     ],
   },
   wc26: {
@@ -327,36 +167,9 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasGroups: true,
     hasTips: true, // tips still offered, now folded into the Play hub (P5)
     enabled: true,
+    archived: true,
     terms: { fixtures: "Fixtures", standings: "Standings" },
     zones: [], // World Cup standings use group tables.
-    navLinks: [
-      { href: "/football/wc26", label: "Home", activePrefixes: ["/football/wc26/team"] },
-      {
-        href: "/football/wc26/fixtures",
-        label: "Fixtures",
-        activePrefixes: ["/football/wc26/fixtures", "/football/wc26/match"],
-      },
-      // Floodlight P5: the Play-hub merge lands. One always-on Play tab replaces
-      // the old mutually-exclusive Bracket + Tips pair (/football/wc26/bracket and
-      // /tips both stay live routes, linked from the hub). Home/Fixtures/Play/
-      // Standings/You keeps the five-destination cap. The bracket
-      // prefix is the served route /football/wc26/bracket, not legacy /brackets --
-      // the latter 301s here (next.config.mjs), so the user always sits on the
-      // namespaced path and only that prefix keeps Play lit there.
-      { href: "/play", label: "Play", activePrefixes: ["/tips", "/football/wc26/bracket"] },
-      {
-        href: "/football/wc26/groups",
-        label: "Standings",
-        activePrefixes: ["/football/wc26/groups"],
-      },
-      // Cross-competition, NOT namespaced in P1: /leaderboard stays the
-      // global "You" destination (see SPORTS.football above -- same href).
-      {
-        href: "/leaderboard",
-        label: "You",
-        activePrefixes: ["/about", "/methodology", "/privacy", "/terms", "/record"],
-      },
-    ],
   },
   nrl: {
     id: "nrl",
@@ -371,6 +184,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     hasGroups: false,
     hasTips: true,
     enabled: true,
+    archived: false,
     terms: { fixtures: "Matches", standings: "Ladder" },
     // The NRL top 8 make the finals, but the top 4 get the double chance --
     // the structural line a single "Finals" band would hide, leaving positions
@@ -381,80 +195,151 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
       { from: 1, to: 4, label: "Top 4", tone: "finals" },
       { from: 5, to: 8, label: "Finals (5–8)", tone: "europa" },
     ],
-    // Mirrors SPORTS.nrl.navLinks above (NRL keeps its own space); the fifth
-    // slot is the shared Play tab (P5), still resolving to /nrl/tips as its
-    // active surface.
-    navLinks: [
-      { href: "/nrl", label: "Home", activePrefixes: [] },
-      { href: "/nrl/matches", label: "Matches", activePrefixes: [] },
-      { href: "/nrl/ladder", label: "Ladder", activePrefixes: [] },
-      { href: "/nrl/record", label: "Record", activePrefixes: [] },
-      { href: "/play", label: "Play", activePrefixes: ["/nrl/tips"] },
-    ],
   },
 };
 
-/** Every competition's home href ("/football/epl", "/football/wc26", "/nrl",
- *  ...), derived from `basePath` -- mirrors SPORT_HOME_HREFS/isSportHomeHref
- *  above, but keyed off the competition registry. Home links need exact-match
- *  active state (see isSportHomeHref's doc comment); SiteNav/BottomNav use
- *  this version once their gating derives from COMPETITIONS instead of SPORTS
- *  (Floodlight P1 slice p1-s4). Missed in slice p1-s2 -- added here since this
- *  is the first slice that needs it. */
-const COMPETITION_HOME_HREFS = new Set(Object.values(COMPETITIONS).map((c) => c.basePath));
+/** The competition every unscoped surface falls back to when nothing better
+ *  is known (no competition in the URL, no fw_comp cookie, no AU/NZ geo hint
+ *  -- see lib/competitionPrefs.ts resolveCompetition). Never WC26: the World
+ *  Cup ended in July 2026 and is an archive (`archived: true`). */
+export const DEFAULT_COMPETITION: CompetitionId = "epl";
 
-export function isCompetitionHomeHref(href: string): boolean {
-  return COMPETITION_HOME_HREFS.has(href);
-}
+const FOOTBALL_IDS = (Object.keys(COMPETITIONS) as CompetitionId[]).filter(
+  (id) => COMPETITIONS[id].sport === "football",
+);
 
-/** The football default for non-namespaced/global routes ("/", "/leaderboard",
- *  "/tips", "/about", ...) that haven't been moved under a per-competition
- *  basePath yet -- today that's everything, since the route split lands in
- *  slice 3. WC26 is the obvious default: it's the only enabled knockout
- *  competition and today's un-namespaced football pages already serve it. */
-export const DEFAULT_COMPETITION: CompetitionId = "wc26";
-
-/** Resolves the active competition from a pathname. NRL is checked first
- *  (its own space, never nested under /football/); then football
+/** The competition the URL itself names, or null for unscoped routes ("/",
+ *  "/play", "/leaderboard", "/football", "/methodology", ...). NRL is checked
+ *  first (its own space, never nested under /football/); then football
  *  competitions by their /football/<comp> basePath, picking the longest
  *  matching basePath so a future prefix collision resolves to the more
- *  specific competition; anything else (including today's un-namespaced
- *  football routes) falls back to DEFAULT_COMPETITION. Kept pure -- no
- *  localStorage -- so it's safe to call during render/SSR. */
-export function competitionFromPathname(pathname: string): CompetitionId {
+ *  specific competition. Pure -- no cookies, no storage -- so it is safe in
+ *  render, SSR and middleware alike. */
+export function competitionInPathname(pathname: string): CompetitionId | null {
   if (pathname === "/nrl" || pathname.startsWith("/nrl/")) return "nrl";
-
-  const footballIds: CompetitionId[] = ["epl", "laliga", "bundesliga", "ucl", "wc26"];
   let best: CompetitionId | null = null;
-  for (const id of footballIds) {
+  for (const id of FOOTBALL_IDS) {
     const base = COMPETITIONS[id].basePath;
     if (pathname === base || pathname.startsWith(base + "/")) {
       if (!best || base.length > COMPETITIONS[best].basePath.length) best = id;
     }
   }
-  return best ?? DEFAULT_COMPETITION;
+  return best;
 }
 
-/** Routes that belong to the product as a whole rather than one competition.
- * Shared surfaces should keep the platform navigation visible instead of
- * implying that pages such as Play or Methodology belong to WC26. */
-const PLATFORM_ROUTE_PREFIXES = [
-  "/play",
+/** competitionInPathname with a non-null answer: unscoped routes resolve to
+ *  DEFAULT_COMPETITION. For the shell's scope on unscoped routes use the
+ *  cookie-aware useCompetitionScope (components/TournamentProvider.tsx). */
+export function competitionFromPathname(pathname: string): CompetitionId {
+  return competitionInPathname(pathname) ?? DEFAULT_COMPETITION;
+}
+
+/* ----------------------------------------------------------------------------
+ * The shell: ONE five-tab template, scoped to the current competition, on
+ * every route except /embed (UX rebuild plan 2026-11 §3.1). Same five ids,
+ * labels and order for every competition; only the destinations (and the
+ * Table slot's word) change with the scope.
+ * ------------------------------------------------------------------------- */
+
+/** Stable tab identity. NavIcon and tests key on this, never on label text. */
+export type NavTabId = "home" | "fixtures" | "table" | "play" | "mypicks";
+
+export interface NavTab {
+  id: NavTabId;
+  label: string;
+  href: string;
+  /** Pathname prefixes that light this tab (segment-aware: "/play" lights
+   *  "/play" and "/play/x", never "/playoffs"). Home has none: it is
+   *  exact-match on its own href, or it would stay lit on every sub-page. */
+  activePrefixes: readonly string[];
+}
+
+/** Play's surfaces, whichever competition is in scope. */
+const PLAY_PREFIXES = ["/play", "/tips", "/nrl/tips"] as const;
+
+/** The user's own area until /profile lands (Phase 1): picks, record and the
+ *  info pages that used to hang off the old "You" tab. */
+const MY_PICKS_PREFIXES = [
   "/leaderboard",
-  "/premium",
+  "/nrl/leaderboard",
+  "/record",
+  "/nrl/record",
   "/about",
   "/methodology",
   "/privacy",
   "/terms",
-];
+] as const;
 
-export function isPlatformPathname(pathname: string): boolean {
-  return (
-    pathname === "/" ||
-    PLATFORM_ROUTE_PREFIXES.some(
-      (prefix) => pathname === prefix || pathname.startsWith(prefix + "/"),
-    )
-  );
+/** The Table slot's word: "Ladder" in rugby league, "Groups" where the
+ *  competition's table IS its group tables (WC26), "Table" everywhere else.
+ *  Page headings keep their own vocabulary (UCL's "League phase"). */
+export function tableTabLabel(id: CompetitionId): "Table" | "Ladder" | "Groups" {
+  const c = COMPETITIONS[id];
+  if (c.sport === "nrl") return "Ladder";
+  return c.hasGroups ? "Groups" : "Table";
+}
+
+function buildNavTabs(id: CompetitionId): readonly NavTab[] {
+  const c = COMPETITIONS[id];
+  const base = c.basePath;
+  // NRL keeps its own slugs until the Phase 1 slug move (/nrl/matches ->
+  // /nrl/fixtures, /nrl/ladder -> /nrl/table) and its own Play surface.
+  const nrl = c.sport === "nrl";
+  const fixtures = nrl ? `${base}/matches` : `${base}/fixtures`;
+  const table = nrl ? `${base}/ladder` : c.hasGroups ? `${base}/groups` : `${base}/standings`;
+  return [
+    { id: "home", label: "Home", href: base, activePrefixes: [] },
+    {
+      id: "fixtures",
+      label: "Fixtures",
+      href: fixtures,
+      // Match pages (and NRL's per-round fixture pages) belong to Fixtures.
+      activePrefixes: nrl
+        ? [fixtures, `${base}/match`, `${base}/round`]
+        : [fixtures, `${base}/match`],
+    },
+    {
+      id: "table",
+      label: tableTabLabel(id),
+      href: table,
+      activePrefixes: nrl
+        ? [table, `${base}/run-home`]
+        : [`${base}/standings`, `${base}/groups`],
+    },
+    {
+      id: "play",
+      label: "Play",
+      href: nrl ? `${base}/tips` : `/play?competition=${id}`,
+      activePrefixes: nrl ? PLAY_PREFIXES : [...PLAY_PREFIXES, `${base}/bracket`],
+    },
+    {
+      id: "mypicks",
+      label: "My picks",
+      href: `/leaderboard?competition=${id}`,
+      activePrefixes: MY_PICKS_PREFIXES,
+    },
+  ];
+}
+
+const NAV_TABS = Object.fromEntries(
+  (Object.keys(COMPETITIONS) as CompetitionId[]).map((id) => [id, buildNavTabs(id)]),
+) as Record<CompetitionId, readonly NavTab[]>;
+
+/** The five tabs for a competition scope -- the only nav-link source SiteNav
+ *  and BottomNav read. Stable references (built once at module load). */
+export function navTabsFor(id: CompetitionId): readonly NavTab[] {
+  return NAV_TABS[id];
+}
+
+const hitPrefix = (pathname: string, prefix: string) =>
+  pathname === prefix || pathname.startsWith(prefix + "/");
+
+/** Active-state rule shared by both nav surfaces. Home is exact-match; every
+ *  other tab lights on its prefixes. A route that belongs to no tab ("/",
+ *  "/premium", team pages) lights none. */
+export function isNavTabActive(tab: NavTab, pathname: string): boolean {
+  if (tab.id === "home") return pathname === tab.href;
+  return tab.activePrefixes.some((prefix) => hitPrefix(pathname, prefix));
 }
 
 /** Collapse the root route's internal aliases to its public pathname.
@@ -473,7 +358,7 @@ export function normalizePathname(pathname: string | null): string {
 /** True iff `comp` is both a known CompetitionId and enabled. Used by the
  *  route wrappers to reject unknown or deliberately hidden competitions. */
 export function isWiredCompetition(comp: string): comp is CompetitionId {
-  return comp in COMPETITIONS && COMPETITIONS[comp as CompetitionId].enabled;
+  return isCompetitionId(comp) && COMPETITIONS[comp].enabled;
 }
 
 /** True iff `comp` is a wired competition AND lives in the football
@@ -513,17 +398,19 @@ export function accentInkVar(comp: CompetitionId): string {
   return `${COMPETITIONS[comp].accentVar}-ink`;
 }
 
-/** True iff `v` is a key of COMPETITIONS -- the validation the CompetitionOverlay's
- *  localStorage pin (slice p1-s5, lib/competitionPrefs.ts) needs before trusting a
- *  string read back from storage (could be stale/tampered/from an older build). */
+/** True iff `v` is a key of COMPETITIONS -- the validation every untrusted
+ *  competition string needs before it is used as a CompetitionId: the fw_comp
+ *  cookie, a `?competition=` query value, a backend `competition` field.
+ *  Own-property check, not `in`: `"toString" in COMPETITIONS` is true via the
+ *  prototype, so `?competition=toString` used to pass and crash the render. */
 export function isCompetitionId(v: string): v is CompetitionId {
-  return v in COMPETITIONS;
+  return Object.prototype.hasOwnProperty.call(COMPETITIONS, v);
 }
 
-/** Canonical, competition-scoped hrefs for football content. Every default
- *  link that used to be `/match/${id}` (card, hero, intel panel, embed
- *  backlink) 308s to the WC26 path and lands a club match on a soft 404, so
- *  callers that know the competition must build the href from its basePath.
+/** Canonical, competition-scoped hrefs for football content. Build every
+ *  match/team link from the competition when it is known: the unscoped
+ *  /match/:id and /team/:id routes only exist as lookups for old links
+ *  (embeds, shares since June) and cost a server round trip plus a 308.
  *  NRL matches use a composite (season/round/no) key and are not covered here. */
 export function footballMatchHref(comp: CompetitionId, matchId: number | string): string {
   return `${COMPETITIONS[comp].basePath}/match/${matchId}`;
@@ -531,4 +418,22 @@ export function footballMatchHref(comp: CompetitionId, matchId: number | string)
 
 export function footballTeamHref(comp: CompetitionId, teamId: number | string): string {
   return `${COMPETITIONS[comp].basePath}/team/${teamId}`;
+}
+
+/** Reads an untrusted competition value (an optional backend field, a query
+ *  string) as a wired football competition, or null. */
+export function asFootballCompetition(value: unknown): CompetitionId | null {
+  return typeof value === "string" && isWiredFootballCompetition(value) ? value : null;
+}
+
+/** For callers that may not know the match's competition: the scoped page
+ *  when they do, else the /match/:id lookup route (app/match/[id]), which asks
+ *  the backend for the competition and 308s to the scoped page. Never guesses
+ *  a competition -- guessing WC26 is what soft-404'd every club match. */
+export function footballMatchHrefOrLookup(
+  matchId: number | string,
+  competition?: unknown,
+): string {
+  const comp = asFootballCompetition(competition);
+  return comp ? footballMatchHref(comp, matchId) : `/match/${matchId}`;
 }

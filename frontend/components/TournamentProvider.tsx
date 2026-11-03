@@ -1,8 +1,23 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
 import type { ActiveTournament } from "@/lib/types";
 import { WC26_FALLBACK } from "@/lib/tournament";
+import {
+  DEFAULT_COMPETITION,
+  competitionInPathname,
+  normalizePathname,
+  type CompetitionId,
+} from "@/lib/sports";
+import {
+  migratePinnedCompetition,
+  parseCompetition,
+  readCompetitionCookie,
+  subscribeCompetitionCookie,
+  writeCompetitionCookie,
+} from "@/lib/competitionPrefs";
+import { trackEvent } from "@/lib/analytics";
 
 /** Defaults to the WC26 fallback (not null) — a component rendered outside
  *  the provider (e.g. in a test) still degrades to today's behavior instead
@@ -10,8 +25,8 @@ import { WC26_FALLBACK } from "@/lib/tournament";
 const TournamentContext = createContext<ActiveTournament>(WC26_FALLBACK);
 
 /** Makes the server-resolved active tournament (lib/tournament.ts) available
- *  to client components — nav gating (C6, SiteNav/BottomNav) needs
- *  `has_brackets` before those components can decide what to render. */
+ *  to client components. The nav no longer gates on it (one five-tab template
+ *  for every competition, lib/sports.ts navTabsFor). */
 export function TournamentProvider({
   tournament,
   children,
@@ -26,4 +41,78 @@ export function TournamentProvider({
 
 export function useTournament(): ActiveTournament {
   return useContext(TournamentContext);
+}
+
+/* ============================================================================
+ * Current competition (UX rebuild plan 2026-11 §3.1): URL -> fw_comp cookie
+ * -> country -> EPL, never WC26. middleware.ts resolves it on the server and
+ * keeps the cookie in step with competition URLs; this provider does the same
+ * for client-side navigations (which may never reach the server when the
+ * route is already in the router cache) and runs the one-time migration of
+ * the old localStorage star.
+ * ========================================================================= */
+
+/** The server-known preference, if the layout chose to read one. null means
+ *  "unknown on the server" -- the default, because reading cookies() in the
+ *  root layout would make every route dynamic and switch off ISR site-wide. */
+const CompetitionContext = createContext<CompetitionId | null>(null);
+
+export function CompetitionProvider({
+  initial = null,
+  children,
+}: {
+  initial?: CompetitionId | null;
+  children: React.ReactNode;
+}) {
+  const pathname = normalizePathname(usePathname());
+  const migrated = useRef(false);
+
+  useEffect(() => {
+    const fromUrl = competitionInPathname(pathname);
+    if (!migrated.current) {
+      migrated.current = true;
+      migratePinnedCompetition(fromUrl);
+    }
+    if (!fromUrl) return;
+    const current = readCompetitionCookie();
+    if (current === fromUrl) return; // middleware (full loads) already did it
+    writeCompetitionCookie(fromUrl);
+    // A switch, not a first visit: with cookies blocked `current` stays null
+    // and nothing is reported on every navigation.
+    if (current) {
+      trackEvent("competition_switch", { from: current, to: fromUrl, source: "navigation" });
+    }
+  }, [pathname]);
+
+  return <CompetitionContext.Provider value={initial}>{children}</CompetitionContext.Provider>;
+}
+
+/** The remembered competition. Client: the fw_comp cookie, re-read on every
+ *  write. Server render and hydration: the provider's `initial`, so the HTML
+ *  and the first client render always agree; React re-renders with the
+ *  cookie right after hydration if they differ (no mismatch error). */
+export function usePreferredCompetition(): CompetitionId | null {
+  const initial = useContext(CompetitionContext);
+  return useSyncExternalStore(subscribeCompetitionCookie, readCompetitionCookie, () => initial);
+}
+
+export interface CompetitionScope {
+  competition: CompetitionId;
+  /** True when the URL names the competition (path or `?competition=`),
+   *  false when it came from the remembered preference or the default. */
+  fromUrl: boolean;
+}
+
+/** The one scope rule for the shell (SiteNav, BottomNav, the switcher chip,
+ *  the account menu): URL path -> `?competition=` -> remembered competition
+ *  -> EPL. `queryCompetition` comes from useSearchParams() in a Suspense
+ *  child (the nav components already isolate it there). */
+export function useCompetitionScope(queryCompetition?: string | null): CompetitionScope {
+  const pathname = normalizePathname(usePathname());
+  const preferred = usePreferredCompetition();
+  const fromPath = competitionInPathname(pathname);
+  if (fromPath) return { competition: fromPath, fromUrl: true };
+  const fromQuery = parseCompetition(queryCompetition);
+  if (fromQuery) return { competition: fromQuery, fromUrl: true };
+  return { competition: preferred ?? DEFAULT_COMPETITION, fromUrl: false };
 }
