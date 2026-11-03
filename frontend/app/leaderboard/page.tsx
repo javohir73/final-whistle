@@ -1,26 +1,32 @@
 import type { Metadata } from "next";
 import { APP_NAME } from "@/lib/constants";
 import { getLeaderboardServer, getNrlTipsheetServer } from "@/lib/api";
-import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { readServerCompetition } from "@/lib/competitionServer";
+import { parseCompetition } from "@/lib/competitionPrefs";
 import { LeaderboardClient } from "./LeaderboardClient";
 
 export const metadata: Metadata = {
-  title: `Leaderboard — ${APP_NAME}`,
+  title: `My picks & leaderboard — ${APP_NAME}`,
   description:
-    "See how public brackets rank — points for group, knockout, finalist, and champion picks.",
+    "Your picks, your record against the model and the leaderboard for the competition you follow.",
+  alternates: { canonical: "/leaderboard" },
+};
+
+type LeaderboardPageProps = {
+  searchParams?: Promise<{ competition?: string | string[] }>;
 };
 
 /** Server-rendered: the leaderboard table (or empty state) is in the first HTML.
- *  The signed-in rank card hydrates client-side. */
-export default async function LeaderboardPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ competition?: string | string[] }>;
-}) {
+ *  The signed-in rank card hydrates client-side. The board follows
+ *  `?competition=` when given (so `?competition=wc26` still opens the World
+ *  Cup bracket board), else the visitor's current competition -- fw_comp
+ *  cookie, then geo, then EPL (lib/competitionServer.ts). It used to default
+ *  to the finished World Cup. Reading the request is free here: the page is
+ *  dynamic anyway (searchParams). */
+export default async function LeaderboardPage({ searchParams }: LeaderboardPageProps) {
   const raw = (await searchParams)?.competition;
-  const candidate = Array.isArray(raw) ? raw[0] : raw;
-  const competition: CompetitionId =
-    candidate && candidate in COMPETITIONS ? (candidate as CompetitionId) : "wc26";
+  const competition =
+    parseCompetition(Array.isArray(raw) ? raw[0] : raw) ?? (await readServerCompetition());
   const [initialRows, nrlTipsheet] = await Promise.all([
     competition === "wc26" ? getLeaderboardServer().catch(() => null) : null,
     competition === "nrl" ? getNrlTipsheetServer().catch(() => null) : null,

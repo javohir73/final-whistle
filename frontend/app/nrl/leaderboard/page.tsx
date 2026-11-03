@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
 import { APP_NAME } from "@/lib/constants";
+import LeaderboardPage from "../../leaderboard/page";
 
-export { default } from "../../leaderboard/page";
-
-/** Alias of /leaderboard so the pathname carries NRL context (see lib/sports.ts).
- *  Same title as the source page; canonical points back at /leaderboard so
- *  search engines don't index this as duplicate content. */
+/** The NRL tipping board. This used to re-export /leaderboard's page whole,
+ *  which (with no ?competition=) rendered the World Cup bracket board under
+ *  an NRL URL. It now renders the same page pinned to "nrl" -- no request
+ *  read, so the route stays static-capable. */
 export const metadata: Metadata = {
-  title: `Leaderboard — ${APP_NAME}`,
-  alternates: { canonical: "/leaderboard" },
+  title: `NRL tipping leaderboard — ${APP_NAME}`,
+  description:
+    "Season and round standings for NRL tips against the model: who called the most winners this season.",
+  alternates: { canonical: "/nrl/leaderboard" },
 };
+
+export default function NrlLeaderboardPage() {
+  return LeaderboardPage({ searchParams: Promise.resolve({ competition: "nrl" }) });
+}

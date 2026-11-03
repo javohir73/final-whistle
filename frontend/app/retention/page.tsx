@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   title: `Retention — ${APP_NAME}`,
   description:
     "Anonymous device cohorts measured since the World Cup final — daily active devices and D1/D7/D14 retention, updated daily.",
+  // An internal dashboard, not a page for search results.
+  robots: { index: false, follow: false },
 };
 
 const pct = (x: number | null) => (x == null ? "—" : `${x}%`);

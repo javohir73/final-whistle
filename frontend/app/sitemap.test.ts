@@ -102,6 +102,21 @@ describe("sitemap", () => {
     }
   });
 
+  it("lists the /football hub (it used to 404)", async () => {
+    global.fetch = mockApi({}) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls).toContain(`${SITE}/football`);
+  });
+
+  it("never lists a redirect: /tips now 307s to /play", async () => {
+    global.fetch = mockApi({}) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls).not.toContain(`${SITE}/tips`);
+    expect(urls.some((u) => /\/(?:match|team)\/\d+$/.test(u) && !u.includes("/football/"))).toBe(
+      false,
+    );
+  });
+
   it("never lists a redirecting legacy path", async () => {
     global.fetch = mockApi({
       wc26: { matches: [1], teams: [10] },

@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/constants";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 
-const SITE = "https://fifa-wc26-prediction.vercel.app";
+const SITE = SITE_URL;
 const API = process.env.NEXT_PUBLIC_API_URL || "https://pitchprophet-api.onrender.com";
 
 /** Fetch a list of ids from the API; never throws (sitemap must build even if
@@ -89,7 +90,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const platform: MetadataRoute.Sitemap = [
     { url: SITE, changeFrequency: "daily", priority: 1 },
+    // The football hub (was a 404): links every football competition.
+    { url: `${SITE}/football`, changeFrequency: "weekly", priority: 0.8 },
     // Cross-competition surfaces — they were never part of the WC26 move.
+    // Not /tips (now a redirect to /play) and not the /match/:id or /team/:id
+    // lookups (redirects too): a sitemap lists final URLs only.
     ...["/leaderboard", "/play", "/premium"].map((p) => ({
       url: `${SITE}${p}`,
       changeFrequency: "daily" as const,
