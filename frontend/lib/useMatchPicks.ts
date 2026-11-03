@@ -36,6 +36,11 @@ function read(): MatchPicks {
  * Local store of the user's match predictions, keyed by match id. Persisted so
  * picks survive a refresh and synced across mounted components/tabs. Anonymous —
  * no account required.
+ *
+ * World Cup only. These picks are never scored or ranked, so club-league match
+ * pages no longer write here: they use the scored scoreline game
+ * (lib/leagueTips via components/match/MatchPick). Keys are bare match ids,
+ * which is only safe inside the one competition that still uses this.
  */
 export function useMatchPicks() {
   const [picks, setPicks] = useState<MatchPicks>({});

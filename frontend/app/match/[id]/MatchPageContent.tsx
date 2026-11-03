@@ -5,35 +5,33 @@ import {
   getMatchServer,
   getMatchSummaryServer,
   getMatchGoalscorersServer,
-  getModelRecordServer,
   getProbHistoryServer,
 } from "@/lib/api";
 import { getCompetitionTournament } from "@/lib/tournament";
 import { APP_NAME } from "@/lib/constants";
-import { pct, formatScore, topOutcome } from "@/lib/format";
-import { prematchCall } from "@/lib/verdict";
+import { formatScore, pctTriple } from "@/lib/format";
 import { ReasonsList } from "@/components/ReasonsList";
 import { FeatureImportanceChart } from "@/components/FeatureImportanceChart";
 import { MatchScoreboard } from "@/components/MatchScoreboard";
 import { MatchLineups } from "@/components/MatchLineups";
-import { MatchTabs } from "@/components/MatchTabs";
 import { ModelVsMarket } from "@/components/ModelVsMarket";
-import { MatchUserPrediction } from "@/components/MatchUserPrediction";
-import { LocalKickoff } from "@/components/LocalKickoff";
 import { ShareButton } from "@/components/ShareButton";
-import { TeamBadge } from "@/components/TeamBadge";
 import { GoalMarkets } from "@/components/GoalMarkets";
 import { SportsEventJsonLd } from "@/components/SportsEventJsonLd";
 import { PremiumMarkets } from "@/components/PremiumMarkets";
 import { LikelyScorers } from "@/components/LikelyScorers";
 import { AvailabilityNote } from "@/components/AvailabilityNote";
 import { MatchWriteup } from "@/components/MatchWriteup";
-import { WinProbTimeline } from "@/components/WinProbTimeline";
-import { ConfidenceRing } from "@/components/ConfidenceRing";
+import { WinProbTimeline, hasForecastTrajectory } from "@/components/WinProbTimeline";
+import { MatchLiveProvider } from "@/components/match/MatchLiveProvider";
+import { MatchPick } from "@/components/match/MatchPick";
+import { LazyMount } from "@/components/match/LazyMount";
+import { LocalTime } from "@/components/match/LocalTime";
 import type { MatchSummary } from "@/lib/types";
 import {
   COMPETITIONS,
   DEFAULT_COMPETITION,
+  footballMatchHref,
   type CompetitionId,
 } from "@/lib/sports";
 
@@ -45,36 +43,38 @@ export async function generateMatchMetadata(
   const p = await getMatchServer(id, competition);
   if (!p) return { title: `Match — ${APP_NAME}` };
   const title = `${p.teams.home} vs ${p.teams.away} — prediction | ${APP_NAME}`;
-  const description = `ML model prediction for ${p.teams.home} vs ${p.teams.away}: ${p.teams.home} ${pct(
-    p.probabilities.home_win,
-  )}, draw ${pct(p.probabilities.draw)}, ${p.teams.away} ${pct(
-    p.probabilities.away_win,
-  )}. Most likely score ${formatScore(p.predicted_score.home, p.predicted_score.away)}.`;
+  const t = pctTriple(p.probabilities);
+  const description = `ML model prediction for ${p.teams.home} vs ${p.teams.away}: ${p.teams.home} ${t.home}%, draw ${t.draw}%, ${p.teams.away} ${t.away}%. Most likely score ${formatScore(p.predicted_score.home, p.predicted_score.away)}.`;
   return {
     title, description,
-    alternates: { canonical: `/match/${id}` },
+    // The served, competition-scoped URL -- never /match/<id>, which redirects.
+    alternates: { canonical: footballMatchHref(competition, id) },
     openGraph: { title, description },
   };
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}): Promise<Metadata> {
-  return generateMatchMetadata(params);
-}
-
+/** The match centre, in the order a visitor needs it (UX rebuild §3.4):
+ *  hero (status, crests, "vs" or the real score, and the model's call: one
+ *  sentence, one labelled bar, a most-likely-score chip, the confidence tier)
+ *  → your pick (#pick, the scored game, directly under the call) → why (#why)
+ *  → forecast & market (only when there is something to show) → goals &
+ *  scorers → lineups → this prediction's own timestamp.
+ *
+ *  Data: the prediction, the live summary and the competition resolve together
+ *  (the first two decide notFound vs the pending view); the secondary reads
+ *  then run together. They used to run one after another, six in a row. */
 export async function renderMatchDetailPage(
   params: Promise<{ id: string }>,
   competition: CompetitionId = DEFAULT_COMPETITION,
 ) {
   const { id } = await params;
-  const p = await getMatchServer(id, competition);
-  // Seeds the scoreboard with the actual status/score; the page must still
-  // render (prediction-only) if this secondary fetch hiccups.
-  const summary = await getMatchSummaryServer(id, competition).catch(() => null);
-  const tournament = await getCompetitionTournament(competition);
+  const [p, summary, tournament] = await Promise.all([
+    getMatchServer(id, competition),
+    // Seeds the hero and the pick with the actual status/score; the page must
+    // still render (prediction-only) if this secondary fetch hiccups.
+    getMatchSummaryServer(id, competition).catch(() => null),
+    getCompetitionTournament(competition),
+  ]);
   const fixturesHref = `${COMPETITIONS[competition].basePath}/fixtures`;
   // A just-drawn knockout tie exists (summary is served) before its prediction is
   // generated. Show the matchup + a "prediction on the way" note rather than a
@@ -84,40 +84,34 @@ export async function renderMatchDetailPage(
     return (
       <PredictionPending
         summary={summary}
+        competition={competition}
         tournamentName={tournament.name}
         fixturesHref={fixturesHref}
       />
     );
   }
-  const record = await getModelRecordServer().catch(() => null);
-  // Likely scorers (squad estimate or confirmed XI); null until player data
-  // exists for a team. A hiccup here must not take down the page.
-  const goalscorers = await getMatchGoalscorersServer(id).catch(() => null);
-  // Pre-match forecast trajectory for the WinProbTimeline. Deterministic server
-  // data feeding a server-rendered SVG (no client fetch, no hydration mismatch);
-  // null/empty degrades to the honest single-bar state below.
-  const history = await getProbHistoryServer(id).catch(() => null);
+  const [goalscorers, history] = await Promise.all([
+    // Likely scorers (squad estimate or confirmed XI); null until player data
+    // exists for a team. A hiccup here must not take down the page.
+    getMatchGoalscorersServer(id).catch(() => null),
+    // Pre-match forecast trajectory, server-rendered as an SVG (no client
+    // fetch, no hydration mismatch). Under two points there is no chart.
+    getProbHistoryServer(id).catch(() => null),
+  ]);
 
   const { home, away } = p.teams;
   const venue = [p.venue ?? "Venue TBC", p.venue_city, p.venue_country]
     .filter(Boolean)
     .join(", ");
-  const call = prematchCall(p.probabilities, p.teams);
-  // The model's favoured side (for the "Why {winner}?" heading and the AI's-call
-  // headline); a draw lean has no single side, so fall back to the generic
-  // heading / "Too close to call" sentence.
-  const topSide = topOutcome(p.probabilities);
-  const predictedWinner = topSide === "home" ? home : topSide === "away" ? away : null;
-  // Headline probability for the ConfidenceRing: the leading W/D/L outcome's chance.
-  const headline = Math.max(p.probabilities.home_win, p.probabilities.draw, p.probabilities.away_win);
-  const canonicalPath = `${COMPETITIONS[competition].basePath}/match/${p.match_id}`;
+  const canonicalPath = footballMatchHref(competition, p.match_id);
+  const renderedAt = new Date();
+  const showForecast = hasForecastTrajectory(history?.points);
+  const hasMarket = !!(p.odds_comparison?.available && p.odds_comparison.market);
 
   return (
     <div className="fade-up mx-auto max-w-2xl space-y-6">
-      {/* The page had no h1 at all — only h2 section headings — so crawlers and
-          screen-reader users got no top-level title for the fixture. sr-only
-          because MatchScoreboard already presents the matchup graphically; a
-          visible heading above it would duplicate that and change the layout. */}
+      {/* The matchup is presented graphically by the hero; this gives crawlers
+          and screen-reader users the page's one top-level title. */}
       <h1 className="sr-only">
         {home} vs {away} — {tournament.name} prediction
       </h1>
@@ -134,164 +128,181 @@ export async function renderMatchDetailPage(
         status={summary?.status ?? null}
       />
 
-      <div className="flex items-center justify-between gap-3">
-        <Link href={fixturesHref} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
-          <span aria-hidden>←</span> All fixtures
-        </Link>
-        {p.group && (
-          <span className="font-display text-body font-semibold text-muted">{p.group}</span>
-        )}
-        <ShareButton title={`${home} vs ${away} — ${tournament.name} prediction`} />
+      <TopRow
+        fixturesHref={fixturesHref}
+        group={p.group}
+        shareTitle={`${home} vs ${away} — ${tournament.name} prediction`}
+      />
+
+      {/* One live feed for the hero and the pick: the pick locks the moment
+          the hero shows kickoff, on an open tab, without a reload. */}
+      <MatchLiveProvider
+        matchId={p.match_id}
+        competition={competition}
+        kickoffUtc={p.kickoff_utc}
+        initialSummary={summary}
+      >
+        <MatchScoreboard
+          matchId={p.match_id}
+          competitionLabel={tournament.name}
+          home={home}
+          away={away}
+          homeTeamId={p.home_team_id}
+          awayTeamId={p.away_team_id}
+          kickoffUtc={p.kickoff_utc}
+          venue={venue}
+          probabilities={p.probabilities}
+          predicted={p.predicted_score}
+          initialSummary={summary}
+          confidence={p.confidence}
+          knockout={p.knockout ?? null}
+          competition={competition}
+        />
+        <MatchPick
+          competition={competition}
+          matchId={p.match_id}
+          home={home}
+          away={away}
+          kickoffUtc={p.kickoff_utc}
+        />
+      </MatchLiveProvider>
+
+      {/* Why: the narrative (case for each side, the call, the caveat), the
+          key factors and what drove the number, under ONE heading. */}
+      <section id="why" aria-labelledby="why-heading" className="glass scroll-mt-24 rounded-2xl p-6">
+        <h2 id="why-heading" className="font-display text-lg font-bold text-foreground">
+          Why this prediction
+        </h2>
+        <div className="mt-4 space-y-6">
+          <MatchWriteup home={home} away={away} writeup={p.writeup} />
+          {p.reasons.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Key factors</h3>
+              <ReasonsList reasons={p.reasons} />
+            </div>
+          )}
+          {p.top_features.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+                What drove this prediction
+              </h3>
+              <FeatureImportanceChart features={p.top_features} />
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Forecast & market: only with something to show. The old single-bar
+          "forecast" was a third copy of the hero's bar; the market's two bars
+          were the fourth and fifth. */}
+      {(showForecast || hasMarket) && (
+        <section
+          id="forecast"
+          aria-labelledby="forecast-heading"
+          className="glass scroll-mt-24 rounded-2xl p-6"
+        >
+          <h2 id="forecast-heading" className="mb-4 font-display text-lg font-bold text-foreground">
+            Forecast &amp; market
+          </h2>
+          {showForecast && history && (
+            <WinProbTimeline
+              points={history.points}
+              homeLabel={home}
+              kickoffUtc={p.kickoff_utc}
+              now={renderedAt}
+            />
+          )}
+          <div className={showForecast ? "mt-5 border-t border-border pt-4" : undefined}>
+            <ModelVsMarket prediction={p} home={home} away={away} />
+          </div>
+        </section>
+      )}
+
+      {/* Goals & scorers (each hidden until predicted), then the Premium
+          teaser next to the related markets. */}
+      <div id="goals" className="scroll-mt-24 space-y-6">
+        {p.goal_markets && <GoalMarkets home={home} away={away} markets={p.goal_markets} />}
+        {goalscorers && <LikelyScorers home={home} away={away} data={goalscorers} />}
+        <PremiumMarkets
+          matchId={p.match_id}
+          home={home}
+          away={away}
+          competition={competition}
+          returnTo={canonicalPath}
+        />
       </div>
 
-      {/* Bare matchup + the AI's call card (the scoreboard hydrates and promotes
-          the actual score once a match is live or final). Its Scorebug status line
-          now carries kickoff·venue, so no standalone LocalKickoff above it. */}
-      <MatchScoreboard
-        matchId={p.match_id}
-        competitionLabel={tournament.name}
-        home={home}
-        away={away}
-        homeTeamId={p.home_team_id}
-        awayTeamId={p.away_team_id}
-        kickoffUtc={p.kickoff_utc}
-        venue={venue}
-        probabilities={p.probabilities}
-        predicted={p.predicted_score}
-        initialSummary={summary}
-        confidence={p.confidence}
-        predictedWinner={predictedWinner}
-        caveat={call?.label ?? null}
-        knockout={p.knockout ?? null}
-        confidenceRing={
-          <ConfidenceRing
-            probability={headline}
-            confidence={p.confidence}
-            outcomeLabel={predictedWinner ?? undefined}
-          />
-        }
-        competition={competition}
-      />
+      <LineupsSection matchId={p.match_id} availability={p.availability} />
 
-      {/* Tabbed detail: Overview (the AI's reasoning + your pick) and Lineups.
-          Lineups are lazily fetched only when that tab is opened. */}
-      <MatchTabs
-        overview={
-          <div className="space-y-6">
-            {/* Win-probability trajectory — the model's pre-match forecast as an
-                inline SVG (server-rendered from `history`). With <2 points it
-                self-degrades to the honest single-bar state, never a fake chart. */}
-            <section className="glass rounded-2xl p-6">
-              <WinProbTimeline
-                points={history?.points ?? []}
-                probabilities={p.probabilities}
-                homeLabel={home}
-                awayLabel={away}
-              />
-            </section>
-
-            {/* The breakdown — Fable-style narrative writeup (pipeline-generated,
-                deterministic; hidden for pre-feature predictions). */}
-            <MatchWriteup home={home} away={away} writeup={p.writeup} />
-
-            {/* Why (server-rendered reasons; chart hydrates client-side) */}
-            <section className="glass rounded-2xl p-6">
-              <h2 className="mb-4 font-display text-lg font-bold text-foreground">
-                {predictedWinner ? `Why ${predictedWinner}?` : "Why this prediction"}
-              </h2>
-              <ReasonsList reasons={p.reasons} />
-              {p.top_features.length > 0 && (
-                <>
-                  <h3 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-muted">
-                    What drove this prediction
-                  </h3>
-                  <FeatureImportanceChart features={p.top_features} />
-                </>
-              )}
-            </section>
-
-            {/* Model vs market — W/D/L against the bookmaker consensus (hidden
-                until an odds snapshot exists for this match). */}
-            <ModelVsMarket prediction={p} home={home} away={away} />
-
-            {/* Goals — per-team bands, over/under and BTTS (hidden until predicted). */}
-            {p.goal_markets && (
-              <GoalMarkets home={home} away={away} markets={p.goal_markets} />
-            )}
-
-            {/* FinalWhistle Premium — correct-score grid, totals, BTTS and Asian
-                handicap. Free/anon see a blurred teaser; billing off renders
-                nothing (PremiumGate handles both). */}
-            <PremiumMarkets
-              matchId={p.match_id}
-              home={home}
-              away={away}
-              competition={competition}
-              returnTo={canonicalPath}
-            />
-
-            {/* Likely scorers — top players per team (hidden until player data). */}
-            {goalscorers && (
-              <LikelyScorers home={home} away={away} data={goalscorers} />
-            )}
-
-            {/* Availability — announced-XI context (experimental; not in the number). */}
-            <AvailabilityNote availability={p.availability} />
-
-            {/* Your prediction — segmented W/D/L pick vs the AI (anonymous, local).
-                Needs the live match summary; rendered only when it's available. */}
-            {summary && (
-              <section>
-                <h2 className="mb-3 font-display text-lg font-bold">Your prediction</h2>
-                <MatchUserPrediction match={summary} />
-              </section>
-            )}
-          </div>
-        }
-        lineups={<MatchLineups matchId={p.match_id} />}
-      />
-
-      <p className="text-center text-xs leading-relaxed text-muted">
-        {(() => {
-          // Prefer record.last_updated when it's non-null and newer than
-          // p.generated_at. Compare numerically — the two timestamps come from
-          // different serializers (naive vs offset ISO), so string comparison
-          // mis-orders them.
-          const epoch = (ts: string | null | undefined): number => {
-            if (!ts) return NaN;
-            return Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(ts) ? ts : ts + "Z");
-          };
-          const base = p.generated_at;
-          const recordTs = record?.last_updated ?? null;
-          let displayTs: string | null = base;
-          if (recordTs && (!base || epoch(recordTs) > epoch(base))) {
-            displayTs = recordTs;
-          }
-          return displayTs ? <>Model updated {fmtUpdated(displayTs)} · </> : null;
-        })()}
+      <footer className="text-center text-xs leading-relaxed text-muted">
+        {p.generated_at && (
+          <>
+            Prediction generated <LocalTime iso={p.generated_at} />
+            {" · "}
+          </>
+        )}
+        {p.model_version && <>model {p.model_version} · </>}
         {p.disclaimer}
-      </p>
+      </footer>
     </div>
   );
 }
 
-export default async function MatchDetailPage({
-  params,
+function TopRow({
+  fixturesHref,
+  group,
+  shareTitle,
 }: {
-  params: Promise<{ id: string }>;
+  fixturesHref: string;
+  group: string | null;
+  shareTitle: string;
 }) {
-  return renderMatchDetailPage(params);
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Link href={fixturesHref} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
+        <span aria-hidden>←</span> All fixtures
+      </Link>
+      {group && <span className="font-display text-body font-semibold text-muted">{group}</span>}
+      <ShareButton title={shareTitle} />
+    </div>
+  );
 }
 
-/** Shown when a match exists but its AI prediction hasn't been generated yet
- *  (e.g. a knockout tie just drawn, before the next pipeline run). Renders the
- *  matchup, any live/final score, and lineups — never a 404. */
+/** Lineups inline (no more Overview/Lineups tab), fetched only once they are
+ *  about to be seen; the availability note is announced-XI context. */
+function LineupsSection({
+  matchId,
+  availability,
+}: {
+  matchId: number;
+  availability?: Parameters<typeof AvailabilityNote>[0]["availability"];
+}) {
+  return (
+    <section id="lineups" aria-labelledby="lineups-heading" className="scroll-mt-24 space-y-3">
+      <h2 id="lineups-heading" className="px-0.5 font-display text-lg font-bold text-foreground">
+        Lineups
+      </h2>
+      <LazyMount label="Show lineups">
+        <MatchLineups matchId={matchId} />
+      </LazyMount>
+      <AvailabilityNote availability={availability} />
+    </section>
+  );
+}
+
+/** Shown when a match exists but its prediction hasn't been generated yet
+ *  (e.g. a knockout tie just drawn, before the next pipeline run). The same
+ *  hero (with an "on the way" note where the call goes) and the same pick
+ *  shell -- league picks open before the model has spoken -- then lineups.
+ *  Never a 404. */
 function PredictionPending({
   summary,
+  competition,
   tournamentName,
   fixturesHref,
 }: {
   summary: MatchSummary;
+  competition: CompetitionId;
   tournamentName: string;
   fixturesHref: string;
 }) {
@@ -299,71 +310,42 @@ function PredictionPending({
   const venue = [summary.venue ?? "Venue TBC", summary.venue_city, summary.venue_country]
     .filter(Boolean)
     .join(", ");
-  const live = summary.status === "in_play";
-  const finished = summary.status === "finished";
-  const showScore =
-    (live || finished) && summary.score_home != null && summary.score_away != null;
 
   return (
     <div className="fade-up mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <Link href={fixturesHref} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
-          <span aria-hidden>←</span> All fixtures
-        </Link>
-        {summary.group && (
-          <span className="font-display text-body font-semibold text-muted">{summary.group}</span>
-        )}
-        <ShareButton title={`${home} vs ${away} — ${tournamentName}`} />
-      </div>
+      <h1 className="sr-only">
+        {home} vs {away} — {tournamentName}
+      </h1>
+      <TopRow fixturesHref={fixturesHref} group={summary.group} shareTitle={`${home} vs ${away} — ${tournamentName}`} />
 
-      <LocalKickoff iso={summary.kickoff_utc} venue={venue} />
+      <MatchLiveProvider
+        matchId={summary.match_id}
+        competition={competition}
+        kickoffUtc={summary.kickoff_utc}
+        initialSummary={summary}
+      >
+        <MatchScoreboard
+          matchId={summary.match_id}
+          competitionLabel={tournamentName}
+          home={home}
+          away={away}
+          kickoffUtc={summary.kickoff_utc}
+          venue={venue}
+          probabilities={null}
+          predicted={null}
+          initialSummary={summary}
+          competition={competition}
+        />
+        <MatchPick
+          competition={competition}
+          matchId={summary.match_id}
+          home={home}
+          away={away}
+          kickoffUtc={summary.kickoff_utc}
+        />
+      </MatchLiveProvider>
 
-      {/* Bare matchup + live/final score (the AI's-call card appears once predicted). */}
-      <section className="glass rounded-2xl p-6">
-        <div className="flex items-center justify-center gap-5">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <TeamBadge team={home} size={48} />
-            <span className="font-display text-sm font-bold">{home}</span>
-          </div>
-          <span className="font-display text-2xl font-extrabold tabular-nums text-muted">
-            {showScore ? `${summary.score_home}–${summary.score_away}` : "vs"}
-          </span>
-          <div className="flex flex-col items-center gap-2 text-center">
-            <TeamBadge team={away} size={48} />
-            <span className="font-display text-sm font-bold">{away}</span>
-          </div>
-        </div>
-        {live && (
-          <p className="mt-3 text-center text-xs font-semibold uppercase tracking-wide text-loss">
-            Live{summary.minute != null ? ` · ${summary.minute}'` : ""}
-          </p>
-        )}
-      </section>
-
-      {/* Prediction-pending note */}
-      <section className="glass rounded-2xl p-6 text-center">
-        <h2 className="font-display text-base font-bold text-foreground">ML model prediction on the way</h2>
-        <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted">
-          The model generates this match&apos;s prediction shortly after both teams are
-          confirmed. Check back soon for the full breakdown.
-        </p>
-      </section>
-
-      {/* Lineups load independently of the prediction. */}
-      <MatchLineups matchId={summary.match_id} />
+      <LineupsSection matchId={summary.match_id} />
     </div>
   );
-}
-
-function fmtUpdated(iso: string): string {
-  // Backend timestamps are UTC but may be naive (no offset) — tag as UTC so the
-  // date doesn't shift a day in negative-offset interpretations.
-  const utc = /[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
-  try {
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
-    }).format(new Date(utc));
-  } catch {
-    return iso.slice(0, 10);
-  }
 }
