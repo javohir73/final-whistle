@@ -138,6 +138,9 @@ class PredictionOut(BaseModel):
     group: str | None = None
     group_id: int | None = None
     stage: str | None = None
+    # League fixtures only (null for the World Cup): lets the match page find
+    # the device's scoreline tip without walking matchweeks.
+    matchweek: int | None = None
     is_neutral: bool
     kickoff_utc: str | None = None
     venue: str | None = None
@@ -185,6 +188,9 @@ class MatchSummaryOut(BaseModel):
     match_id: int
     stage: str
     group: str | None
+    # League fixtures only (null for the World Cup): lets the match page find
+    # the device's scoreline tip without walking matchweeks.
+    matchweek: int | None = None
     kickoff_utc: str | None
     venue: str | None
     venue_city: str | None

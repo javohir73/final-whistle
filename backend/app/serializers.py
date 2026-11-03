@@ -162,6 +162,7 @@ def prediction_to_out(db: Session, match: Match, pred: Prediction) -> schemas.Pr
         group=match.group.name if match.group else None,
         group_id=match.group_id,
         stage=match.stage,
+        matchweek=match.matchweek,
         is_neutral=match.is_neutral,
         kickoff_utc=_kickoff_iso(match.kickoff_utc),
         venue=match.venue,
@@ -388,6 +389,9 @@ def match_to_summary(
         match_id=match.id,
         stage=match.stage,
         group=match.group.name if match.group else None,
+        # Deferred column: list callers undefer it in their query (see
+        # matches.upcoming_matches); a single match pays one lazy load.
+        matchweek=match.matchweek,
         kickoff_utc=_kickoff_iso(match.kickoff_utc),
         venue=match.venue,
         venue_city=match.venue_city,
