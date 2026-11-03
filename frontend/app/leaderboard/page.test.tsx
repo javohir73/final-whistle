@@ -67,6 +67,9 @@ it("takes the first of repeated ?competition= values", async () => {
   expect(element.props.competition).toBe("ucl");
 });
 
-it("no longer describes itself as a bracket board", () => {
-  expect(String(metadata.description)).not.toMatch(/bracket/i);
+it("is titled for the user's picks, competition-neutral, not a bracket board", () => {
+  expect(metadata.title).toBe("My picks: your record against the model — FinalWhistle");
+  for (const text of [String(metadata.title), String(metadata.description)]) {
+    expect(text).not.toMatch(/bracket|world cup|wc26|premier league|nrl/i);
+  }
 });

@@ -6,9 +6,9 @@ import { parseCompetition } from "@/lib/competitionPrefs";
 import { LeaderboardClient } from "./LeaderboardClient";
 
 export const metadata: Metadata = {
-  title: `My picks & leaderboard — ${APP_NAME}`,
+  title: `My picks: your record against the model — ${APP_NAME}`,
   description:
-    "Your picks, your record against the model and the leaderboard for the competition you follow.",
+    "Your picks, your points and where you stand against the model and other players in the competition you follow.",
   alternates: { canonical: "/leaderboard" },
 };
 

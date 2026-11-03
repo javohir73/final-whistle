@@ -115,12 +115,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 Skip to content
               </a>
               <div className="app-top sticky top-0 z-50 bg-background">
-                <HideOnEmbed>
-                  <DisclaimerBanner />
-                </HideOnEmbed>
                 <SiteNav />
                 <OfflineBanner />
               </div>
+              {/* Outside the sticky bar so the one-line, dismissible disclaimer
+                  scrolls away with the page (the footer carries the full
+                  compliance copy). Below the bar, not above it: .app-top owns
+                  the standalone-PWA safe-area inset, so anything above it would
+                  sit under the iPhone status bar in the native shell. */}
+              <HideOnEmbed>
+                <DisclaimerBanner />
+              </HideOnEmbed>
               <main
                 id="main"
                 className="mx-auto max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+72px)] pt-8 sm:px-5 lg:pb-8"
