@@ -35,7 +35,9 @@ export function VerifyEmailClient() {
     <div className="mx-auto max-w-sm px-4 py-16">
       <div className="glass rounded-2xl p-6 text-center">
         {state === "verifying" && (
-          <p className="text-sm text-muted">Verifying your email…</p>
+          <p role="status" className="text-sm text-muted">
+            Verifying your email…
+          </p>
         )}
         {state === "done" && (
           <>
@@ -63,7 +65,9 @@ export function VerifyEmailClient() {
             <h1 className="mb-2 font-display text-xl font-extrabold tracking-tight">
               Couldn&rsquo;t verify
             </h1>
-            <p className="mb-4 text-sm text-loss">{msg}</p>
+            <p role="alert" className="mb-4 text-sm text-loss-ink">
+              {msg}
+            </p>
             <p className="mb-4 text-sm text-muted">
               The link may have expired. Sign in and resend a fresh one.
             </p>

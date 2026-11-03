@@ -61,3 +61,28 @@ it("shows the invalid-link state when the URL has no token", () => {
   expect(screen.getByText(/reset link is missing/i)).toBeInTheDocument();
   expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
 });
+
+it("labels both fields with visible <label>s, not placeholders", () => {
+  render(<ResetPasswordClient />);
+  for (const name of ["New password", "Confirm new password"]) {
+    const input = screen.getByLabelText(name) as HTMLInputElement;
+    expect(input.labels?.[0]).toHaveTextContent(name);
+    expect(input).not.toHaveAttribute("placeholder");
+  }
+  expect(screen.getByLabelText("New password")).toHaveAccessibleDescription("8+ characters");
+});
+
+it("announces a mismatch or server error through role=alert", async () => {
+  render(<ResetPasswordClient />);
+  fill("newpassword1", "different1");
+  fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+  expect(screen.getByRole("alert")).toHaveTextContent(/don.t match/i);
+
+  mockReset.mockRejectedValue(
+    new ApiError(400, "invalid_token", "This reset link is invalid or has expired."),
+  );
+  fill("newpassword1", "newpassword1");
+  fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/invalid or has expired/i));
+  expect(screen.getByRole("alert")).toHaveClass("text-loss-ink");
+});

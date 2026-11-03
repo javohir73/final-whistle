@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   login,
   register,
@@ -43,8 +43,18 @@ export function AuthModal({
   // fixes each field.
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const firstField = useRef<HTMLInputElement>(null);
+  const passwordField = useRef<HTMLInputElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  // Visible <label>s, not placeholder-only fields: a placeholder vanishes on
+  // the first keystroke, so a returning user can't confirm which box is which.
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const nameId = `${uid}-name`;
+  const nameHintId = `${uid}-name-hint`;
+  const emailId = `${uid}-email`;
+  const passwordId = `${uid}-password`;
+  const passwordHintId = `${uid}-password-hint`;
 
   // Every open resets to the caller's requested tab (sign-in by default): the
   // nav button says "Sign in" and expects that tab, and a tab left on "Create
@@ -135,7 +145,12 @@ export function AuthModal({
       nextFieldErrors.password = "Password must be at least 8 characters.";
     }
     setFieldErrors(nextFieldErrors);
-    if (Object.keys(nextFieldErrors).length > 0) return;
+    if (Object.keys(nextFieldErrors).length > 0) {
+      // Land on the first invalid field so a screen reader announces its label,
+      // invalid state and inline message together.
+      (nextFieldErrors.email ? firstField : passwordField).current?.focus();
+      return;
+    }
     // Don't fire a guaranteed-to-fail request when the device is offline — say so
     // and let the online listener (below) clear it when connectivity returns.
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -221,10 +236,11 @@ export function AuthModal({
 
   const field =
     "w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-win";
+  const labelCls = "mb-1 block text-xs font-semibold text-muted";
 
   const forgotView = resetSent ? (
     <div className="space-y-4">
-      <p className="text-sm text-foreground">
+      <p role="status" className="text-sm text-foreground">
         If an account exists for{" "}
         <span className="font-semibold">{email.trim() || "that email"}</span>, we just
         sent a reset link. Check your inbox (and your spam folder).
@@ -246,18 +262,26 @@ export function AuthModal({
       <p className="text-sm text-muted">
         Enter your email and we&rsquo;ll send a link to reset your password.
       </p>
-      <input
-        ref={firstField}
-        type="email"
-        required
-        autoComplete="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email address"
-        aria-label="Email address"
-        className={field}
-      />
-      {error && <p className="text-sm text-loss">{error}</p>}
+      <div>
+        <label htmlFor={emailId} className={labelCls}>
+          Email address
+        </label>
+        <input
+          ref={firstField}
+          id={emailId}
+          type="email"
+          required
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={field}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-loss-ink">
+          {error}
+        </p>
+      )}
       <button
         type="submit"
         disabled={busy}
@@ -283,7 +307,7 @@ export function AuthModal({
       className="fixed inset-0 z-[100] grid place-items-end bg-pitch/45 backdrop-blur-sm sm:place-items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label={forgot ? "Reset password" : mode === "signup" ? "Create account" : "Sign in"}
+      aria-labelledby={titleId}
       onClick={onClose}
     >
       <div
@@ -294,7 +318,7 @@ export function AuthModal({
         {/* Grab handle (mobile bottom-sheet affordance) */}
         <div aria-hidden className="mx-auto mb-4 h-1 w-10 rounded-full bg-border sm:hidden" />
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-lg font-extrabold tracking-tight">
+          <h2 id={titleId} className="font-display text-lg font-extrabold tracking-tight">
             {forgot
               ? "Reset your password"
               : mode === "signup"
@@ -326,18 +350,33 @@ export function AuthModal({
 
         <form onSubmit={submit} noValidate className="space-y-3">
           {mode === "signup" && (
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={40}
-              placeholder="Display name (optional)"
-              aria-label="Display name"
-              className={field}
-            />
+            <div>
+              <div className="flex items-baseline justify-between gap-2">
+                <label htmlFor={nameId} className={labelCls}>
+                  Display name
+                </label>
+                <span id={nameHintId} className="text-xs text-muted">
+                  Optional
+                </span>
+              </div>
+              <input
+                id={nameId}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={40}
+                autoComplete="nickname"
+                aria-describedby={nameHintId}
+                className={field}
+              />
+            </div>
           )}
           <div>
+            <label htmlFor={emailId} className={labelCls}>
+              Email address
+            </label>
             <input
               ref={firstField}
+              id={emailId}
               type="email"
               required
               autoComplete="email"
@@ -346,21 +385,31 @@ export function AuthModal({
                 setEmail(e.target.value);
                 if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined }));
               }}
-              placeholder="Email address"
-              aria-label="Email address"
               aria-invalid={fieldErrors.email ? true : undefined}
               aria-describedby={fieldErrors.email ? "auth-email-error" : undefined}
               className={field}
             />
             {fieldErrors.email && (
-              <p id="auth-email-error" className="mt-1 text-xs text-loss">
+              <p id="auth-email-error" className="mt-1 text-xs text-loss-ink">
                 {fieldErrors.email}
               </p>
             )}
           </div>
           <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <label htmlFor={passwordId} className={labelCls}>
+                Password
+              </label>
+              {mode === "signup" && (
+                <span id={passwordHintId} className="text-xs text-muted">
+                  8+ characters
+                </span>
+              )}
+            </div>
             <div className="relative">
               <input
+                ref={passwordField}
+                id={passwordId}
                 type={showPassword ? "text" : "password"}
                 required
                 minLength={8}
@@ -370,10 +419,15 @@ export function AuthModal({
                   setPassword(e.target.value);
                   if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined }));
                 }}
-                placeholder="Password (8+ characters)"
-                aria-label="Password"
                 aria-invalid={fieldErrors.password ? true : undefined}
-                aria-describedby={fieldErrors.password ? "auth-password-error" : undefined}
+                aria-describedby={
+                  [
+                    fieldErrors.password ? "auth-password-error" : null,
+                    mode === "signup" ? passwordHintId : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
                 className={`${field} pr-11`}
               />
               <button
@@ -398,7 +452,7 @@ export function AuthModal({
               </button>
             </div>
             {fieldErrors.password && (
-              <p id="auth-password-error" className="mt-1 text-xs text-loss">
+              <p id="auth-password-error" className="mt-1 text-xs text-loss-ink">
                 {fieldErrors.password}
               </p>
             )}
@@ -418,7 +472,12 @@ export function AuthModal({
             </button>
           )}
 
-          {error && <p className="text-sm text-loss">{error}</p>}
+          {/* role="alert": a failed sign-in was silent to screen readers. */}
+          {error && (
+            <p role="alert" className="text-sm text-loss-ink">
+              {error}
+            </p>
+          )}
 
           <button
             type="submit"

@@ -21,8 +21,8 @@ export default function Error({
 
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 px-4 py-16 text-center">
-      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-loss/10 text-loss ring-1 ring-loss/30">
-        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-loss/10 text-loss-ink ring-1 ring-loss/30">
+        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" strokeLinejoin="round" />
         </svg>
       </span>

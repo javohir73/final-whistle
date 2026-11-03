@@ -1,9 +1,12 @@
 import { cn } from "@/lib/utils";
 
+/** Tier tones match ConfidenceRing and the Floodlight spec: HIGH lime, MEDIUM
+ *  amber, LOW muted. Low is never rose -- a low-confidence call is not a loss,
+ *  and rose on its own wash measured 4.39:1 (dark) / 2.94:1 (Daylight). */
 const STYLES: Record<string, string> = {
   High: "text-lime-deep bg-win/15",
   Medium: "text-amber-ink bg-draw/15",
-  Low: "text-loss bg-loss/15",
+  Low: "text-muted bg-surface-2",
 };
 
 /** High/Medium/Low confidence pill — soft tinted background, small solid dot. */
