@@ -44,6 +44,25 @@ it("hides itself before first paint for a reader who dismissed it", () => {
   const script = container.querySelector("script");
   expect(script?.innerHTML).toContain(KEY);
   expect(script?.innerHTML).toContain(screen.getByRole("note").id);
+  // An inline display:none, not just [hidden]: Tailwind's .flex outranks
+  // preflight's [hidden] rule in the compiled CSS, so the attribute alone
+  // left dismissers with a 32 px flash and a layout shift on every load.
+  expect(script?.innerHTML).toContain('style.display="none"');
+});
+
+it("the pre-paint script really hides the banner when it runs", () => {
+  const { container } = render(<DisclaimerBanner />);
+  const note = screen.getByRole("note");
+  const source = container.querySelector("script")!.innerHTML;
+
+  // Not dismissed: the script leaves the banner alone.
+  new Function(source)();
+  expect(note.style.display).toBe("");
+
+  localStorage.setItem(KEY, "1");
+  new Function(source)();
+  expect(note.style.display).toBe("none");
+  expect(note.hidden).toBe(true);
 });
 
 it("still works when storage is unavailable", () => {

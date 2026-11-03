@@ -7,10 +7,14 @@ const BANNER_ID = "fw-disclaimer";
 
 // Runs while the HTML is parsed, right after the banner, so a reader who
 // dismissed it never sees it flash in and then collapse at hydration (the
-// same pre-paint idiom as the theme boot script in app/layout.tsx).
+// same pre-paint idiom as the theme boot script in app/layout.tsx). The
+// inline display:none is what actually hides it: Tailwind's .flex comes
+// after preflight's [hidden] rule in the compiled CSS, at equal specificity,
+// so the attribute alone loses. `hidden` stays for assistive tech.
 const PREPAINT =
   `try{if(localStorage.getItem(${JSON.stringify(DISMISSED_KEY)})==="1"){` +
-  `var b=document.getElementById(${JSON.stringify(BANNER_ID)});if(b)b.hidden=true}}catch(e){}`;
+  `var b=document.getElementById(${JSON.stringify(BANNER_ID)});` +
+  `if(b){b.hidden=true;b.style.display="none"}}}catch(e){}`;
 
 function readDismissed(): boolean {
   try {
