@@ -64,15 +64,17 @@ def test_only_apply_waits_for_environment_approval():
 
 def test_apply_fails_closed_without_reviewers_branch_rule_or_certificate():
     steps = _workflow("repair-fixture-duplicates.yml")["jobs"]["apply"]["steps"]
-    gate = steps[0]
-    assert gate["name"].startswith("Require the approval gate")
+    names = [step.get("name") for step in steps]
+    gate = _steps({"steps": steps})["Require the approval gate and a working evidence certificate"]
     run = gate["run"]
     assert 'test "$REF" = "refs/heads/main"' in run
     assert 'test -n "$CERT"' in run
+    # The certificate must actually encrypt, and not be about to expire.
+    assert "openssl x509 -checkend 86400" in run
+    assert "openssl smime -encrypt" in run and 'test -s "$RUNNER_TEMP/probe.p7m"' in run
     assert "environments/production-database" in run
     assert 'index("required_reviewers") != null' in run
     assert ".deployment_branch_policy != null" in run
-    names = [step.get("name") for step in steps]
     assert names.index("Apply repair") > names.index(gate["name"])
 
 
@@ -82,11 +84,19 @@ def test_evidence_is_only_ever_uploaded_encrypted():
     assert workflow["permissions"] == {"contents": "read"}
     for job in workflow["jobs"].values():
         steps = _steps(job)
+        names = [step.get("name") for step in job["steps"]]
         encrypt = steps["Encrypt evidence"]
-        assert "openssl smime -encrypt" in encrypt["run"]
-        assert "rm repair-evidence.json" in encrypt["run"]
         upload = steps["Upload encrypted evidence"]
+        cleanup = steps["Remove plaintext evidence"]
+        # All three run even when the repair step failed (after a commit,
+        # the evidence written before the first write is still there).
+        for step in (encrypt, upload, cleanup):
+            assert step["if"] == "${{ always() }}"
+        assert "openssl smime -encrypt" in encrypt["run"]
         assert upload["with"]["path"] == "repair-evidence.json.p7m"
+        assert cleanup["run"] == "rm -f repair-evidence.json"
+        assert names.index("Encrypt evidence") < names.index("Upload encrypted evidence") \
+            < names.index("Remove plaintext evidence") == len(names) - 1
         uploads = [s for s in job["steps"] if "upload-artifact" in s.get("uses", "")]
         assert uploads == [upload]
 

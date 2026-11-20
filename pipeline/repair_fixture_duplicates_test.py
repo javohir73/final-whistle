@@ -3,7 +3,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
@@ -39,6 +39,7 @@ from pipeline.ingest.league_structure import load_league_structure
 from pipeline.learning_loop import _frozen_prediction
 from app.chain_status import chain_pending
 import pipeline.repair_fixture_duplicates as repair_mod
+from pipeline.repair_fixture_duplicates_undo import undo_from_evidence
 from pipeline.repair_fixture_duplicates import (
     DuplicateRepairError,
     MatchMerge,
@@ -160,10 +161,12 @@ def _grade(match_id, prediction, *, shadow=False, score=(1, 1)):
 
 
 def _fingerprint(db_session) -> dict[str, tuple[int, str]]:
-    """Row count and content hash of every table."""
+    """Row count and content hash of every table, JSON columns as their raw
+    stored text (so a JSON null and an SQL NULL differ)."""
     out = {}
     for table in Base.metadata.sorted_tables:
-        rows = db_session.execute(select(table).order_by(*table.primary_key.columns)).all()
+        rows = db_session.execute(
+            repair_mod.full_select(table).order_by(*table.primary_key.columns)).all()
         blob = json.dumps([list(row) for row in rows], default=str, sort_keys=True)
         out[table.name] = (len(rows), hashlib.sha256(blob.encode()).hexdigest())
     return out
@@ -714,7 +717,9 @@ def test_cli_prints_digest_and_refuses_apply_without_it(db_session, monkeypatch,
     assert main(["--on-conflict", "", "--acknowledge", "", "--no-trial"]) == 0
     assert "ready_to_apply: true" in capsys.readouterr().out
     assert main(["--apply"]) == 2
-    assert main(["--apply", "--expected-digest", digest]) == 0
+    assert main(["--apply", "--expected-digest", digest]) == 2  # no evidence file
+    assert main(["--apply", "--expected-digest", digest,
+                 "--evidence-file", str(tmp_path / "apply.json")]) == 0
     assert db_session.query(Match).count() == 1
 
 
@@ -1383,62 +1388,7 @@ def test_acknowledgement_parsing():
 
 def _undo_from_evidence(db_session, evidence: dict) -> None:
     """Reverse an applied repair using nothing but its evidence file."""
-    from sqlalchemy import JSON, Date, DateTime, null, insert as sa_insert
-    from sqlalchemy import update as sa_update
-
-    report = evidence["report"]
-    tables = Base.metadata.tables
-
-    def typed(table, row):
-        out = {}
-        for name, value in row.items():
-            column_type = table.c[name].type
-            if value is None and isinstance(column_type, JSON):
-                value = null()
-            elif value is not None and isinstance(column_type, DateTime):
-                value = datetime.fromisoformat(value)
-            elif value is not None and isinstance(column_type, Date):
-                value = date.fromisoformat(value)
-            out[name] = value
-        return out
-
-    def insert_deleted(table):
-        for entry in report["deleted_rows"].get(table.name, []):
-            db_session.execute(sa_insert(table).values(typed(table, entry["row"])))
-
-    # 1. Merged clubs come back, survivors get their pre-merge row back
-    # (freeing the football-data fixture id) and the merged-away fixtures
-    # are re-inserted.
-    insert_deleted(tables["teams"])
-    matches = tables["matches"]
-    for row in report["survivors_before"]:
-        db_session.execute(sa_update(matches).where(matches.c.id == row["id"])
-                           .values(typed(matches, row)))
-    insert_deleted(matches)
-    # 2. Re-pointed rows point back (updated_at untouched by the guard).
-    for key, rows in report["moved_rows"].items():
-        table_name, column = key.split(".")
-        table = tables[table_name]
-        guard = {c.name: table.c[c.name] for c in table.columns
-                 if c.onupdate is not None and c.name != column}
-        for row in rows:
-            db_session.execute(sa_update(table).where(table.c.id == row["id"])
-                               .values({column: row["old"], **guard}))
-    # 3. Every other deleted row, parents first.
-    for table in Base.metadata.sorted_tables:
-        if table.name not in {"teams", "matches"}:
-            insert_deleted(table)
-    # 4. Rows corrected in place get their old values.
-    for table_name, rows in report["changed_rows"].items():
-        table = tables[table_name]
-        for row in rows:
-            db_session.execute(sa_update(table).where(table.c.id == row["id"])
-                               .values(typed(table, row["old"])))
-    # 5. The chain watermark.
-    if report["covered_finished_before"] is not None:
-        status = tables["learning_chain_status"]
-        db_session.execute(sa_update(status).where(status.c.id == 1)
-                           .values(covered_finished=report["covered_finished_before"]))
+    undo_from_evidence(db_session, evidence)
     db_session.commit()
 
 
@@ -1590,7 +1540,7 @@ def test_l2_moving_a_pick_keeps_its_updated_at(db_session):
     assert moved.updated_at.replace(tzinfo=timezone.utc) == stamp
 
 
-def test_l3_l6_cli_exit_codes_and_status(db_session, monkeypatch, capsys):
+def test_l3_l6_cli_exit_codes_and_status(db_session, monkeypatch, capsys, tmp_path):
     _seed_duplicate(db_session)
     db_session.commit()
     monkeypatch.setattr(repair_mod, "SessionLocal", lambda: _NoClose(db_session))
@@ -1611,7 +1561,8 @@ def test_l3_l6_cli_exit_codes_and_status(db_session, monkeypatch, capsys):
     assert main([]) == 0
     digest = next(l.split()[1] for l in capsys.readouterr().out.splitlines()
                   if l.startswith("digest:"))
-    assert main(["--apply", "--expected-digest", digest]) == 0
+    assert main(["--apply", "--expected-digest", digest,
+                 "--evidence-file", str(tmp_path / "apply.json")]) == 0
     capsys.readouterr()
     assert main([]) == 0
     lines = capsys.readouterr().out.splitlines()
@@ -1637,3 +1588,201 @@ def test_set_based_read_paths_match_the_real_functions(db_session):
             "latest": latest.id if latest else None,
             "frozen_shadow": shadow.id if shadow else None,
         }, match_id
+
+
+# --------------------------------------------------------------------------
+# Fourth review.
+
+
+def _raw(db_session, table_name, column, row_id):
+    return db_session.execute(text(
+        f"select {column} from {table_name} where id = :i"), {"i": row_id}).scalar()
+
+
+def test_json_null_and_sql_null_survive_the_repair_and_the_undo(db_session):
+    _, _, _, _, legacy, provider = _seed_duplicate(db_session)
+    moved = _prediction(provider.id)
+    dropped = _prediction(legacy.id, created_at=KICKOFF + timedelta(days=1))
+    db_session.add_all([moved, dropped])
+    db_session.commit()
+    # Production stores some JSON columns as JSON null, others as SQL NULL.
+    db_session.execute(text("update predictions set knockout = 'null', writeup = NULL"))
+    db_session.execute(text("update matches set goal_events = 'null', card_events = NULL"))
+    db_session.commit()
+    before = _fingerprint(db_session)
+    ids = (legacy.id, moved.id, dropped.id)
+
+    report = _apply(db_session)
+    evidence = json.loads(report_json(report))
+
+    # Forward: a re-pointed row and the survivor keep JSON null as JSON null.
+    assert _raw(db_session, "predictions", "knockout", ids[1]) == "null"
+    assert _raw(db_session, "predictions", "writeup", ids[1]) is None
+    assert _raw(db_session, "matches", "goal_events", ids[0]) == "null"
+    assert _raw(db_session, "matches", "card_events", ids[0]) is None
+    # The evidence keeps the distinction.
+    (row,) = [e["row"] for e in evidence["report"]["deleted_rows"]["predictions"]]
+    assert (row["knockout"], row["writeup"]) == ("null", None)
+
+    _undo_from_evidence(db_session, evidence)
+
+    assert _fingerprint(db_session) == before
+
+
+def test_undo_cli_reports_first_and_needs_the_database_name(db_session, monkeypatch, tmp_path,
+                                                            capsys):
+    from pipeline import repair_fixture_duplicates_undo as undo_mod
+
+    _seed_duplicate(db_session)
+    db_session.commit()
+    before = _fingerprint(db_session)
+    dry = repair_fixture_duplicates(db_session)
+    applied = repair_fixture_duplicates(db_session, apply=True, expected_digest=dry.digest)
+    evidence = tmp_path / "apply.json"
+    evidence.write_text(report_json(applied))
+    after = _fingerprint(db_session)
+    monkeypatch.setattr(undo_mod, "SessionLocal", lambda: _NoClose(db_session))
+    monkeypatch.setattr(undo_mod, "_database_name", lambda db: "fw_prod")
+
+    assert undo_mod.main(["--evidence-file", str(evidence)]) == 0
+    assert "nothing written" in capsys.readouterr().out
+    assert _fingerprint(db_session) == after
+    assert undo_mod.main(["--evidence-file", str(evidence), "--confirm-database", "other"]) == 2
+    assert _fingerprint(db_session) == after
+    assert undo_mod.main(["--evidence-file", str(evidence), "--confirm-database", "fw_prod"]) == 0
+    assert _fingerprint(db_session) == before
+    # Applied twice? The fixtures are back, so the evidence no longer applies.
+    assert undo_mod.main(["--evidence-file", str(evidence), "--confirm-database", "fw_prod"]) == 2
+    dry_evidence = tmp_path / "dry.json"
+    dry_evidence.write_text(report_json(dry))
+    assert undo_mod.main(["--evidence-file", str(dry_evidence),
+                          "--confirm-database", "fw_prod"]) == 2
+
+
+def test_exclude_leaves_the_excluded_fixtures_history_alone(db_session):
+    # Reviewer: excluding the both-finished pair still deleted its history row.
+    _, _, canonical, duplicate, legacy, provider = _seed_duplicate(db_session)
+    legacy.status = "finished"
+    legacy.score_home = legacy.score_away = 1
+    rows = [
+        HistoricalMatch(date=KICKOFF, team_a_id=legacy.team_home_id, team_b_id=canonical.id,
+                        score_a=1, score_b=1, competition=COMPETITION),
+        HistoricalMatch(date=KICKOFF, team_a_id=legacy.team_home_id, team_b_id=duplicate.id,
+                        score_a=1, score_b=1, competition=COMPETITION),
+    ]
+    db_session.add_all(rows)
+    db_session.commit()
+    before = _fingerprint(db_session)
+    acks = [f"exclude:{legacy.id}", f"exclude:{provider.id}"]
+
+    report = repair_fixture_duplicates(db_session, acknowledge=acks)
+
+    assert "historical_matches" not in report.deleted_rows
+    assert report.changed_rows == {}
+    repair_fixture_duplicates(db_session, apply=True, expected_digest=report.digest,
+                              acknowledge=acks)
+    assert _fingerprint(db_session) == before
+
+
+def test_partial_exclusion_and_unmatched_acknowledgements_are_reported(db_session):
+    # Reviewer: after an alias-aware refresh, excluding only the legacy copy
+    # silently left the football-data copy behind.
+    _, _, canonical, _, legacy, provider = _seed_duplicate(db_session)
+    provider.team_away_id = canonical.id
+    db_session.commit()
+
+    partial = repair_fixture_duplicates(db_session, acknowledge=[f"exclude:{legacy.id}"])
+    assert any("partial exclusion" in b and f"id={provider.id} " in b
+               and f"exclude:{provider.id}" in b for b in partial.blocking)
+
+    stray = repair_fixture_duplicates(
+        db_session, acknowledge=["regrade:999999", f"kickoff-gap:{provider.id}"])
+    assert "regrade:999999 matched no pair and was ignored" in stray.warnings
+    assert (f"kickoff-gap:{provider.id} matched no pair and was ignored; use the kept "
+            f"copy's id: kickoff-gap:{legacy.id}") in stray.warnings
+
+
+def test_apply_writes_and_fsyncs_evidence_before_the_first_write(db_session, monkeypatch,
+                                                                  tmp_path):
+    _seed_duplicate(db_session)
+    db_session.commit()
+    dry = repair_fixture_duplicates(db_session)
+    path = tmp_path / "evidence.json"
+    seen = {}
+    real_execute = repair_mod._execute
+
+    def spy(db, plan):
+        seen["evidence_before_writes"] = json.loads(path.read_text())
+        return real_execute(db, plan)
+
+    monkeypatch.setattr(repair_mod, "_execute", spy)
+    repair_fixture_duplicates(db_session, apply=True, expected_digest=dry.digest,
+                              evidence_path=path)
+    early = seen["evidence_before_writes"]["report"]
+    assert early["digest"] == dry.digest
+    assert early["trial"].startswith("applying")
+    assert early["deleted_rows"]["teams"]
+
+
+def test_unwritable_evidence_refuses_apply(db_session, tmp_path):
+    _seed_duplicate(db_session)
+    db_session.commit()
+    dry = repair_fixture_duplicates(db_session)
+    before = _fingerprint(db_session)
+
+    with pytest.raises(RepairRefused, match="cannot write the evidence file"):
+        repair_fixture_duplicates(db_session, apply=True, expected_digest=dry.digest,
+                                  evidence_path=tmp_path / "no-such-dir" / "e.json")
+    assert _fingerprint(db_session) == before
+
+
+SECRETS = ("leak-user@example.com", "user_id, match_id)=(2, 3)", "'away'", "db.internal.host",
+           "fw_admin", "INSERT INTO match_picks")
+
+
+def _integrity_error():
+    from sqlalchemy.exc import IntegrityError
+
+    class Orig(Exception):
+        pgcode = "23505"
+
+    message = ('duplicate key value violates unique constraint "uq_match_pick_user_match"\n'
+               "DETAIL:  Key (user_id, match_id)=(2, 3) already exists. user "
+               "leak-user@example.com pick 'away' on db.internal.host as fw_admin")
+    return IntegrityError("INSERT INTO match_picks (user_id, match_id, pick) VALUES (2, 3, 'away')",
+                          {"user_id": 2, "pick": "away", "email": "leak-user@example.com"},
+                          Orig(message))
+
+
+@pytest.mark.parametrize("mode", ["trial", "apply", "other"])
+def test_failing_runs_print_no_row_values_hosts_or_users(db_session, monkeypatch, capfd,
+                                                        tmp_path, mode):
+    _seed_duplicate(db_session)
+    db_session.commit()
+    monkeypatch.setattr(repair_mod, "SessionLocal", lambda: _NoClose(db_session))
+    digest = repair_fixture_duplicates(db_session).digest
+    error = _integrity_error() if mode != "other" else KeyError("leak-user@example.com")
+
+    def failing(db, plan):
+        raise error
+
+    monkeypatch.setattr(repair_mod, "_execute", failing)
+    evidence = tmp_path / "evidence.json"
+    argv = ["--evidence-file", str(evidence)]
+    if mode in ("apply", "other"):
+        argv += ["--apply", "--expected-digest", digest]
+
+    rc = main(argv)
+
+    out, err = capfd.readouterr()
+    for secret in SECRETS:
+        assert secret not in out + err, (mode, secret)
+    if mode == "trial":
+        assert rc == 3
+        assert "trial: failed: database error Orig (SQLSTATE 23505)" in out
+        # Full detail lives only in the (encrypted) evidence.
+        assert "already exists" in json.loads(evidence.read_text())["report"]["trial_error_detail"]
+    elif mode == "apply":
+        assert rc == 2 and "SQLSTATE 23505" in err and "nothing was written" in err
+    else:
+        assert rc == 4 and err.strip() == "ERROR: KeyError"

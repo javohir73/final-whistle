@@ -31,10 +31,10 @@ Rules the merge follows:
 - anything the tool cannot prove blocks the plan, and every block names its
   way forward (``--acknowledge <kind>:<match id>``):
   * a fixture of an affected club with no twin, an ambiguous group, or a
-    twin in another tournament: ``exclude`` leaves that fixture group, its
-    dependents and its duplicate club untouched and lists it under
-    ``left_for_manual_handling`` (the club stays, so later dry runs still
-    see it);
+    twin in another tournament: ``exclude:<id>`` leaves that fixture, its
+    dependents, its history rows and its duplicate club untouched and lists
+    it under ``left_for_manual_handling`` (the club stays, so later dry runs
+    still see it); excluding one copy of a pair but not the other blocks;
   * matchweeks differ: ``matchweek-mismatch`` (merge anyway) or ``exclude``;
   * kickoffs over 14 days apart: ``kickoff-gap`` or ``exclude``;
   * both copies finished with different scores and one is graded:
@@ -82,10 +82,14 @@ from sqlalchemy import (
     Column,
     MetaData,
     Table,
+    Text,
     UniqueConstraint,
     case,
+    cast,
+    type_coerce,
     delete,
     insert,
+    null,
     select,
     text,
     update,
@@ -93,6 +97,7 @@ from sqlalchemy import (
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+import app.models  # noqa: F401  (registers every table on Base.metadata)
 from app.db import Base, SessionLocal
 from app.match_status import FINISHED
 from pipeline.team_mapping import normalize_team_name
@@ -273,6 +278,7 @@ class RepairReport:
     survivors_before: list[dict]
     covered_finished_before: int | None
     trial: str = "not run"
+    trial_error_detail: str | None = None
 
 
 # ---------------------------------------------------------------- helpers
@@ -439,6 +445,7 @@ class _Plan:
     warnings: list[str] = field(default_factory=list)
     excluded: list[dict] = field(default_factory=list)
     excluded_match_ids: set[int] = field(default_factory=set)
+    excluded_raw: list[dict] = field(default_factory=list)
     # duplicate clubs left in place because an excluded group involves them
     kept_clubs: set[int] = field(default_factory=set)
     # survivor match id -> read paths that agreed with the kept grade before
@@ -477,7 +484,7 @@ class _Plan:
         bucket = self._cache.setdefault(key, {})
         wanted = sorted({v for v in values if v is not None} - set(bucket))
         for chunk in _chunks(wanted):
-            query = select(table).where(column.in_(chunk)).order_by(table.c.id)
+            query = full_select(table).where(column.in_(chunk)).order_by(table.c.id)
             if soft:
                 query = query.where(_soft_filter(table))
             for value in chunk:
@@ -492,6 +499,37 @@ class _Plan:
             self.preload(table, column, [value], soft=soft)
             bucket = self._cache[(table.name, column.name, soft)]
         return bucket[value]
+
+
+def full_select(table: Table):
+    """SELECT every column, JSON columns as their raw stored text. Decoding
+    turns both a JSON ``null`` and an SQL NULL into None; the repair must
+    neither lose that distinction in the evidence nor rewrite one as the other
+    (review finding 6). Raw text is written back as-is by _bulk_update and
+    the undo."""
+    # A real SQL cast: psycopg2 decodes json-typed values on the wire whatever
+    # SQLAlchemy type is declared, so only text from the server keeps 'null'.
+    return select(*[
+        cast(c, Text).label(c.name) if isinstance(c.type, JSON) else c
+        for c in table.columns
+    ])
+
+
+def _has_value(value) -> bool:
+    """A JSON column's raw text 'null' is no more a value than SQL NULL."""
+    return value is not None and value != "null"
+
+
+def json_param(db_or_dialect, column, value):
+    """Bind a raw JSON text value for ``column`` without re-encoding it; None
+    is SQL NULL (the JSON type would otherwise store the text 'null')."""
+    if not isinstance(column.type, JSON):
+        return value
+    if value is None:
+        return null()
+    dialect = getattr(db_or_dialect, "name", None) or db_or_dialect.get_bind().dialect.name
+    bound = type_coerce(value, Text)
+    return cast(bound, column.type) if dialect == "postgresql" else bound
 
 
 def _content_hash(row: dict) -> str:
@@ -575,7 +613,7 @@ def _merged_state(survivor: dict, donor: dict, team_map: dict[int, int]):
     merged = {name: state[name] for name in _LIFECYCLE_FIELDS}
     merged.update({name: donor[name] for name in _IDENTITY_FIELDS})
     for name in _KEEP_KNOWN_FIELDS:
-        merged[name] = donor[name] if donor[name] is not None else survivor[name]
+        merged[name] = donor[name] if _has_value(donor[name]) else survivor[name]
     merged["team_home_id"] = team_map.get(donor["team_home_id"], donor["team_home_id"])
     merged["team_away_id"] = team_map.get(donor["team_away_id"], donor["team_away_id"])
     return state_source, merged
@@ -606,7 +644,7 @@ def _match_pairs(plan: _Plan, db: Session, tournament_names: dict[int, str]) -> 
     rows = [
         dict(row._mapping)
         for row in db.execute(
-            select(matches)
+            full_select(matches)
             .where(
                 matches.c.team_home_id.isnot(None),
                 matches.c.team_away_id.isnot(None),
@@ -649,12 +687,23 @@ def _match_pairs(plan: _Plan, db: Session, tournament_names: dict[int, str]) -> 
                 "match_ids": out_ids, "rows": [_evidence(row) for row in left_out],
             })
             plan.excluded_match_ids.update(out_ids)
+            plan.excluded_raw.extend(left_out)
             for donor_id, survivor_id in team_map.items():
                 if survivor_id in key[1:] or donor_id in key[1:]:
                     plan.kept_clubs.add(donor_id)
         if not group:
             continue
         ids = [row["id"] for row in group]
+        if left_out and not (
+            any(r["fixture_provider"] == FOOTBALL_DATA for r in group)
+            and any(r["fixture_provider"] != FOOTBALL_DATA for r in group)
+        ):
+            plan.blocking.append(
+                f"partial exclusion for {where}: excluding "
+                f"{sorted(r['id'] for r in left_out)} leaves {_describe(group)} with no "
+                f"twin; {_exclude_hint(ids)} as well, or exclude none of them"
+            )
+            continue
         donors = [r for r in group if r["fixture_provider"] == FOOTBALL_DATA]
         legacy = [r for r in group if r["fixture_provider"] != FOOTBALL_DATA]
         if donors and legacy:
@@ -1068,6 +1117,21 @@ def _history_plan(plan: _Plan, db: Session) -> None:
         return (plan.team_map.get(row["team_a_id"], row["team_a_id"]),
                 plan.team_map.get(row["team_b_id"], row["team_b_id"]))
 
+    # An excluded fixture is untouched, history included (review finding 5):
+    # rows for the same clubs within 48h of an excluded fixture's kickoff are
+    # out of scope for every rule below.
+    protected: set[int] = set()
+    for match in plan.excluded_raw:
+        if match["kickoff_utc"] is None:
+            continue
+        clubs = (plan.team_map.get(match["team_home_id"], match["team_home_id"]),
+                 plan.team_map.get(match["team_away_id"], match["team_away_id"]))
+        protected.update(
+            row["id"] for row in rows
+            if mapped(row) == clubs
+            and abs(_utc(row["date"]) - _utc(match["kickoff_utc"])) < _SAME_MATCH_WINDOW)
+    rows = [row for row in rows if row["id"] not in protected]
+
     def on_donor(row):
         return row["team_a_id"] in plan.team_map or row["team_b_id"] in plan.team_map
 
@@ -1313,6 +1377,15 @@ def _build_plan(db: Session, policy: dict[str, str], acknowledged: list[str]) ->
             plan.move(f"historical_matches.{column.name}", rows, donor_id, survivor_id)
         plan.drop("teams", plan.rows(teams, teams.c.id, donor_id)[0],
                   f"merged_into:{survivor_id}")
+    survivor_ids = {p.survivor["id"] for p in plan.pairs}
+    donor_ids = {p.donor["id"]: p.survivor["id"] for p in plan.pairs}
+    for ack in plan.acknowledged:
+        kind, _, match_id = ack.partition(":")
+        if kind == "exclude" or int(match_id) in survivor_ids:
+            continue
+        hint = (f"; use the kept copy's id: {kind}:{donor_ids[int(match_id)]}"
+                if int(match_id) in donor_ids else "")
+        plan.warnings.append(f"{ack} matched no pair and was ignored{hint}")
     copies = [m for p in plan.pairs for m in (p.survivor["id"], p.donor["id"])]
     _expected_read_paths(plan, _read_paths_bulk(db, copies))
     # Rows deleted outright are not also "moved".
@@ -1358,17 +1431,26 @@ def _bulk_update(db: Session, table: Table, rows: list[dict], name: str) -> None
     if not rows:
         return
     names = sorted(rows[0])
+    # JSON values arrive as raw stored text (full_select): carry them as text
+    # and cast on the way back, so a JSON null stays a JSON null.
+    is_json = {n for n in names if isinstance(table.c[n].type, JSON)}
     columns = [
-        Column(n, JSON(none_as_null=True) if isinstance(table.c[n].type, JSON)
-               else table.c[n].type, primary_key=(n == "id"))
+        Column(n, Text if n in is_json else table.c[n].type, primary_key=(n == "id"))
         for n in names
     ]
     temp = Table(name, MetaData(), *columns, prefixes=["TEMPORARY"])
     temp.create(db.connection())
     db.execute(insert(temp), rows)
+    postgres = db.get_bind().dialect.name == "postgresql"
+
+    def value(n):
+        if n in is_json and postgres:
+            return cast(temp.c[n], table.c[n].type)
+        return temp.c[n]
+
     db.execute(
         update(table).where(table.c.id == temp.c.id).values(
-            {n: temp.c[n] for n in names if n != "id"} | {
+            {n: value(n) for n in names if n != "id"} | {
                 c.name: table.c[c.name] for c in table.columns
                 if c.onupdate is not None and c.name not in names
             })
@@ -1706,6 +1788,9 @@ def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
 # ------------------------------------------------------------ entrypoint
 
 
+_UTC_NAMES = {"UTC", "Etc/UTC", "UCT", "Etc/UCT", "GMT", "Etc/GMT", "Universal", "Zulu"}
+
+
 def _begin(db: Session) -> None:
     """On Postgres: one REPEATABLE READ snapshot for plan + execution, so the
     plan and the writes see the same data (review L3), with lock, statement
@@ -1722,6 +1807,18 @@ def _begin(db: Session) -> None:
         f"SET LOCAL idle_in_transaction_session_timeout = '{_IDLE_IN_TRANSACTION_TIMEOUT}'"))
 
 
+def _session_timezone_problem(db: Session) -> str | None:
+    """History keys are computed in UTC here; the refresh's sync keys on the
+    session timezone's calendar date. They agree only when that is UTC."""
+    if db.get_bind().dialect.name != "postgresql":
+        return None
+    zone = db.execute(text("SHOW timezone")).scalar()
+    if zone in _UTC_NAMES:
+        return None
+    return (f"database session timezone is {zone!r}, not UTC: history keys would not "
+            "match the refresh's sync; stop and ask (code or server setting change)")
+
+
 def _db_error(exc: BaseException) -> DBAPIError | None:
     while exc is not None:
         if isinstance(exc, DBAPIError):
@@ -1730,28 +1827,79 @@ def _db_error(exc: BaseException) -> DBAPIError | None:
     return None
 
 
+def public_error(exc: BaseException) -> str:
+    """The only form in which an exception may reach stdout, stderr or the
+    summary (review M3): workflow logs are public, and database messages
+    carry row values (``DETAIL: Key (user_id, match_id)=(2, 3)``), SQL with
+    parameters, host names and user names. Error class and SQLSTATE only; the
+    tool's own refusals carry nothing but ids and counts. Full detail goes to
+    the encrypted evidence only."""
+    dbapi = _db_error(exc)
+    if dbapi is not None:
+        orig = dbapi.orig
+        code = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
+        if code:
+            return f"database error {type(orig).__name__} (SQLSTATE {code})"
+        return (f"database connection failed or dropped ({type(orig).__name__}, "
+                "no SQLSTATE)")
+    if isinstance(exc, DuplicateRepairError):
+        return str(exc)
+    return type(exc).__name__
+
+
+def _error_detail(exc: BaseException) -> str:
+    """Full detail for the encrypted evidence only."""
+    import traceback
+
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+_BUSY_CODES = {"55P03", "57014", "40001", "40P01", "23503", "23505"}
+
+
 def _refused_after_rollback(db: Session, plan: _Plan | None, exc: DBAPIError) -> RepairRefused:
-    """Every database error (lock or statement timeout, serialization
-    failure, a concurrent insert tripping a foreign key or unique constraint)
-    is a clean refusal once the rollback is confirmed (review M2)."""
-    db.rollback()
-    db.expire_all()
+    """Every database error is a clean refusal once the rollback is done
+    (review M2); the message is sanitised (review M3/finding 7)."""
+    try:
+        db.rollback()
+        db.expire_all()
+    except Exception:  # noqa: BLE001 - the connection itself may be gone
+        pass
     confirmed = ""
     if plan is not None and plan.team_map:
-        teams = _table("teams")
-        left = db.execute(select(teams.c.id).where(
-            teams.c.id.in_(sorted(plan.team_map)))).scalars().all()
-        db.rollback()
-        confirmed = (f"; rollback confirmed: duplicate clubs {sorted(left)} still present"
-                     if sorted(left) == sorted(plan.team_map) else
-                     f"; WARNING: expected duplicate clubs {sorted(plan.team_map)}, found {left}")
+        try:
+            teams = _table("teams")
+            left = db.execute(select(teams.c.id).where(
+                teams.c.id.in_(sorted(plan.team_map)))).scalars().all()
+            db.rollback()
+            confirmed = (f"; rollback confirmed: duplicate clubs {sorted(left)} still present"
+                         if sorted(left) == sorted(plan.team_map) else
+                         f"; WARNING: expected duplicate clubs {sorted(plan.team_map)}, "
+                         f"found {sorted(left)}")
+        except Exception:  # noqa: BLE001
+            confirmed = "; rollback could not be confirmed (connection lost)"
     code = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
-    first_line = str(exc.orig).strip().splitlines()[0] if str(exc.orig).strip() else ""
+    reason = ("the data changed or is busy" if code in _BUSY_CODES
+              else "could not reach the database" if not code
+              else "unexpected database error")
     return RepairRefused(
-        f"database error {code or type(exc.orig).__name__}: {first_line} "
-        f"(the data changed or is busy); nothing was written{confirmed}; "
+        f"{public_error(exc)}: {reason}; nothing was written{confirmed}; "
         "run the dry run again"
     )
+
+
+def write_evidence(path: str | Path, report: RepairReport) -> None:
+    """Write and fsync the evidence (file and directory) or raise."""
+    path = Path(path)
+    with open(path, "w") as handle:
+        handle.write(report_json(report))
+        handle.flush()
+        os.fsync(handle.fileno())
+    directory = os.open(path.parent if str(path.parent) else ".", os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def repair_fixture_duplicates(
@@ -1763,6 +1911,7 @@ def repair_fixture_duplicates(
     acknowledge: list[str] | None = None,
     trial: bool = True,
     require_schema_head: bool = False,
+    evidence_path: str | Path | None = None,
 ) -> RepairReport:
     """Plan the repair; apply it only with a matching dry-run digest.
 
@@ -1770,6 +1919,10 @@ def repair_fixture_duplicates(
     is on, it executes once inside a savepoint (postconditions included) and
     rolls back, so a constraint the plan did not foresee shows up before
     apply. Any database error refuses cleanly with nothing written.
+
+    With ``evidence_path``, apply writes the complete evidence (it is fully
+    determined by the plan) and fsyncs it BEFORE the first write statement,
+    and refuses if it cannot (review M4).
     """
     policy = dict(sorted((on_conflict or {}).items()))
     acknowledged = sorted(set(acknowledge or []))
@@ -1778,7 +1931,10 @@ def repair_fixture_duplicates(
         _begin(db)
         if require_schema_head:
             assert_schema_at_head(db)
+        timezone_problem = _session_timezone_problem(db)
         plan = _build_plan(db, policy, acknowledged)
+        if timezone_problem:
+            plan.blocking.append(timezone_problem)
         report = _report(db, plan, dry_run=not apply)
         if not apply:
             status = report.summary["status"]
@@ -1794,7 +1950,8 @@ def repair_fixture_duplicates(
                     _execute(db, plan)
                     report.trial = "ok"
                 except Exception as exc:  # noqa: BLE001 - reported, then rolled back
-                    report.trial = f"failed: {exc}"
+                    report.trial = f"failed: {public_error(exc)}"
+                    report.trial_error_detail = _error_detail(exc)
                     report.ready_to_apply = False
                     report.summary["status"] = "not ready"
                 finally:
@@ -1811,16 +1968,28 @@ def repair_fixture_duplicates(
                 "the data or code changed since the dry run, run it again"
             )
         if report.blocking:
-            raise RepairRefused(f"plan is blocked: {report.blocking}")
+            raise RepairRefused(f"plan is blocked ({len(report.blocking)} items); "
+                                "run the dry run to see them")
         if report.unresolved_conflicts:
             raise RepairRefused(
                 f"{report.unresolved_conflicts} unresolved dependent-row conflicts; "
                 "pass an explicit --on-conflict policy"
             )
+        if evidence_path is not None:
+            report.trial = "applying: written before the first write; see the run log"
+            try:
+                write_evidence(evidence_path, report)
+            except OSError as exc:
+                raise RepairRefused(
+                    f"cannot write the evidence file ({type(exc).__name__}); "
+                    "nothing was written to the database") from exc
         _execute(db, plan)
         db.commit()
     except RepairRefused:
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         raise
     except Exception as exc:
         dbapi = _db_error(exc)
@@ -1839,7 +2008,7 @@ def report_json(report: RepairReport, *, include_rows: bool = True) -> str:
     summary = payload.pop("summary")
     if not include_rows:
         for name in ("deleted_rows", "moved_rows", "changed_rows", "survivors_before",
-                     "conflicts", "left_for_manual_handling"):
+                     "conflicts", "left_for_manual_handling", "trial_error_detail"):
             payload.pop(name)
     return (
         '{"summary": ' + json.dumps(summary, sort_keys=True, default=str)
@@ -1867,9 +2036,10 @@ def assert_schema_at_head(db: Session) -> None:
 EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_NOT_READY = 3
+EXIT_ERROR = 4
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--expected-digest", default=None)
@@ -1884,11 +2054,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-trial", action="store_true")
     parser.add_argument("--evidence-file", default=None)
     parser.add_argument("--require-schema-head", action="store_true")
-    args = parser.parse_args(argv)
-    policy = parse_on_conflict(args.on_conflict)
-    acknowledged = parse_acknowledgements(args.acknowledge)
-    with SessionLocal() as db:
-        try:
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.apply and not args.evidence_file:
+        print("REFUSED: --apply needs --evidence-file (it is written before any change)",
+              file=sys.stderr)
+        return EXIT_REFUSED
+    try:
+        policy = parse_on_conflict(args.on_conflict)
+        acknowledged = parse_acknowledgements(args.acknowledge)
+    except DuplicateRepairError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    # Only fixture/club ids, counts, table names and sanitised error classes
+    # reach stdout/stderr: the workflow logs of this repository are public.
+    # Rows (user picks included) and full error detail go to the evidence.
+    try:
+        with SessionLocal() as db:
             report = repair_fixture_duplicates(
                 db,
                 apply=args.apply,
@@ -1897,15 +2082,16 @@ def main(argv: list[str] | None = None) -> int:
                 acknowledge=acknowledged,
                 trial=not args.no_trial,
                 require_schema_head=args.require_schema_head,
+                evidence_path=args.evidence_file if args.apply else None,
             )
-        except RepairRefused as exc:
-            print(f"REFUSED: {exc}", file=sys.stderr)
-            return EXIT_REFUSED
+    except RepairRefused as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    except Exception as exc:  # noqa: BLE001 - sanitised; no traceback in public logs
+        print(f"ERROR: {public_error(exc)}", file=sys.stderr)
+        return EXIT_ERROR
     if args.evidence_file:
-        Path(args.evidence_file).write_text(report_json(report))
-    # Only fixture/club ids, counts and table names reach stdout: workflow
-    # logs of this repository are public. Rows (user picks included) go to
-    # the evidence file only.
+        write_evidence(args.evidence_file, report)
     print(json.dumps(report.summary, indent=2, sort_keys=True))
     for item in report.blocking:
         print(f"BLOCKING: {item}")
@@ -1918,7 +2104,7 @@ def main(argv: list[str] | None = None) -> int:
     for table, count in sorted(unresolved.items()):
         print(f"CONFLICTS: {table}: {count} need --on-conflict {table}=keep-survivor|keep-donor")
     if not args.evidence_file:
-        print(report_json(report))
+        print("(no --evidence-file: rows and full detail were not written anywhere)")
     status = report.summary["status"]
     print(f"trial: {report.trial}")
     print(f"status: {status}")
