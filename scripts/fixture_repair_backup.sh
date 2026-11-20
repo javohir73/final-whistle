@@ -6,13 +6,15 @@
 #   scripts/fixture_repair_backup.sh --verify-into <scratch url without a password>
 #   scripts/fixture_repair_backup.sh --verify-into-env <file with DATABASE_URL=...>
 #   scripts/fixture_repair_backup.sh --info        # pre-flight: print, dump nothing
-#   [--env-file .env] [--out-dir ~/fw-backups]
+#   [--env-file .env] [--out-dir ~/fw-backups] [--pre-apply]
 #
 # Writes <out-dir>/finalwhistle-<db>-<UTC stamp>.dump and a sidecar
 # <dump>.meta.json (host, port, database, server identity and version,
 # timezone, size, table count, matches count, alembic revision, the grants
-# held by other roles, sha256, UTC time, restore_rehearsed), both mode 0600,
-# and records the dump's path in <out-dir>/LATEST.
+# held by other roles, sha256, UTC time, restore_rehearsed), both mode 0600.
+# Only a verified backup records its path in <out-dir>/LATEST, and with
+# --pre-apply also in <out-dir>/PRE-APPLY (the backup to restore if the
+# repair must be reversed); it prints a copy-pasteable DUMP="..." line.
 #
 # Verification: the dump is converted fully to SQL and its tables and
 # matches rows compared with the live database; then that SQL is LOADED into
@@ -35,6 +37,7 @@ set -euo pipefail
 ENV_FILE=.env
 OUT_DIR="$HOME/fw-backups"
 INFO_ONLY=0
+PRE_APPLY=0
 VERIFY_URL_FILE=""
 EXPECT_HOST_SUFFIX="${FW_EXPECT_HOST_SUFFIX:-.render.com}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -44,6 +47,9 @@ die() { echo "BACKUP FAILED: $*" >&2; exit 1; }
 # shellcheck source=fixture_repair_lib.sh
 source "$HERE/fixture_repair_lib.sh"
 fw_traps
+if [ "$EXPECT_HOST_SUFFIX" != ".render.com" ]; then
+  echo "!!! FW_EXPECT_HOST_SUFFIX=$EXPECT_HOST_SUFFIX: NOT checking for Render's host (rehearsal only) !!!" >&2
+fi
 # An interrupted or failed run must not leave a dump that looks like a backup.
 DUMP=""
 COMPLETE=0
@@ -54,6 +60,7 @@ while [ $# -gt 0 ]; do
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --out-dir) OUT_DIR="$2"; shift 2 ;;
     --info) INFO_ONLY=1; shift ;;
+    --pre-apply) PRE_APPLY=1; shift ;;
     --verify-into)
       # A command line is visible in `ps` and shell history: no password here.
       case "$2" in *://*:*@*) die "--verify-into must not contain a password; put DATABASE_URL=<url> in a file and use --verify-into-env <file>" ;; esac
@@ -178,7 +185,6 @@ json.dump(meta, open(out, "w"), indent=2)
 PY
 chmod 600 "$DUMP" "$DUMP.meta.json"
 COMPLETE=1
-echo "$DUMP" > "$OUT_DIR/LATEST"
 
 echo "  file:      $DUMP"
 echo "  database:  $PROD_DB on $PROD_HOST (server $SERVER_NUM; local client $SERVER_MAJOR)"
@@ -193,8 +199,11 @@ case "$TIMEZONE" in
   *) echo "  timezone:  $TIMEZONE  <-- NOT UTC: stop and ask before applying the repair" ;;
 esac
 if [ "$REHEARSED" = true ]; then
+  echo "$DUMP" > "$OUT_DIR/LATEST"
+  [ "$PRE_APPLY" = 1 ] && echo "$DUMP" > "$OUT_DIR/PRE-APPLY"
   echo "  restore rehearsed into $SCRATCH_DESC: $S_TABLES tables, $S_MATCHES matches"
-  echo "backup ok"
+  echo "backup ok. Keep this line; it is the file to restore:"
+  printf 'DUMP=%q\n' "$DUMP"
 else
   echo "BACKUP WRITTEN BUT NOT VERIFIED: no --verify-into scratch database was given, so the" >&2
   echo "restore was not rehearsed (sidecar: restore_rehearsed=false). Do not apply on it." >&2

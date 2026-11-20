@@ -85,7 +85,7 @@ eval "$META_SH"
 # 1. The file is the one that was backed up, and its restore was rehearsed.
 SHA256="$(shasum -a 256 "$DUMP" | cut -d' ' -f1)"
 [ "$SHA256" = "$META_SHA256" ] || die "dump does not match its sidecar's sha256 (corrupt, truncated or replaced)"
-[ "$META_RESTORE_REHEARSED" = "True" ] || die "this backup's restore was never rehearsed (restore_rehearsed is false); take a verified backup"
+[ "$META_RESTORE_REHEARSED" = "True" ] || die "this backup's restore was never rehearsed (restore_rehearsed is false). Use the verified pre-apply dump (the DUMP= line the backup printed, or ~/fw-backups/PRE-APPLY). Never take a new backup of the current state over it"
 
 # 2. Matching client tools; the whole dump converts with every table and row.
 fw_require_client_major "$META_SERVER_MAJOR"
@@ -137,7 +137,9 @@ read -r ANSWER || ANSWER=""
          && echo "(a lock timeout: another connection is using the database; suspend the API and retry)" >&2
        die "the restore transaction failed and was rolled back"; }
 
-q() { psql -X -Atc "$1"; }
+# The restore is committed from here on: a failing check query must report
+# that, not end the script on set -e with a bare psql error.
+q() { psql -X -Atc "$1" 2>/dev/null || echo "(query failed)"; }
 TABLES_NOW="$(q "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'")"
 MATCHES_NOW="$(q 'select count(*) from matches')"
 ALEMBIC_NOW="$(q 'select version_num from alembic_version')"

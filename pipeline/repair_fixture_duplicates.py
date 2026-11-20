@@ -1836,6 +1836,9 @@ def _begin(db: Session) -> None:
     db.execute(text(f"SET LOCAL statement_timeout = '{_STATEMENT_TIMEOUT}'"))
     db.execute(text(
         f"SET LOCAL idle_in_transaction_session_timeout = '{_IDLE_IN_TRANSACTION_TIMEOUT}'"))
+    # Floats in content hashes and evidence must not depend on the role's or
+    # session's extra_float_digits (3 = exact round-trip, the PG12+ default).
+    db.execute(text("SET LOCAL extra_float_digits = 3"))
 
 
 def _session_timezone_problem(db: Session) -> str | None:

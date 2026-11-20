@@ -1,17 +1,22 @@
 """Reverse an applied fixture-duplicate repair from its evidence file alone.
 
 Only for the same window as the apply: writers still paused, nothing run
-since. It refuses, with nothing written, unless the database is exactly in
-the state the repair left it in:
+since. It refuses, with nothing written, unless every row the repair touched
+is as the repair left it and nothing new was created on an affected fixture
+or club. Precisely, it checks:
 
 - every row it would re-create is absent;
 - every survivor fixture, re-pointed row and corrected history row still
   has exactly the content the repair gave it (checked against the evidence;
   a pick edited, a prediction pruned or a match finished since is drift);
 - the learning-chain watermark is the value the repair set;
-- no row was written after the repair onto a survivor fixture or an
-  original club (new picks, predictions, grades, history, ...), detected by
-  ids above the highest id the repair saw in each affected table.
+- no row was created after the repair on a survivor fixture or an original
+  club (new picks, predictions, grades, history, ...), detected by ids above
+  the highest id the repair saw in each affected table.
+
+It does NOT detect an UPDATE after the repair that moved an unrelated,
+already existing row onto a survivor fixture or an original club (its id is
+old and the repair never touched it); such a row would stay where it is.
 
 Drift is listed as table, id and (where known) column, never values. There
 is deliberately no override: after the writers have resumed, the choices are
@@ -289,6 +294,27 @@ def undo_from_evidence(db: Session, evidence: dict) -> dict:
     return done
 
 
+def _read_database_url(env_file: Path) -> str:
+    """DATABASE_URL from an env file (``KEY=value`` lines, optional quotes,
+    an unquoted value ends at whitespace). The value is never printed."""
+    url = None
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if not line.startswith("DATABASE_URL="):
+            continue
+        value = line.split("=", 1)[1].strip()
+        if value[:1] in ("'", '"'):
+            value = value[1:value.find(value[0], 1)] if value.find(value[0], 1) > 0 else ""
+        else:
+            value = value.split()[0] if value.split() else ""
+        url = value
+    if not url:
+        raise ValueError("no DATABASE_URL")
+    return url
+
+
 def _database_name(db: Session) -> str:
     bind = db.get_bind()
     if bind.dialect.name == "postgresql":
@@ -301,7 +327,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--evidence-file", required=True)
     parser.add_argument("--confirm-database", default=None,
                         help="the target database's name; without it nothing is written")
+    parser.add_argument("--env-file", default=None,
+                        help="read DATABASE_URL from this file instead of the environment "
+                             "(e.g. the original project folder's .env)")
     args = parser.parse_args(argv)
+    sessions = SessionLocal
+    if args.env_file:
+        try:
+            url = _read_database_url(Path(args.env_file))
+        except (OSError, ValueError) as exc:
+            print(f"REFUSED: cannot read DATABASE_URL from the env file ({type(exc).__name__})",
+                  file=sys.stderr)
+            return 2
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        try:
+            sessions = sessionmaker(bind=create_engine(url, pool_pre_ping=True, future=True),
+                                    future=True)
+        except Exception as exc:  # noqa: BLE001 - never echo the URL
+            print(f"REFUSED: DATABASE_URL in the env file is not usable ({type(exc).__name__})",
+                  file=sys.stderr)
+            return 2
     try:
         evidence = json.loads(Path(args.evidence_file).read_text())
         if not isinstance(evidence.get("report"), dict):
@@ -310,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REFUSED: cannot read the evidence file ({type(exc).__name__})", file=sys.stderr)
         return 2
     try:
-        with SessionLocal() as db:
+        with sessions() as db:
             _begin(db)
             name = _database_name(db)
             if args.confirm_database is None:

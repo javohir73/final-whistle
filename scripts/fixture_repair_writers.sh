@@ -7,6 +7,7 @@
 #   scripts/fixture_repair_writers.sh refresh   # dispatch refresh.yml, wait, fail if it fails
 #   scripts/fixture_repair_writers.sh pause     # record states, disable the active ones, verify
 #   scripts/fixture_repair_writers.sh resume    # re-enable exactly what was active, verify
+#   scripts/fixture_repair_writers.sh resume --all-active   # record lost: enable every writer
 #
 # `pause` writes the states it found to $FW_WRITERS_STATE (default
 # ~/fw-backups/writers-state.txt) and prints them; a second `pause` (e.g. after
@@ -14,6 +15,11 @@
 # disabled is ever recorded as "was disabled". `resume` enables only workflows
 # recorded as active and currently not active, verifies every workflow is back
 # in its recorded state, then archives the record. Both are safe to re-run.
+# `resume` refuses a record that does not list every writer with a known
+# state (empty, truncated, edited); then use `resume --all-active`, which
+# enables every writer in $WRITERS except those in $UNSCHEDULED. All eight
+# writers have a schedule on main, so $UNSCHEDULED is empty; list a workflow
+# there only if it is meant to stay disabled.
 #
 # gh only resolves an active workflow for `disable` and a disabled one for
 # `enable` (pkg/cmd/workflow/{disable,enable}: ResolveWorkflow with
@@ -28,6 +34,8 @@ set -euo pipefail
 REPO="${FW_REPO:-javohir73/final-whistle}"
 STATE_FILE="${FW_WRITERS_STATE:-$HOME/fw-backups/writers-state.txt}"
 WRITERS="refresh.yml odds-snapshots.yml market-intel.yml shadow-record.yml refresh-players.yml refresh-live.yml nrl-refresh.yml nrl-live-refresh.yml"
+UNSCHEDULED=""
+KNOWN_STATES="active disabled_manually disabled_inactivity disabled_fork"
 
 # "<file> <state>" for every writer, from one API call.
 current_states() {
@@ -71,6 +79,10 @@ case "${1:-}" in
       echo "states resume will restore:"; show "$(cat "$STATE_FILE")"
     else
       echo "not paused (no record):"; show "$NOW"
+      OFF="$(printf '%s\n' "$NOW" | grep -vc ' active$' || true)"
+      if [ "$OFF" -gt 0 ]; then
+        echo "$OFF writers are disabled and there is no pause record — run \`$0 resume --all-active\` or enable them in GitHub → Actions"
+      fi
     fi ;;
   pause)
     NOW="$(current_states)"
@@ -96,8 +108,27 @@ case "${1:-}" in
     fi
     echo "all writers paused" ;;
   resume)
-    [ -f "$STATE_FILE" ] || { echo "no record of a pause at $STATE_FILE; nothing to resume" >&2; exit 1; }
-    RECORD="$(cat "$STATE_FILE")"
+    if [ "${2:-}" = "--all-active" ]; then
+      RECORD=""
+      for file in $WRITERS; do
+        case " $UNSCHEDULED " in
+          *" $file "*) RECORD="$RECORD$file disabled_manually
+" ;;
+          *) RECORD="$RECORD$file active
+" ;;
+        esac
+      done
+      echo "resume --all-active: enabling every writer except: ${UNSCHEDULED:-none}"
+    else
+      [ -f "$STATE_FILE" ] || { echo "no record of a pause at $STATE_FILE; if the writers are disabled, run: $0 resume --all-active" >&2; exit 1; }
+      RECORD="$(cat "$STATE_FILE")"
+      for file in $WRITERS; do
+        case " $KNOWN_STATES " in
+          *" $(state_of "$RECORD" "$file") "*) ;;
+          *) echo "the record at $STATE_FILE has no usable state for $file (empty, truncated or edited); nothing changed. Run: $0 resume --all-active" >&2; exit 1 ;;
+        esac
+      done
+    fi
     NOW="$(current_states)"
     for file in $WRITERS; do
       if [ "$(state_of "$RECORD" "$file")" = active ] && [ "$(state_of "$NOW" "$file")" != active ]; then
@@ -111,8 +142,8 @@ case "${1:-}" in
       if [ "$(is_active "$was")" != "$(is_active "$now")" ]; then BAD=1; fi
     done
     show "$AFTER" "$RECORD"
-    [ "$BAD" = 0 ] || { echo "NOT BACK TO THE RECORDED STATES" >&2; exit 1; }
-    mv "$STATE_FILE" "$STATE_FILE.resumed-$(date -u +%Y%m%dT%H%M%SZ)"
+    [ "$BAD" = 0 ] || { echo "NOT BACK TO THE RECORDED STATES: a writer recorded active is still disabled (or the reverse); see above" >&2; exit 1; }
+    if [ -f "$STATE_FILE" ]; then mv "$STATE_FILE" "$STATE_FILE.resumed-$(date -u +%Y%m%dT%H%M%SZ)"; fi
     echo "writers back to the states recorded at pause" ;;
   refresh)
     started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

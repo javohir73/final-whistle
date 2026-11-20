@@ -1228,6 +1228,7 @@ def test_h4_trial_can_be_skipped_and_postgres_runs_get_timeouts(db_session):
         "SET LOCAL lock_timeout = '5s'",
         "SET LOCAL statement_timeout = '60s'",
         "SET LOCAL idle_in_transaction_session_timeout = '30s'",
+        "SET LOCAL extra_float_digits = 3",
     ]
     calls_on_sqlite = []
     db_session.execute = lambda *a, **k: calls_on_sqlite.append(a)  # noqa: E731
@@ -1888,3 +1889,35 @@ def test_undo_refuses_evidence_of_an_apply_that_never_committed(db_session, tmp_
     assert evidence["report"]["trial"].startswith("applying")
     with pytest.raises(UndoRefused, match="not applied to this database"):
         undo_from_evidence(db_session, evidence)
+
+
+def test_undo_reads_the_database_url_from_an_env_file(tmp_path, capsys):
+    """The owner runs the undo from a clean checkout and points it at the
+    original project folder's .env (a path with a space)."""
+    from sqlalchemy.orm import Session as OrmSession
+
+    from pipeline import repair_fixture_duplicates_undo as undo_mod
+
+    database = tmp_path / "fw repair.sqlite"
+    engine = create_engine(f"sqlite:///{database}")
+    Base.metadata.create_all(engine)
+    with OrmSession(engine) as session:
+        _seed_duplicate(session)
+        session.commit()
+        before = _fingerprint(session)
+        dry = repair_fixture_duplicates(session)
+        applied = repair_fixture_duplicates(session, apply=True, expected_digest=dry.digest)
+    evidence = tmp_path / "apply.json"
+    evidence.write_text(report_json(applied))
+    folder = tmp_path / "Final Whistle"
+    folder.mkdir()
+    (folder / ".env").write_text(f'SECRET_KEY=x\nDATABASE_URL="sqlite:///{database}"  # prod\n')
+
+    argv = ["--evidence-file", str(evidence), "--env-file", str(folder / ".env")]
+    assert undo_mod.main(argv) == 0
+    assert "--confirm-database fw repair.sqlite" in capsys.readouterr().out
+    assert undo_mod.main(argv + ["--confirm-database", "fw repair.sqlite"]) == 0
+    with OrmSession(engine) as session:
+        assert _fingerprint(session) == before
+    assert undo_mod.main(["--evidence-file", str(evidence),
+                          "--env-file", str(folder / "missing.env")]) == 2

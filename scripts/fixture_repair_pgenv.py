@@ -76,6 +76,9 @@ def parse(url: str) -> dict:
                       "(/ : @ # ? % must be written as %2F %3A %40 %23 %3F %25)?")
     if scheme not in SCHEMES:
         raise Refused("DATABASE_URL scheme is not postgresql:// or postgresql+psycopg2://")
+    # Host part only: a comma is legal inside the password.
+    if "," in parts.netloc.rsplit("@", 1)[-1]:
+        raise Refused("DATABASE_URL names more than one host; use exactly one")
     if parts.fragment or "@" in database or "/" in database or "@" in host:
         raise Refused("DATABASE_URL does not parse cleanly; is the password URL-encoded?")
     if not (host and database and user):

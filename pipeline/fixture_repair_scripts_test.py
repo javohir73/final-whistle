@@ -89,6 +89,7 @@ def test_pgenv_writes_a_private_passfile_and_prints_no_password(tmp_path):
     ("DATABASE_URL=postgresql://u:SECRETPW@h.render.com:5432/db?host=evil&port=1",
      "query parameters other than sslmode"),
     ("DATABASE_URL=postgresql://u:SECRETPW@h.render.com:5x432/db", "does not parse"),
+    ("DATABASE_URL=postgresql://u:SECRETPW@127.0.0.1,evil.render.com:5432/db", "more than one host"),
 ])
 def test_pgenv_refuses_with_a_fixed_message(tmp_path, line, message):
     result = _pgenv(tmp_path, line)
@@ -120,6 +121,8 @@ fail_once = os.environ.get("FAKE_GH_FAIL_ONCE", "")
 if fail_once == f"{verb} {name}" and not os.path.exists(log_path + ".failed"):
     open(log_path + ".failed", "w").write("x")
     print("HTTP 500", file=sys.stderr); sys.exit(1)
+if os.environ.get("FAKE_GH_NOOP") == f"{verb} {name}":
+    sys.exit(0)  # claims success, changes nothing
 wanted = {"disable": ["active"], "enable": ["disabled_manually", "disabled_inactivity"]}[verb]
 if state.get(name) not in wanted:
     print(f"could not find any workflows named {name}", file=sys.stderr); sys.exit(1)
@@ -212,3 +215,51 @@ def test_writers_status_shows_drift_while_paused(fake_gh):
     line = next(l for l in status.stdout.splitlines() if "odds-snapshots.yml" in l)
     assert "differs" in line
     assert all("differs" not in l for l in status.stdout.splitlines() if "refresh.yml " in l)
+
+
+@pytest.mark.parametrize("record", ["", "refresh.yml active\n"])
+def test_writers_resume_refuses_an_empty_or_partial_record(fake_gh, record):
+    run, states, calls, tmp = fake_gh
+    assert run("pause").returncode == 0
+    (tmp / "record.txt").write_text(record)
+    before = states()
+
+    result = run("resume")
+
+    assert result.returncode == 1
+    assert "resume --all-active" in result.stderr
+    assert states() == before and (tmp / "record.txt").exists()
+
+
+def test_writers_without_a_record_status_warns_and_all_active_restores(fake_gh):
+    run, states, calls, tmp = fake_gh
+    assert run("pause").returncode == 0
+    (tmp / "record.txt").unlink()  # record lost (other machine, other FW_WRITERS_STATE)
+
+    assert run("resume").returncode == 1
+    status = run("status")
+    assert "8 writers are disabled and there is no pause record" in status.stdout
+    assert "resume --all-active" in status.stdout
+
+    result = run_all_active(tmp)
+    assert result.returncode == 0, result.stderr
+    assert all(states()[w] == "active" for w in WRITERS)
+
+
+def run_all_active(tmp):
+    env = {"PATH": f"{tmp / 'bin'}:/usr/bin:/bin", "HOME": str(tmp),
+           "FAKE_GH_STATE": str(tmp / "state.json"), "FAKE_GH_LOG": str(tmp / "calls.log"),
+           "FW_WRITERS_STATE": str(tmp / "record.txt")}
+    return subprocess.run(["/bin/bash", str(ROOT / "scripts" / "fixture_repair_writers.sh"),
+                           "resume", "--all-active"], env=env, capture_output=True, text=True)
+
+
+def test_writers_resume_fails_loudly_if_a_writer_stays_disabled(fake_gh):
+    run, states, calls, tmp = fake_gh
+    assert run("pause").returncode == 0
+
+    result = run("resume", FAKE_GH_NOOP="enable refresh.yml")
+
+    assert result.returncode == 1
+    assert "NOT BACK TO THE RECORDED STATES" in result.stderr
+    assert (tmp / "record.txt").exists()  # kept for the retry

@@ -9,9 +9,10 @@
 
 Written for the owner. Every step that touches production or GitHub settings is
 stop-gated (`CLAUDE.md`): it happens only after an explicit "go". Commands run on the
-MacBook, in the project folder (`~/Projects/Final Whistle`), the only machine holding
-`.env`. Anything where a typing mistake could do damage is a script; nothing below asks
-you to paste a database URL or password.
+MacBook, the only machine holding `.env`, from a clean checkout of merged `main` (step 0
+below), never from the existing project folder, which is on an old branch with
+uncommitted work and does not have these scripts. Anything where a typing mistake could
+do damage is a script; nothing below asks you to paste a database URL or password.
 
 ## What went wrong
 
@@ -116,6 +117,42 @@ without further decisions. What each part means for users:
 Deviate only when a `BLOCKING:` line about a grade remains with this policy: answer it
 with `regrade:<id>` (table above), not by changing the policy.
 
+## Step 0: a clean checkout on the MacBook
+
+Create a second folder beside the existing one. The existing folder
+`~/Projects/Final Whistle` is not changed: no checkout, no reset, its uncommitted work
+stays as it is. The writers have to be paused before the PR is merged (step 1), and the
+scripts only exist on the PR's branch until then, so the folder starts at the PR's
+branch and moves to merged `main` right after the merge:
+
+```sh
+git -C "$HOME/Projects/Final Whistle" fetch origin
+git -C "$HOME/Projects/Final Whistle" worktree add --detach "$HOME/Projects/fw-repair-main" origin/fix/fixture-duplicate-repair-v2
+cd "$HOME/Projects/fw-repair-main"
+```
+
+Right after the merge (step 2), switch it to merged `main` (nothing else in it changes):
+
+```sh
+git -C "$HOME/Projects/Final Whistle" fetch origin
+git -C "$HOME/Projects/fw-repair-main" checkout --detach origin/main
+```
+
+Every command below runs from `~/Projects/fw-repair-main`. The secrets stay where they
+are: the scripts and the undo read them from the original folder with
+`--env-file "$HOME/Projects/Final Whistle/.env"` (keep the quotes: the folder name has
+a space).
+
+The undo (and only the undo) also needs the project's Python 3.12 environment in this
+folder. Create it once:
+
+```sh
+python3.12 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
+```
+
+At the very end ("Cleanup"), remove this folder again with
+`git -C "$HOME/Projects/Final Whistle" worktree remove "$HOME/Projects/fw-repair-main"`.
+
 ## Before you start (once)
 
 1. **The approval gate.** Create the `production-database` environment with you as
@@ -160,13 +197,14 @@ with `regrade:<id>` (table above), not by changing the policy.
 
    ```sh
    RUN_ID=1234567890
-   gh run download "$RUN_ID" --repo javohir73/final-whistle --dir "evidence-$RUN_ID"
+   gh run download "$RUN_ID" --repo javohir73/final-whistle --dir "$HOME/fw-backups/evidence-$RUN_ID"
    openssl smime -decrypt -binary -inform DER \
      -inkey ~/fw-backups/repair-key/repair-evidence.key \
-     -in "evidence-$RUN_ID"/*/repair-evidence.json.p7m -out "repair-evidence-$RUN_ID.json"
+     -in "$HOME/fw-backups/evidence-$RUN_ID"/*/repair-evidence.json.p7m \
+     -out "$HOME/fw-backups/repair-evidence-$RUN_ID.json"
    ```
 
-   Keep the decrypted file and the key out of the repository.
+   This keeps the decrypted file in `~/fw-backups` with the key, out of every repository.
 
 3. **Pre-flight checks.**
    - Production's identity, size, timezone, server version, counts, and the roles other
@@ -175,7 +213,7 @@ with `regrade:<id>` (table above), not by changing the policy.
      refresh's sync uses the session timezone):
 
      ```sh
-     scripts/fixture_repair_backup.sh --info
+     scripts/fixture_repair_backup.sh --info --env-file "$HOME/Projects/Final Whistle/.env"
      ```
 
      It needs the local `pg_dump`, `pg_restore` and `psql` to be exactly the server's
@@ -231,8 +269,16 @@ about two hours free.
    ```
 
    `keep-warm` and `smoke` only read and stay on. If an external cron service (for
-   example cron-job.org) calls `/api/internal/refresh-live`, pause it too. The live API
-   itself still writes (user picks, live scores), which is why the window matters.
+   example cron-job.org) calls `/api/internal/refresh-live`, pause it too.
+
+   **The API itself keeps writing** (users' picks, live scores) even with every workflow
+   paused. A single new pick on a merged fixture after the apply makes the undo refuse,
+   which leaves the restore as the only way back, and the restore loses everything
+   written since the backup. Default: **suspend the API from just before the backup
+   (step 4) until the checks after apply (step 6)**, Render dashboard → `pitchprophet-api`
+   → Settings → "Suspend Web Service". That is a few minutes of downtime in exchange for
+   a usable undo. While it is suspended the website and the apps load but show no
+   fixtures, predictions or scores and cannot save picks (their requests to the API fail).
 
    Why pause before merging: the first refresh after the merge uses the new aliases,
    re-points the new copies at the original clubs and re-inserts about 35 finished
@@ -243,13 +289,16 @@ about two hours free.
    it happens (tested), but avoid it. The repair shares a lock (`production-database`)
    with `refresh.yml` only; that is why the others are paused.
 
-2. **Merge the PR** (go required). It contains no database migration.
+2. **Merge the PR** (go required). It contains no database migration. Then move the
+   step-0 folder to merged `main` (the two commands in step 0).
 
 3. **Dry run.** Actions → repair-fixture-duplicates → Run workflow, `apply` unticked,
    everything else empty. The dry run never commits. It plans, then runs the plan once
-   inside a savepoint and rolls it back to prove it works. On the rehearsal copy that is
-   150 database statements in all (148 for apply), 87 of them while holding row locks (about 5 s at
-   50 ms per statement). The tool waits at most 5 s for any lock and 60 s for any one
+   inside a savepoint and rolls it back to prove it works. On the production-shaped
+   rehearsal copy that is 172 database statements for a dry run and 170 for apply, of
+   which 86 (dry run) and 85 (apply) run after the first write, i.e. while row locks are
+   held (about 5 s at 50 ms per statement). Measured on this code by
+   `fw-pg-rehearsal/scripts/r8/count.sh`, which logs every statement the CLI sends. The tool waits at most 5 s for any lock and 60 s for any one
    statement, and Postgres ends its transaction after 30 s idle (for example if the
    runner dies). A connection that wants a row the repair has locked waits until the
    repair finishes (measured worst case 3.7 s at 50 ms per statement). If such a
@@ -276,13 +325,21 @@ about two hours free.
    evidence (Before you start, 2). If it does not decrypt, stop: fix the certificate
    and key first.
 
-4. **Back up, immediately before applying** (after the last dry run, nothing in
-   between), with the scratch database running. Assume Render's free Postgres has no point-in-time recovery: this file is
-   the only way back.
+4. **Suspend the API, then back up, immediately before applying** (after the last dry
+   run, nothing in between), with the scratch database running. Suspend first (Render →
+   `pitchprophet-api` → Settings → "Suspend Web Service"; see step 1 for why). Assume
+   Render's free Postgres has no point-in-time recovery: this file is the only way back.
 
    ```sh
-   scripts/fixture_repair_backup.sh --verify-into postgresql://scratch@127.0.0.1:55499/fw_restore_check
+   scripts/fixture_repair_backup.sh --pre-apply \
+     --env-file "$HOME/Projects/Final Whistle/.env" \
+     --verify-into postgresql://scratch@127.0.0.1:55499/fw_restore_check
    ```
+
+   It ends with `backup ok` and one line `DUMP=…`: **copy that line somewhere safe**
+   (your notes); it names the pre-apply backup, the one to restore if the repair has to
+   be reversed. The same path is written to `~/fw-backups/PRE-APPLY`. Never use a backup
+   taken after the apply for that.
 
    It ignores every `PG…` variable in your shell, `~/.pgpass` and `~/.pg_service.conf`;
    reads the URL from `.env` without showing it; refuses a URL it cannot parse cleanly,
@@ -295,9 +352,9 @@ about two hours free.
    It writes a sidecar `….dump.meta.json` (identity, versions, timezone, size, counts,
    other roles' grants, sha256, `restore_rehearsed`), which the restore script requires.
    Only `backup ok` (exit 0) is a usable backup. Without a scratch database it exits 3
-   with `BACKUP WRITTEN BUT NOT VERIFIED` and records `"restore_rehearsed": false`; do
-   not apply on such a backup (the restore script refuses it too). Never put the dump
-   in the repository or upload it anywhere.
+   with `BACKUP WRITTEN BUT NOT VERIFIED`, records `"restore_rehearsed": false` and does
+   not update `LATEST` or `PRE-APPLY`; do not apply on such a backup (the restore script
+   refuses it too). Never put the dump in the repository or upload it anywhere.
 
 5. **Apply within the hour.** Run the workflow with `apply` ticked, the same
    `on_conflict` and `acknowledge` values, and `expected_digest` set to the last dry
@@ -311,6 +368,10 @@ about two hours free.
 6. **Check and resume.**
    - Run the dry run once more (with the same `exclude:` items, if any): it must say
      `status: nothing to repair`.
+   - Decide now whether the repair stays. If it must be undone, do it now, before
+     anything below (see "Undo only the repair"). Otherwise resume the API: Render →
+     `pitchprophet-api` → Settings → "Resume Web Service", and check
+     `/api/health` returns 200.
    - Resume the writers and run a refresh:
 
      ```sh
@@ -328,28 +389,36 @@ about two hours free.
 
 ## Undo only the repair (same window only)
 
-Only while the window is still open: writers still paused, nothing has run against the
-database since the apply (no refresh, no resume). Run it from the project folder with
-the repository's interpreter (`.venv/bin/python`), from the decrypted apply evidence:
+Only while the window is still open: writers still paused, the API still suspended,
+nothing has run against the database since the apply (no refresh, no resume). **If the
+API was not suspended, any user pick on a merged fixture since the apply makes the undo
+refuse, and only the restore (which loses everything since the backup) remains.**
+Run it from `~/Projects/fw-repair-main` with its `.venv` (step 0), from the decrypted
+apply evidence:
 
 ```sh
 PYTHONPATH=backend:. .venv/bin/python -m pipeline.repair_fixture_duplicates_undo \
-  --evidence-file "repair-evidence-$RUN_ID.json"
+  --env-file "$HOME/Projects/Final Whistle/.env" \
+  --evidence-file "$HOME/fw-backups/repair-evidence-$RUN_ID.json"
 ```
 
-That only checks and reports. It refuses (exit 2, nothing written) unless the database
-is exactly in the state the repair left it in: every row it would re-create is absent,
-every fixture, pick, prediction and history row the repair changed still has exactly
-the content the repair gave it, the learning-chain counter is unchanged, and nothing
-was written after the repair onto a merged fixture or an original club (a new pick,
-prediction, grade or history row). Each difference is listed as table and id (never
-values). There is no override. If it says the database is consistent, it prints the
-database name; run it again with that name:
+That only checks and reports. It refuses (exit 2, nothing written) unless every row the
+repair touched is as the repair left it and nothing new was created on an affected
+fixture or club. Precisely: every row it would re-create is absent; every fixture,
+pick, prediction and history row the repair changed still has exactly the content the
+repair gave it; the learning-chain counter is unchanged; and no row was created after
+the repair on a merged fixture or an original club (a new pick, prediction, grade or
+history row). It does not detect an existing, unrelated row that was later edited to
+point at a merged fixture or an original club; nothing in the paused window does that.
+Each difference is listed as table and id (never values). There is no override. If it
+says the database is consistent, it prints the database name; run it again with that
+name:
 
 ```sh
 DB_NAME=the_name_it_printed   # replace with the name the first command printed
 PYTHONPATH=backend:. .venv/bin/python -m pipeline.repair_fixture_duplicates_undo \
-  --evidence-file "repair-evidence-$RUN_ID.json" --confirm-database "$DB_NAME"
+  --env-file "$HOME/Projects/Final Whistle/.env" \
+  --evidence-file "$HOME/fw-backups/repair-evidence-$RUN_ID.json" --confirm-database "$DB_NAME"
 ```
 
 It runs in one transaction with the repair's timeouts, a few statements per table, and
@@ -360,6 +429,32 @@ planned rows`.
 **After the writers have resumed or any refresh has run, the undo will refuse.** Then
 the choices are: restore the backup (below; loses everything written since the dump,
 including users' picks), or fix forward (a follow-up change, asked for separately).
+
+### After a successful undo or restore: what next
+
+The merged code (with the new aliases) is still live on `main`. Resuming the writers now
+would run exactly the first-refresh behaviour step 1 warns about. Default:
+
+1. Keep the writers paused (and the API suspended until step 3 is done, or resume it now
+   if you prefer; the API does not run the refresh).
+2. Confirm the duplicates are back in their pre-repair shape: run the dry run (workflow,
+   `apply` unticked, same inputs as before). It must show the same summary as before the
+   apply (the same three clubs, about 74 La Liga and 34 Bundesliga fixtures).
+3. Revert the merge of this PR on `main`. That is a normal change through a pull request
+   and needs your "go" to merge, like any merge to `main`:
+
+   ```sh
+   cd "$HOME/Projects/fw-repair-main"
+   MERGE_SHA=the_merge_commit   # the PR's merge commit on main, from its GitHub page
+   git fetch origin && git switch -c revert-fixture-repair origin/main
+   git revert -m 1 "$MERGE_SHA"
+   git push -u origin revert-fixture-repair
+   gh pr create --fill --base main
+   ```
+
+4. After the revert is merged and deployed: resume the API (if still suspended), then
+   `scripts/fixture_repair_writers.sh resume` and `scripts/fixture_repair_writers.sh refresh`.
+   The duplicates stay as they were before this PR until a fixed version is ready.
 
 ## Restore from the backup (replaces the whole database)
 
@@ -378,8 +473,12 @@ cannot be recovered. Free disk: about twice the database size (`--info` prints i
      "suspend the API and retry".
 2. Restore:
 
+   Use the pre-apply backup: the `DUMP=…` line you copied in step 4 (or the path in
+   `~/fw-backups/PRE-APPLY`), never `LATEST` and never a backup taken after the apply.
+
    ```sh
-   scripts/fixture_repair_restore.sh "$(cat ~/fw-backups/LATEST)"
+   DUMP=/path/from/the/DUMP/line.dump   # paste the line the pre-apply backup printed
+   scripts/fixture_repair_restore.sh "$DUMP" --env-file "$HOME/Projects/Final Whistle/.env"
    ```
 
    It changes nothing unless: the dump matches its sidecar's sha256 and the sidecar
@@ -395,9 +494,12 @@ cannot be recovered. Free disk: about twice the database size (`--info` prints i
    error (with any connection details removed) and nothing has changed.
    (`pg_restore --clean` is not used: it fails on the partitioned price-tick table's
    inherited constraints.)
-3. Resume: un-suspend the API (same Settings page, "Resume Web Service"),
-   `scripts/fixture_repair_writers.sh resume` (it restores exactly the states recorded
-   at pause), `scripts/fixture_repair_writers.sh refresh`, check `/api/health`.
+3. Then follow "After a successful undo or restore: what next" above: keep the writers
+   paused, confirm with a dry run, revert the merge, and only then resume the API (same
+   Settings page, "Resume Web Service") and the writers
+   (`scripts/fixture_repair_writers.sh resume` restores exactly the states recorded at
+   pause; if it says the record is missing or damaged, `resume --all-active`), run a
+   refresh and check `/api/health`.
 
 The backup and restore scripts were rehearsed on two local Postgres 16 clusters, one
 with password (SCRAM) authentication and a non-superuser owner like Render: a full
@@ -406,6 +508,27 @@ a read-only role could still read `matches`), and an unreadable dump, a truncate
 a forged sidecar, an unrehearsed backup, the wrong host, the wrong database, a wrong
 confirmation, a live connection holding a lock, decoy `PG…` variables and malformed
 URLs each refused and left the target untouched.
+
+## Cleanup after the window
+
+The scratch database now holds a full plaintext copy of production, users' picks
+included, and the dump and the decrypted evidence files are plaintext too.
+
+- Stop the scratch server and delete its data:
+
+  ```sh
+  "$(brew --prefix postgresql@16)/bin/pg_ctl" -D ~/fw-scratch-pg stop
+  rm -rf ~/fw-scratch-pg
+  ```
+
+- Keep the pre-apply dump, its `.meta.json` sidecar and the decrypted evidence in
+  `~/fw-backups` on the MacBook only (never in the repository, never on the Mac mini,
+  never uploaded) for 30 days after the apply, then delete them
+  (`rm -r ~/fw-backups/finalwhistle-*.dump ~/fw-backups/finalwhistle-*.meta.json
+  ~/fw-backups/repair-evidence-*.json ~/fw-backups/evidence-*`). Keep the key in `~/fw-backups/repair-key` until then
+  too; the encrypted artifacts on GitHub expire after 90 days.
+- Remove the clean checkout:
+  `git -C "$HOME/Projects/Final Whistle" worktree remove "$HOME/Projects/fw-repair-main"`.
 
 ## Not handled
 
