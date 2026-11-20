@@ -1,0 +1,184 @@
+# Repair the provider-cutover duplicate fixtures in the production database.
+# Operating sequence: docs/RUNBOOK-FIXTURE-DUPLICATE-REPAIR.md.
+#
+# 1. Dispatch with apply=false (dry run). It never commits; unless trial is
+#    off it executes the plan once inside a savepoint and rolls it back, which
+#    takes the same row locks apply would for a few seconds. The log shows the
+#    plain summary, every blocking item and every warning. It exits non-zero
+#    (job shown red) until the plan is ready; adjust on_conflict/acknowledge
+#    and dispatch again until it prints "ready_to_apply: true" and a digest.
+# 2. Dispatch with apply=true on the SAME commit with the SAME on_conflict and
+#    acknowledge values, and expected_digest copied from that dry run's
+#    "digest:" line. The tool replans and refuses if the digest differs.
+#
+# This repository is public: logs and artifacts are readable by anyone. The
+# log therefore carries only the summary (clubs, counts, fixture ids). The
+# full evidence file (deleted rows including user picks, needed to reverse
+# the repair) is uploaded only encrypted to the owner's certificate in the
+# repository variable REPAIR_EVIDENCE_CERT; apply refuses to run without it.
+#
+# Neither job migrates: both require the schema to already be at Alembic head
+# (migrations go through refresh.yml, the guarded path in CLAUDE.md), so a
+# dry run can never change the schema.
+#
+# Approval gate: the apply job runs in the "production-database" environment,
+# which must exist with a required reviewer and a main-only branch rule BEFORE
+# the first apply (runbook, "Before you start"). Its first step checks both
+# through the API and fails closed if either is missing. The dry-run job has
+# no environment, so it can run without an approval.
+name: repair-fixture-duplicates
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the repair (false = dry run, never commits)
+        required: true
+        type: boolean
+        default: false
+      expected_digest:
+        description: Required for apply. The "digest:" line from the dry run of this commit, policy and acknowledgements
+        required: false
+        type: string
+        default: ""
+      on_conflict:
+        description: Conflict policy, e.g. "match_picks=keep-donor" or "keep-survivor" (space or comma separated)
+        required: false
+        type: string
+        default: ""
+      acknowledge:
+        description: Per-fixture decisions, e.g. "kickoff-gap:123 regrade:456 exclude:789"
+        required: false
+        type: string
+        default: ""
+      trial:
+        description: Dry run only. Execute the plan in a rolled-back savepoint to prove it
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: production-database
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    if: ${{ !inputs.apply }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Dry run
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+          ON_CONFLICT: ${{ inputs.on_conflict }}
+          ACKNOWLEDGE: ${{ inputs.acknowledge }}
+          NO_TRIAL: ${{ !inputs.trial && '--no-trial' || '' }}
+        run: >-
+          python -m pipeline.repair_fixture_duplicates --require-schema-head
+          --evidence-file repair-evidence.json --on-conflict "$ON_CONFLICT"
+          --acknowledge "$ACKNOWLEDGE" $NO_TRIAL
+      # Runs even when the dry run failed. Only the .p7m is ever uploaded; the
+      # plaintext is removed in the last step whatever happened before it.
+      - name: Encrypt evidence
+        if: ${{ always() }}
+        env:
+          CERT: ${{ vars.REPAIR_EVIDENCE_CERT }}
+        run: >-
+          if [ -z "$CERT" ]; then echo "REPAIR_EVIDENCE_CERT not set: evidence not uploaded" >&2; exit 0; fi;
+          test -f repair-evidence.json || exit 0;
+          printf '%s\n' "$CERT" > "$RUNNER_TEMP/evidence-cert.pem" &&
+          openssl smime -encrypt -binary -aes256 -outform DER -in repair-evidence.json
+          -out repair-evidence.json.p7m "$RUNNER_TEMP/evidence-cert.pem"
+      - name: Upload encrypted evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-evidence-dry-run-${{ github.run_id }}
+          path: repair-evidence.json.p7m
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove plaintext evidence
+        if: ${{ always() }}
+        run: rm -f repair-evidence.json
+
+  apply:
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    environment: production-database
+    steps:
+      - uses: actions/checkout@v6
+      # Before anything touches the database: main only, the approval gate is
+      # really configured, and the certificate can encrypt (a test file is
+      # encrypted with it) and is valid for at least another day.
+      - name: Require the approval gate and a working evidence certificate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          CERT: ${{ vars.REPAIR_EVIDENCE_CERT }}
+        run: >-
+          test "$REF" = "refs/heads/main" || { echo "apply runs only from main" >&2; exit 1; };
+          test -n "$CERT" || { echo "REPAIR_EVIDENCE_CERT not set" >&2; exit 1; };
+          printf '%s\n' "$CERT" > "$RUNNER_TEMP/evidence-cert.pem" &&
+          openssl x509 -checkend 86400 -noout -in "$RUNNER_TEMP/evidence-cert.pem" &&
+          echo "certificate test" > "$RUNNER_TEMP/probe.txt" &&
+          openssl smime -encrypt -binary -aes256 -outform DER -in "$RUNNER_TEMP/probe.txt"
+          -out "$RUNNER_TEMP/probe.p7m" "$RUNNER_TEMP/evidence-cert.pem" &&
+          test -s "$RUNNER_TEMP/probe.p7m" &&
+          gh api "repos/$REPO/environments/production-database" > "$RUNNER_TEMP/environment.json" &&
+          jq -e '[.protection_rules[]?.type] | index("required_reviewers") != null' "$RUNNER_TEMP/environment.json" &&
+          jq -e '.deployment_branch_policy != null' "$RUNNER_TEMP/environment.json"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Apply repair
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+          ON_CONFLICT: ${{ inputs.on_conflict }}
+          ACKNOWLEDGE: ${{ inputs.acknowledge }}
+          EXPECTED_DIGEST: ${{ inputs.expected_digest }}
+        run: >-
+          test -n "$EXPECTED_DIGEST" &&
+          python -m pipeline.repair_fixture_duplicates --require-schema-head
+          --evidence-file repair-evidence.json --on-conflict "$ON_CONFLICT"
+          --acknowledge "$ACKNOWLEDGE"
+          --apply --expected-digest "$EXPECTED_DIGEST"
+      # The tool writes and fsyncs the evidence before its first write, so it
+      # exists even if the repair step fails after committing; these steps
+      # run regardless. Only the .p7m is uploaded; plaintext is removed last.
+      - name: Encrypt evidence
+        if: ${{ always() }}
+        env:
+          CERT: ${{ vars.REPAIR_EVIDENCE_CERT }}
+        run: >-
+          test -f repair-evidence.json || exit 0;
+          printf '%s\n' "$CERT" > "$RUNNER_TEMP/evidence-cert.pem" &&
+          openssl smime -encrypt -binary -aes256 -outform DER -in repair-evidence.json
+          -out repair-evidence.json.p7m "$RUNNER_TEMP/evidence-cert.pem"
+      - name: Upload encrypted evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-evidence-apply-${{ github.run_id }}
+          path: repair-evidence.json.p7m
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove plaintext evidence
+        if: ${{ always() }}
+        run: rm -f repair-evidence.json

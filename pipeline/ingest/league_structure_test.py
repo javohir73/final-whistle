@@ -579,6 +579,70 @@ def test_realistic_football_data_names_switch_the_curated_roster_without_duplica
     assert db_session.query(Team).filter_by(name="Chelsea FC").count() == 0
 
 
+def test_promoted_club_names_update_existing_domestic_fixtures(
+    db_session, monkeypatch,
+):
+    kickoff = "2026-08-24T19:30:00+00:00"
+    monkeypatch.setattr(
+        ls_mod,
+        "fetch_fixtures",
+        lambda *a, **k: [
+            _fixture_with_ids(
+                2001,
+                "Malaga",
+                1200,
+                "Deportivo La Coruna",
+                1201,
+                kickoff=kickoff,
+            )
+        ],
+    )
+    load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        tournament_name="La Liga 2026-27",
+        group_name="La Liga",
+    )
+
+    finished = replace(
+        _normalized_fixture(
+            564640,
+            "Málaga CF",
+            "RC Deportivo La Coruña",
+            kickoff=kickoff,
+            status="finished",
+        ),
+        score_home=1,
+        score_away=1,
+        score_home_90=1,
+        score_away_90=1,
+    )
+    monkeypatch.setattr(
+        ls_mod, "fetch_league_fixtures", lambda *a, **k: [finished]
+    )
+    result = load_league_structure(
+        db_session,
+        teams_file=None,
+        api_key="x",
+        tournament_name="La Liga 2026-27",
+        group_name="La Liga",
+        fixture_source="football_data",
+        competition_code="PD",
+    )
+
+    assert result["fixtures_created"] == 0
+    assert result["fixtures_updated"] == 1
+    assert db_session.query(Match).count() == 1
+    match = db_session.query(Match).one()
+    assert match.status == "finished"
+    assert (match.score_home, match.score_away) == (1, 1)
+    assert {team.name for team in db_session.query(Team).all()} == {
+        "Malaga",
+        "Deportivo La Coruna",
+    }
+
+
 def test_ucl_cross_provider_names_reuse_existing_api_teams(db_session, monkeypatch):
     existing = [
         Team(name="Paris Saint Germain", provider_team_id=85),
