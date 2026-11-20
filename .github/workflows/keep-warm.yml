@@ -9,10 +9,11 @@
 name: keep-warm
 
 #
-# NOT SCHEDULED since 2026-11: this repo is private, so every run bills at
-# least one of the 2,000 free Actions minutes a month. A 5-minute cron asks for
-# 8,640 minutes a month and, as noted above, still does not keep the service
-# warm. Use an external pinger on the public /api/health URL (no secret needed);
+# NOT SCHEDULED since 2026-11. As noted above, a 5-minute cron does not keep
+# the service warm, and on a private repo it asks for 8,640 of the 2,000 free
+# Actions minutes a month. The repo was private for a period up to 2026-11-20
+# and ran out of minutes three months running, which stopped every workflow.
+# Minutes are free only while the repo is public. Use an external pinger on the public /api/health URL (no secret needed);
 # this workflow stays for a manual one-off ping.
 on:
   workflow_dispatch: {}

@@ -141,3 +141,41 @@ prove, runs behind the `production-database` environment approval, and shares th
 Changing production secrets or repository variables, dispatching the production
 refresh/migration, merging, and deploying are stop-gated operations. They require
 an explicit human `go`; local validation must not perform them.
+
+### Manual results for fixtures no provider covers
+
+football-data.org does not carry Champions League qualifying, so fixtures
+created by API-Football before it lapsed (2026-08-18) can never be finished by
+a feed. They sit `scheduled` forever: shown as unplayed, counted as
+`stale_fixture` in `/api/health`, their frozen predictions never graded, and
+club Elo never learns from them. `pipeline/ingest/manual_results.py` holds a
+short, hand-reviewed list of results for exactly these matches. The daily
+league pipeline applies it after each competition's fixture ingest and before
+its history sync (summary step `manual_results`), so the match is graded and
+replayed in the same run.
+
+When to add an entry:
+
+- Only for a match no configured provider covers. Never to correct or
+  pre-empt a provider: if a feed can deliver the result, fix the feed.
+- Only with two independent sources that agree on the score (for UEFA
+  matches: UEFA's official Full Time Report and Wikipedia). Cite them in the
+  module docstring.
+- Record the final score (after extra time, never counting shootout kicks)
+  and the score at the end of normal time, keyed by league code, home name,
+  away name and UTC kickoff date. Names must resolve through
+  `pipeline/team_mapping.py`; never add a database id.
+
+What the step guarantees: it only fills a match that is `scheduled` with no
+score and has kicked off; it skips, with a warning naming the entry, any entry
+whose names do not resolve or that matches zero or several fixtures; a second
+run is a no-op. Applied rows carry `fixture_provider = 'manual'`, so they are
+queryable (`SELECT ... WHERE fixture_provider = 'manual'`). A provider result
+always wins: if a feed later delivers the match, its ingest overwrites the
+manual row, and a different score is logged as an ERROR (`DISAGREES`). The
+prediction already graded from the manual score is append-only and is not
+regraded automatically; after review, delete that `prediction_results` row so
+the learning loop regrades it, correct or delete the match's
+`historical_matches` row (it keeps the hand-entered score, and a provider
+kickoff on a different date would add a second row and count the match twice in
+the rating replay), and remove the entry from the list.

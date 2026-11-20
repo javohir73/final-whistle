@@ -82,6 +82,7 @@ def _run_league_pipeline(db: Session, step, n_sims: int,
         record_success,
     )
     from pipeline.ingest.league_structure import load_league_structure
+    from pipeline.ingest.manual_results import apply_manual_results, entries_for
     from pipeline.ingest.provider_errors import ProviderAuthError, ProviderQuotaError
     from pipeline.league_activation import ensure_club_history
     from pipeline.leagues import (
@@ -150,6 +151,15 @@ def _run_league_pipeline(db: Session, step, n_sims: int,
                 commit=False,
             )
             tournament = db.get(Tournament, league_summary["tournament_id"])
+            # Reviewed results for fixtures no provider covers
+            # (pipeline/ingest/manual_results.py): after this competition's
+            # fixture ingest, so a provider result always lands first and wins,
+            # and before its history sync, so club Elo and the learning loop
+            # see the finished match in this same run.
+            manual_summary = (
+                apply_manual_results(db, tournament, code, now=kickoff_after)
+                if entries_for(code) else None
+            )
             history_summary = sync_finished_matches_to_history(
                 db,
                 tournament,
@@ -179,6 +189,8 @@ def _run_league_pipeline(db: Session, step, n_sims: int,
             )
             continue
         step(f"{_prefix(code)}league_structure", lambda: league_summary)
+        if manual_summary is not None:
+            step(f"{_prefix(code)}manual_results", lambda: manual_summary)
         step(f"{_prefix(code)}league_results_sync", lambda: history_summary)
         provider_filter = Match.fixture_provider == fixture_provider
         if fixture_provider == "api_football":
