@@ -1,0 +1,5 @@
+winner: FAIL (improvement 2.25%, seasons 3/4)
+margin: FAIL (improvement -3.18%, seasons 0/4)
+total: FAIL (improvement 1.75%, seasons 3/4)
+scoreline: FAIL (improvement 1.75%, seasons 4/4)
+artifacts: artifacts/nrl_backtests/nrl-score-v0.1-shadow-2023-2026-6347c5ee60c6

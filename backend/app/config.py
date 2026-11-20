@@ -145,7 +145,11 @@ class Settings(BaseSettings):
     # NRL scoreline/total promotion gate. The existing total model is only a
     # league-wide mean and did not clear the agreed historical MAE gate, so
     # public APIs must keep its number hidden. A future shadow model may set
-    # this true only after its reproducible backtest passes.
+    # this true only after its reproducible backtest passes. NOTE: the served
+    # predicted_margin comes from the winner model (pipeline.sports.nrl_predict),
+    # so before turning this on, make the scoreline consistent with that margin
+    # or switch the margin source with it -- otherwise a page can show a score
+    # that contradicts its own "X by N" line.
     nrl_score_model_promoted: bool = False
 
     # SANDBOX API keys gating the versioned public API (/v1, ROADMAP Phase 4).

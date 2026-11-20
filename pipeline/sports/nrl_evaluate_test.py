@@ -43,6 +43,26 @@ def test_loader_canonicalizes_historical_tigers_without_mutating_source(db_sessi
     assert inventory["canonical_aliases"][0]["target_id"] == west_tigers.id
 
 
+def test_loader_labels_naive_sqlite_kickoffs_as_utc(db_session):
+    """SQLite hands a timezone=True column back naive; the evaluator requires
+    aware kickoffs, so the loader must label (not shift) the stored UTC value."""
+    home = _add_team(db_session, "Storm")
+    away = _add_team(db_session, "Panthers")
+    db_session.add(SportMatch(
+        sport="nrl", season=2024, round=1, match_no=1,
+        kickoff_utc=datetime(2024, 3, 7, 9, 0, tzinfo=timezone.utc),
+        venue="Test Ground", home_team_id=home.id, away_team_id=away.id,
+        score_home=18, score_away=12, status="finished",
+    ))
+    db_session.commit()
+    db_session.expire_all()
+
+    rows, _ = load_matches(db_session)
+
+    assert rows[0]["kickoff_utc"] == datetime(2024, 3, 7, 9, 0, tzinfo=timezone.utc)
+    assert rows[0]["kickoff_utc"].tzinfo is not None
+
+
 def test_artifacts_are_byte_equivalent_except_for_manifest_timestamp(tmp_path):
     rows = [
         {

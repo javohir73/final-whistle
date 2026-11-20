@@ -10,9 +10,9 @@ Mirrors pipeline.ingest.injuries's best-effort idiom: fetch_season NEVER raises
 (any HTTP/timeout/JSON error is logged and answered with []), parse_row is pure
 (None for malformed rows), and upsert_season does not overwrite a result THIS
 feed recorded — fixturedownload is a third-party mirror, so a stale re-fetch
-must not clobber one. The single exception is a provisional score written by
-the live poller, which has no other way to be corrected; see
-_is_provisional_live_result.
+must not clobber one. Two exceptions: a provisional score written by the live
+poller (_is_provisional_live_result), and a score on the short reviewed list in
+pipeline.sports.nrl_result_corrections, which main() applies to every fetch.
 upsert_season itself may still raise (it's a library function); the
 best-effort boundary lives in main()'s per-season CLI loop, which rolls back
 and moves on to the next season, so one bad season can't abort the backfill.
@@ -27,6 +27,7 @@ import requests
 from sqlalchemy.orm import Session
 
 from app.models import NrlLiveState, SportMatch, SportTeam
+from pipeline.sports.nrl_result_corrections import apply_corrections
 
 log = logging.getLogger(__name__)
 
@@ -161,8 +162,12 @@ def upsert_season(
     rows: list[dict],
     sport: str = SPORT,
     team_name_map: dict[str, str] | None = None,
+    corrected: set[tuple[int, int]] | None = None,
 ) -> dict:
     """Parse+store one season's rows. Idempotent on (sport, season, round, match_no).
+    `corrected` names the (round, match_no) rows whose scores carry a reviewed
+    correction (pipeline.sports.nrl_result_corrections): for those, and only
+    those, a differing stored final score is rewritten.
     `sport` scopes the write (default "nrl"); `team_name_map`, if given, maps
     each parsed team name to its canonical form and skips rows with a name
     missing from the map (see origin_ingest, which passes both).
@@ -170,7 +175,7 @@ def upsert_season(
     Creates SportTeams on first sight by (sport, name). A scheduled row gaining
     scores flips to finished; a finished match is then immutable, EXCEPT when
     the stored result was written by the live poller and this feed disagrees
-    with it (_is_provisional_live_result) — that is the only repair path a
+    with it (_is_provisional_live_result) — that, and a reviewed correction (`corrected`), are the only repair paths a
     revised NRL.com scoreline has.
     Malformed rows are skipped silently (parse_row already logs nothing; the
     caller sees them simply absent from the counts).
@@ -247,6 +252,23 @@ def upsert_season(
         if match.status == "finished" and not _is_provisional_live_result(
             match, parsed, live_poller_final_ids
         ):
+            if (
+                corrected
+                and (parsed["round"], parsed["match_no"]) in corrected
+                and parsed["status"] == "finished"
+                and (match.score_home, match.score_away)
+                != (parsed["score_home"], parsed["score_away"])
+            ):
+                # A reviewed correction is the one other repair path: scores
+                # only, never teams, kickoff or status.
+                log.info(
+                    "%s upsert_season(%s): reviewed correction round=%s match_no=%s %s-%s -> %s-%s",
+                    sport, year, parsed["round"], parsed["match_no"],
+                    match.score_home, match.score_away, parsed["score_home"], parsed["score_away"],
+                )
+                match.score_home = parsed["score_home"]
+                match.score_away = parsed["score_away"]
+                updated += 1
             continue  # freshness guard: a recorded result is never clobbered
 
         # round is no longer part of change-detection: match was looked up by
@@ -294,7 +316,8 @@ def main() -> int:
                 log.info("%s: no data (feed empty or unavailable)", year)
                 continue
             try:
-                counts = upsert_season(db, year, rows)
+                rows, corrected = apply_corrections(year, rows)
+                counts = upsert_season(db, year, rows, corrected=corrected)
             except Exception as exc:  # noqa: BLE001 - one bad season must never abort the backfill
                 db.rollback()
                 log.warning("%s: upsert_season failed, skipping season: %s", year, exc)

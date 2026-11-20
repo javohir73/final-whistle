@@ -7,7 +7,8 @@ season against the favorite and home baselines. Prints one table row per
 season and a final GATE line.
 
 Gate (per the vertical plan): PASS if the model beats the favorite baseline
-on log loss in >= 2 of the 3 held-out seasons, else FAIL. This is a read-only
+on log loss in >= 2 of the 3 held-out seasons, else FAIL. The held-out seasons
+are the three most recent completed seasons in the database. This is a read-only
 report — it never writes to the DB.
 
 Usage:
@@ -21,7 +22,15 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
 
 SPORT = "nrl"
-HELD_OUT_SEASONS = (2023, 2024, 2025)
+HELD_OUT_COUNT = 3
+
+
+def held_out_seasons(finished: set[int], unfinished: set[int], count: int = HELD_OUT_COUNT) -> tuple[int, ...]:
+    """The `count` most recent COMPLETED seasons: seasons with finished matches
+    and none still to play. Derived from the data so the gate follows the
+    calendar -- a fixed tuple silently kept scoring 2023-2025 after 2026 ended."""
+    complete = sorted(finished - unfinished)
+    return tuple(complete[-count:])
 
 
 def _load_matches_by_season(db) -> dict[int, list[dict]]:
@@ -55,17 +64,26 @@ def main() -> int:
     from ml.sports.nrl.backtest import class_freqs_from_matches, evaluate_season, replay_seasons, tune
     from ml.sports.nrl.model import regress_season
 
+    from app.models import SportMatch
+
     db = SessionLocal()
     try:
         matches_by_season = _load_matches_by_season(db)
+        unfinished = {
+            season for (season,) in db.query(SportMatch.season)
+            .filter(SportMatch.sport == SPORT, SportMatch.status != "finished").distinct()
+        }
     finally:
         db.close()
 
     seasons_present = sorted(matches_by_season)
     log.info("Loaded %d finished matches across seasons %s", sum(len(v) for v in matches_by_season.values()), seasons_present)
 
+    held_out_list = held_out_seasons(set(matches_by_season), unfinished)
+    log.info("Held-out seasons: %s", list(held_out_list))
+
     passes = 0
-    for held_out in HELD_OUT_SEASONS:
+    for held_out in held_out_list:
         train_seasons = [s for s in seasons_present if s <= held_out - 2]
         replay_through = [s for s in seasons_present if s <= held_out - 1]
 
@@ -104,7 +122,8 @@ def main() -> int:
             held_out, _fmt(result), _fmt(result["favorite"]), _fmt(result["home"]),
         )
 
-    gate = "GATE PASS" if passes >= 2 else "GATE FAIL"
+    needed = len(held_out_list) // 2 + 1
+    gate = "GATE PASS" if held_out_list and passes >= needed else "GATE FAIL"
     log.info(gate)
     return 0
 

@@ -35,6 +35,15 @@ def _read_only_snapshot(db: Session) -> None:
         db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    """`sport_matches.kickoff_utc` is stored as UTC. PostgreSQL returns it
+    timezone-aware; SQLite (a local snapshot or audit copy) returns the same
+    instant naive, which the evaluator rightly refuses. Label it, never shift it."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def load_matches(db: Session) -> tuple[list[dict], dict]:
     """Load and canonicalize finished NRL fixtures without mutating the DB."""
     from app.models import SportMatch, SportTeam
@@ -73,7 +82,7 @@ def load_matches(db: Session) -> tuple[list[dict], dict]:
             "match_id": match.id,
             "season": match.season,
             "round": match.round,
-            "kickoff_utc": match.kickoff_utc,
+            "kickoff_utc": _as_utc(match.kickoff_utc),
             "venue": match.venue,
             "home_team_id": id_aliases.get(match.home_team_id, match.home_team_id),
             "away_team_id": id_aliases.get(match.away_team_id, match.away_team_id),

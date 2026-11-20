@@ -1,0 +1,12 @@
+2023: fitted line on prior seasons: slope 0.05858 intercept 2.071
+2024: fitted line on prior seasons: slope 0.05735 intercept 2.115
+2025: fitted line on prior seasons: slope 0.05571 intercept 2.205
+2026: fitted line on prior seasons: slope 0.05454 intercept 2.406
+
+n = 852
+built_in     MAE 14.193  bias -0.254  winner-sign accuracy 0.6313  margin points against the win-probability favourite in 0 of 852
+fitted       MAE 14.252  bias -0.051  winner-sign accuracy 0.6302  margin points against the win-probability favourite in 17 of 852
+score_model  MAE 14.618  bias +0.081  winner-sign accuracy 0.5984  margin points against the win-probability favourite in 216 of 852
+MAE score_model - built_in: +0.425  ci95 [+0.135, +0.709]  by season {2023: 0.543, 2024: 0.357, 2025: 0.417, 2026: 0.383}
+MAE fitted - built_in: +0.059  ci95 [-0.032, +0.147]  by season {2023: 0.065, 2024: 0.083, 2025: 0.002, 2026: 0.087}
+MAE score_model - fitted: +0.366  ci95 [+0.013, +0.716]  by season {2023: 0.478, 2024: 0.274, 2025: 0.415, 2026: 0.297}
