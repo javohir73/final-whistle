@@ -163,4 +163,7 @@ always wins: if a feed later delivers the match, its ingest overwrites the
 manual row, and a different score is logged as an ERROR (`DISAGREES`). The
 prediction already graded from the manual score is append-only and is not
 regraded automatically; after review, delete that `prediction_results` row so
-the learning loop regrades it, and remove the entry from the list.
+the learning loop regrades it, correct or delete the match's
+`historical_matches` row (it keeps the hand-entered score, and a provider
+kickoff on a different date would add a second row and count the match twice in
+the rating replay), and remove the entry from the list.
