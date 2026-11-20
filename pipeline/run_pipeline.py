@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import datetime, timezone
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -29,7 +30,8 @@ class PartialLeagueRefreshError(RuntimeError):
         super().__init__(f"league fixture refresh failed for: {names}")
 
 
-def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
+def _run_league_pipeline(db: Session, step, n_sims: int,
+                         kickoff_after: datetime | None = None) -> None:
     """League pivot D5/D7 (docs/LEAGUE-PIVOT-PLAN.md) + League Score
     Predictions design doc (2026-07-24, "Pipeline" section): the football-
     league path, taken instead of the WC26 steps below when settings.
@@ -321,6 +323,7 @@ def _run_league_pipeline(db: Session, step, n_sims: int) -> None:
                 shadow_variants=club_shadow_variants_for(code),
                 base_strengths=base_strengths,
                 standings_advance_count=cfg.get("standings_advance_count", 2),
+                kickoff_after=kickoff_after,
             ),
         )
 
@@ -394,9 +397,14 @@ def _finalize(summary: dict) -> dict:
     return summary
 
 
-def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
+def run_pipeline(db: Session, results_df=None, n_sims: int = 5000, *,
+                 kickoff_after: datetime | None = None) -> dict:
     """Execute the full refresh. Pass results_df to skip the network download
-    (used by tests). Returns a summary of every step."""
+    (used by tests). Returns a summary of every step.
+
+    ``kickoff_after`` is forwarded to generate_predictions: main() passes the
+    wall clock so a fixture still "scheduled" after its kickoff is never
+    re-predicted. Tests seed fixtures at fixed 2026 dates and leave it None."""
     from app.chain_status import finished_match_count, record_success
     from app.config import settings
     from app.model_meta import current_model_version
@@ -438,7 +446,7 @@ def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
     # partial mix of the two) — the WC path underneath is untouched code,
     # so it stays byte-identical whenever pipeline_target is left at "wc26".
     if settings.pipeline_target == "league":
-        _run_league_pipeline(db, step, n_sims)
+        _run_league_pipeline(db, step, n_sims, kickoff_after=kickoff_after)
         return _finalize(summary)
 
     step("structure", lambda: load_structure(db))
@@ -484,7 +492,8 @@ def run_pipeline(db: Session, results_df=None, n_sims: int = 5000) -> dict:
 
     step("backfill_90min", lambda: backfill_90min_scores(db))
     step("learning_loop", lambda: run_learning_loop(db, current_model_version()))
-    step("predictions", lambda: generate_predictions(db, n_sims=n_sims))
+    step("predictions", lambda: generate_predictions(
+        db, n_sims=n_sims, kickoff_after=kickoff_after))
 
     # Movers-feature snapshot: best-effort, like odds/injuries above (never
     # raises) -- a failure here must not block prediction_coverage,
@@ -536,7 +545,7 @@ def main() -> int:
     Base.metadata.create_all(engine)  # safety for fresh DBs; Alembic owns prod schema
     db = sessionmaker(bind=engine, future=True)()
     try:
-        run_pipeline(db)
+        run_pipeline(db, kickoff_after=datetime.now(timezone.utc))
     except Exception:  # noqa: BLE001
         log.error("pipeline run failed")
         return 1

@@ -38,8 +38,11 @@ def prediction_for_match(match_id: int, db: Session = Depends(get_db)):
 
     history_rows = (
         db.query(Prediction)
-        .filter_by(match_id=match_id)
+        .join(Match, Prediction.match_id == Match.id)
+        .filter(Prediction.match_id == match_id)
         .filter(Prediction.is_shadow.is_(False))  # shadow rows are never served (FR-4.5)
+        # pre-match prices only, the same rule as the "current" row above
+        .filter(serializers.created_by_kickoff())
         .order_by(Prediction.created_at.asc(), Prediction.id.asc())
         .all()
     )

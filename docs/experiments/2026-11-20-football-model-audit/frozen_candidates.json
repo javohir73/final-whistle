@@ -1,0 +1,219 @@
+{
+ "frozen_at": "2026-11-20",
+ "note": "Pre-registered candidates as fitted on 2026-11-20 (AUDIT.md section 2). Re-runs score these; never refit.",
+ "R1": {
+  "epl": {
+   "home_adv": 40.0,
+   "base": 1.32,
+   "beta": 0.0018,
+   "rho": 0.0,
+   "calibrator": {
+    "method": "vector_scaling_segmented_edges",
+    "by": "effective_elo_gap",
+    "edges": [
+     79.3,
+     190.8
+    ],
+    "buckets": {
+     "0-79.3": {
+      "t": 0.8,
+      "b": [
+       0.0,
+       0.0,
+       -0.2
+      ]
+     },
+     "79.3-190.8": {
+      "t": 1.0,
+      "b": [
+       0.0,
+       0.1,
+       -0.1
+      ]
+     },
+     "190.8+": {
+      "t": 1.1,
+      "b": [
+       0.0,
+       -0.1,
+       -0.1
+      ]
+     }
+    },
+    "default": {
+     "t": 1.0,
+     "b": [
+      0.0,
+      0.0,
+      -0.1
+     ]
+    },
+    "n_train": 3420,
+    "thin_buckets": []
+   },
+   "train_seasons": [
+    "1718",
+    "1819",
+    "1920",
+    "2021",
+    "2122",
+    "2223",
+    "2324",
+    "2425",
+    "2526"
+   ],
+   "n_train": 3420
+  },
+  "laliga": {
+   "home_adv": 60.0,
+   "base": 1.18,
+   "beta": 0.0018,
+   "rho": 0.0,
+   "calibrator": {
+    "method": "vector_scaling_segmented_edges",
+    "by": "effective_elo_gap",
+    "edges": [
+     75.1,
+     175.4
+    ],
+    "buckets": {
+     "0-75.1": {
+      "t": 0.8,
+      "b": [
+       0.0,
+       0.1,
+       -0.2
+      ]
+     },
+     "75.1-175.4": {
+      "t": 0.9,
+      "b": [
+       0.0,
+       0.1,
+       -0.1
+      ]
+     },
+     "175.4+": {
+      "t": 1.1,
+      "b": [
+       0.0,
+       -0.2,
+       -0.3
+      ]
+     }
+    },
+    "default": {
+     "t": 1.0,
+     "b": [
+      0.0,
+      0.0,
+      -0.2
+     ]
+    },
+    "n_train": 3420,
+    "thin_buckets": []
+   },
+   "train_seasons": [
+    "1718",
+    "1819",
+    "1920",
+    "2021",
+    "2122",
+    "2223",
+    "2324",
+    "2425",
+    "2526"
+   ],
+   "n_train": 3420
+  },
+  "bundesliga": {
+   "home_adv": 30.0,
+   "base": 1.46,
+   "beta": 0.0016,
+   "rho": -0.04,
+   "calibrator": {
+    "method": "vector_scaling_segmented_edges",
+    "by": "effective_elo_gap",
+    "edges": [
+     74.6,
+     169.2
+    ],
+    "buckets": {
+     "0-74.6": {
+      "t": 1.1,
+      "b": [
+       0.0,
+       0.0,
+       -0.2
+      ]
+     },
+     "74.6-169.2": {
+      "t": 1.0,
+      "b": [
+       0.0,
+       0.1,
+       -0.2
+      ]
+     },
+     "169.2+": {
+      "t": 1.0,
+      "b": [
+       0.0,
+       -0.1,
+       -0.3
+      ]
+     }
+    },
+    "default": {
+     "t": 1.0,
+     "b": [
+      0.0,
+      0.0,
+      -0.2
+     ]
+    },
+    "n_train": 2754,
+    "thin_buckets": []
+   },
+   "train_seasons": [
+    "1718",
+    "1819",
+    "1920",
+    "2021",
+    "2122",
+    "2223",
+    "2324",
+    "2425",
+    "2526"
+   ],
+   "n_train": 2754
+  }
+ },
+ "U1": {
+  "epl": {
+   "half_life": 365.0,
+   "ridge": 1.0,
+   "rho": -0.06
+  },
+  "laliga": {
+   "half_life": 365.0,
+   "ridge": 1.0,
+   "rho": -0.06
+  },
+  "bundesliga": {
+   "half_life": 365.0,
+   "ridge": 1.0,
+   "rho": -0.06
+  }
+ },
+ "U1_caveat": "Registered U1 under-shrinks promoted clubs (AUDIT.md 7.1). Re-scored for the record only.",
+ "U2_spec": {
+  "status": "post-hoc, registered 2026-11-20 after review; NOT scored on 2026-27 at registration",
+  "model": "Poisson team strength: log lam_home = mu + home + att_h + def_a; log lam_away = mu + att_a + def_h; Dixon-Coles rho -0.06 in the score grid; no calibrator",
+  "likelihood_weight": "0.5 ** (age_days / half_life); matches older than 4 half-lives dropped; refit once per ISO week on matches dated before that week's Monday",
+  "prior": "per club, tau/2 * sum((theta - target)^2) over att and def, tau = 10 (decayed match-weight units), fixed",
+  "prior_target": "(0, 0) for a club that played in this division in the previous season; otherwise mean att/def of the three clubs with the lowest att - def in a fit made at the end of the previous season",
+  "half_life_selection": "walk-forward on 2025-26 (weekly refits), 1X2 log loss, from {365, 540, 730} days; never uses 2026-27",
+  "gate": "same as AUDIT.md section 2.4; first scoring can earn at most collect-more-evidence/shadow; a ship decision needs the season-end look"
+ }
+}

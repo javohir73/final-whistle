@@ -1,4 +1,6 @@
 """Card events on the match summary: exposure + live-model count threading."""
+from datetime import datetime
+
 from app.models import Match, Prediction, Team
 from app.serializers import _card_counts, match_to_summary
 from pipeline.ingest.wc26_structure import load_structure
@@ -38,6 +40,8 @@ def test_summary_exposes_card_events_and_red_moves_live_bar(db_session):
         match_id=m.id, model_version="test",
         prob_home_win=0.5, prob_draw=0.3, prob_away_win=0.2,
         lambda_home=1.4, lambda_away=1.0, rho=-0.06,
+        # Pre-kickoff: served reads skip rows written after the whistle.
+        created_at=datetime(2026, 6, 1),
     ))
     db_session.commit()
     base = match_to_summary(db_session, m).live_probabilities

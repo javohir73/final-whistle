@@ -133,3 +133,23 @@ def test_pipeline_runs_odds_backfill_step_with_api_key(db_session, monkeypatch):
     summary = rp_mod.run_pipeline(db_session, results_df=_sample_results(), n_sims=100)
     assert summary["odds_backfill"] == {"matches_priced": 0, "matches_skipped": 0}
     assert calls == ["k"]
+
+
+def test_main_passes_the_wall_clock_as_the_kickoff_cutoff(monkeypatch):
+    """The production entry point must not re-predict a fixture still marked
+    "scheduled" after its kickoff (audit 2026-11-20); run_pipeline() itself
+    keeps the status-only rule for tests that seed fixed 2026 dates."""
+    from datetime import datetime, timezone
+
+    import pipeline.run_pipeline as rp
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "database_url", "sqlite://")
+    seen = []
+    monkeypatch.setattr(rp, "run_pipeline", lambda db, **kw: seen.append(kw))
+    before = datetime.now(timezone.utc)
+
+    assert rp.main() == 0
+
+    assert len(seen) == 1
+    assert before <= seen[0]["kickoff_after"] <= datetime.now(timezone.utc)

@@ -33,6 +33,11 @@ def client():
     generate_predictions(
         seed, model_version="poisson-elo-v0.1", n_sims=200, tournament_sims=200
     )
+    # The WC26 structure's kickoffs (June 2026) are in the past on the wall
+    # clock; served reads only present rows written by kickoff
+    # (serializers.created_by_kickoff), so date the seeded rows pre-tournament.
+    seed.query(Prediction).update({Prediction.created_at: datetime(2026, 6, 1)})
+    seed.commit()
     seed.close()
 
     def override_get_db():
@@ -402,6 +407,10 @@ def test_recompute_disabled_when_token_unset(client, monkeypatch):
 
 def test_recompute_requires_token(client, monkeypatch):
     monkeypatch.setattr(settings, "recompute_token", "test-secret")
+    # Recompute skips fixtures past kickoff; pin its clock before the seeded
+    # June 2026 group stage so all 72 are still upcoming.
+    monkeypatch.setattr("app.api.internal._now",
+                        lambda: datetime(2026, 6, 1, tzinfo=timezone.utc))
     assert client.post("/api/internal/recompute").status_code == 401
     assert client.post(
         "/api/internal/recompute", headers={"X-Recompute-Token": "wrong"}
@@ -413,6 +422,35 @@ def test_recompute_requires_token(client, monkeypatch):
     recomputed = r.json()["recomputed"]
     assert recomputed["predictions"]["matches_predicted"] == 72
     assert "learning" in recomputed
+
+
+def test_recompute_never_repredicts_a_fixture_past_kickoff(client, monkeypatch):
+    """With its clock inside the group stage, recompute must skip every group
+    fixture that has kicked off, even though each is still "scheduled"."""
+    monkeypatch.setattr(settings, "recompute_token", "test-secret")
+    clock = datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.api.internal._now", lambda: clock)
+    gen = app.dependency_overrides[get_db]()
+    db = next(gen)
+    started = [
+        m.id for m in db.query(Match).filter(
+            Match.status == "scheduled", Match.team_home_id.isnot(None)).all()
+        if m.kickoff_utc.replace(tzinfo=timezone.utc) <= clock
+    ]
+    before = {mid: db.query(Prediction).filter_by(match_id=mid, is_shadow=False).count()
+              for mid in started}
+    db.close()
+
+    r = client.post("/api/internal/recompute", headers={"X-Recompute-Token": "test-secret"})
+    assert r.status_code == 200
+    predicted = r.json()["recomputed"]["predictions"]["matches_predicted"]
+    assert started and predicted == 72 - len(started)
+
+    db = next(app.dependency_overrides[get_db]())
+    after = {mid: db.query(Prediction).filter_by(match_id=mid, is_shadow=False).count()
+             for mid in started}
+    db.close()
+    assert after == before
 
 
 def test_prediction_rows_log_model_version_and_timestamp(client):
