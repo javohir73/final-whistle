@@ -8,7 +8,9 @@
 #
 # GitHub's minimum schedule interval is 5 minutes; this workflow uses 15 to
 # keep Action-minutes modest and loops internally at ~1-minute cadence to
-# cover the gap to the next tick. refresh-live.yml (football) uses the same
+# cover the gap to the next tick. A run ends early only when the server reports
+# no match in its live window AND no kickoff before the next tick (see the
+# idle-exit comment in the loop). refresh-live.yml (football) uses the same
 # loop-to-cover-the-gap shape but NOT the same numbers -- it runs every 5
 # minutes with 5 ticks. Don't read the two as interchangeable; each loop is
 # sized to its own cron.
@@ -32,7 +34,12 @@ name: nrl-live-refresh
 
 on:
   schedule:
-    - cron: "*/15 * * * 0,1,4,5,6"   # Sun,Mon,Thu,Fri,Sat (UTC) -- NRL round window
+    # Sun,Mon,Thu,Fri,Sat (UTC), 00:00-12:59 UTC, March-October only. Every
+    # kickoff in 2021-2026 fell between 00:00 and 10:59 UTC in those months
+    # (the early ones are the Las Vegas openers), so this window runs through
+    # full time. Outside it no NRL match is played, and every idle tick still
+    # bills one Actions minute on this private repo.
+    - cron: "*/15 0-12 * 3-10 0,1,4,5,6"
   workflow_dispatch: {}
 
 concurrency:
@@ -62,6 +69,21 @@ jobs:
               -H "X-Recompute-Token: ${RECOMPUTE_TOKEN}" || echo 000)
             echo "[$i/16] HTTP ${code} $(cat /tmp/nrl_live.json 2>/dev/null || true)"
             if [ "${code}" -ge 200 ] && [ "${code}" -lt 300 ]; then ok=1; fi
+            # Idle exit: sleeping out an idle window only burns Action-minutes
+            # (this repo is private -- 2,000 free minutes a month). But the
+            # server's live window looks just 5 minutes ahead, so "no
+            # candidates" alone would skip a kickoff landing before the next
+            # tick, and its first tries would never become NrlLiveEvents
+            # (poll_match only logs a score change against a prior state).
+            # So exit only when there are no candidates AND the next scheduled
+            # kickoff is none or more than 20 minutes off (15-minute cron plus
+            # jitter margin). A body without next_kickoff_in_seconds (older
+            # API still deployed), a non-JSON body or a failed curl keeps
+            # looping -- the old behaviour.
+            if [ "${code}" = 200 ] && [ "$(jq -r '.live | if .candidates == 0 and has("next_kickoff_in_seconds") and (.next_kickoff_in_seconds == null or .next_kickoff_in_seconds > 1200) then "idle" else "busy" end' /tmp/nrl_live.json 2>/dev/null)" = idle ]; then
+              echo "No NRL match in the live window or kicking off before the next tick -- exiting early."
+              break
+            fi
             if [ "$i" -lt 16 ]; then sleep 55; fi
           done
           if [ "${ok}" != 1 ]; then

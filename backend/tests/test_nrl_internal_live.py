@@ -56,7 +56,7 @@ def test_nrl_refresh_live_ok_with_token(monkeypatch):
         assert r.status_code == 200
         body = r.json()
         assert body["status"] == "ok"
-        assert body["live"] == {"candidates": 0, "polled": 0, "finished": 0}
+        assert body["live"] == {"candidates": 0, "polled": 0, "finished": 0, "next_kickoff_in_seconds": None}
     finally:
         app.dependency_overrides.clear()
 
@@ -123,7 +123,8 @@ def test_a_poll_that_finishes_a_match_grades_its_tips_in_the_same_request(monkey
         r = client.post("/api/internal/nrl-refresh-live", headers={"X-Recompute-Token": "secret"})
 
         assert r.status_code == 200, r.text
-        assert r.json()["live"] == {"candidates": 1, "polled": 1, "finished": 1, "tips_graded": {"graded": 1}}
+        assert r.json()["live"] == {"candidates": 1, "polled": 1, "finished": 1,
+                                    "tips_graded": {"graded": 1}, "next_kickoff_in_seconds": None}
         db = TestingSession()
         match = db.get(SportMatch, match_id)
         assert (match.status, match.score_home, match.score_away) == ("finished", 22, 10)

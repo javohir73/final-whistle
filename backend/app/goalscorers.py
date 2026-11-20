@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import schemas
 from app.models import LineupPlayer, Match, MatchLineup, Player
+from app.run_memo import memo
 from app.serializers import latest_prediction
 from ml.models.goalscorers import goalscorers
 
@@ -21,9 +22,11 @@ def _player_dict(p: Player, lineup_status: str | None) -> dict:
 
 
 def _lineup_rows(db: Session, match_id: int, side: str) -> list[LineupPlayer] | None:
-    lineup = (
+    # Memoised inside a batch pass (app/run_memo.py); the prediction pass
+    # prefills every match/side in one query.
+    lineup = memo(db, ("lineup", match_id, side), lambda: (
         db.query(MatchLineup).filter_by(match_id=match_id, side=side).one_or_none()
-    )
+    ))
     if lineup is None or not lineup.players:
         return None
     return list(lineup.players)

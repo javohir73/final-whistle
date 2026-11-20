@@ -17,7 +17,9 @@ from datetime import datetime, timedelta, timezone
 
 from app.models import NrlLiveEvent, NrlLiveState, SportMatch, SportPrediction
 from pipeline.sports.nrl_fixture_provider import RecordedFixtureStatsProvider
-from pipeline.sports.nrl_live_poll import matches_in_live_window, poll_live_matches, poll_match
+from pipeline.sports.nrl_live_poll import (
+    matches_in_live_window, next_kickoff_in_seconds, poll_live_matches, poll_match,
+)
 from pipeline.sports.nrl_stats import LivePayload
 
 
@@ -110,7 +112,9 @@ def test_poll_live_matches_never_raises_on_provider_error(db_session):
         def fetch_team_list(self, *a): return []
         def fetch_live(self, *a): raise RuntimeError("feed down")
 
-    assert poll_live_matches(db_session, _Boom(), now=now) == {"candidates": 1, "polled": 0, "finished": 0}
+    assert poll_live_matches(db_session, _Boom(), now=now) == {
+        "candidates": 1, "polled": 0, "finished": 0, "next_kickoff_in_seconds": None,
+    }
 
 
 def test_poll_live_matches_grades_tips_only_when_a_poll_finishes_a_match(db_session, monkeypatch):
@@ -130,10 +134,65 @@ def test_poll_live_matches_grades_tips_only_when_a_poll_finishes_a_match(db_sess
                                       score_home=home, score_away=away),
         }), now=now)
 
-    assert poll("live", 18, 12) == {"candidates": 1, "polled": 1, "finished": 0}
-    assert poll("final", 24, 12) == {"candidates": 1, "polled": 1, "finished": 1, "tips_graded": {"graded": 3}}
-    assert poll("final", 24, 12) == {"candidates": 1, "polled": 1, "finished": 0}
+    idle = {"next_kickoff_in_seconds": None}
+    assert poll("live", 18, 12) == {"candidates": 1, "polled": 1, "finished": 0, **idle}
+    assert poll("final", 24, 12) == {"candidates": 1, "polled": 1, "finished": 1,
+                                     "tips_graded": {"graded": 3}, **idle}
+    assert poll("final", 24, 12) == {"candidates": 1, "polled": 1, "finished": 0, **idle}
     assert len(grade_calls) == 1
+
+
+# --- next_kickoff_in_seconds (the workflow's idle early-exit gate) ----------
+
+
+def test_next_kickoff_is_none_without_scheduled_matches(db_session):
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+    assert next_kickoff_in_seconds(db_session, now=now) is None
+    assert poll_live_matches(db_session, _NoLive(), now=now) == {
+        "candidates": 0, "polled": 0, "finished": 0, "next_kickoff_in_seconds": None,
+    }
+
+
+def test_next_kickoff_reports_a_match_just_outside_the_live_window(db_session):
+    """A kickoff 10 minutes out is not a live-window candidate yet (the
+    window only looks 5 minutes ahead), but the summary must say it is
+    coming so the workflow keeps polling instead of exiting idle."""
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+    _make_match(db_session, kickoff=now + timedelta(minutes=10), match_no=1)
+    _make_match(db_session, kickoff=now + timedelta(days=1), match_no=2)
+    db_session.commit()
+
+    summary = poll_live_matches(db_session, _NoLive(), now=now)
+    assert summary["candidates"] == 0
+    assert abs(summary["next_kickoff_in_seconds"] - 600) <= 1
+
+
+def test_next_kickoff_leaves_live_window_candidates_unchanged(db_session):
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+    _make_match(db_session, kickoff=now + timedelta(minutes=3), match_no=1)
+    _make_match(db_session, kickoff=now - timedelta(minutes=30), match_no=2)
+    db_session.commit()
+
+    summary = poll_live_matches(db_session, _NoLive(), now=now)
+    assert summary["candidates"] == 2
+    assert summary["polled"] == 0
+    assert abs(summary["next_kickoff_in_seconds"] - 180) <= 1
+
+
+def test_next_kickoff_ignores_finished_and_past_matches(db_session):
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+    done = _make_match(db_session, kickoff=now + timedelta(minutes=10), match_no=1)
+    done.status = "finished"
+    _make_match(db_session, kickoff=now - timedelta(hours=3), match_no=2)
+    db_session.commit()
+
+    assert next_kickoff_in_seconds(db_session, now=now) is None
+
+
+class _NoLive:
+    def fetch_match_stats(self, *a): return None
+    def fetch_team_list(self, *a): return []
+    def fetch_live(self, *a): return None
 
 
 # --- per-side event attribution ---------------------------------------------

@@ -21,6 +21,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import Match
+from app.run_memo import active, memo
 
 # Single yellows are erased after the quarter-finals: for a match in one of
 # these stages, accumulation only counts cards ALSO shown in these stages.
@@ -50,6 +51,24 @@ def _cards(m: Match, side: str, kind: str) -> list[str]:
 
 def _finished_before(db: Session, team_id: int, match: Match) -> list[Match]:
     """The team's finished tournament matches before ``match``, kickoff order."""
+    if active(db) is not None and match.kickoff_utc is not None:
+        # Batch pass (app/run_memo.py): load the team's finished matches once
+        # and cut at this kickoff in Python, instead of one query per match
+        # per twin. Mixed tz-awareness (an unflushed aware kickoff against
+        # SQLite's naive rows) falls through to the exact SQL path below.
+        rows = memo(db, ("finished_matches", team_id), lambda: (
+            db.query(Match)
+            .filter(
+                Match.status == "finished",
+                Match.kickoff_utc.isnot(None),
+                or_(Match.team_home_id == team_id, Match.team_away_id == team_id),
+            )
+            .order_by(Match.kickoff_utc)
+            .all()
+        ))
+        aware = match.kickoff_utc.tzinfo is not None
+        if all((m.kickoff_utc.tzinfo is not None) == aware for m in rows):
+            return [m for m in rows if m.kickoff_utc < match.kickoff_utc]
     return (
         db.query(Match)
         .filter(

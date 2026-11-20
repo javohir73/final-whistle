@@ -24,6 +24,7 @@ which would otherwise count twice once the daily replay includes them).
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import timedelta
 
 from sqlalchemy.orm import Session
@@ -121,6 +122,31 @@ def _frozen_prediction(
     return q.order_by(Prediction.created_at.desc(), Prediction.id.desc()).first()
 
 
+def _predicted_match_ids(db: Session, match_ids: list[int]) -> tuple[set[int], set[int]]:
+    """(ids with ANY production prediction, ids with ANY shadow prediction)
+    among ``match_ids`` — one query per 1000 ids.
+
+    A coarse superset of what _frozen_prediction can find (no kickoff or
+    version filter), used only to skip matches whose lookup is CERTAIN to
+    return None. Finished matches synced from results and never predicted
+    would otherwise cost one remote round trip each, per record, per served
+    model version, on every daily run. Matches that pass still go through
+    _frozen_prediction unchanged.
+    """
+    prod: set[int] = set()
+    shadow: set[int] = set()
+    for i in range(0, len(match_ids), 1000):
+        chunk = match_ids[i:i + 1000]
+        for match_id, is_shadow in (
+            db.query(Prediction.match_id, Prediction.is_shadow)
+            .filter(Prediction.match_id.in_(chunk))
+            .distinct()
+            .all()
+        ):
+            (shadow if is_shadow else prod).add(match_id)
+    return prod, shadow
+
+
 def _result_row(m: Match, pred: Prediction, model_version: str, *, shadow: bool) -> PredictionResult:
     """Evaluate one frozen prediction against a finished match — the SAME math
     for the production record and the shadow record (FR-4.6)."""
@@ -167,10 +193,10 @@ def evaluate_finished_predictions(db: Session, model_version: str) -> int:
         .all()
     }
     new = 0
-    for m in _finished_matches(db):
-        if m.id in evaluated_ids:
-            continue
-        pred = _frozen_prediction(db, m)
+    pending = [m for m in _finished_matches(db) if m.id not in evaluated_ids]
+    has_prod, _has_shadow = _predicted_match_ids(db, [m.id for m in pending])
+    for m in pending:
+        pred = _frozen_prediction(db, m) if m.id in has_prod else None
         if pred is None:
             log.warning("finished match %s has no pre-kickoff prediction; skipping", m.id)
             continue
@@ -202,9 +228,11 @@ def evaluate_finished_shadow_predictions(db: Session) -> int:
         .all()
     }
     new = 0
-    for m in _finished_matches(db):
-        if m.id in evaluated_ids:
-            continue
+    pending = [m for m in _finished_matches(db) if m.id not in evaluated_ids]
+    has_prod, has_shadow = _predicted_match_ids(db, [m.id for m in pending])
+    for m in pending:
+        if m.id not in has_prod or m.id not in has_shadow:
+            continue  # no twin to compare (or no production row): nothing to find
         prod = _frozen_prediction(db, m, shadow=False)
         if prod is None:
             continue
@@ -228,7 +256,10 @@ def _already_in_history(db: Session, matches: list[Match]) -> set[int]:
     """
     if not matches:
         return set()
-    dupes: set[int] = set()
+    dupes = _already_in_history_bulk(db, matches)
+    if dupes is not None:
+        return dupes
+    dupes = set()
     for m in matches:
         if m.kickoff_utc is None:
             continue
@@ -254,6 +285,50 @@ def _already_in_history(db: Session, matches: list[Match]) -> set[int]:
             .first()
         )
         if row is not None:
+            dupes.add(m.id)
+    return dupes
+
+
+def _already_in_history_bulk(db: Session, matches: list[Match]) -> set[int] | None:
+    """_already_in_history in ONE query: every historical row inside the
+    finished matches' overall date span between teams that appear in them,
+    then the same per-match window and unordered-pair test in Python. The
+    per-match loop is one remote round trip per finished match per served
+    model version. Returns None (caller keeps the per-match queries) when the
+    kickoffs mix tz-aware and naive values, where Python and SQL comparisons
+    could disagree."""
+    dated = [m for m in matches if m.kickoff_utc is not None]
+    if not dated:
+        return set()
+    if len({m.kickoff_utc.tzinfo is None for m in dated}) > 1:
+        return None
+    windows: dict[int, tuple] = {}
+    for m in dated:
+        day = m.kickoff_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        windows[m.id] = (day - timedelta(days=1), day + timedelta(days=2))
+    lo = min(w[0] for w in windows.values())
+    hi = max(w[1] for w in windows.values())
+    team_ids = {m.team_home_id for m in dated} | {m.team_away_id for m in dated}
+    rows = (
+        db.query(HistoricalMatch.date, HistoricalMatch.team_a_id, HistoricalMatch.team_b_id)
+        .filter(
+            HistoricalMatch.date >= lo,
+            HistoricalMatch.date < hi,
+            HistoricalMatch.team_a_id.in_(team_ids),
+            HistoricalMatch.team_b_id.in_(team_ids),
+        )
+        .all()
+    )
+    if any((d.tzinfo is None) != (dated[0].kickoff_utc.tzinfo is None) for d, _, _ in rows):
+        return None
+    dates_by_pair: dict[frozenset, list] = defaultdict(list)
+    for d, a, b in rows:
+        dates_by_pair[frozenset((a, b))].append(d)
+    dupes: set[int] = set()
+    for m in dated:
+        w_lo, w_hi = windows[m.id]
+        pair = frozenset((m.team_home_id, m.team_away_id))
+        if any(w_lo <= d < w_hi for d in dates_by_pair.get(pair, ())):
             dupes.add(m.id)
     return dupes
 
@@ -380,12 +455,13 @@ def update_tournament_state(db: Session) -> int:
     # attribute access off the column too.
     form_channels_active = bool(served.form_channels)
 
+    # One read for every team's state row (team_id is UNIQUE, so this is
+    # exactly the per-team one_or_none it replaces).
+    rows_by_team = {r.team_id: r for r in db.query(TeamTournamentState).all()}
     updated = 0
     for t in teams:
         st = states.get(t.id)
-        row = (
-            db.query(TeamTournamentState).filter_by(team_id=t.id).one_or_none()
-        )
+        row = rows_by_team.get(t.id)
         if st is None:
             stale = row is not None and (row.elo_delta or row.form_adjustment)
             if form_channels_active and row is not None and row.residual_ledger:

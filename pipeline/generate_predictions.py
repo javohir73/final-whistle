@@ -21,6 +21,7 @@ from app.models import (
     GroupTeam,
     HistoricalMatch,
     Match,
+    MatchLineup,
     Odds,
     Prediction,
     Standing,
@@ -28,6 +29,7 @@ from app.models import (
     TeamTournamentState,
     TournamentOdds,
 )
+from app.run_memo import memo, run_memo
 from ml.evaluation.calibration import (
     assert_servable_calibrator,
     calibrate,
@@ -631,12 +633,48 @@ def _write_prediction(db: Session, match: Match, payload: dict, model_version: s
 
 def _latest_odds(db: Session, match_id: int) -> Odds | None:
     """Freshest stored bookmaker consensus for a match (None when unpriced)."""
-    return (
+    return memo(db, ("latest_odds", match_id), lambda: (
         db.query(Odds)
         .filter(Odds.match_id == match_id)
         .order_by(Odds.captured_at.desc(), Odds.id.desc())
         .first()
+    ))
+
+
+def _prefill_run_memo(db: Session, cache: dict, matches: list[Match]) -> None:
+    """Bulk-load the per-match reads of a prediction pass into its run memo
+    (app/run_memo.py): one query each instead of one per match per twin.
+
+    - Every Team stays strongly referenced, so the many ``db.get(Team, ...)``
+      calls below are identity-map hits rather than re-SELECTs (the session's
+      identity map is weak; teams loaded by effective_elos are otherwise
+      garbage-collected before the first match is built).
+    - Latest odds per match: the SAME ``ORDER BY captured_at DESC, id DESC``
+      as _latest_odds, applied by the database, first row per match kept.
+    - Lineups per match/side (UNIQUE(match_id, side), so this is exactly
+      _lineup_rows' one_or_none).
+    """
+    cache[("pinned_teams",)] = db.query(Team).all()
+    ids = [m.id for m in matches]
+    if not ids:
+        return
+    for mid in ids:
+        cache[("latest_odds", mid)] = None
+        cache[("lineup", mid, "home")] = None
+        cache[("lineup", mid, "away")] = None
+    odds_rows = (
+        db.query(Odds)
+        .filter(Odds.match_id.in_(ids))
+        .order_by(Odds.match_id, Odds.captured_at.desc(), Odds.id.desc())
+        .all()
     )
+    seen: set[int] = set()
+    for o in odds_rows:
+        if o.match_id not in seen:
+            seen.add(o.match_id)
+            cache[("latest_odds", o.match_id)] = o
+    for lu in db.query(MatchLineup).filter(MatchLineup.match_id.in_(ids)).all():
+        cache[("lineup", lu.match_id, lu.side)] = lu
 
 
 def _odds_anchored(
@@ -1272,58 +1310,63 @@ def generate_predictions(
         matches_q = matches_q.filter(Match.tournament_id == tournament_id)
     matches = matches_q.all()
     predicted = 0
-    for match in matches:
-        payload = build_payload(db, match, active_model_version,
-                                strengths=strengths, params=params, booster=booster)
-        if payload is None:
-            continue
-        _write_prediction(db, match, payload, active_model_version)
-        # Shadow twin (FR-4.4): odds-anchored when a market total is stored and
-        # w_odds > 0, otherwise an exact copy — either way never served.
-        write_shadow_prediction(db, match, payload, strengths, params)
-        write_availability_prediction(db, match, payload, strengths, params)
-        write_offsets_prediction(db, match, payload, strengths, params)
-        write_suspension_prediction(db, match, payload, strengths, params)
-        write_rest_prediction(db, match, payload, strengths, params)
-        if baseline_params is not None:
-            write_baseline_prediction(
-                db, match, baseline_model_version_for(active_model_version),
-                strengths, baseline_params, booster,
-            )
-        for _name, _vp in (shadow_variants or {}).items():
-            # SAVEPOINT per variant. A plain try/except is not enough: a
-            # database-level failure (constraint violation, bad flush) leaves
-            # the SESSION unusable, so the production rows added above would
-            # fail to commit too -- the shadow would take serving down with it.
-            # begin_nested() rolls back only this variant's work and leaves the
-            # outer transaction healthy.
-            try:
-                with db.begin_nested():
-                    write_variant_prediction(
-                        db, match,
-                        variant_model_version_for(active_model_version, _name),
-                        strengths, _vp, booster,
-                    )
-            except Exception:  # noqa: BLE001 - a shadow must never break serving
-                log.exception(
-                    "shadow variant %r failed for match %s; dropped (production "
-                    "row unaffected)", _name, match.id,
+    # Run memo (app/run_memo.py) for the match loop only: it reads teams,
+    # stats, squads, lineups, odds and finished matches, and writes nothing
+    # but Prediction rows, so a memoised read can never go stale here.
+    with run_memo(db) as cache:
+        _prefill_run_memo(db, cache, matches)
+        for match in matches:
+            payload = build_payload(db, match, active_model_version,
+                                    strengths=strengths, params=params, booster=booster)
+            if payload is None:
+                continue
+            _write_prediction(db, match, payload, active_model_version)
+            # Shadow twin (FR-4.4): odds-anchored when a market total is stored and
+            # w_odds > 0, otherwise an exact copy — either way never served.
+            write_shadow_prediction(db, match, payload, strengths, params)
+            write_availability_prediction(db, match, payload, strengths, params)
+            write_offsets_prediction(db, match, payload, strengths, params)
+            write_suspension_prediction(db, match, payload, strengths, params)
+            write_rest_prediction(db, match, payload, strengths, params)
+            if baseline_params is not None:
+                write_baseline_prediction(
+                    db, match, baseline_model_version_for(active_model_version),
+                    strengths, baseline_params, booster,
                 )
-        if vnext_shadow_spec is not None:
-            # Same SAVEPOINT reasoning as the variant loop above: the vNext row
-            # is a canary, so a database-level failure inside it must not take
-            # the production rows of this pass down with it.
-            try:
-                with db.begin_nested():
-                    write_vnext_shadow_prediction(
-                        db, match, payload, vnext_shadow_spec,
+            for _name, _vp in (shadow_variants or {}).items():
+                # SAVEPOINT per variant. A plain try/except is not enough: a
+                # database-level failure (constraint violation, bad flush) leaves
+                # the SESSION unusable, so the production rows added above would
+                # fail to commit too -- the shadow would take serving down with it.
+                # begin_nested() rolls back only this variant's work and leaves the
+                # outer transaction healthy.
+                try:
+                    with db.begin_nested():
+                        write_variant_prediction(
+                            db, match,
+                            variant_model_version_for(active_model_version, _name),
+                            strengths, _vp, booster,
+                        )
+                except Exception:  # noqa: BLE001 - a shadow must never break serving
+                    log.exception(
+                        "shadow variant %r failed for match %s; dropped (production "
+                        "row unaffected)", _name, match.id,
                     )
-            except Exception:  # noqa: BLE001 - a shadow must never break serving
-                log.exception(
-                    "vNext shadow failed for match %s; dropped (production row "
-                    "unaffected)", match.id,
-                )
-        predicted += 1
+            if vnext_shadow_spec is not None:
+                # Same SAVEPOINT reasoning as the variant loop above: the vNext row
+                # is a canary, so a database-level failure inside it must not take
+                # the production rows of this pass down with it.
+                try:
+                    with db.begin_nested():
+                        write_vnext_shadow_prediction(
+                            db, match, payload, vnext_shadow_spec,
+                        )
+                except Exception:  # noqa: BLE001 - a shadow must never break serving
+                    log.exception(
+                        "vNext shadow failed for match %s; dropped (production row "
+                        "unaffected)", match.id,
+                    )
+            predicted += 1
 
     groups_q = db.query(Group)
     if tournament_id is not None:
