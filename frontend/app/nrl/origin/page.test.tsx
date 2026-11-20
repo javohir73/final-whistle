@@ -53,20 +53,27 @@ beforeEach(() => {
   mockRecord.mockResolvedValue(record);
 });
 
-it("renders the series score, winner and games", async () => {
+it("titles the page with the series score and describes how it was won", async () => {
   render(await OriginPage({ searchParams: Promise.resolve({}) }));
-  expect(screen.getByRole("heading", { name: /state of origin/i })).toBeInTheDocument();
-  expect(screen.getByText(/NSW Blues win the series 2–1/i)).toBeInTheDocument();
-  expect(screen.getByText(/Game 2/)).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "NSW Blues 2–1 QLD Maroons" })).toBeInTheDocument();
+  expect(screen.getByText(/New South Wales took the series in the decider at Suncorp Stadium/)).toBeInTheDocument();
   expect(screen.getByText(/neutral/i)).toBeInTheDocument();
 });
 
-it("labels the backtest record segment as a backtest", async () => {
+it("lists every game with both Origin crests and the winner", async () => {
+  const { container } = render(await OriginPage({ searchParams: Promise.resolve({}) }));
+  expect(screen.getByRole("group", { name: "Game 2: NSW Blues 24–44 QLD Maroons" })).toBeInTheDocument();
+  expect(screen.getAllByText("Blues win")).toHaveLength(2);
+  expect(screen.getByText("Maroons win")).toBeInTheDocument();
+  expect(container.querySelectorAll('[data-club-logo="NSW Blues"]').length).toBe(3);
+  expect(container.querySelectorAll('[data-club-logo="QLD Maroons"]').length).toBe(3);
+  // A finished game with a frozen prediction shows the model's call.
+  expect(screen.getByText("Model Blues")).toBeInTheDocument();
+});
+
+it("does not repeat the site disclaimer inside the page (the banner and footer carry it)", async () => {
   render(await OriginPage({ searchParams: Promise.resolve({}) }));
-  expect(screen.getByText(/backtest/i)).toBeInTheDocument();
-  expect(screen.getByText(/1985–2024/)).toBeInTheDocument();
-  expect(screen.getByText(/base-rate prior \(fitted in hindsight\) scores 0\.710 log loss/i)).toBeInTheDocument();
-  expect(screen.getByText(/no graded live predictions yet/i)).toBeInTheDocument();
+  expect(screen.queryByText(series.disclaimer)).not.toBeInTheDocument();
 });
 
 it("passes the season searchParam through to the fetcher", async () => {

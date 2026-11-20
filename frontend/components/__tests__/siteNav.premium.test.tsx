@@ -1,4 +1,4 @@
-/** SiteNav — the persistent Premium link. It is rendered alongside ThemeToggle
+/** SiteNav — the persistent Premium link. It is rendered alongside the account control
  *  and AuthButton, outside the five-tab template (lib/sports.ts navTabsFor),
  *  so it is present on unscoped and competition routes alike. It carries the
  *  competition only when the URL names one, and a way back only from a
@@ -65,7 +65,7 @@ describe("SiteNav — Premium link (billing on)", () => {
       "/premium?competition=epl&returnTo=%2Ffootball%2Fepl",
     );
     // The five-tab template still owns the link row itself.
-    expect(screen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Matches" })).toBeInTheDocument();
   });
 
   it("carries a ?competition= scope but no returnTo from an unscoped route", () => {
@@ -127,7 +127,7 @@ describe("SiteNav — Premium link (billing on)", () => {
 // pins it to `true`, so the "billing off" case needs a fresh, isolated require
 // of the module graph — and, per the components/AccountMenu.premium.test.tsx
 // precedent, an isolated render/screen from that same registry: SiteNav's tree
-// (ThemeToggle, AuthButton) uses real hooks, which must come from one copy of
+// (AuthButton, the switcher and search) uses real hooks, which must come from one copy of
 // React.
 describe("SiteNav — billing disabled", () => {
   let isolatedRender: typeof render = render;
@@ -149,6 +149,6 @@ describe("SiteNav — billing disabled", () => {
     isolatedRender(<IsolatedSiteNav />);
     expect(isolatedScreen.queryByRole("link", { name: "Premium" })).not.toBeInTheDocument();
     // ...and the rest of the bar is untouched.
-    expect(isolatedScreen.getByRole("link", { name: "Fixtures" })).toBeInTheDocument();
+    expect(isolatedScreen.getByRole("link", { name: "Matches" })).toBeInTheDocument();
   });
 });

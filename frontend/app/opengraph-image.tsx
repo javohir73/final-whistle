@@ -13,10 +13,10 @@ export default function Image() {
     (
       <Shell eyebrow="Football · Rugby league" footer={PLATFORM_FOOTER}>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={{ display: "flex", fontSize: 76, fontWeight: 800, letterSpacing: -2, lineHeight: 1.05 }}>
+          <div style={{ display: "flex", fontSize: 76, fontWeight: 600, letterSpacing: -2, lineHeight: 1.05 }}>
             Beat the model,
           </div>
-          <div style={{ display: "flex", fontSize: 76, fontWeight: 800, letterSpacing: -2, color: C.win, lineHeight: 1.05 }}>
+          <div style={{ display: "flex", fontSize: 76, fontWeight: 600, letterSpacing: -2, color: C.brand, lineHeight: 1.05 }}>
             every matchweek.
           </div>
           <div style={{ display: "flex", fontSize: 30, color: C.muted, marginTop: 10, maxWidth: 900 }}>

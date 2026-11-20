@@ -84,5 +84,5 @@ it("announces a mismatch or server error through role=alert", async () => {
   fill("newpassword1", "newpassword1");
   fireEvent.click(screen.getByRole("button", { name: /update password/i }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/invalid or has expired/i));
-  expect(screen.getByRole("alert")).toHaveClass("text-loss-ink");
+  expect(screen.getByRole("alert")).toHaveClass("text-miss");
 });

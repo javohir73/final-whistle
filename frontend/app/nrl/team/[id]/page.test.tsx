@@ -1,14 +1,13 @@
 /** NRL club profile page tests — server component (SSR) output. */
 import { render, screen } from "@testing-library/react";
 import NrlTeamPage from "./page";
-import { getNrlTeamServer, getNrlStatsProfileServer } from "@/lib/api";
-import type { NrlTeamProfile, NrlStatsProfile } from "@/lib/types";
+import { getNrlLadderServer, getNrlMatchesServer, getNrlTeamServer } from "@/lib/api";
+import type { NrlMatch, NrlMatchesResponse, NrlTeamProfile } from "@/lib/types";
 
 jest.mock("@/lib/api");
 const mockTeam = getNrlTeamServer as jest.MockedFunction<typeof getNrlTeamServer>;
-const mockStatsProfile = getNrlStatsProfileServer as jest.MockedFunction<
-  typeof getNrlStatsProfileServer
->;
+const mockMatches = getNrlMatchesServer as jest.MockedFunction<typeof getNrlMatchesServer>;
+const mockLadder = getNrlLadderServer as jest.MockedFunction<typeof getNrlLadderServer>;
 
 const profile: NrlTeamProfile = {
   season: 2026,
@@ -62,73 +61,114 @@ const profile: NrlTeamProfile = {
 
 const params = (id = "16") => Promise.resolve({ id });
 
-beforeEach(() => mockStatsProfile.mockResolvedValue(null));
+const m = (id: number, home: string, away: string, hid: number, aid: number, sh: number | null, sa: number | null,
+  status: string, kickoff: string, p_home?: number): NrlMatch => ({
+  id, match_no: id, kickoff_utc: kickoff, venue: "Accor Stadium", home, away, home_team_id: hid, away_team_id: aid,
+  score_home: sh, score_away: sa, status,
+  prediction: p_home == null ? null : { p_home, p_draw: 0.01, p_away: 0.99 - p_home, expected_margin: 3,
+    model_version: "nrl-elo-v0.1", created_at: null, is_shadow: true },
+});
+const regular = Array.from({ length: 8 }, (_, i) => m(100 + i, "A", "B", 1, 2, 10, 8, "finished", "2026-08-01T08:00:00Z"));
+/** A complete season: a full regular round, then the finals (4, 2, 2, 1). */
+function completeSeason(): NrlMatchesResponse {
+  return {
+    season: 2026,
+    disclaimer: "",
+    rounds: [
+      { round: 27, matches: regular },
+      { round: 28, matches: [
+        m(1, "Warriors", "Dolphins", 16, 18, 16, 26, "finished", "2026-09-12T06:05:00Z", 0.54),
+        m(2, "Rabbitohs", "Knights", 3, 14, 10, 20, "finished", "2026-09-11T09:50:00Z", 0.61),
+        m(3, "Sharks", "Cowboys", 1, 2, 26, 16, "finished", "2026-09-12T09:50:00Z", 0.62),
+        m(4, "Panthers", "Roosters", 8, 12, 19, 12, "finished", "2026-09-13T06:05:00Z", 0.61),
+      ] },
+      { round: 29, matches: [
+        m(5, "Roosters", "Sharks", 12, 1, 46, 10, "finished", "2026-09-19T09:50:00Z"),
+        m(6, "Warriors", "Knights", 16, 14, 10, 12, "finished", "2026-09-20T06:05:00Z"),
+      ] },
+      { round: 30, matches: [
+        m(7, "Dolphins", "Roosters", 18, 12, 20, 36, "finished", "2026-09-25T09:50:00Z"),
+        m(8, "Panthers", "Knights", 8, 14, 14, 22, "finished", "2026-09-27T06:00:00Z"),
+      ] },
+      { round: 31, matches: [m(9, "Roosters", "Knights", 12, 14, 19, 18, "finished", "2026-10-04T08:30:00Z", 0.64)] },
+    ],
+  };
+}
+const roosters: NrlTeamProfile = {
+  ...profile,
+  team: { id: 12, name: "Roosters", elo_rating: 1600 },
+  ladder: { rank: 2, team_id: 12, name: "Roosters", played: 28, wins: 19, draws: 0, losses: 9, points: 38, diff: 164 },
+};
+
+beforeEach(() => {
+  mockMatches.mockResolvedValue(null);
+  mockLadder.mockResolvedValue(null);
+});
 afterEach(() => jest.resetAllMocks());
 
-it("server-renders the shared TeamHeader with ladder slot, record and streak", async () => {
-  mockTeam.mockResolvedValue(profile);
-  render(await NrlTeamPage({ params: params() }));
+it("season complete: crest + name, where the club finished, premiers, three stats", async () => {
+  mockTeam.mockResolvedValue(roosters);
+  mockMatches.mockResolvedValue(completeSeason());
+  const { container } = render(await NrlTeamPage({ params: params("12") }));
 
-  // Name heading + the ladder/record/pts/Elo join drive the shared header's
-  // meta line; the streak pill is kept as an NRL-specific sibling below it.
-  expect(screen.getByRole("heading", { name: "Warriors" })).toBeInTheDocument();
-  expect(screen.getByText(/3rd on the ladder · 10–5–0 · 20 pts · Elo 1573/)).toBeInTheDocument();
-  expect(screen.getByText(/3-game winning run/)).toBeInTheDocument();
-
-  // The header owns the single back link into the ladder.
-  expect(screen.getByRole("link", { name: "Ladder" })).toHaveAttribute(
-    "href",
-    "/nrl/ladder",
-  );
+  expect(screen.getByRole("heading", { level: 1, name: "Roosters" })).toBeInTheDocument();
+  // The 64px crest beside the printed name (decorative: the h1 names the club).
+  expect(container.querySelector('[data-club-logo="Roosters"] img')).toHaveAttribute("width", "64");
+  expect(screen.getByText("Finished 2nd on the ladder with 38 points. 2026 premiers.")).toBeInTheDocument();
+  expect(screen.getByText("19")).toBeInTheDocument();
+  expect(screen.getByText("+164")).toBeInTheDocument();
+  expect(screen.getByText("points difference")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Ladder" })).toHaveAttribute("href", "/nrl/ladder");
 });
 
-it("renders the season snapshot with splits and bookend results", async () => {
-  mockTeam.mockResolvedValue(profile);
-  render(await NrlTeamPage({ params: params() }));
+it("season complete: lists the club's finals with the model's call on each", async () => {
+  mockTeam.mockResolvedValue(roosters);
+  mockMatches.mockResolvedValue(completeSeason());
+  render(await NrlTeamPage({ params: params("12") }));
 
-  expect(screen.getByText(/Season snapshot · 15 games/)).toBeInTheDocument();
-  expect(screen.getByText("26.0")).toBeInTheDocument();
-  expect(screen.getByText("+11.2")).toBeInTheDocument();
-  expect(screen.getByText("6–2–0")).toBeInTheDocument(); // home W–L–D
-  expect(screen.getByText("44–6")).toBeInTheDocument(); // biggest win
+  const finals = screen.getByRole("region", { name: "Roosters finals" });
+  expect(finals).toHaveTextContent("Finals week one");
+  expect(finals).toHaveTextContent("Grand Final");
+  expect(screen.getByRole("link", { name: "Roosters 19–18 Knights" })).toHaveAttribute("href", "/nrl/match/2026/31/9");
+  expect(screen.getAllByText("Called it").length).toBe(2); // Panthers 61% + Roosters 64%
+  expect(screen.getAllByText("No call").length).toBe(2); // semi + prelim
+  // Not Warriors' games.
+  expect(finals).not.toHaveTextContent("Dolphins 26");
 });
 
-it("renders the AI grading section from the ledger", async () => {
-  mockTeam.mockResolvedValue(profile);
-  render(await NrlTeamPage({ params: params() }));
+it("season complete: a club outside the eight gets the 'did not play finals' card", async () => {
+  mockTeam.mockResolvedValue({
+    ...profile,
+    team: { id: 6, name: "Dragons", elo_rating: 1400 },
+    ladder: { rank: 17, team_id: 6, name: "Dragons", played: 24, wins: 5, draws: 0, losses: 19, points: 10, diff: -325 },
+  });
+  mockMatches.mockResolvedValue(completeSeason());
+  render(await NrlTeamPage({ params: params("6") }));
 
-  expect(screen.getByText(/called 6 of 8 graded/)).toBeInTheDocument();
-  expect(screen.getByText("75%")).toBeInTheDocument();
+  expect(screen.getByText("Dragons did not play finals in 2026.")).toBeInTheDocument();
+  expect(screen.getByText("−325")).toBeInTheDocument();
 });
 
-it("links fixtures and results to their match pages, with win chance and AI verdicts", async () => {
+it("in season: next matches without the model's win chance, recent results with its verdict", async () => {
   mockTeam.mockResolvedValue(profile);
   render(await NrlTeamPage({ params: params() }));
 
-  const links = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
-  expect(links).toContain("/nrl/match/2026/19/134"); // upcoming
-  expect(links).toContain("/nrl/match/2026/18/130"); // result
-  expect(screen.getByText("67%")).toBeInTheDocument(); // win chance chip
-  expect(screen.getByText("at Wests Tigers")).toBeInTheDocument();
-  expect(screen.getByText("✓")).toBeInTheDocument(); // graded result marker
-  expect(screen.getByText("24–12")).toBeInTheDocument();
+  expect(screen.getByText("3rd on the ladder with 20 points after 15 matches.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Wests Tigers v Warriors/ })).toHaveAttribute("href", "/nrl/match/2026/19/134");
+  // The reveal rule: no win chance on a match still to come.
+  expect(screen.queryByText(/67/)).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Warriors 24–12 Broncos" })).toHaveAttribute("href", "/nrl/match/2026/18/130");
+  expect(screen.getByText("Model called it")).toBeInTheDocument();
+  expect(screen.getByText("The model called 6 of 8 of their graded matches.")).toBeInTheDocument();
 });
 
 it("renders a sparse profile (no games yet) without the stat sections", async () => {
-  mockTeam.mockResolvedValue({
-    ...profile,
-    ladder: null,
-    summary: null,
-    results: [],
-    upcoming: [],
-    model: null,
-  });
+  mockTeam.mockResolvedValue({ ...profile, ladder: null, summary: null, results: [], upcoming: [], model: null });
   render(await NrlTeamPage({ params: params() }));
 
-  expect(screen.getAllByText("Warriors").length).toBeGreaterThanOrEqual(1);
-  expect(screen.queryByText(/Season snapshot/)).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Warriors" })).toBeInTheDocument();
+  expect(screen.queryByText("points difference")).not.toBeInTheDocument();
   expect(screen.queryByText(/graded/)).not.toBeInTheDocument();
-  expect(screen.getByText("No recent matches.")).toBeInTheDocument();
 });
 
 it("calls notFound() for an unknown team", async () => {
@@ -139,34 +179,4 @@ it("calls notFound() for an unknown team", async () => {
 it("calls notFound() for a non-numeric id without hitting the API", async () => {
   await expect(NrlTeamPage({ params: params("storm") })).rejects.toThrow();
   expect(mockTeam).not.toHaveBeenCalled();
-});
-
-it("renders venue splits when the stats profile resolves with data", async () => {
-  mockTeam.mockResolvedValue(profile);
-  const statsProfile: NrlStatsProfile = {
-    team: { id: 16, name: "Warriors", slug: "warriors" },
-    season: 2026,
-    attack_rank: 3,
-    defence_rank: 5,
-    venue_splits: [
-      { venue: "Go Media Stadium", played: 8, wins: 6, draws: 0, losses: 2,
-        avg_for: 27.5, avg_against: 13.0 },
-    ],
-    position_concessions: [],
-    disclaimer: "For analytics and entertainment only. Not betting advice.",
-  };
-  mockStatsProfile.mockResolvedValue(statsProfile);
-  render(await NrlTeamPage({ params: params() }));
-
-  expect(mockStatsProfile).toHaveBeenCalledWith("warriors");
-  expect(screen.getByText("Venue splits")).toBeInTheDocument();
-  expect(screen.getByText("Go Media Stadium")).toBeInTheDocument();
-});
-
-it("skips venue splits silently when the stats profile fetch fails or 404s", async () => {
-  mockTeam.mockResolvedValue(profile);
-  mockStatsProfile.mockResolvedValue(null);
-  render(await NrlTeamPage({ params: params() }));
-
-  expect(screen.queryByText("Venue splits")).not.toBeInTheDocument();
 });

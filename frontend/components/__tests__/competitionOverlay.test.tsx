@@ -1,10 +1,12 @@
-/** CompetitionOverlay — the header chip + full-screen competition switcher.
- *  The open panel must portal to <body>: SiteNav's header uses backdrop-blur,
- *  and any backdrop-filter makes that header the containing block for fixed
- *  descendants — rendered inline, the panel's "inset-0" resolves against the
- *  60px nav strip instead of the viewport (caught live on the P1 deploy). */
+/** CompetitionOverlay — the header's competition pill and its dropdown menu
+ *  (direction G; it used to be a full-screen overlay with a "default" star).
+ *  The pill names the scoped competition; the menu lists every enabled
+ *  competition with its real logo, grouped, and choosing one remembers it
+ *  (fw_comp) and records the switch once. Keyboard: arrows move, Escape
+ *  closes and returns focus, focus starts on the first item. */
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { CompetitionOverlay } from "@/components/CompetitionOverlay";
+import { COMPETITIONS } from "@/lib/sports";
 import {
   COMPETITION_COOKIE,
   readCompetitionCookie,
@@ -26,137 +28,83 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-const openAt = (path: string, name: string) => {
+const pill = (label: string) => screen.getByRole("button", { name: `Competition: ${label}` });
+
+const openAt = (path: string, label: string) => {
   mockPath = path;
   render(<CompetitionOverlay />);
-  fireEvent.click(screen.getByRole("button", { name }));
-  return screen.getByRole("dialog", { name: "Choose a competition" });
+  fireEvent.click(pill(label));
+  return screen.getByRole("menu", { name: `Competition: ${label}` });
 };
 
-it("portals the open dialog out of the trigger's ancestor tree (backdrop-filter clipping regression)", () => {
-  render(
-    <div data-testid="header-shell">
-      <CompetitionOverlay />
-    </div>,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "EPL" }));
-  const dialog = screen.getByRole("dialog", { name: "Choose a competition" });
-  expect(screen.getByTestId("header-shell")).not.toContainElement(dialog);
-  expect(document.body).toContainElement(dialog);
-});
-
-describe("chip scope", () => {
+describe("pill scope", () => {
   it("defaults an unscoped route to the Premier League, never WC26", () => {
     render(<CompetitionOverlay />);
-    expect(screen.getByRole("button", { name: "EPL" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
+    expect(pill("Premier League")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /World Cup/ })).not.toBeInTheDocument();
   });
 
   it("follows the URL on competition routes", () => {
-    mockPath = "/football/wc26/groups";
+    mockPath = "/football/wc26/fixtures";
     render(<CompetitionOverlay />);
-    expect(screen.getByRole("button", { name: "WC26" })).toBeInTheDocument();
+    expect(pill("World Cup 2026")).toBeInTheDocument();
   });
 
   it("follows the remembered competition on unscoped routes", () => {
     writeCompetitionCookie("nrl");
     render(<CompetitionOverlay />);
-    expect(screen.getByRole("button", { name: "NRL" })).toBeInTheDocument();
+    expect(pill("NRL")).toBeInTheDocument();
   });
 
   it("prefers the scope SiteNav passes in", () => {
     render(<CompetitionOverlay competition="bundesliga" />);
-    expect(screen.getByRole("button", { name: "BUN" })).toBeInTheDocument();
+    expect(pill("Bundesliga")).toBeInTheDocument();
+  });
+
+  it("shows the competition's real logo in the pill", () => {
+    render(<CompetitionOverlay competition="nrl" />);
+    expect(pill("NRL").querySelector("img")).not.toBeNull();
   });
 });
 
-describe("sections", () => {
-  it("groups live football, rugby league and past tournaments", () => {
-    const dialog = openAt("/", "EPL");
-    const headings = within(dialog)
-      .getAllByRole("heading")
-      .map((h) => h.textContent);
-    expect(headings).toEqual(["Football", "Rugby league", "Past tournaments"]);
-    expect(within(dialog).queryByText("Soon")).not.toBeInTheDocument();
+describe("menu", () => {
+  it("lists every enabled competition, each once, with its logo", () => {
+    const menu = openAt("/", "Premier League");
+    const items = within(menu).getAllByRole("menuitem");
+    const enabled = Object.values(COMPETITIONS).filter((c) => c.enabled);
+    expect(items.map((i) => i.getAttribute("href"))).toEqual(
+      expect.arrayContaining(enabled.map((c) => c.basePath)),
+    );
+    expect(items).toHaveLength(enabled.length);
+    for (const item of items) expect(item.querySelector("img")).not.toBeNull();
   });
 
-  it("files WC26 under Past tournaments, not among live competitions", () => {
-    const dialog = openAt("/", "EPL");
-    const sections = within(dialog).getAllByRole("list");
-    const football = within(sections[0]).getAllByRole("link").map((a) => a.getAttribute("href"));
-    expect(football).toEqual([
-      "/football/epl",
-      "/football/laliga",
-      "/football/bundesliga",
-      "/football/ucl",
-    ]);
-    expect(within(sections[2]).getByRole("link", { name: "World Cup 2026" })).toHaveAttribute(
+  it("groups live football, rugby league and past tournaments", () => {
+    const menu = openAt("/", "Premier League");
+    const groups = within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    expect(groups).toEqual(["Football", "Rugby league", "Past tournaments"]);
+    const past = within(menu).getByRole("group", { name: "Past tournaments" });
+    expect(within(past).getByRole("menuitem", { name: /World Cup 2026/ })).toHaveAttribute(
       "href",
       "/football/wc26",
     );
   });
 
-  it("names each competition once (no 'NRL NRL'), with the code chip kept visual-only", () => {
-    const dialog = openAt("/", "EPL");
-    expect(within(dialog).getByRole("link", { name: "NRL" })).toHaveAttribute("href", "/nrl");
-    expect(within(dialog).getByRole("link", { name: "Premier League" })).toBeInTheDocument();
-    // The NRL row has no chip at all (it would only repeat the name)...
-    const nrlRow = within(dialog).getByRole("link", { name: "NRL" });
-    expect(within(nrlRow).getAllByText("NRL")).toHaveLength(1);
-    // ...and where a chip adds information it is visual-only.
-    const eplChip = within(dialog).getByText("EPL");
-    expect(eplChip).toHaveAttribute("aria-hidden", "true");
-  });
-
   it("marks the scoped competition as the current page", () => {
-    const dialog = openAt("/football/laliga", "LaLiga");
-    expect(within(dialog).getByRole("link", { name: "La Liga" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    const menu = openAt("/football/laliga", "La Liga");
+    expect(within(menu).getByRole("menuitem", { name: /La Liga/ })).toHaveAttribute("aria-current", "page");
+    expect(within(menu).getByRole("menuitem", { name: /NRL/ })).not.toHaveAttribute("aria-current");
+  });
+
+  it("gives every row a 44px target", () => {
+    const menu = openAt("/", "Premier League");
+    for (const item of within(menu).getAllByRole("menuitem")) expect(item.className).toContain("min-h-[44px]");
   });
 });
 
-describe("Set as default (fw_comp cookie)", () => {
-  it("labels each star as a toggle and writes the cookie", () => {
-    const dialog = openAt("/", "EPL");
-    const star = within(dialog).getByRole("button", { name: "Set NRL as default" });
-    expect(star).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(star);
-    expect(readCompetitionCookie()).toBe("nrl");
-    expect(star).toHaveAttribute("aria-pressed", "true");
-    expect(mockTrack).toHaveBeenCalledWith("competition_switch", {
-      from: "epl",
-      to: "nrl",
-      source: "set_default",
-    });
-  });
-
-  it("re-scopes the chip immediately on an unscoped route", () => {
-    const dialog = openAt("/", "EPL");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Set La Liga as default" }));
-    expect(screen.getByRole("button", { name: "LaLiga" })).toBeInTheDocument();
-  });
-
-  it("lets the star choose the archived World Cup explicitly", () => {
-    const dialog = openAt("/", "EPL");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Set World Cup 2026 as default" }));
-    expect(readCompetitionCookie()).toBe("wc26");
-  });
-
-  it("clears the default when the pressed star is pressed again", () => {
-    writeCompetitionCookie("nrl");
-    const dialog = openAt("/", "NRL");
-    const star = within(dialog).getByRole("button", { name: "Set NRL as default" });
-    expect(star).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(star);
-    expect(readCompetitionCookie()).toBeNull();
-  });
-});
-
-it("records a switcher choice once and remembers it", () => {
-  const dialog = openAt("/football/epl", "EPL");
-  fireEvent.click(within(dialog).getByRole("link", { name: "NRL" }));
+it("records a switcher choice once, remembers it, and closes", () => {
+  const menu = openAt("/", "Premier League");
+  fireEvent.click(within(menu).getByRole("menuitem", { name: /NRL/ }));
   expect(readCompetitionCookie()).toBe("nrl");
   expect(mockTrack).toHaveBeenCalledTimes(1);
   expect(mockTrack).toHaveBeenCalledWith("competition_switch", {
@@ -164,63 +112,50 @@ it("records a switcher choice once and remembers it", () => {
     to: "nrl",
     source: "switcher",
   });
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });
 
 it("does not report re-choosing the current competition", () => {
-  const dialog = openAt("/football/epl", "EPL");
-  fireEvent.click(within(dialog).getByRole("link", { name: "Premier League" }));
+  const menu = openAt("/football/epl", "Premier League");
+  fireEvent.click(within(menu).getByRole("menuitem", { name: /Premier League/ }));
   expect(mockTrack).not.toHaveBeenCalled();
 });
 
-describe("focus management", () => {
-  it("moves focus into the dialog on open", () => {
-    const dialog = openAt("/", "EPL");
-    expect(dialog).toContainElement(document.activeElement as HTMLElement);
-    expect(within(dialog).getByRole("button", { name: "Close" })).toHaveFocus();
+describe("keyboard", () => {
+  it("opens with focus on the first item and reflects aria-expanded", () => {
+    const menu = openAt("/", "Premier League");
+    expect(pill("Premier League")).toHaveAttribute("aria-expanded", "true");
+    expect(within(menu).getAllByRole("menuitem")[0]).toHaveFocus();
   });
 
-  it("cycles Tab and Shift+Tab inside the dialog", () => {
-    const dialog = openAt("/", "EPL");
-    const focusables = Array.from(
-      dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
-    );
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-
-    last.focus();
-    fireEvent.keyDown(dialog, { key: "Tab" });
-    expect(first).toHaveFocus();
-
-    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(last).toHaveFocus();
+  it("moves with the arrow keys and wraps", () => {
+    const menu = openAt("/", "Premier League");
+    const items = within(menu).getAllByRole("menuitem");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(items[1]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(items[items.length - 1]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(items[0]).toHaveFocus();
   });
 
-  it("leaves Tab alone between the ends", () => {
-    const dialog = openAt("/", "EPL");
-    const focusables = Array.from(
-      dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
-    );
-    focusables[1].focus();
-    const event = fireEvent.keyDown(dialog, { key: "Tab" });
-    // Not prevented: the browser moves focus to the next element itself.
-    expect(event).toBe(true);
+  it("Escape closes the menu and returns focus to the pill", () => {
+    const menu = openAt("/", "Premier League");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(pill("Premier League")).toHaveFocus();
   });
 
-  it("Escape closes the dialog and returns focus to the trigger", () => {
+  it("opens from the pill with ArrowDown", () => {
     render(<CompetitionOverlay />);
-    const trigger = screen.getByRole("button", { name: "EPL" });
-    fireEvent.click(trigger);
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    fireEvent.keyDown(pill("Premier League"), { key: "ArrowDown" });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
   });
 
-  it("the close button returns focus to the trigger", () => {
-    render(<CompetitionOverlay />);
-    const trigger = screen.getByRole("button", { name: "EPL" });
-    fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(trigger).toHaveFocus();
+  it("closes on a click outside", () => {
+    openAt("/", "Premier League");
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

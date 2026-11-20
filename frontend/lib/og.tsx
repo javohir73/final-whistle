@@ -21,16 +21,22 @@ export const PLATFORM_DESCRIPTION =
   "and a leaderboard. For analytics and entertainment only.";
 export const PLATFORM_FOOTER = "Explainable football & NRL predictions · for analytics & entertainment";
 
+/** Direction G palette for share images: white ground, ink text, the one
+ *  brand green. The old Floodlight key names are kept so every OG route keeps
+ *  compiling; each now points at its G equivalent (win → brand, loss → miss,
+ *  draw/gold → muted). */
 export const C = {
-  bg: "#08120d",
-  bg2: "#0c1a12",
-  fg: "#eef3f0",
-  muted: "#93a69b",
-  line: "#1c2c23",
-  win: "#9ee633",
-  draw: "#f2b134",
-  loss: "#f4607a",
-  gold: "#d9b25a",
+  bg: "#ffffff",
+  bg2: "#ffffff",
+  fg: "#14181f",
+  muted: "#5b6470",
+  line: "#e4e7e3",
+  soft: "#f6f7f5",
+  brand: "#0f4d3a",
+  win: "#0f4d3a",
+  draw: "#5b6470",
+  loss: "#8a3324",
+  gold: "#5b6470",
 };
 
 /** The FinalWhistle mark as an inline SVG data-URI. next/og (Satori) renders
@@ -38,14 +44,16 @@ export const C = {
 const MARK_DATA_URI =
   "data:image/svg+xml," +
   encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 172 156"><path d="M46 0h80l46 78-46 78H46L0 78 46 0Z" fill="none" stroke="${C.win}" stroke-width="9" stroke-linejoin="round"/><g transform="translate(36 44)"><path fill="${C.win}" d="M40 70c-20.4 0-37-15.4-37-34.4C3 16.6 19.6 1.2 40 1.2c13.5 0 25.3 6.8 31.7 17h37.7c8.1 0 14.6 6.3 14.6 14.1v23.9H91.5V40.1H76.4C74 57 58.6 70 40 70Z"/><path fill="${C.bg}" d="M87.8 29h24.6c2.3 0 4.2 1.8 4.2 4v12.6H87.8V29Z"/><circle cx="39.6" cy="35.6" r="10.2" fill="${C.bg}"/><path fill="${C.win}" d="M111.5 19h27.8c8 0 14.5 6.3 14.5 14.1v13.2h-29.9v-14c0-7.3-5.4-13.3-12.4-13.3Z"/></g></svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 172 156"><path d="M46 0h80l46 78-46 78H46L0 78 46 0Z" fill="none" stroke="${C.brand}" stroke-width="9" stroke-linejoin="round"/><g transform="translate(36 44)"><path fill="${C.brand}" d="M40 70c-20.4 0-37-15.4-37-34.4C3 16.6 19.6 1.2 40 1.2c13.5 0 25.3 6.8 31.7 17h37.7c8.1 0 14.6 6.3 14.6 14.1v23.9H91.5V40.1H76.4C74 57 58.6 70 40 70Z"/><path fill="${C.bg}" d="M87.8 29h24.6c2.3 0 4.2 1.8 4.2 4v12.6H87.8V29Z"/><circle cx="39.6" cy="35.6" r="10.2" fill="${C.bg}"/><path fill="${C.brand}" d="M111.5 19h27.8c8 0 14.5 6.3 14.5 14.1v13.2h-29.9v-14c0-7.3-5.4-13.3-12.4-13.3Z"/></g></svg>`,
   );
 
 /** Branded frame: wordmark header, centered content, footer tagline.
  *  `footer` is caller-supplied (rather than a hardcoded WC26 string) so every
  *  OG image can carry the active tournament's name — see lib/tournament.ts.
- *  `glow` layers the Floodlight top glow (echoes .floodlight-glow-top) over the
- *  base gradient — opt-in, default off, so existing callers render unchanged. */
+ *  `glow` is accepted for old callers and ignored: direction G is flat white.
+ *  Type is Satori's bundled sans: next/font does not expose a font file the OG
+ *  renderer can load, and fetching Instrument Sans at render time would make
+ *  every share image depend on Google Fonts being reachable. */
 export function Shell({
   eyebrow,
   footer,
@@ -57,7 +65,7 @@ export function Shell({
   glow?: boolean;
   children: ReactNode;
 }) {
-  const base = `linear-gradient(135deg, ${C.bg}, ${C.bg2})`;
+  void glow;
   return (
     <div
       style={{
@@ -65,9 +73,7 @@ export function Shell({
         width: "100%",
         display: "flex",
         flexDirection: "column",
-        background: glow
-          ? `radial-gradient(140% 80% at 50% -20%, rgba(158,230,51,.16), transparent 65%), ${base}`
-          : base,
+        background: C.bg,
         color: C.fg,
         padding: "64px 72px",
         fontFamily: "sans-serif",
@@ -77,10 +83,13 @@ export function Shell({
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={MARK_DATA_URI} width={48} height={44} alt="" style={{ display: "flex" }} />
-          <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: -1 }}>FinalWhistle</div>
+          <div style={{ display: "flex", fontSize: 30, fontWeight: 700, letterSpacing: -1 }}>
+            <span>Final</span>
+            <span style={{ color: C.brand }}>Whistle</span>
+          </div>
         </div>
         {eyebrow && (
-          <div style={{ display: "flex", fontSize: 22, color: C.muted, textTransform: "uppercase", letterSpacing: 2 }}>
+          <div style={{ display: "flex", fontSize: 24, fontWeight: 500, color: C.muted }}>
             {eyebrow}
           </div>
         )}
@@ -90,7 +99,7 @@ export function Shell({
         {children}
       </div>
 
-      <div style={{ display: "flex", fontSize: 22, color: C.muted }}>
+      <div style={{ display: "flex", fontSize: 22, color: C.muted, borderTop: `1px solid ${C.line}`, paddingTop: 24 }}>
         {footer}
       </div>
     </div>
@@ -101,5 +110,5 @@ export function Shell({
 export function OgFlag({ url, size = 64 }: { url: string | null; size?: number }) {
   if (!url) return <div style={{ display: "flex", width: size, height: size }} />;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={url} width={size} height={size} style={{ borderRadius: 8, objectFit: "cover" }} alt="" />;
+  return <img src={url} width={size} height={size} style={{ borderRadius: 999, objectFit: "cover", border: `1px solid ${C.line}` }} alt="" />;
 }

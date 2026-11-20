@@ -1,68 +1,29 @@
-import { render, screen } from "@testing-library/react";
-import HomePage, { metadata } from "./page";
-import { AuthProvider } from "@/components/AuthProvider";
-import { PlatformHome } from "@/components/PlatformHome";
-import { getNrlTipsheetServer } from "@/lib/api";
-import * as session from "@/lib/session";
+/** `/` opens on this week's matches: the default competition's matchweek,
+ *  prerendered (ISR), with the client switch for a remembered competition. */
+import type { ReactElement } from "react";
+import HomePage, { metadata, revalidate } from "./page";
+import { MatchweekPage } from "@/components/matchweek/MatchweekPage";
+import { HomeCompetitionSwitch } from "@/components/matchweek/HomeCompetitionSwitch";
 
-// The home page carries the PremiumPromo section, which reads useAuth() — in
-// the app that context always exists (app/layout.tsx wraps every page in
-// AuthProvider), so the test supplies it here too. Signed out: the promo's
-// visibility is covered by components/PremiumPromo.test.tsx, not this file.
-jest.mock("@/lib/session");
-// The home page's "Next up" strip fetches fixtures client-side after mount;
-// that late state update would otherwise log an act() warning here. The strip
-// has its own tests (components/play/NextUpStrip.test.tsx).
-jest.mock("@/components/play/NextUpStrip", () => ({ NextUpStrip: () => null }));
-// PlatformHome (an async server component) reads the NRL's current round.
-jest.mock("@/lib/api");
-beforeEach(() => {
-  (session.getMe as jest.MockedFunction<typeof session.getMe>).mockResolvedValue(null);
-  (getNrlTipsheetServer as jest.MockedFunction<typeof getNrlTipsheetServer>).mockResolvedValue(null);
-});
+jest.mock("@/components/matchweek/MatchweekPage", () => ({ MatchweekPage: () => null }));
+jest.mock("@/components/matchweek/HomeCompetitionSwitch", () => ({ HomeCompetitionSwitch: () => null }));
 
 it("describes the platform rather than one competition", () => {
   expect(metadata.title).toBe("FinalWhistle — Sports predictions, clearly explained");
   expect(metadata.description).toContain("Football and NRL");
+  // No model call in the page's own metadata.
+  expect(String(metadata.description)).not.toMatch(/\d+%|\d–\d/);
 });
 
-it("renders one clear route into every supported competition", async () => {
-  // HomePage renders the async PlatformHome; resolve it as the server would.
-  const page = HomePage();
-  expect(page.type).toBe(PlatformHome);
-  render(<AuthProvider>{await PlatformHome(page.props)}</AuthProvider>);
+it("is static with an ISR window (no cookies on the server)", () => {
+  expect(revalidate).toBe(300);
+});
 
-  // The first screen is the game, scoped to the visitor's competition (the
-  // EPL by default: no cookie or path in jsdom).
-  expect(
-    screen.getByRole("heading", { level: 1, name: "Beat the model at the Premier League." }),
-  ).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Make your picks/ })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
-  expect(screen.getByRole("link", { name: /Premier League/ })).toHaveAttribute(
-    "href",
-    "/football/epl",
-  );
-  expect(screen.getByRole("link", { name: /La Liga/ })).toHaveAttribute(
-    "href",
-    "/football/laliga",
-  );
-  expect(screen.getByRole("link", { name: /Bundesliga/ })).toHaveAttribute(
-    "href",
-    "/football/bundesliga",
-  );
-  expect(screen.getByRole("link", { name: /UEFA Champions League/ })).toHaveAttribute(
-    "href",
-    "/football/ucl",
-  );
-  expect(screen.getByRole("link", { name: /World Cup 2026/ })).toHaveAttribute(
-    "href",
-    "/football/wc26",
-  );
-  expect(screen.getByRole("link", { name: /National Rugby League/ })).toHaveAttribute(
-    "href",
-    "/nrl",
-  );
+it("renders the Premier League matchweek and the competition switch", () => {
+  const tree = HomePage() as ReactElement<{ children: ReactElement[] }>;
+  const children = tree.props.children;
+  const switcher = children.find((c) => c.type === HomeCompetitionSwitch) as ReactElement<{ shown: string }>;
+  const week = children.find((c) => c.type === MatchweekPage) as ReactElement<{ competition: string }>;
+  expect(switcher.props.shown).toBe("epl");
+  expect(week.props.competition).toBe("epl");
 });

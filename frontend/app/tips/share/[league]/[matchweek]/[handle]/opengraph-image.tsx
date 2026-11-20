@@ -36,25 +36,40 @@ export default async function Image({
     );
   }
 
-  const playerWon = share.player_points > share.model_points;
-  const aiWon = share.player_points < share.model_points;
-  const verdictColor = playerWon ? C.win : aiWon ? C.loss : C.draw;
+  // Direction G: the player's number in brand, the model's in ink (the
+  // "You and the model" card), each over a thin bar scaled to the larger.
+  const top = Math.max(share.player_points, share.model_points, 1);
 
   return new ImageResponse(
     (
       <Shell eyebrow={`${leagueLabel(share.league)} Matchweek ${share.matchweek}`} footer={footer}>
         <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          <div style={{ display: "flex", fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>
-            {share.handle_display}
+          <div style={{ display: "flex", fontSize: 52, fontWeight: 700, letterSpacing: -1 }}>
+            {share.handle_display} vs the model
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 24 }}>
-            <div style={{ display: "flex", fontSize: 64, fontWeight: 800, color: verdictColor }}>
-              {share.player_points}/{share.player_of}
+          <div style={{ display: "flex", gap: 120 }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", fontSize: 28, color: C.muted }}>{share.handle_display}</div>
+              <div style={{ display: "flex", fontSize: 96, fontWeight: 700, color: C.brand, letterSpacing: -3 }}>
+                {share.player_points}
+              </div>
+              <div style={{ display: "flex", fontSize: 26, color: C.muted }}>
+                {`points from ${share.player_of} match${share.player_of === 1 ? "" : "es"}`}
+              </div>
             </div>
-            <div style={{ display: "flex", fontSize: 32, fontWeight: 400, color: C.muted }}>vs the model</div>
-            <div style={{ display: "flex", fontSize: 64, fontWeight: 800, color: C.muted }}>
-              {share.model_points}/{share.model_of}
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", fontSize: 28, color: C.muted }}>The model</div>
+              <div style={{ display: "flex", fontSize: 96, fontWeight: 700, color: C.fg, letterSpacing: -3 }}>
+                {share.model_points}
+              </div>
+              <div style={{ display: "flex", fontSize: 26, color: C.muted }}>
+                {`points from ${share.model_of} match${share.model_of === 1 ? "" : "es"}`}
+              </div>
             </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 900 }}>
+            <div style={{ display: "flex", height: 10, borderRadius: 5, background: C.brand, width: `${(share.player_points / top) * 100}%` }} />
+            <div style={{ display: "flex", height: 10, borderRadius: 5, background: C.fg, width: `${(share.model_points / top) * 100}%` }} />
           </div>
           {!share.matchweek_complete && (
             // Grading is per finished match, not per whole matchweek, so a

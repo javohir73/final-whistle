@@ -15,7 +15,7 @@ export default function NrlHomeLoading() {
 
       {/* FeatureHero — glass hero panel: eyebrow, giant win-prob figure, the
           thin W/D/L bar, two equal CTAs. */}
-      <div className="glass mt-6 rounded-[16px] p-5">
+      <div className="rounded-card border border-line bg-ground mt-6 rounded-[16px] p-5">
         <Skeleton className="h-3 w-40 rounded" />
         <Skeleton className="mt-4 h-11 w-32 rounded" />
         <Skeleton className="mt-2 h-4 w-44 rounded" />
@@ -32,7 +32,7 @@ export default function NrlHomeLoading() {
         <div className="space-y-3">
           <Skeleton className="h-4 w-28 rounded" />
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="glass rounded-2xl p-4">
+            <div key={i} className="rounded-card border border-line bg-ground p-4">
               <Skeleton className="mb-3 h-3 w-24 rounded" />
               <div className="mb-2.5 flex items-center gap-2.5">
                 <Skeleton className="h-6 w-6 rounded-full" />

@@ -33,8 +33,8 @@ export function FavoriteStar({
       aria-label={active ? `Remove ${team} from favorites` : `Add ${team} to favorites`}
       title={active ? "Favorited" : "Add to favorites"}
       className={cn(
-        "-m-[10px] grid min-h-[44px] min-w-[44px] place-items-center rounded-md p-1 transition hover:bg-surface-2/70",
-        active ? "text-gold" : "text-muted/50 hover:text-muted",
+        "-m-[10px] grid min-h-[44px] min-w-[44px] place-items-center rounded-full p-1 transition hover:bg-soft",
+        active ? "text-brand" : "text-muted hover:text-ink",
         className,
       )}
     >
@@ -44,7 +44,8 @@ export function FavoriteStar({
         viewBox="0 0 24 24"
         fill={active ? "currentColor" : "none"}
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.75"
+        aria-hidden="true"
         strokeLinejoin="round"
       >
         <path d="M12 2l3 6.5 7 .7-5.2 4.8 1.5 6.9L12 17.8 5.7 20.9l1.5-6.9L2 9.2l7-.7z" />

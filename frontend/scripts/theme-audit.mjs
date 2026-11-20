@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import auditHelpers from "./theme-audit-lib.cjs";
@@ -7,7 +7,6 @@ const {
   parseCssColor,
   contrastRatio,
   wcagThreshold,
-  diffDarkStyles,
   deduplicateManualExemptions,
   isReadOnlyMethod,
   isAuditGuardBlock,
@@ -23,50 +22,27 @@ const VIEWPORTS = [
   { name: "1280x800", width: 1280, height: 800, isMobile: false },
 ];
 
-const DARK_SELECTORS = [
-  "body",
-  "header",
-  "main",
-  ".glass",
-  ".panel-pitch",
-  ".text-muted",
-  ".bg-surface",
-  "button",
-];
-
-const DARK_PROPERTIES = [
-  "color",
-  "backgroundColor",
-  "borderColor",
-  "backgroundImage",
-  "boxShadow",
-  "fill",
-  "stroke",
-];
-
 function usage(message) {
   if (message) console.error(message);
   console.error(
-    "Usage: npm run audit:theme -- <baseUrl> --theme <light|dark> [--output <path>] [--compare <path>] [--screenshots-p0]",
+    "Usage: npm run audit:theme -- <baseUrl> [--output <path>] [--screenshots-p0]\n" +
+      "Direction G is the only theme: this sweeps every route at phone and desktop width and\n" +
+      "measures rendered text contrast against WCAG AA.",
   );
   process.exit(2);
 }
 
 function parseArgs(argv) {
   let baseUrl;
-  let theme;
   let output;
-  let compare;
   let screenshotsP0 = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--theme" || argument === "--output" || argument === "--compare") {
+    if (argument === "--output") {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) usage(`${argument} requires a value`);
-      if (argument === "--theme") theme = value;
-      if (argument === "--output") output = value;
-      if (argument === "--compare") compare = value;
+      output = value;
       index += 1;
     } else if (argument === "--screenshots-p0") {
       screenshotsP0 = true;
@@ -80,8 +56,6 @@ function parseArgs(argv) {
   }
 
   if (!baseUrl) usage("baseUrl is required");
-  if (theme !== "light" && theme !== "dark") usage("--theme must be light or dark");
-  if (compare && theme !== "dark") usage("--compare is only valid with --theme dark");
 
   let parsedBase;
   try {
@@ -92,9 +66,8 @@ function parseArgs(argv) {
 
   return {
     baseUrl: parsedBase.href.replace(/\/$/, ""),
-    theme,
+    theme: "direction-g",
     output,
-    compare,
     screenshotsP0,
   };
 }
@@ -362,13 +335,6 @@ function legacyRedirects(discovery) {
 }
 
 async function installContextGuards(context, options) {
-  await context.addInitScript((selectedTheme) => {
-    try {
-      localStorage.setItem("fw_theme", selectedTheme);
-    } catch {
-      // The application boot script will retain its default if storage is unavailable.
-    }
-  }, options.theme);
   await context.route("**/*", async (route) => {
     const request = route.request();
     if (!isReadOnlyMethod(request.method())) {
@@ -567,7 +533,7 @@ async function auditRoute(context, options, viewport, route) {
 
     let screenshot = null;
     if (options.screenshotsP0 && route.tier === "P0") {
-      const relativePath = `output/playwright/light-theme-sweep/${options.theme}/${viewport.name}/${screenshotSlug(route.pattern)}.png`;
+      const relativePath = `output/playwright/theme-sweep/${viewport.name}/${screenshotSlug(route.pattern)}.png`;
       const absolutePath = resolve(relativePath);
       mkdirSync(dirname(absolutePath), { recursive: true });
       await page.screenshot({ path: absolutePath, fullPage: true });
@@ -577,7 +543,7 @@ async function auditRoute(context, options, viewport, route) {
     let exemptionEvidence = null;
     if (options.screenshotsP0 && route.tier !== "P0" && measured.manualReview.length > 0) {
       const relativePath =
-        `output/playwright/light-theme-sweep/manual/${viewport.name}/${screenshotSlug(route.pattern)}.png`;
+        `output/playwright/theme-sweep/manual/${viewport.name}/${screenshotSlug(route.pattern)}.png`;
       const absolutePath = resolve(relativePath);
       mkdirSync(dirname(absolutePath), { recursive: true });
       await page.screenshot({ path: absolutePath, fullPage: true });
@@ -649,91 +615,20 @@ async function auditAllRoutes(browser, options, inventory) {
   return routes;
 }
 
-async function captureDarkStyles(browser, options, discovery) {
-  if (options.theme !== "dark") return { styles: {}, routes: [] };
-
-  const candidates = [
-    { label: "/", path: "/" },
-    { label: "/football/wc26/fixtures", path: "/football/wc26/fixtures" },
-    { label: "/football/wc26/match/[id]", path: discovery.footballMatch, needs: "footballMatch" },
-    { label: "/football/epl/standings", path: "/football/epl/standings" },
-    { label: "/nrl", path: "/nrl" },
-    { label: "/nrl/match/[season]/[round]/[no]", path: discovery.nrlMatch, needs: "nrlMatch" },
-  ];
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  await installContextGuards(context, options);
-  const styles = {};
-  const routeResults = [];
-
-  for (const candidate of candidates) {
-    if (!candidate.path) {
-      routeResults.push({
-        route: candidate.label,
-        status: "unavailable",
-        reason: `no real ${candidate.needs} link was discovered`,
-      });
-      continue;
-    }
-    const page = await context.newPage();
-    try {
-      const response = await settlePage(page, `${options.baseUrl}${candidate.path}`);
-      if (!response || response.status() >= 400) {
-        routeResults.push({
-          route: candidate.label,
-          path: candidate.path,
-          status: "navigation-failed",
-          navigationStatus: response?.status() ?? null,
-        });
-        continue;
-      }
-      styles[candidate.label] = await page.evaluate(
-        ({ selectors, properties }) => {
-          const captured = {};
-          for (const selector of selectors) {
-            [...document.querySelectorAll(selector)].slice(0, 3).forEach((element, index) => {
-              const computed = getComputedStyle(element);
-              captured[`${selector}:${index}`] = Object.fromEntries(
-                properties.map((property) => [property, computed[property]]),
-              );
-            });
-          }
-          return captured;
-        },
-        { selectors: DARK_SELECTORS, properties: DARK_PROPERTIES },
-      );
-      routeResults.push({ route: candidate.label, path: candidate.path, status: "captured" });
-    } catch (error) {
-      routeResults.push({
-        route: candidate.label,
-        path: candidate.path,
-        status: "navigation-failed",
-        error: shortError(error),
-      });
-    } finally {
-      await page.close();
-    }
-  }
-  await context.close();
-  return { styles, routes: routeResults };
-}
-
-function summarise(routes, redirects, darkStyleRoutes, darkDiffs, manualExemptions) {
+function summarise(routes, redirects, manualExemptions) {
   const viewportResults = routes.flatMap((route) => Object.values(route.viewports));
   return {
     routePatterns: routes.length,
     routeViewportChecks: viewportResults.length,
     audited: viewportResults.filter((result) => result.status === "audited").length,
     unavailable: viewportResults.filter((result) => result.status === "unavailable").length,
-    navigationFailures:
-      viewportResults.filter((result) => result.status === "navigation-failed").length +
-      darkStyleRoutes.filter((result) => result.status === "navigation-failed").length,
+    navigationFailures: viewportResults.filter((result) => result.status === "navigation-failed").length,
     errorBoundaries: viewportResults.filter((result) => result.status === "error-boundary").length,
     contrastFailures: viewportResults.reduce((sum, result) => sum + result.failures.length, 0),
     unstyledSamples: viewportResults.reduce(
       (sum, result) => sum + (result.unstyledSamples?.length ?? 0), 0),
     manualReview: manualExemptions.length,
     redirectFailures: redirects.filter((result) => result.status === "failed").length,
-    darkStyleDiffs: darkDiffs.length,
   };
 }
 
@@ -749,16 +644,9 @@ try {
 
   const redirects = await checkRedirects(browser, options, discovery);
   const routes = await auditAllRoutes(browser, options, inventory);
-  const darkCapture = await captureDarkStyles(browser, options, discovery);
-  let darkDiffs = [];
-  if (options.compare) {
-    const baseline = JSON.parse(readFileSync(resolve(options.compare), "utf8"));
-    const baselineStyles = baseline.darkStyles ?? baseline;
-    darkDiffs = diffDarkStyles(baselineStyles, darkCapture.styles);
-  }
 
   const manualExemptions = deduplicateManualExemptions(routes);
-  const summary = summarise(routes, redirects, darkCapture.routes, darkDiffs, manualExemptions);
+  const summary = summarise(routes, redirects, manualExemptions);
   report = {
     schemaVersion: 1,
     theme: options.theme,
@@ -768,9 +656,6 @@ try {
     redirects,
     routes,
     manualExemptions,
-    darkStyleRoutes: darkCapture.routes,
-    darkStyles: darkCapture.styles,
-    darkDiffs,
     summary,
   };
 
@@ -785,15 +670,14 @@ try {
   console.log(
     `Theme audit: ${summary.audited}/${summary.routeViewportChecks} route×viewport checks audited; ` +
       `${summary.contrastFailures} contrast failures; ${summary.navigationFailures} navigation failures; ` +
-      `${summary.errorBoundaries} error boundaries; ${summary.darkStyleDiffs} dark-style diffs.`,
+      `${summary.errorBoundaries} error boundaries.`,
   );
 
   if (
     summary.contrastFailures > 0 ||
     summary.navigationFailures > 0 ||
     summary.errorBoundaries > 0 ||
-    summary.redirectFailures > 0 ||
-    summary.darkStyleDiffs > 0
+    summary.redirectFailures > 0
   ) {
     process.exitCode = 1;
   }

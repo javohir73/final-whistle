@@ -1,8 +1,8 @@
-/** "Why this prediction" list (explainable AI). Floodlight skin: each reason is
- *  a two-column marker+text row (prototype §257).
+/** "Why this prediction" list (explainable AI): each reason is a two-column
+ *  marker+text row.
  *
  *  `reasons` are plain strings with no polarity, and some of them argue AGAINST
- *  the model's pick. The marker is therefore a neutral muted bullet -- a lime
+ *  the model's pick. The marker is therefore a neutral muted bullet -- a green
  *  "+" on every row claimed every line supported the call. When reasons carry a
  *  `favors` side this can split into for/against. Pure server component. */
 export function ReasonsList({ reasons }: { reasons: string[] }) {
@@ -13,7 +13,7 @@ export function ReasonsList({ reasons }: { reasons: string[] }) {
           <span className="font-bold text-muted" aria-hidden>
             •
           </span>
-          <span className="text-meta leading-[1.5] text-foreground/85">{r}</span>
+          <span className="leading-[1.5] text-ink">{r}</span>
         </li>
       ))}
     </ul>

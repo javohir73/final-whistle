@@ -1,25 +1,37 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  getTeamServer,
-  getGroupServer,
-  getUpcomingMatchesServer,
-  getKnockoutOddsServer,
-} from "@/lib/api";
+import { getTeamServer, getGroupServer, getGroupsServer, getUpcomingMatchesServer } from "@/lib/api";
 import { getCompetitionTournament } from "@/lib/tournament";
 import { APP_NAME } from "@/lib/constants";
-import { pct } from "@/lib/format";
+import { canRevealModelPublicly } from "@/lib/reveal";
 import {
   COMPETITIONS,
   DEFAULT_COMPETITION,
+  competitionLinks,
   type CompetitionId,
 } from "@/lib/sports";
+import { dedupeStandings, ordinal, seasonLabel } from "@/lib/standingsRows";
+import type { MatchSummary, StandingRow } from "@/lib/types";
+import { ClubBadge } from "@/components/ClubBadge";
+import { TeamBadge } from "@/components/TeamBadge";
 import { FormStrip } from "@/components/FormStrip";
-import { TeamHeader } from "@/components/TeamHeader";
+import { StandingsTable } from "@/components/StandingsTable";
 import { TeamFixtures } from "@/components/TeamFixtures";
-import { TeamLastLineup } from "@/components/TeamLastLineup";
-import { ShareButton } from "@/components/ShareButton";
+import { selectTeamFixtures, type TeamFixture } from "@/lib/teamFixtures";
+import { MiniTableCard } from "@/components/rail/MiniTableCard";
+import {
+  Card,
+  CardHead,
+  DayBand,
+  Main,
+  Note,
+  PageHead,
+  PageLayout,
+  Rail,
+  Stat,
+  StatGrid,
+  TextLink,
+} from "@/components/ui";
 
 export async function generateTeamMetadata(
   params: Promise<{ id: string }>,
@@ -32,12 +44,15 @@ export async function generateTeamMetadata(
   ]);
   if (!data) return { title: `Team — ${APP_NAME}` };
   const t = data.team;
-  const title = `${t.name} — ${tournament.name} profile | ${APP_NAME}`;
-  const description = `${t.name} at the ${tournament.name}: Elo ${
-    t.elo_rating != null ? Math.round(t.elo_rating) : "—"
-  }, FIFA rank ${t.fifa_rank ?? "—"}, recent form, strengths and weaknesses.`;
+  const title = `${t.name} — ${tournament.name} | ${APP_NAME}`;
+  // No model numbers here: metadata is read by people who have not picked.
+  const description =
+    COMPETITIONS[competition].format === "league"
+      ? `${t.name} in the ${tournament.name}: table position, results and next matches.`
+      : `${t.name} at the ${tournament.name}: results, group and how the model called each match.`;
   return {
-    title, description,
+    title,
+    description,
     alternates: { canonical: `/team/${id}` },
     openGraph: { title, description },
   };
@@ -51,6 +66,77 @@ export async function generateMetadata({
   return generateTeamMetadata(params);
 }
 
+/** A fixture trimmed to what the club page renders. The model's score rides
+ *  along ONLY where anyone may see it (finished / kicked off / no pick game);
+ *  an open fixture's call never reaches the server HTML. */
+export function toTeamFixture(m: MatchSummary, comp: CompetitionId, now: Date): TeamFixture {
+  const ps = m.predicted_score;
+  const publicModel =
+    ps && ps.home != null && ps.away != null && canRevealModelPublicly(comp, m.status, m.kickoff_utc, now)
+      ? { home: ps.home, away: ps.away }
+      : null;
+  return {
+    match_id: m.match_id,
+    kickoff_utc: m.kickoff_utc,
+    status: m.status,
+    teams: { home: m.teams.home, away: m.teams.away },
+    score_home: m.score_home,
+    score_away: m.score_away,
+    matchweek: m.matchweek ?? null,
+    stage: m.stage,
+    group: m.group,
+    competition: comp,
+    model: publicModel,
+  };
+}
+
+/** W/D/L and goals from finished fixtures (when there is no table row). */
+function tallyFromFixtures(fixtures: TeamFixture[], team: string) {
+  const t = { won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, played: 0 };
+  for (const m of fixtures) {
+    if (m.status !== "finished" || m.score_home == null || m.score_away == null) continue;
+    const home = m.teams.home === team;
+    const f = home ? m.score_home : m.score_away;
+    const a = home ? m.score_away : m.score_home;
+    t.played += 1;
+    t.gf += f;
+    t.ga += a;
+    if (f > a) t.won += 1;
+    else if (f < a) t.lost += 1;
+    else t.drawn += 1;
+  }
+  return t;
+}
+
+const KO_ORDER = ["R32", "R16", "QF", "SF", "third_place", "final"];
+
+/** One line on how a national team's tournament ended (archive pages). */
+function tournamentOutcome(fixtures: TeamFixture[], team: string): string | null {
+  const ko = fixtures
+    .filter((m) => m.status === "finished" && m.stage && KO_ORDER.includes(m.stage))
+    .sort((a, b) => KO_ORDER.indexOf(a.stage as string) - KO_ORDER.indexOf(b.stage as string));
+  if (ko.length === 0) return fixtures.some((m) => m.status === "finished") ? "Out in the group stage." : null;
+  const last = ko[ko.length - 1];
+  const home = last.teams.home === team;
+  const f = (home ? last.score_home : last.score_away) ?? 0;
+  const a = (home ? last.score_away : last.score_home) ?? 0;
+  const won = f > a ? true : f < a ? false : null; // a draw went to penalties; the feed may not say who won
+  switch (last.stage) {
+    case "final":
+      return won === true ? "Won the World Cup." : won === false ? "Runners-up, beaten in the final." : "Reached the final.";
+    case "third_place":
+      return won === true ? "Finished third." : won === false ? "Finished fourth." : "Played the third-place match.";
+    case "SF":
+      return "Reached the semi-finals.";
+    case "QF":
+      return "Reached the quarter-finals.";
+    case "R16":
+      return "Reached the round of 16.";
+    default:
+      return "Reached the round of 32.";
+  }
+}
+
 export async function renderTeamPage(
   params: Promise<{ id: string }>,
   competition: CompetitionId = DEFAULT_COMPETITION,
@@ -59,179 +145,179 @@ export async function renderTeamPage(
   const data = await getTeamServer(id, competition);
   if (!data) notFound();
 
-  const { team, recent_form, strengths, weaknesses, group_id, group_name } = data;
+  const comp = competition;
+  const config = COMPETITIONS[comp];
+  const leagueMode = config.format === "league";
+  const { team, recent_form, group_id, group_name } = data;
+  const links = competitionLinks(comp);
+  const now = new Date();
 
-  // Pull the team's competition-scoped table, fixtures, optional knockout
-  // odds, and tournament copy for the dashboard.
-  const [group, allMatches, odds, tournament] = await Promise.all([
-    group_id ? getGroupServer(group_id, competition) : Promise.resolve(null),
-    getUpcomingMatchesServer(competition),
-    COMPETITIONS[competition].format === "knockout"
-      ? getKnockoutOddsServer()
-      : Promise.resolve(null),
-    getCompetitionTournament(competition),
+  const [groups, group, allMatches, tournament] = await Promise.all([
+    leagueMode ? getGroupsServer(comp).catch(() => null) : Promise.resolve(null),
+    !leagueMode && group_id ? getGroupServer(group_id, comp).catch(() => null) : Promise.resolve(null),
+    getUpcomingMatchesServer(comp).catch(() => null),
+    getCompetitionTournament(comp),
   ]);
 
-  // `group` is fetched above so the group table link resolves; the AI-outlook
-  // card reads from the tournament odds rather than the live standings row.
-  void group;
-  const teamOdds = odds?.find((o) => o.team_id === team.id) ?? null;
-  const fixtures = (allMatches ?? []).filter(
-    (m) => m.teams.home === team.name || m.teams.away === team.name,
+  const fixtures = (allMatches ?? [])
+    .filter((m) => m.teams.home === team.name || m.teams.away === team.name)
+    .map((m) => toTeamFixture(m, comp, now));
+
+  const season = leagueMode ? seasonLabel(tournament.year) : null;
+  const eyebrow = season ? `${config.label} · ${season}` : config.label;
+  const crest = leagueMode ? (
+    <ClubBadge name={team.name} size={64} decorative />
+  ) : (
+    <TeamBadge team={team.name} size={64} decorative />
   );
 
-  // Most-recent finished match for this team → its "Last XI" lineup. Sort
-  // finished fixtures by kickoff desc and take the first; undated last.
-  const lastFinished = fixtures
-    .filter((m) => m.status === "finished")
-    .sort((a, b) => (b.kickoff_utc ?? "").localeCompare(a.kickoff_utc ?? ""))[0];
-  const lastLineup = lastFinished
-    ? {
-        matchId: lastFinished.match_id,
-        side: (lastFinished.teams.home === team.name ? "home" : "away") as
-          | "home"
-          | "away",
-        opponent:
-          lastFinished.teams.home === team.name
-            ? lastFinished.teams.away
-            : lastFinished.teams.home,
-        kickoffUtc: lastFinished.kickoff_utc,
-      }
-    : null;
+  // ---- League clubs (prototype pageClub) ----
+  if (leagueMode) {
+    const rows: StandingRow[] =
+      groups && groups.length === 1 ? dedupeStandings(groups[0].standings ?? []) : [];
+    const idx = rows.findIndex((r) => r.team_id === team.id);
+    const row = idx >= 0 ? rows[idx] : null;
+    const tally = row
+      ? {
+          won: row.won ?? 0,
+          drawn: row.drawn ?? 0,
+          lost: row.lost ?? 0,
+          gf: row.projected_goals_for,
+          ga: row.goals_against ?? 0,
+          played: row.played ?? 0,
+        }
+      : tallyFromFixtures(fixtures, team.name);
+    const place = comp === "ucl" ? "the league phase" : "the table";
+    const sub = row
+      ? `${ordinal(idx + 1)} in ${place} with ${row.projected_points} point${row.projected_points === 1 ? "" : "s"} after ${tally.played} match${tally.played === 1 ? "" : "es"}.`
+      : `Not in ${place} yet.`;
 
-  const comp = competition;
-  const leagueMode = COMPETITIONS[comp].format === "league";
-  const basePath = COMPETITIONS[comp].basePath;
+    return (
+      <div>
+        <PageHead
+          back={{ href: links.table, label: links.tableLabel }}
+          leading={crest}
+          eyebrow={eyebrow}
+          title={team.name}
+          sub={sub}
+        />
+        <PageLayout>
+          <Main>
+            <Card pad aria-labelledby="season-so-far">
+              <CardHead id="season-so-far" title="Season so far" />
+              {tally.played > 0 ? (
+                <StatGrid className="grid-cols-2 min-[900px]:grid-cols-4">
+                  <Stat value={tally.won} label="won" />
+                  <Stat value={tally.drawn} label="drawn" />
+                  <Stat value={tally.lost} label="lost" />
+                  <Stat value={`${tally.gf}–${tally.ga}`} label="goals for and against" />
+                </StatGrid>
+              ) : (
+                <Note className="mt-3">No matches played yet this season.</Note>
+              )}
+              {recent_form.length > 0 && (
+                <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line-soft pt-5">
+                  <span className="text-notes text-muted">Last five</span>
+                  <FormStrip form={recent_form} limit={5} />
+                </div>
+              )}
+            </Card>
+            <Card flush aria-labelledby="club-matches">
+              <DayBand as="h2" id="club-matches">
+                Last result and next matches
+              </DayBand>
+              <TeamFixtures
+                // Only the rows the list shows cross to the client.
+                matches={selectTeamFixtures(fixtures, { now: now.getTime() })}
+                teamName={team.name}
+                competition={comp}
+                matchBasePath={`${config.basePath}/match`}
+                badge="club"
+                now={now.toISOString()}
+              />
+            </Card>
+          </Main>
+          <Rail aria-label="Table">
+            <MiniTableCard competition={comp} />
+          </Rail>
+        </PageLayout>
+      </div>
+    );
+  }
+
+  // ---- National teams in a finished tournament (World Cup archive) ----
+  const groupRows = dedupeStandings(group?.standings ?? []);
+  const gIdx = groupRows.findIndex((r) => r.team_id === team.id);
+  const groupLabel = group_name ? (/^group\b/i.test(group_name) ? group_name : `Group ${group_name}`) : null;
+  const tally = tallyFromFixtures(fixtures, team.name);
+  const outcome = tournamentOutcome(fixtures, team.name);
+  const groupLine =
+    gIdx >= 0 && groupLabel
+      ? `${ordinal(gIdx + 1)} in ${groupLabel} with ${groupRows[gIdx].projected_points} points.`
+      : null;
+  const sub = [groupLine, outcome].filter(Boolean).join(" ") || undefined;
 
   return (
-    <div className="fade-up mx-auto max-w-3xl space-y-6">
-      <div className="flex justify-end">
-        <ShareButton title={`${team.name} — ${tournament.name} profile`} />
-      </div>
-
-      {/* Full-bleed crest banner under the floodlight glow (Floodlight P2). */}
-      <TeamHeader
-        team={team}
-        groupName={group_name}
-        comp={comp}
-        backHref={leagueMode ? `${basePath}/standings` : `${basePath}/groups`}
-        backLabel={COMPETITIONS[comp].terms.standings}
-        badge={leagueMode ? "club" : "flag"}
-        meta={leagueMode ? tournament.name : undefined}
+    <div>
+      <PageHead
+        back={{ href: links.table, label: links.tableLabel }}
+        leading={crest}
+        eyebrow={eyebrow}
+        title={team.name}
+        sub={sub}
       />
-
-      {/* AI outlook — plain-language read + run-deep odds tiles */}
-      {teamOdds && (
-        <section className="glass rounded-2xl p-6">
-          <span className="font-display text-label font-semibold uppercase tracking-wider text-lime-deep">
-            Model outlook
-          </span>
-          <p className="mb-4 mt-2 font-display text-lg font-bold leading-snug tracking-tight">
-            {outlookSentence(teamOdds.make_knockout, teamOdds.reach_final, teamOdds.win_title)}
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <OutlookTile label="Reach KO" value={teamOdds.make_knockout} />
-            <OutlookTile label="Reach semis" value={teamOdds.reach_sf} />
-            <OutlookTile label="Reach final" value={teamOdds.reach_final} />
-            <OutlookTile label="Win title" value={teamOdds.win_title} />
-          </div>
-        </section>
-      )}
-
-      {/* Recent form — form chips + 2-col strengths / weak points */}
-      <section className="glass rounded-2xl p-6">
-        <span className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-          Recent form
-        </span>
-        <div className="mb-5 mt-3">
-          <FormStrip form={recent_form} />
-        </div>
-        {strengths.length === 0 && weaknesses.length === 0 ? (
-          // The API sends no claims when it has no matches for this competition
-          // — a routine state for a club arriving through the qualifying rounds.
-          // Say that, rather than showing two empty columns under confident
-          // headings.
-          <p className="text-sm text-muted">
-            No matches on record for this competition yet, so there is nothing to
-            read into their strengths or weak points.
-          </p>
-        ) : (
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div>
-            <p className="mb-2 text-xs font-bold text-lime-deep">↑ Strengths</p>
-            <ul className="space-y-1.5 text-sm">
-              {strengths.map((s, i) => (
-                <li key={i} className="flex gap-2 text-foreground/90">
-                  <span className="text-muted" aria-hidden>•</span>
-                  <span>{s}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="mb-2 text-xs font-bold text-loss-ink">↓ Weak points</p>
-            <ul className="space-y-1.5 text-sm">
-              {weaknesses.map((w, i) => (
-                <li key={i} className="flex gap-2 text-foreground/90">
-                  <span className="text-muted" aria-hidden>•</span>
-                  <span>{w}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
+      <PageLayout>
+        <Main>
+          {tally.played > 0 && (
+            <Card pad aria-labelledby="tournament-stats">
+              <CardHead id="tournament-stats" title="The tournament" />
+              <StatGrid className="grid-cols-2 min-[900px]:grid-cols-4">
+                <Stat value={tally.won} label="won" />
+                <Stat value={tally.drawn} label="drawn" />
+                <Stat value={tally.lost} label="lost" />
+                <Stat value={`${tally.gf}–${tally.ga}`} label="goals for and against" />
+              </StatGrid>
+              <Note className="mt-5">A draw includes matches settled on penalties.</Note>
+            </Card>
+          )}
+          <Card flush aria-labelledby="team-results">
+            <DayBand as="h2" id="team-results">
+              Results
+            </DayBand>
+            <TeamFixtures
+              matches={fixtures}
+              teamName={team.name}
+              competition={comp}
+              matchBasePath={`${config.basePath}/match`}
+              badge="flag"
+              all
+              now={now.toISOString()}
+            />
+          </Card>
+        </Main>
+        {groupRows.length > 0 && groupLabel && (
+          <Rail aria-label={groupLabel}>
+            <Card pad aria-labelledby="team-group">
+              <CardHead
+                id="team-group"
+                title={groupLabel}
+                action={group_id ? <TextLink href={`${config.basePath}/groups/${group_id}`}>Group page</TextLink> : undefined}
+              />
+              <div className="mt-2">
+                <StandingsTable
+                  standings={groupRows}
+                  zones={[]}
+                  highlightTeamId={team.id}
+                  teamBasePath={`${config.basePath}/team`}
+                  teamHeader="Team"
+                  columns={["played", "gd", "pts"]}
+                  caption={`${groupLabel} final table`}
+                />
+              </div>
+            </Card>
+          </Rail>
         )}
-      </section>
-
-      {/* Fixtures */}
-      {fixtures.length > 0 && (
-        <section>
-          <h2 className="mb-3 font-display text-label font-semibold uppercase tracking-wider text-muted">
-            Fixtures
-          </h2>
-          <TeamFixtures
-            matches={fixtures}
-            teamName={team.name}
-            matchBasePath={`${basePath}/match`}
-            badge={leagueMode ? "club" : "flag"}
-          />
-        </section>
-      )}
-
-      {/* Last XI — the team's most-recent finished match lineup (display-only,
-          official via API-Football). A national side has no canonical formation,
-          so this is explicitly the last match's XI, not a generic team shape. */}
-      {lastLineup ? (
-        <TeamLastLineup
-          matchId={lastLineup.matchId}
-          side={lastLineup.side}
-          opponent={lastLineup.opponent}
-          kickoffUtc={lastLineup.kickoffUtc}
-        />
-      ) : (
-        <section>
-          <h2 className="mb-3 font-display text-label font-semibold uppercase tracking-wider text-muted">
-            Last XI
-          </h2>
-          <p className="glass rounded-2xl p-6 text-center text-sm text-muted">
-            No recent lineup yet.
-          </p>
-        </section>
-      )}
-
-      {/* Primary CTA — group table */}
-      {group_id && (
-        <Link
-          href={
-            leagueMode
-              ? `${basePath}/standings`
-              : `${basePath}/groups/${group_id}`
-          }
-          className="card-hover flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-3 font-display text-sm font-bold text-foreground"
-        >
-          View {leagueMode ? "league standings" : "group table"} <span aria-hidden>→</span>
-        </Link>
-      )}
+      </PageLayout>
     </div>
   );
 }
@@ -242,41 +328,4 @@ export default async function TeamPage({
   params: Promise<{ id: string }>;
 }) {
   return renderTeamPage(params);
-}
-
-function OutlookTile({ label, value }: { label: string; value: number | null }) {
-  return (
-    <div className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center">
-      <p className="font-display text-xl font-extrabold tabular-nums text-lime-deep">
-        {pct(value)}
-      </p>
-      <p className="mt-0.5 text-label font-semibold text-muted">{label}</p>
-    </div>
-  );
-}
-
-/** One plain-language sentence summarising the model's read on the team. */
-function outlookSentence(
-  knockout: number | null,
-  final: number | null,
-  title: number | null,
-): string {
-  const ko = knockout ?? 0;
-  const fin = final ?? 0;
-  const win = title ?? 0;
-  const knockoutClause =
-    ko >= 0.75
-      ? "A strong chance to reach the knockouts"
-      : ko >= 0.4
-        ? "A solid shot at the knockouts"
-        : "An outside chance of the knockouts";
-  const deepClause =
-    win >= 0.1
-      ? " — and a real shot at the trophy."
-      : fin >= 0.15
-        ? " — with the run to the final firmly in reach."
-        : fin >= 0.05
-          ? " — though a deep run looks a stretch."
-          : ".";
-  return knockoutClause + deepClause;
 }

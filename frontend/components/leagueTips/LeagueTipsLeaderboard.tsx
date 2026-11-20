@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ErrorState, Loading } from "@/components/States";
 import {
   BoardNote,
   EmptyBoard,
@@ -15,7 +14,7 @@ import {
 import { useViewerHandle } from "@/components/play/viewerHandle";
 import { getLeagueSeasonLeaderboard, getLeagueTipsLeaderboard } from "@/lib/leagueTips";
 import { ApiError } from "@/lib/session";
-import { cn } from "@/lib/utils";
+import { Button, Card, Note, Segmented, Table, TableScroll, Td, Th } from "@/components/ui";
 import type {
   LeagueSeasonLeaderboardEntry,
   LeagueSeasonLeaderboardResponse,
@@ -58,27 +57,51 @@ export function LeagueTipsLeaderboard({
   league,
   matchweek,
   seasonOnly = false,
+  initialView = "weekly",
   viewerHandle: viewerHandleProp,
+  onSeasonLoaded,
+  view,
 }: {
   league: string;
   matchweek?: number;
   seasonOnly?: boolean;
+  /** Which board opens first when both exist ("Season" on /leaderboard). */
+  initialView?: "weekly" | "season";
   viewerHandle?: string | null;
+  /** Called with the season board once it loads (the page reads the
+   *  model's matchweek count from it for its sub line). */
+  onSeasonLoaded?: (data: LeagueSeasonLeaderboardResponse) => void;
+  /** Controlled board: the parent renders its own Season/Matchweek control
+   *  (the /leaderboard page puts it in the page head). */
+  view?: "weekly" | "season";
 }) {
   const reportedHandle = useViewerHandle();
   const viewerHandle = viewerHandleProp !== undefined ? viewerHandleProp : reportedHandle;
-  const [tab, setTab] = useState<"weekly" | "season">(seasonOnly ? "season" : "weekly");
+  const [ownTab, setTab] = useState<"weekly" | "season">(
+    seasonOnly || initialView === "season" || matchweek == null ? "season" : "weekly",
+  );
+  const tab = view !== undefined ? (view === "weekly" && matchweek == null ? "season" : view) : ownTab;
   const [weeklyState, setWeeklyState] = useState<WeeklyState>({ status: "loading" });
   const [weeklyAttempt, setWeeklyAttempt] = useState(0);
   const [seasonState, setSeasonState] = useState<SeasonState>({ status: "loading" });
   const [seasonAttempt, setSeasonAttempt] = useState(0);
 
+  // The weekly board is fetched when it is first shown, and again only when
+  // the league or matchweek changes (or on retry) -- switching back to it
+  // from Season reuses what is loaded.
+  const weeklyWanted = !seasonOnly && matchweek != null && tab === "weekly";
+  const weeklyKey = weeklyWanted ? `${league}:${matchweek}:${weeklyAttempt}` : null;
+  const [weeklyLoadedKey, setWeeklyLoadedKey] = useState<string | null>(null);
   useEffect(() => {
-    if (seasonOnly || matchweek == null) return;
+    if (weeklyKey == null || weeklyKey === weeklyLoadedKey || matchweek == null) return;
     let live = true;
     setWeeklyState({ status: "loading" });
     getLeagueTipsLeaderboard(league, matchweek)
-      .then((data) => live && setWeeklyState({ status: "success", data }))
+      .then((data) => {
+        if (!live) return;
+        setWeeklyState({ status: "success", data });
+        setWeeklyLoadedKey(weeklyKey);
+      })
       .catch(
         (err) =>
           live &&
@@ -90,16 +113,21 @@ export function LeagueTipsLeaderboard({
     return () => {
       live = false;
     };
-  }, [league, matchweek, seasonOnly, weeklyAttempt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weeklyKey]);
 
-  // Season tab is fetched lazily -- a visitor who never leaves the default
-  // Weekly view never costs the season endpoint a request.
+  // Season board is fetched lazily -- a visitor who never opens it never costs
+  // the season endpoint a request.
   useEffect(() => {
     if (tab !== "season") return;
     let live = true;
     setSeasonState({ status: "loading" });
     getLeagueSeasonLeaderboard(league)
-      .then((data) => live && setSeasonState({ status: "success", data }))
+      .then((data) => {
+        if (!live) return;
+        setSeasonState({ status: "success", data });
+        onSeasonLoaded?.(data);
+      })
       .catch(
         (err) =>
           live &&
@@ -111,63 +139,83 @@ export function LeagueTipsLeaderboard({
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, league, seasonAttempt]);
 
+  const showToggle = view === undefined && !seasonOnly && matchweek != null;
+
   return (
-    <section>
-      <div className="mb-2.5 flex items-center justify-between px-0.5">
-        <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Leaderboard</h2>
-        {!seasonOnly && <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5 text-label font-semibold">
-          <button
-            type="button"
-            onClick={() => setTab("weekly")}
-            aria-pressed={tab === "weekly"}
-            className={cn("rounded-md px-2 py-1", tab === "weekly" ? "bg-win text-pitch" : "text-muted")}
-          >
-            Weekly
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("season")}
-            aria-pressed={tab === "season"}
-            className={cn("rounded-md px-2 py-1", tab === "season" ? "bg-win text-pitch" : "text-muted")}
-          >
-            Season
-          </button>
-        </div>}
-      </div>
+    <Card pad className="max-w-[900px]" aria-label="Leaderboard">
+      {showToggle ? (
+        <div className="mb-4 flex justify-end">
+          <Segmented
+            label="Leaderboard"
+            items={[
+              { label: "Season", current: tab === "season", onSelect: () => setTab("season") },
+              { label: `Matchweek ${matchweek}`, current: tab === "weekly", onSelect: () => setTab("weekly") },
+            ]}
+          />
+        </div>
+      ) : null}
 
       {tab === "weekly" ? (
-        <>
-          {weeklyState.status === "loading" && <Loading label="Loading leaderboard…" />}
-          {weeklyState.status === "error" && (
-            <ErrorState message={weeklyState.message} onRetry={() => setWeeklyAttempt((a) => a + 1)} />
-          )}
-          {weeklyState.status === "success" && (
+        <BoardBody
+          state={weeklyState}
+          onRetry={() => setWeeklyAttempt((a) => a + 1)}
+          render={(data) => (
             <WeeklyBoard
-              participantCount={weeklyState.data.participant_count}
-              entries={weeklyState.data.entries}
+              participantCount={data.participant_count}
+              entries={data.entries}
               viewerHandle={viewerHandle}
             />
           )}
-        </>
+        />
       ) : (
-        <>
-          {seasonState.status === "loading" && <Loading label="Loading season leaderboard…" />}
-          {seasonState.status === "error" && (
-            <ErrorState message={seasonState.message} onRetry={() => setSeasonAttempt((a) => a + 1)} />
-          )}
-          {seasonState.status === "success" && (
+        <BoardBody
+          state={seasonState}
+          onRetry={() => setSeasonAttempt((a) => a + 1)}
+          render={(data) => (
             <SeasonBoard
-              participantCount={seasonState.data.participant_count}
-              entries={seasonState.data.entries}
+              participantCount={data.participant_count}
+              entries={data.entries}
               viewerHandle={viewerHandle}
             />
           )}
-        </>
+        />
       )}
-    </section>
+    </Card>
   );
+}
+
+function BoardBody<T>({
+  state,
+  onRetry,
+  render,
+}: {
+  state: { status: "loading" } | { status: "error"; message: string } | { status: "success"; data: T };
+  onRetry: () => void;
+  render: (data: T) => React.ReactNode;
+}) {
+  if (state.status === "loading") {
+    return (
+      <div aria-busy="true" aria-label="Loading the leaderboard" className="flex flex-col gap-3 py-2">
+        {Array.from({ length: 6 }, (_, i) => (
+          <span key={i} className="block h-6 w-full rounded bg-line-soft" />
+        ))}
+      </div>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
+        <Note>{state.message}</Note>
+        <Button size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+  return <>{render(state.data)}</>;
 }
 
 function WeeklyBoard({
@@ -192,7 +240,7 @@ function WeeklyBoard({
   return (
     <>
       <ViewerVsModel entries={entries} viewerHandle={viewerHandle} scope="matchweek" />
-      <WeeklyTable entries={entries} viewerHandle={viewerHandle} />
+      <BoardTable entries={entries} viewerHandle={viewerHandle} />
     </>
   );
 }
@@ -219,72 +267,53 @@ function SeasonBoard({
   return (
     <>
       <ViewerVsModel entries={entries} viewerHandle={viewerHandle} scope="season" />
-      <SeasonTable entries={entries} viewerHandle={viewerHandle} />
+      <BoardTable entries={entries} viewerHandle={viewerHandle} season />
     </>
   );
 }
 
-function WeeklyTable({ entries, viewerHandle }: { entries: WeeklyEntry[]; viewerHandle: string | null }) {
+/** rank · Tipster · (Matchweeks) · Exact scores · Points -- only the columns
+ *  the API returns for that board. Every row the API returns is shown. */
+function BoardTable({
+  entries,
+  viewerHandle,
+  season = false,
+}: {
+  entries: (WeeklyEntry | SeasonEntry)[];
+  viewerHandle: string | null;
+  season?: boolean;
+}) {
   return (
-    <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
-      <table className="w-full text-sm">
+    <TableScroll>
+      <Table>
         <thead>
-          <tr className="text-label uppercase tracking-wider text-muted">
-            <th className="px-2 pb-2 text-left font-medium">#</th>
-            <th className="px-2 pb-2 text-left font-medium">Player</th>
-            <th className="px-2 pb-2 text-right font-medium">Points</th>
-            <th className="px-2 pb-2 text-right font-medium">Exact</th>
+          <tr>
+            <Th align="left">
+              <span className="sr-only">Rank</span>
+            </Th>
+            <Th align="left">Tipster</Th>
+            {season ? <Th className="hidden sm:table-cell">Matchweeks</Th> : null}
+            <Th>
+              <span className="sm:hidden">Exact</span>
+              <span className="hidden sm:inline">Exact scores</span>
+            </Th>
+            <Th>Points</Th>
           </tr>
         </thead>
         <tbody>
           {entries.map((row, i) => (
             <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
-              <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
-              >
-                {i + 1}
-              </td>
+              <Td pos>{i + 1}</Td>
               <PlayerCell row={row} viewerHandle={viewerHandle} />
-              <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">{row.points}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.exact_count}</td>
+              {season ? (
+                <Td className="hidden sm:table-cell">{(row as SeasonEntry).matchweeks_played ?? "–"}</Td>
+              ) : null}
+              <Td>{row.exact_count}</Td>
+              <Td pts>{row.points}</Td>
             </tr>
           ))}
         </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Same table idiom as WeeklyTable, plus the season's Matchweeks column. */
-function SeasonTable({ entries, viewerHandle }: { entries: SeasonEntry[]; viewerHandle: string | null }) {
-  return (
-    <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-label uppercase tracking-wider text-muted">
-            <th className="px-2 pb-2 text-left font-medium">#</th>
-            <th className="px-2 pb-2 text-left font-medium">Player</th>
-            <th className="px-2 pb-2 text-right font-medium">Points</th>
-            <th className="px-2 pb-2 text-right font-medium">Exact</th>
-            <th className="px-2 pb-2 text-right font-medium">MWs</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((row, i) => (
-            <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
-              <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
-              >
-                {i + 1}
-              </td>
-              <PlayerCell row={row} viewerHandle={viewerHandle} />
-              <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">{row.points}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.exact_count}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.matchweeks_played ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      </Table>
+    </TableScroll>
   );
 }

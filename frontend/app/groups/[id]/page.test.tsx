@@ -46,7 +46,7 @@ it("links every exit to its final /football/wc26 URL, never a redirecting legacy
     "href",
     "/football/wc26/groups",
   );
-  expect(screen.getByRole("link", { name: /Tournament odds/ })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: /knockout bracket/ })).toHaveAttribute(
     "href",
     "/football/wc26/bracket",
   );

@@ -26,9 +26,12 @@ afterEach(() => jest.resetAllMocks());
 
 const future = (mins: number) => new Date(Date.now() + mins * 60_000).toISOString();
 
-// One scheduled, un-tipped match so exactly one ring is in play. `model` is a
-// param so a test can null it out for the degrade case.
-function oneMatch(model: NrlMyTipModel | null): NrlMyTipsResponse {
+const TIP = { pick: "home" as const, margin: null, points: null, round_margin: null, graded_at: null, updated_at: null };
+
+// One scheduled match so exactly one ring is in play. `model` is a param so a
+// test can null it out for the degrade case; `tipped` decides the reveal (the
+// model's call on an open match only shows once it is tipped).
+function oneMatch(model: NrlMyTipModel | null, tipped = true): NrlMyTipsResponse {
   return {
     season: 2026,
     round: 3,
@@ -38,14 +41,14 @@ function oneMatch(model: NrlMyTipModel | null): NrlMyTipsResponse {
         id: 1, home: "Storm", away: "Eels", kickoff_utc: future(60), status: "scheduled",
         score_home: null, score_away: null, is_featured: false,
         model,
-        your_tip: null,
+        your_tip: tipped ? TIP : null,
       },
     ],
     disclaimer: "For analytics and entertainment only. Not betting advice.",
   };
 }
 
-it("rings the model's call with the printed % and tier word when showConfidence is on", async () => {
+it("rings the model's call with the printed % and tier word once the match is tipped (showConfidence on)", async () => {
   // 0.62 -> Medium (>=0.5, <0.65), home pick -> "Storm".
   mockMine.mockResolvedValue(oneMatch({ pick: "home", pick_confidence: 0.62, expected_margin: 4.5 }));
 
@@ -78,4 +81,23 @@ it("degrades to no ring when the match carries no model, even with the flag on",
 
   expect(screen.queryByText("Model's call")).not.toBeInTheDocument();
   expect(screen.queryByRole("img")).not.toBeInTheDocument();
+});
+
+it("keeps the model's call hidden on an open match the viewer has not tipped (reveal rule)", async () => {
+  mockMine.mockResolvedValue(oneMatch({ pick: "home", pick_confidence: 0.62, expected_margin: 4.5 }, false));
+
+  render(<PlayRound season={2026} round={3} showConfidence />);
+  await screen.findByRole("group", { name: /Storm vs Eels/i });
+
+  expect(screen.queryByText("Model's call")).not.toBeInTheDocument();
+  expect(screen.queryByText(/62/)).not.toBeInTheDocument();
+});
+
+it("prints the model's call as one line on /nrl/tips once tipped", async () => {
+  mockMine.mockResolvedValue(oneMatch({ pick: "away", pick_confidence: 0.57, expected_margin: -2 }));
+
+  render(<PlayRound season={2026} round={3} />);
+  await screen.findByRole("group", { name: /Storm vs Eels/i });
+  expect(screen.getByText("57%")).toBeInTheDocument();
+  expect(screen.getByText(/Model Eels/)).toBeInTheDocument();
 });

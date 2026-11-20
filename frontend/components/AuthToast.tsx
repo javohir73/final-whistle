@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { CheckIcon } from "@/components/ui";
 
 /** Small transient confirmation popup (e.g. after sign-up). Auto-dismisses.
  *  Parked above the mobile tab bar + home indicator (.bottom-above-tabbar):
@@ -25,10 +26,10 @@ export function AuthToast({
     <div
       role="status"
       aria-live="polite"
-      className="glass fade-up bottom-above-tabbar fixed left-1/2 z-[120] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-foreground shadow-lg"
+      className="fade-up bottom-above-tabbar fixed left-1/2 z-[120] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2.5 rounded-full bg-ink py-3 pl-3 pr-5 text-notes font-medium text-white shadow-menu"
     >
-      <span className="grid h-5 w-5 place-items-center rounded-full bg-win text-pitch" aria-hidden>
-        ✓
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white" aria-hidden>
+        <CheckIcon size={14} />
       </span>
       {message}
     </div>

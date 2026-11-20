@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ClubBadge } from "@/components/ClubBadge";
 import { TeamBadge } from "@/components/TeamBadge";
 
 const ACTIVE_LEAGUE_CLUBS = [
@@ -126,12 +127,13 @@ describe("TeamBadge", () => {
     expect(shell).not.toHaveClass("bg-white/95", "ring-1");
     expect(shell?.querySelector("img")).toHaveAttribute(
       "src",
-      "/clubs/epl/arsenal.png"
+      "/clubs/epl/arsenal.svg"
     );
+    expect(shell).toHaveStyle({ width: "32px", height: "32px" });
     expect(shell?.querySelector("img")).toHaveClass("object-contain");
     expect(shell?.querySelector("img")).toHaveStyle({
-      width: "27.52px",
-      height: "27.52px",
+      width: "32px",
+      height: "32px",
     });
   });
 
@@ -139,7 +141,7 @@ describe("TeamBadge", () => {
     const { container } = render(<TeamBadge team="Man City" size={32} />);
     expect(
       container.querySelector('[data-club-logo="Man City"] img')
-    ).toHaveAttribute("src", "/clubs/epl/manchester-city.png");
+    ).toHaveAttribute("src", "/clubs/epl/manchester-city.svg");
   });
 
   it.each(ACTIVE_LEAGUE_CLUBS)(
@@ -150,7 +152,7 @@ describe("TeamBadge", () => {
         container.querySelector(`[data-club-logo="${team}"] img`)
       ).toHaveAttribute(
         "src",
-        expect.stringMatching(new RegExp(`^/clubs/${league}/.+\\.png$`))
+        expect.stringMatching(new RegExp(`^/clubs/${league}/.+\\.(png|svg)$`))
       );
     }
   );
@@ -162,7 +164,7 @@ describe("TeamBadge", () => {
       const image = container.querySelector(`[data-club-logo="${team}"] img`);
       expect(image).toHaveAttribute(
         "src",
-        expect.stringMatching(/^\/clubs\/ucl\/\d+\.png$/)
+        expect.stringMatching(/^\/clubs\/ucl\/[a-z0-9-]+\.png$/)
       );
       const src = image?.getAttribute("src");
       expect(src && existsSync(join(process.cwd(), "public", src))).toBe(true);
@@ -171,12 +173,86 @@ describe("TeamBadge", () => {
 
   it.each([
     ["Atlético Madrid", "/clubs/laliga/atletico-madrid.png"],
-    ["Bayern Munich", "/clubs/bundesliga/bayern-munchen.png"],
-    ["Schalke 04", "/clubs/bundesliga/fc-schalke-04.png"],
+    ["Bayern Munich", "/clubs/bundesliga/bayern-munchen.svg"],
+    ["Schalke 04", "/clubs/bundesliga/fc-schalke-04.svg"],
   ])("resolves the common alias %s", (team, expectedSrc) => {
     const { container } = render(<TeamBadge team={team} size={32} />);
     expect(
       container.querySelector(`[data-club-logo="${team}"] img`)
     ).toHaveAttribute("src", expectedSrc);
+  });
+});
+
+describe("ClubBadge (direction G rendering rule)", () => {
+  it.each([18, 22, 26, 60, 64])("renders a fixed %ipx box with object-fit contain", (size) => {
+    const { container } = render(<ClubBadge name="Arsenal" size={size} />);
+    const shell = container.querySelector('[data-club-logo="Arsenal"]') as HTMLElement;
+    const img = shell.querySelector("img")!;
+    expect(shell).toHaveStyle({ width: `${size}px`, height: `${size}px` });
+    expect(img).toHaveAttribute("width", String(size));
+    expect(img).toHaveAttribute("height", String(size));
+    expect(img).toHaveStyle({ width: `${size}px`, height: `${size}px` });
+    expect(img).toHaveClass("object-contain");
+    expect(img.className).not.toMatch(/object-cover|shadow|ring|bg-|border|rounded/);
+    expect(shell.className).not.toMatch(/shadow|ring|bg-|border|rounded/);
+  });
+
+  it("names the crest by default", () => {
+    const { container } = render(<ClubBadge name="Liverpool" />);
+    const img = container.querySelector("img")!;
+    expect(img).toHaveAttribute("alt", "Liverpool");
+    expect(img).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("is hidden from assistive tech when decorative", () => {
+    const { container } = render(<ClubBadge name="Liverpool" decorative />);
+    const img = container.querySelector("img")!;
+    expect(img).toHaveAttribute("alt", "");
+    expect(img).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("falls back to a neutral monogram, never a coloured shield", () => {
+    const { container, getByRole } = render(<ClubBadge name="Atlantis Rovers" size={26} />);
+    expect(container.querySelector("img")).toBeNull();
+    const mono = container.querySelector('[data-club-monogram="Atlantis Rovers"]') as HTMLElement;
+    expect(mono).toHaveTextContent("AR");
+    expect(mono).toHaveClass("bg-soft", "border", "border-line", "text-muted");
+    expect(mono.getAttribute("style") ?? "").not.toMatch(/background/);
+    expect(getByRole("img", { name: "Atlantis Rovers" })).toBe(mono);
+  });
+
+  it("hides a decorative monogram", () => {
+    const { container } = render(<ClubBadge name="Atlantis Rovers" decorative />);
+    expect(container.querySelector("[data-club-monogram]")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it.each([
+    ["NSW Blues", "/clubs/nrl/nsw-blues.svg"],
+    ["QLD Maroons", "/clubs/nrl/qld-maroons.svg"],
+    ["PAE AEK", "/clubs/ucl/aek-athens.png"],
+    ["SV 07 Elversberg", "/clubs/bundesliga/sv-elversberg.svg"],
+    ["RC Deportivo La Coruña", "/clubs/laliga/deportivo-la-coruna.png"],
+    ["Real Racing Club de Santander", "/clubs/laliga/racing-santander.png"],
+  ])("resolves the API name %s", (name, src) => {
+    const { container } = render(<ClubBadge name={name} />);
+    expect(container.querySelector("img")).toHaveAttribute("src", src);
+  });
+
+  it("only ever loads crests from our own origin", () => {
+    const source = readFileSync(join(process.cwd(), "components/ClubBadge.tsx"), "utf8");
+    expect(source).not.toMatch(/https?:\/\//);
+  });
+
+  it("TeamBadge passes decorative through to flags and crests", () => {
+    const { container } = render(
+      <>
+        <TeamBadge team="Brazil" decorative />
+        <TeamBadge team="Arsenal" decorative />
+      </>,
+    );
+    for (const img of Array.from(container.querySelectorAll("img"))) {
+      expect(img).toHaveAttribute("alt", "");
+      expect(img).toHaveAttribute("aria-hidden", "true");
+    }
   });
 });

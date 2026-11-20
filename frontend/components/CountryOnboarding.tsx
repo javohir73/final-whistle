@@ -1,11 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
 import { Flag } from "@/components/Flag";
 import { CountrySearch } from "@/components/CountrySearch";
 import type { SelectedCountry } from "@/lib/useSelectedCountry";
 import type { Team } from "@/lib/types";
+import { COMPETITIONS } from "@/lib/sports";
+import { Button, Card, H1_CLASS, PageHead, Tag, TextLink } from "@/components/ui";
+
+const WC26_BASE = COMPETITIONS.wc26.basePath;
 
 /** Quick-pick chips: the three hosts, then the strongest sides by Elo. */
 function suggestions(teams: Team[]): Team[] {
@@ -48,50 +51,34 @@ export function CountryOnboarding({
   if (selection) {
     const name = selectedTeam?.name ?? selection.team;
     return (
-      <section className="mx-auto max-w-xl py-16 text-center sm:py-24">
-        <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-lime-deep">
-          Your team
-        </p>
+      <section className="mx-auto flex max-w-prose flex-col items-center py-12 text-center min-[900px]:py-16">
+        <p className="text-notes font-medium text-muted">Your team</p>
         <div className="mt-6 flex flex-col items-center gap-4">
-          <span className="grid place-items-center rounded-2xl bg-win/10 p-3.5">
-            <Flag team={name} size={88} />
-          </span>
-          <h1 className="font-display text-4xl font-extrabold tracking-tight sm:text-5xl">
-            {name}
-          </h1>
+          <Flag team={name} size={72} decorative />
+          <h1 className={H1_CLASS}>{name}</h1>
           {selectedTeam && (
-            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-sm text-muted">
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-notes text-muted">
               {selectedTeam.fifa_rank != null && (
-                <span>FIFA rank <span className="font-semibold text-foreground">#{selectedTeam.fifa_rank}</span></span>
+                <span>FIFA rank <span className="font-semibold text-ink">{selectedTeam.fifa_rank}</span></span>
               )}
               {selectedTeam.elo_rating != null && (
-                <span>Elo <span className="font-semibold text-foreground">{Math.round(selectedTeam.elo_rating)}</span></span>
+                <span>Elo <span className="font-semibold text-ink">{Math.round(selectedTeam.elo_rating)}</span></span>
               )}
               {selectedTeam.confederation && <span>{selectedTeam.confederation}</span>}
             </div>
           )}
         </div>
 
-        <p className="mx-auto mt-6 max-w-sm text-muted">
-          {name}&rsquo;s World Cup — matches, results, strengths, and how the FinalWhistle
-          model called them.
+        <p className="mt-6 max-w-[46ch] text-muted">
+          {name}&rsquo;s World Cup: matches, results and how the FinalWhistle model called them.
         </p>
 
-        <div className="mt-8 flex flex-col items-center gap-3">
-          <button
-            type="button"
-            onClick={onPredict}
-            className="group inline-flex items-center gap-2 rounded-xl bg-win px-7 py-3.5 font-display text-lg font-bold text-pitch transition hover:brightness-105"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2">
-              <path d="M5 3l14 9-14 9V3z" strokeLinejoin="round" />
-            </svg>
-            Show my team
-          </button>
+        <div className="mt-8 flex flex-col items-center gap-2">
+          <Button onClick={onPredict}>Show my team</Button>
           <button
             type="button"
             onClick={onChangeCountry}
-            className="text-sm font-medium text-muted underline-offset-2 transition hover:text-foreground hover:underline"
+            className="min-h-[44px] px-3 font-medium text-muted underline-offset-[3px] hover:text-ink hover:underline"
           >
             Choose a different country
           </button>
@@ -102,57 +89,45 @@ export function CountryOnboarding({
 
   // ---- No selection: the chooser ----
   return (
-    <section className="mx-auto max-w-2xl py-12 sm:py-16">
-      <div className="text-center">
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full chip px-3 py-1 text-xs font-medium text-muted">
-          <span className="h-1.5 w-1.5 rounded-full bg-win" />
-          World Cup 2026 · Past tournament
-        </div>
-        <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-          Choose your <span className="text-lime-deep">World Cup team</span>
-        </h1>
-        <p className="mx-auto mt-4 max-w-md text-lg text-muted">
-          Their matches, the model&rsquo;s calls, and how those calls held up.
-        </p>
-      </div>
+    <section>
+      <PageHead
+        eyebrow="World Cup 2026 · Past tournament"
+        title={
+          <>
+            Choose your <span>World Cup team</span>
+          </>
+        }
+        sub="Their matches, the model’s calls, and how those calls held up."
+      />
 
-      <div className="glass mt-9 rounded-2xl p-4 sm:p-5">
+      <Card pad className="max-w-[900px]">
         <CountrySearch teams={teams} onSelect={onSelect} />
-      </div>
+      </Card>
 
       {picks.length > 0 && (
-        <div className="mt-6">
-          <p className="mb-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted">
-            Popular picks
-          </p>
-          <div className="flex flex-wrap justify-center gap-2">
+        <div className="mt-8 max-w-[900px]">
+          <h2 className="text-notes font-medium text-muted">Popular picks</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
             {picks.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => onSelect(t)}
-                className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-medium transition hover:bg-surface-2"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-line bg-ground px-4 font-medium text-ink transition-colors hover:border-line-strong"
               >
-                <Flag team={t.name} size={20} />
+                <Flag team={t.name} size={20} decorative />
                 {t.name}
-                {t.is_host && (
-                  <span className="rounded bg-gold/15 px-1 text-mini font-bold uppercase tracking-wide text-amber-ink">Host</span>
-                )}
+                {t.is_host && <Tag>Host</Tag>}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      <p className="mt-9 text-center text-sm text-muted">
-        Just browsing?{" "}
-        <Link href="/matches" className="font-medium text-lime-deep underline-offset-2 hover:underline">
-          Explore all matches
-        </Link>
-        {" · "}
-        <Link href="/brackets" className="font-medium text-lime-deep underline-offset-2 hover:underline">
-          Road to the final
-        </Link>
+      <p className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-notes text-muted">
+        <span>Just browsing?</span>
+        <TextLink href={`${WC26_BASE}/fixtures`}>Explore all matches</TextLink>
+        <TextLink href={`${WC26_BASE}/bracket`}>Road to the final</TextLink>
       </p>
     </section>
   );

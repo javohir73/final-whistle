@@ -1,134 +1,124 @@
-/** Theme preference + the Daylight token set's accessibility floor. */
-import {
-  DEFAULT_THEME, LIGHT_CLASS, THEME_KEY, applyTheme, isTheme, readTheme,
-  resolveTheme, writeTheme,
-} from "@/lib/theme";
-import { readFileSync } from "fs";
-import { join } from "path";
+/** Direction G is the site's ONLY theme.
+ *
+ *  Replaces the old two-theme tests (Floodlight default + opt-in Daylight
+ *  via a `.theme-daylight` class, a `fw_theme` preference and a boot script):
+ *  that system is gone, so this file now proves it stays gone and that the
+ *  one light palette is the brief's palette and meets WCAG AA. */
+import fs from "fs";
+import path from "path";
+import { color, css, frontendRoot, hexOf, parseColor, ratio, rootScope, token } from "./gTokens.test.helpers";
 
-afterEach(() => {
-  window.localStorage.clear();
-  document.documentElement.className = "";
-});
+const G = {
+  ground: "#ffffff",
+  ink: "#14181f",
+  muted: "#5b6470",
+  line: "#e4e7e3",
+  "line-soft": "#eef0ec",
+  soft: "#f6f7f5",
+  brand: "#0f4d3a",
+  "brand-soft": "#e7f0ec",
+  miss: "#8a3324",
+  "miss-soft": "#f6ebe8",
+};
 
-describe("preference storage", () => {
-  it("defaults to dark — light is opt-in, never inferred from the OS", () => {
-    // Following prefers-color-scheme would flip most visitors to light, since
-    // most systems report light unless changed. That is a brand decision, not
-    // a default.
-    expect(DEFAULT_THEME).toBe("dark");
-    expect(readTheme()).toBeNull();
-    expect(resolveTheme()).toBe("dark");
+function sources(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === "__tests__" ? [] : sources(full);
+    return /\.(tsx?|css)$/.test(entry.name) && !/\.test\./.test(entry.name) ? [full] : [];
+  });
+}
+
+describe("one theme", () => {
+  it("has no second theme in the stylesheet", () => {
+    expect(css).not.toContain("theme-daylight");
+    expect(css).not.toMatch(/prefers-color-scheme:\s*dark/);
+    expect(rootScope).toContain("color-scheme: light");
   });
 
-  it("round-trips a stored choice", () => {
-    writeTheme("light");
-    expect(window.localStorage.getItem(THEME_KEY)).toBe("light");
-    expect(readTheme()).toBe("light");
-    expect(resolveTheme()).toBe("light");
+  it("has no theme preference, toggle or boot script anywhere in the app", () => {
+    const offenders = ["app", "components", "lib"]
+      .flatMap((d) => sources(path.join(frontendRoot, d)))
+      .filter((file) => /fw_theme|theme-daylight|ThemeToggle|LIGHT_CLASS/.test(fs.readFileSync(file, "utf8")))
+      .map((file) => path.relative(frontendRoot, file));
+    expect(offenders).toEqual([]);
+    expect(fs.existsSync(path.join(frontendRoot, "lib/theme.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(frontendRoot, "components/ThemeToggle.tsx"))).toBe(false);
   });
 
-  it("ignores a corrupt stored value rather than applying it", () => {
-    window.localStorage.setItem(THEME_KEY, "neon");
-    expect(readTheme()).toBeNull();
-    expect(resolveTheme()).toBe("dark");
+  it("does not use Tailwind's dark mode", () => {
+    const config = fs.readFileSync(path.join(frontendRoot, "tailwind.config.ts"), "utf8");
+    expect(config).not.toMatch(/darkMode/);
   });
 
-  it("survives storage that throws (Safari private mode)", () => {
-    const spy = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("denied");
-    });
-    expect(() => readTheme()).not.toThrow();
-    expect(readTheme()).toBeNull();
-    spy.mockRestore();
-    const setSpy = jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("denied");
-    });
-    expect(() => writeTheme("light")).not.toThrow();
-    setSpy.mockRestore();
-  });
-
-  it("guards the type", () => {
-    expect(isTheme("dark")).toBe(true);
-    expect(isTheme("light")).toBe(true);
-    expect(isTheme("sepia")).toBe(false);
-  });
-});
-
-describe("applyTheme", () => {
-  it("adds and removes the daylight class", () => {
-    applyTheme("light");
-    expect(document.documentElement.classList.contains(LIGHT_CLASS)).toBe(true);
-    applyTheme("dark");
-    expect(document.documentElement.classList.contains(LIGHT_CLASS)).toBe(false);
-  });
-
-  it("moves the browser-chrome colour with the theme", () => {
-    const meta = document.createElement("meta");
-    meta.setAttribute("name", "theme-color");
-    meta.setAttribute("content", "#0a1410");
-    document.head.appendChild(meta);
-    applyTheme("light");
-    expect(meta.getAttribute("content")).toBe("#f2f6ef");
-    applyTheme("dark");
-    expect(meta.getAttribute("content")).toBe("#0a1410");
-    meta.remove();
+  it("paints the browser chrome white", () => {
+    const layout = fs.readFileSync(path.join(frontendRoot, "app/layout.tsx"), "utf8");
+    expect(layout).toMatch(/themeColor:\s*"#ffffff"/);
+    expect(layout).not.toContain("dangerouslySetInnerHTML");
   });
 });
 
-describe("no flash of the wrong theme", () => {
-  const layout = readFileSync(join(process.cwd(), "app/layout.tsx"), "utf8");
-
-  it("applies the stored theme from an inline script in <head>", () => {
-    // React cannot do this: by the time it hydrates the wrong theme has been
-    // painted. The script must be inline and synchronous.
-    expect(layout).toContain("dangerouslySetInnerHTML");
-    expect(layout).toContain(THEME_KEY);
-    expect(layout).toContain(LIGHT_CLASS);
+describe("the direction G palette", () => {
+  it.each(Object.entries(G))("--fw-%s is %s", (name, hex) => {
+    expect(token(`fw-${name}`).toLowerCase()).toBe(hex);
   });
 
-  it("boots before the render tree, not after", () => {
-    expect(layout.indexOf(THEME_KEY)).toBeLessThan(layout.indexOf("<body"));
+  it("exposes the same values to Tailwind under the same names", () => {
+    const config = fs.readFileSync(path.join(frontendRoot, "tailwind.config.ts"), "utf8");
+    for (const [name, hex] of Object.entries(G)) {
+      const key = name.includes("-") ? `"${name}"` : name;
+      expect(config).toMatch(new RegExp(`${key}:\\s*"${hex}"`));
+    }
+  });
+
+  it.each([
+    ["background", "ground"],
+    ["surface", "ground"],
+    ["surface-2", "soft"],
+    ["foreground", "ink"],
+    ["muted", "muted"],
+    ["border", "line"],
+    ["win", "brand"],
+    ["accent", "brand"],
+    ["lime-deep", "brand"],
+    ["loss", "miss"],
+  ] as const)("re-points the legacy --%s token at %s", (legacy, g) => {
+    expect(hexOf(color(legacy))).toBe(G[g]);
+  });
+
+  it("has no lime, amber or gold left in the legacy tokens", () => {
+    for (const name of ["win", "draw", "gold", "accent", "lime-deep", "amber-ink", "gold-ink", "gold-wash-ink"]) {
+      const [r, g, b] = color(name);
+      // Lime/amber/gold are bright and saturated toward yellow-green or orange:
+      // every one of them has a high red+green sum. G's tones are all dark.
+      expect(r + g).toBeLessThan(260);
+      expect(b).toBeLessThan(200);
+    }
   });
 });
 
-describe("Daylight meets WCAG AA", () => {
-  const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
-  const daylight = css.slice(css.indexOf(".theme-daylight {"));
-
-  const rgb = (h: number, s: number, l: number) => {
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = l - c / 2;
-    const [r, g, b] = h >= 120 && h < 180 ? [0, c, x] : [c, x, 0];
-    return [r + m, g + m, b + m].map((v) => v * 255);
-  };
-  const lum = ([r, g, b]: number[]) => {
-    const f = (v: number) => {
-      v /= 255;
-      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    };
-    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-  };
-  const ratio = (a: number[], b: number[]) => {
-    const [hi, lo] = [lum(a), lum(b)].sort((m, n) => n - m);
-    return (hi + 0.05) / (lo + 0.05);
-  };
-
-  it("keeps muted body text above the 4.5:1 floor on canvas and card", () => {
-    // It shipped at 140 7% 45% = 4.14:1 on the canvas — under AA, on the token
-    // that carries most secondary copy.
-    const m = daylight.match(/--muted:\s*([\d.]+) ([\d.]+)% ([\d.]+)%/);
-    expect(m).not.toBeNull();
-    const muted = rgb(Number(m![1]), Number(m![2]) / 100, Number(m![3]) / 100);
-    const canvas = rgb(96, 0.23, 0.96);
-    expect(ratio(muted, canvas)).toBeGreaterThanOrEqual(4.5);
-    expect(ratio(muted, [255, 255, 255])).toBeGreaterThanOrEqual(4.5);
+describe("WCAG AA for the G text pairs", () => {
+  const hex = (h: string) => parseColor(h);
+  const white = hex("#ffffff");
+  it.each([
+    ["ink on ground", G.ink, G.ground],
+    ["ink on soft", G.ink, G.soft],
+    ["muted on ground", G.muted, G.ground],
+    ["muted on soft", G.muted, G.soft],
+    ["muted on the chip neutral", G.muted, "#f2f4f1"],
+    ["brand on ground", G.brand, G.ground],
+    ["brand on brand-soft (right result chip)", G.brand, G["brand-soft"]],
+    ["white on brand (buttons, exact-score chip)", "#ffffff", G.brand],
+    ["white on brand hover", "#ffffff", "#0b3d2e"],
+    ["white on ink (score box)", "#ffffff", G.ink],
+    ["miss on miss-soft (missed chip)", G.miss, G["miss-soft"]],
+    ["miss on ground", G.miss, G.ground],
+  ])("%s clears 4.5:1", (_label, fg, bg) => {
+    expect(ratio(hex(fg), hex(bg))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("keeps primary ink far above the floor", () => {
-    const m = daylight.match(/--foreground:\s*([\d.]+) ([\d.]+)% ([\d.]+)%/)!;
-    const fg = rgb(Number(m[1]), Number(m[2]) / 100, Number(m[3]) / 100);
-    expect(ratio(fg, rgb(96, 0.23, 0.96))).toBeGreaterThanOrEqual(7); // AAA
+  it("keeps the brand focus ring at 3:1 or more against the page", () => {
+    expect(css).toMatch(/:focus-visible\s*\{\s*outline:\s*2px solid hsl\(var\(--lime-deep\)\);/);
+    expect(ratio(color("lime-deep"), white)).toBeGreaterThanOrEqual(3);
   });
 });

@@ -118,7 +118,7 @@ function BenchColumn({ team }: { team: TeamLineup }) {
   return (
     <div className="min-w-0">
       <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-        <Flag team={team.team} size={14} />
+        <Flag team={team.team} size={14} decorative />
         <span className="truncate">{team.team}</span>
       </p>
       <ul className="space-y-0.5 text-xs text-foreground/90">

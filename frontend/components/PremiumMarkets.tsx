@@ -14,6 +14,7 @@ import { BILLING_ENABLED } from "@/lib/constants";
 import { getPremiumMarkets, type PremiumMarkets as Payload } from "@/lib/session";
 import { pct, formatScore } from "@/lib/format";
 import type { CompetitionId } from "@/lib/sports";
+import { Card, CardHead } from "@/components/ui";
 
 const TEASER_DISCLAIMER = "Not betting advice.";
 
@@ -51,16 +52,16 @@ function MarketsTeaser({ home, away }: { home: string; away: string }) {
   return (
     <div className="space-y-5">
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Correct score
         </p>
         <ul className="grid grid-cols-3 gap-2">
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <li key={i} className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center">
-              <p className="font-display text-lg font-extrabold text-lime-deep">
+            <li key={i} className="rounded-input bg-soft px-2 py-3 text-center">
+              <p className="text-h2 font-semibold text-ink">
                 <Redacted w="2.2rem" />
               </p>
-              <p className="mt-0.5 text-label font-semibold text-muted">
+              <p className="mt-0.5 text-label font-medium text-muted">
                 <Redacted w="1.6rem" />
               </p>
             </li>
@@ -68,17 +69,17 @@ function MarketsTeaser({ home, away }: { home: string; away: string }) {
         </ul>
       </div>
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Over/under
         </p>
-        <ul className="space-y-1.5">
+        <ul className="space-y-0">
           {["0.5", "1.5", "2.5", "3.5", "4.5"].map((line) => (
-            <li key={line} className="flex items-center justify-between text-sm">
+            <li key={line} className="flex items-center justify-between gap-3 border-t border-line-soft py-2 text-table first:border-t-0">
               {/* The LINES are the product description, not the prediction —
                   every match is priced at the same ladder. Only the
                   probabilities are withheld. */}
               <span className="text-muted">{line} goals</span>
-              <span className="text-lime-deep">
+              <span className="text-line-strong">
                 <Redacted w="5.5rem" />
               </span>
             </li>
@@ -86,31 +87,31 @@ function MarketsTeaser({ home, away }: { home: string; away: string }) {
         </ul>
       </div>
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Both teams to score
         </p>
-        <p className="text-sm text-lime-deep">
+        <p className="text-table text-line-strong">
           <Redacted w="7rem" />
         </p>
       </div>
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Asian handicap
         </p>
-        <ul className="space-y-1.5">
+        <ul className="space-y-0">
           {["-1.0", "-0.5", "0.0", "+0.5", "+1.0"].map((line) => (
-            <li key={line} className="flex items-center justify-between text-sm">
+            <li key={line} className="flex items-center justify-between gap-3 border-t border-line-soft py-2 text-table first:border-t-0">
               <span className="text-muted">
                 {home} {line}
               </span>
-              <span className="text-lime-deep">
+              <span className="text-line-strong">
                 <Redacted w="6rem" />
               </span>
             </li>
           ))}
         </ul>
       </div>
-      <p className="text-xs leading-relaxed text-muted">
+      <p className="text-notes text-muted">
         Probabilities for {home} v {away} are available to members.{" "}
         {TEASER_DISCLAIMER}
       </p>
@@ -133,32 +134,32 @@ function MarketsBody({
   return (
     <div className="space-y-5">
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Correct score
         </p>
         <ul className="grid grid-cols-3 gap-2">
           {topScores.map((cs) => (
             <li
               key={`${cs.home}-${cs.away}`}
-              className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center"
+              className="rounded-input bg-soft px-2 py-3 text-center"
             >
-              <p className="font-display text-lg font-extrabold tabular-nums text-lime-deep">
+              <p className="text-h2 font-semibold tabular-nums text-ink">
                 {formatScore(cs.home, cs.away)}
               </p>
-              <p className="mt-0.5 text-label font-semibold text-muted">{pct(cs.prob)}</p>
+              <p className="mt-0.5 text-label font-medium text-muted">{pct(cs.prob)}</p>
             </li>
           ))}
         </ul>
       </div>
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Over/under
         </p>
-        <ul className="space-y-1.5">
+        <ul className="space-y-0">
           {markets.totals.map((t) => (
-            <li key={t.line} className="flex items-center justify-between text-sm">
+            <li key={t.line} className="flex items-center justify-between gap-3 border-t border-line-soft py-2 text-table first:border-t-0">
               <span className="text-muted">{t.line} goals</span>
-              <span className="font-display font-bold tabular-nums text-lime-deep">
+              <span className="text-right font-semibold tabular-nums text-ink">
                 Over {pct(t.over)} · Under {pct(t.under)}
               </span>
             </li>
@@ -166,37 +167,37 @@ function MarketsBody({
         </ul>
       </div>
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Both teams to score
         </p>
-        <p className="text-sm">
-          <span className="font-display font-bold tabular-nums text-lime-deep">
+        <p className="text-table">
+          <span className="text-right font-semibold tabular-nums text-ink">
             Yes {pct(markets.btts.yes)}
           </span>
           <span className="text-muted"> · </span>
-          <span className="font-display font-bold tabular-nums text-lime-deep">
+          <span className="text-right font-semibold tabular-nums text-ink">
             No {pct(markets.btts.no)}
           </span>
         </p>
       </div>
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <p className="mb-2 text-notes font-medium text-muted">
           Asian handicap
         </p>
-        <ul className="space-y-1.5">
+        <ul className="space-y-0">
           {markets.asian_handicap.map((h) => (
-            <li key={h.line} className="flex items-center justify-between text-sm">
+            <li key={h.line} className="flex items-center justify-between gap-3 border-t border-line-soft py-2 text-table first:border-t-0">
               <span className="text-muted">
                 {home} {h.line > 0 ? `+${h.line}` : h.line}
               </span>
-              <span className="font-display font-bold tabular-nums text-lime-deep">
+              <span className="text-right font-semibold tabular-nums text-ink">
                 {pct(h.home)} · push {pct(h.push)} · {away} {pct(h.away)}
               </span>
             </li>
           ))}
         </ul>
       </div>
-      <p className="text-xs leading-relaxed text-muted">{disclaimer}</p>
+      <p className="text-notes text-muted">{disclaimer}</p>
     </div>
   );
 }
@@ -251,17 +252,15 @@ export function PremiumMarkets({
   if (user?.premium) {
     if (failed || !data) return null; // loading or unavailable: collapse quietly
     return (
-      <section className="glass rounded-2xl p-6">
-        <h2 className="mb-4 font-display text-lg font-bold text-foreground">
-          Full match markets
-        </h2>
+      <Card pad>
+        <CardHead title="Full match markets" className="mb-4" />
         <MarketsBody
           home={home}
           away={away}
           markets={data.markets}
           disclaimer={data.disclaimer}
         />
-      </section>
+      </Card>
     );
   }
 

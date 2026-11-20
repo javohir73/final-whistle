@@ -30,7 +30,7 @@ export default async function Image() {
     return new ImageResponse(
       (
         <Shell eyebrow="NRL finals odds" footer={FOOTER}>
-          <div style={{ display: "flex", fontSize: 64, fontWeight: 800 }}>Predict the run home</div>
+          <div style={{ display: "flex", fontSize: 64, fontWeight: 600 }}>Predict the run home</div>
         </Shell>
       ),
       { ...size },
@@ -43,7 +43,7 @@ export default async function Image() {
     (
       <Shell eyebrow="NRL finals odds" footer={FOOTER}>
         <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          <div style={{ display: "flex", fontSize: 60, fontWeight: 800, letterSpacing: -1 }}>
+          <div style={{ display: "flex", fontSize: 60, fontWeight: 600, letterSpacing: -1 }}>
             Predict your run home
           </div>
           <div style={{ display: "flex", fontSize: 28, color: C.muted }}>
@@ -54,7 +54,7 @@ export default async function Image() {
             {contenders.map((t) => (
               <div key={t.team} style={{ display: "flex", justifyContent: "space-between", fontSize: 32 }}>
                 <div style={{ display: "flex", fontWeight: 700 }}>{t.team}</div>
-                <div style={{ display: "flex", fontWeight: 800, color: C.win }}>
+                <div style={{ display: "flex", fontWeight: 600, color: C.win }}>
                   Top 8 {pc(t.top8)}
                   <span style={{ display: "flex", marginLeft: 16, color: C.muted, fontWeight: 400 }}>
                     Top 4 {pc(t.top4)}

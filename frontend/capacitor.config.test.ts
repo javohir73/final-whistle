@@ -1,6 +1,6 @@
 /** The native shell paints its WebView background before the page arrives
- *  (launch, overscroll, behind the safe areas). It must be the Floodlight
- *  canvas the web app paints, or a blue-black seam shows on every launch. */
+ *  (launch, overscroll, behind the safe areas). It must be the canvas the
+ *  web app paints (direction G: white), or a dark seam shows on every launch. */
 import fs from "fs";
 import path from "path";
 import config from "./capacitor.config";
@@ -8,7 +8,7 @@ import config from "./capacitor.config";
 /** globals.css `:root --background` (HSL channels) as a #rrggbb string. */
 function cssCanvasHex(): string {
   const css = fs.readFileSync(path.join(__dirname, "app/globals.css"), "utf8");
-  const root = css.slice(css.indexOf(":root {"), css.indexOf(".theme-daylight {"));
+  const root = css.slice(css.indexOf(":root {"), css.indexOf("}", css.indexOf(":root {")));
   const [h, s, l] = root
     .match(/--background:\s*(\d+)\s+(\d+)%\s+(\d+)%;/)!
     .slice(1)
@@ -22,9 +22,9 @@ function cssCanvasHex(): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-it("paints the Floodlight canvas behind the WebView on both platforms", () => {
-  expect(config.ios?.backgroundColor).toBe("#0a1410");
-  expect(config.android?.backgroundColor).toBe("#0a1410");
+it("paints the direction G white canvas behind the WebView on both platforms", () => {
+  expect(config.ios?.backgroundColor).toBe("#ffffff");
+  expect(config.android?.backgroundColor).toBe("#ffffff");
 });
 
 it("matches the web canvas token (globals.css :root --background)", () => {

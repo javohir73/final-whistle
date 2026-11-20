@@ -91,10 +91,10 @@ function TeamHeader({ team, tone }: { team: TeamLineup; tone: "home" | "away" })
           aria-hidden
           className={
             "h-2.5 w-2.5 shrink-0 rounded-full ring-1 " +
-            (tone === "away" ? "bg-win ring-win/50" : "bg-white ring-border")
+            (tone === "away" ? "bg-brand ring-brand" : "bg-ground ring-line-strong")
           }
         />
-        <Flag team={team.team} size={20} />
+        <Flag team={team.team} size={20} decorative />
         <span className="truncate font-display text-sm font-bold text-foreground">{team.team}</span>
       </span>
       {team.formation && (

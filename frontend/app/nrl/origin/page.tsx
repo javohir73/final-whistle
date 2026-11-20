@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOriginRecordServer, getOriginSeriesServer } from "@/lib/api";
-import type { OriginGame } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { getOriginSeriesServer } from "@/lib/api";
+import { ClubBadge } from "@/components/ClubBadge";
+import { Card, CardHead, Chip, FixturePair, FixtureRow, PageHead, Stat, StatGrid, TextLink } from "@/components/ui";
+import { nrlDayMonth, nrlTimeLabel, wholePct } from "@/lib/nrlDisplay";
+import type { OriginGame, OriginSeriesResponse } from "@/lib/types";
 
 export const revalidate = 300;
 
@@ -13,162 +14,163 @@ export const metadata: Metadata = {
     "NSW Blues vs QLD Maroons — series score, per-game model predictions and series-winner odds from the FinalWhistle Elo model.",
 };
 
-const kickoffFmt = new Intl.DateTimeFormat("en-AU", {
-  dateStyle: "medium", timeStyle: "short", timeZone: "Australia/Sydney",
-});
+const short = (side: string | null) => (side ?? "TBC").replace(/^(NSW|QLD) /, "");
+const played = (g: OriginGame) => g.status === "finished" && g.score_home != null && g.score_away != null;
 
-function seriesLine(blues: number, maroons: number, drawn: number, winner: string | null) {
-  const score = `NSW Blues ${blues} – ${maroons} QLD Maroons${drawn ? ` · ${drawn} drawn` : ""}`;
-  if (winner === "drawn") return `Series drawn · ${score}`;
-  if (winner) return `${winner} win the series ${winner === "NSW Blues" ? `${blues}–${maroons}` : `${maroons}–${blues}`}`;
-  return `Series live · ${score}`;
+function gameWinner(g: OriginGame): string | null {
+  if (!played(g) || g.score_home === g.score_away) return null;
+  return g.score_home! > g.score_away! ? g.home : g.away;
 }
 
-function GameCard({ game }: { game: OriginGame }) {
-  const played = game.status === "finished" && game.score_home != null;
-  const pred = game.prediction;
+/** One plain sentence under the title, from the series state the API returns. */
+function seriesSub(series: OriginSeriesResponse): string {
+  const { games, series: s } = series;
+  const done = games.filter(played);
+  const noCalls = games.every((g) => !g.prediction);
+  const modelLine = noCalls ? " The model did not make calls on Origin games." : "";
+  if (s.winner === "drawn") return `The series was drawn.${modelLine}`;
+  if (s.winner) {
+    // The game in which the winner reached its series-winning tally.
+    const target = Math.max(s.blues_wins, s.maroons_wins);
+    let wins = 0;
+    let clincher: OriginGame | null = null;
+    for (const g of done) {
+      if (gameWinner(g) === s.winner && ++wins === target) {
+        clincher = g;
+        break;
+      }
+    }
+    const where = clincher?.venue ? ` at ${clincher.venue}` : "";
+    const which = clincher
+      ? clincher === games[games.length - 1] && games.length === 3
+        ? ` in the decider${where}`
+        : ` in Game ${clincher.round ?? clincher.match_no}${where}`
+      : "";
+    const name = s.winner === "NSW Blues" ? "New South Wales" : s.winner === "QLD Maroons" ? "Queensland" : s.winner;
+    return `${name} took the series${which}.${modelLine}`;
+  }
+  const next = games.find((g) => !played(g));
+  if (next) {
+    const when = nrlDayMonth(next.kickoff_utc);
+    return `Game ${next.round ?? next.match_no} is ${when ? `on ${when}` : "still to be played"}${next.venue ? ` at ${next.venue}` : ""}.`;
+  }
+  return "The series is under way.";
+}
+
+function GameRow({ game }: { game: OriginGame }) {
+  const isPlayed = played(game);
+  const winner = gameWinner(game);
+  const p = game.prediction;
+  // Origin has no tipping game, so the model's call is public; on a game still
+  // to come we show the kick-off only and keep the numbers for the odds card.
+  const fav = p && isPlayed && p.p_home !== p.p_away ? (p.p_home > p.p_away ? game.home : game.away) : null;
+  const favProb = p ? Math.max(p.p_home, p.p_away) : null;
+  const n = game.round ?? game.match_no;
+  const date = nrlDayMonth(game.kickoff_utc);
   return (
-    <div className="glass rounded-2xl p-4">
-      <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-        Game {game.round ?? game.match_no}
-        {game.venue ? ` · ${game.venue}` : ""}
-        {game.neutral ? " · neutral venue" : ""}
-      </p>
-      <div className="mt-2 flex items-baseline justify-between gap-3">
-        <p className="font-display text-lg font-extrabold">
-          {game.home ?? "TBC"}{" "}
-          <span className="tabular-nums">{played ? game.score_home : ""}</span>
-          <span className="mx-2 text-muted">{played ? "–" : "vs"}</span>
-          <span className="tabular-nums">{played ? game.score_away : ""}</span>{" "}
-          {game.away ?? "TBC"}
-        </p>
-        {!played && game.kickoff_utc ? (
-          <p className="text-xs text-muted">{kickoffFmt.format(new Date(game.kickoff_utc))} AEST</p>
-        ) : null}
-      </div>
-      {pred ? (
-        <div className="mt-3">
-          <div className="flex h-2 overflow-hidden rounded-full">
-            <div className="bg-lime-deep" style={{ width: `${pred.p_home * 100}%` }} />
-            <div className="bg-white/25" style={{ width: `${pred.p_draw * 100}%` }} />
-            <div className="bg-sky-500" style={{ width: `${pred.p_away * 100}%` }} />
-          </div>
-          <p className="mt-1 text-xs tabular-nums text-muted">
-            {game.home} {(pred.p_home * 100).toFixed(0)}% · draw{" "}
-            {(pred.p_draw * 100).toFixed(0)}% · {game.away}{" "}
-            {(pred.p_away * 100).toFixed(0)}%
-            {pred.expected_margin != null
-              ? ` · expected margin ${pred.expected_margin > 0 ? "+" : ""}${pred.expected_margin.toFixed(1)}`
-              : ""}
-          </p>
-        </div>
-      ) : null}
-    </div>
+    <FixtureRow
+      left={
+        <>
+          Game {n}
+          {date ? ` · ${date}` : ""}
+          {game.venue ? (
+            <>
+              <br />
+              {game.venue}
+              {game.neutral ? " (neutral)" : ""}
+            </>
+          ) : null}
+        </>
+      }
+      label={
+        isPlayed
+          ? `Game ${n}: ${game.home} ${game.score_home}–${game.score_away} ${game.away}`
+          : `Game ${n}: ${game.home} v ${game.away}`
+      }
+      home={{ name: game.home ?? "TBC", crest: <ClubBadge name={game.home} size={26} decorative /> }}
+      away={{ name: game.away ?? "TBC", crest: <ClubBadge name={game.away} size={26} decorative /> }}
+      score={isPlayed ? { home: game.score_home!, away: game.score_away! } : undefined}
+      kickoff={nrlTimeLabel(game.kickoff_utc)}
+      right={
+        isPlayed ? (
+          <span className="flex flex-col items-center gap-1 min-[900px]:items-end">
+            <Chip>{winner ? `${short(winner)} win` : "Drawn"}</Chip>
+            {fav && favProb != null ? (
+              <FixturePair rows={[{ label: `Model ${short(fav)}`, value: wholePct(favProb) }]} />
+            ) : null}
+          </span>
+        ) : null
+      }
+    />
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="glass rounded-2xl p-4">
-      <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-        {label}
-      </p>
-      <p className="mt-1 text-2xl font-extrabold tabular-nums">{value}</p>
-    </div>
-  );
-}
-
+/** /nrl/origin (prototype `pageNrlOrigin`): the series score as the title,
+ *  one card of games on the centred spine, series odds while a series is
+ *  live, and links to earlier series. */
 export default async function OriginPage({
   searchParams,
 }: {
   searchParams: Promise<{ season?: string }>;
 }) {
   const { season } = await searchParams;
-  const seasonNum = season ? Number(season) : undefined;
-  const [series, record] = await Promise.all([
-    getOriginSeriesServer(seasonNum).catch(() => null),
-    getOriginRecordServer().catch(() => null),
-  ]);
+  const seasonNum = season && /^\d{4}$/.test(season) ? Number(season) : undefined;
+  const series = await getOriginSeriesServer(seasonNum).catch(() => null);
   if (!series) notFound();
 
   const s = series.series;
+  const latest = series.seasons[0];
+  const earlier = series.seasons.filter((y) => y !== series.season).slice(0, 6);
+
   return (
-    <div>
-      <h1 className="font-display text-2xl font-extrabold">
-        State of Origin · {series.season}
-      </h1>
-      <p className="mt-1 text-sm text-muted">
-        {seriesLine(s.blues_wins, s.maroons_wins, s.drawn_games, s.winner)}
-      </p>
+    <>
+      <PageHead
+        back={{ href: "/nrl", label: "NRL" }}
+        eyebrow={`State of Origin · ${series.season}`}
+        title={
+          <>
+            NSW Blues{" "}
+            <span className="whitespace-nowrap">
+              {s.blues_wins}–{s.maroons_wins}
+            </span>{" "}
+            QLD Maroons
+          </>
+        }
+        sub={seriesSub(series)}
+      />
+      <div className="flex max-w-[980px] flex-col gap-6">
+        <Card flush aria-label="State of Origin games">
+          {series.games.map((g) => (
+            <GameRow key={g.match_no} game={g} />
+          ))}
+        </Card>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {series.seasons.map((yr) => (
-          <Link
-            key={yr}
-            href={yr === series.seasons[0] ? "/nrl/origin" : `/nrl/origin?season=${yr}`}
-            className={cn(
-              "rounded-full px-3 py-1 text-xs font-semibold",
-              yr === series.season ? "bg-lime-deep text-lime-deep-ink" : "glass text-muted",
-            )}
-          >
-            {yr}
-          </Link>
-        ))}
+        {s.odds && !s.winner ? (
+          <Card pad aria-labelledby="origin-odds">
+            <CardHead id="origin-odds" title="Who the model thinks wins the series" />
+            <StatGrid>
+              <Stat value={wholePct(s.odds.blues)} label="NSW Blues" />
+              <Stat value={wholePct(s.odds.maroons)} label="QLD Maroons" />
+              {s.odds.drawn > 0 ? <Stat value={wholePct(s.odds.drawn)} label="Series drawn" /> : null}
+            </StatGrid>
+          </Card>
+        ) : null}
+
+        {earlier.length > 0 ? (
+          <nav aria-label="Earlier series" className="flex flex-wrap items-center text-notes text-muted">
+            <span className="mr-1">Earlier series:</span>
+            {earlier.map((y, i) => (
+              <span key={y} className="inline-flex items-center">
+                {i > 0 ? <span aria-hidden="true">·</span> : null}
+                {/* 44 px tall tap target (padding), same brand text link look. */}
+                <TextLink className="min-h-11 px-2" href={y === latest ? "/nrl/origin" : `/nrl/origin?season=${y}`}>
+                  {y}
+                </TextLink>
+              </span>
+            ))}
+          </nav>
+        ) : null}
       </div>
-
-      <div className="mt-6 grid gap-4">
-        {series.games.map((g) => (
-          <GameCard key={g.match_no} game={g} />
-        ))}
-      </div>
-
-      {s.odds ? (
-        <section className="mt-8">
-          <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-muted">
-            Series-winner odds
-          </h2>
-          <div className="mt-3 grid gap-4 sm:grid-cols-3">
-            <Stat label="NSW Blues" value={`${(s.odds.blues * 100).toFixed(1)}%`} />
-            <Stat label="QLD Maroons" value={`${(s.odds.maroons * 100).toFixed(1)}%`} />
-            <Stat label="Series drawn" value={`${(s.odds.drawn * 100).toFixed(1)}%`} />
-          </div>
-        </section>
-      ) : null}
-
-      {record ? (
-        <section className="mt-8">
-          <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-muted">
-            Model record
-          </h2>
-          {record.backtest ? (
-            <>
-              <p className="mt-2 text-xs text-muted">
-                Backtest · walk-forward retrodictions over{" "}
-                {record.backtest.span[0]}–{record.backtest.span[1]} ({record.backtest.n}{" "}
-                games) — not live predictions. A fixed base-rate prior (fitted in
-                hindsight) scores{" "}
-                {record.backtest.home_prior_log_loss.toFixed(3)} log loss.
-              </p>
-              <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Stat label="Winner accuracy"
-                      value={`${(record.backtest.winner_accuracy * 100).toFixed(1)}%`} />
-                <Stat label="Log loss" value={record.backtest.avg_log_loss.toFixed(3)} />
-                <Stat label="Brier" value={record.backtest.avg_brier.toFixed(3)} />
-                <Stat label="Home-pick baseline"
-                      value={`${(record.backtest.home_baseline_accuracy * 100).toFixed(1)}%`} />
-              </div>
-            </>
-          ) : null}
-          <p className="mt-4 text-xs text-muted">
-            {record.live.evaluated_matches === 0
-              ? "No graded live predictions yet — predictions freeze at kickoff from the 2027 series."
-              : `Live record: ${record.live.evaluated_matches} graded games · ` +
-                `${record.live.winner_accuracy != null ? (record.live.winner_accuracy * 100).toFixed(1) : "—"}% winner accuracy.`}
-          </p>
-        </section>
-      ) : null}
-
-      <p className="mt-8 text-xs text-origin-disclaimer">{series.disclaimer}</p>
-    </div>
+    </>
   );
 }

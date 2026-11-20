@@ -1,46 +1,28 @@
-/** The header theme control. */
-import { render, screen, fireEvent } from "@testing-library/react";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { LIGHT_CLASS, THEME_KEY } from "@/lib/theme";
+/** There is no theme control any more: direction G is the only theme.
+ *  (This file used to test the Floodlight/Daylight ThemeToggle.) The header
+ *  must not offer a theme switch, and nothing it renders may flip the
+ *  document into another theme. */
+import { render, screen } from "@testing-library/react";
+import { SiteNav } from "@/components/SiteNav";
 
-afterEach(() => {
-  window.localStorage.clear();
-  document.documentElement.className = "";
+const mockPathname = jest.fn(() => "/football/epl");
+jest.mock("next/navigation", () => ({
+  usePathname: () => mockPathname(),
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+}));
+jest.mock("@/components/AuthProvider", () => ({
+  useAuth: () => ({ user: null, loading: false, openSignIn: jest.fn() }),
+}));
+
+it("offers no theme switch in the header", () => {
+  render(<SiteNav />);
+  expect(screen.queryByRole("button", { name: /theme/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("switch")).not.toBeInTheDocument();
 });
 
-it("offers the theme you are NOT in, and says so", () => {
-  render(<ThemeToggle />);
-  expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeInTheDocument();
-});
-
-it("switches the document, persists the choice, and re-labels itself", () => {
-  render(<ThemeToggle />);
-  fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
-
-  expect(document.documentElement.classList.contains(LIGHT_CLASS)).toBe(true);
-  expect(window.localStorage.getItem(THEME_KEY)).toBe("light");
-  expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
-});
-
-it("switches back", () => {
-  render(<ThemeToggle />);
-  fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
-  fireEvent.click(screen.getByRole("button", { name: "Switch to dark theme" }));
-
-  expect(document.documentElement.classList.contains(LIGHT_CLASS)).toBe(false);
-  expect(window.localStorage.getItem(THEME_KEY)).toBe("dark");
-});
-
-it("reflects an already-stored choice on mount", () => {
-  window.localStorage.setItem(THEME_KEY, "light");
-  render(<ThemeToggle />);
-  // Mounted while light -> it must offer dark, not re-offer light.
-  expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
-});
-
-it("carries an accessible name without relying on the icon", () => {
-  render(<ThemeToggle />);
-  const btn = screen.getByRole("button");
-  expect(btn).toHaveAttribute("aria-label");
-  expect(btn.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+it("leaves the document in the one light theme", () => {
+  render(<SiteNav />);
+  expect(document.documentElement.className).not.toMatch(/theme-/);
+  expect(window.localStorage.getItem("fw_theme")).toBeNull();
 });

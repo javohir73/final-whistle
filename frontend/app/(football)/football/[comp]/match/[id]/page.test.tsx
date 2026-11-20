@@ -44,8 +44,9 @@ it("points the canonical at the live /football/{comp}/match/{id} URL, not the re
   const meta = await generateMetadata({ params: Promise.resolve({ comp: "wc26", id: "1" }) });
 
   expect(meta.alternates?.canonical).toBe("/football/wc26/match/1");
-  // Title/description still come through from the legacy generateMetadata.
-  expect(meta.title).toContain("Brazil vs Serbia");
+  // Title/description still come through from the shared generateMetadata
+  // (an open fixture: no summary says otherwise, so no model numbers).
+  expect(meta.title).toBe("Brazil v Serbia — make your pick | FinalWhistle");
 });
 
 it("still resolves per-competition once other football competitions go live", async () => {

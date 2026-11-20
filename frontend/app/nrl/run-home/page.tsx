@@ -11,7 +11,8 @@ import { ladderRowsToStandings } from "@/lib/nrlAdapters";
 import { COMPETITIONS } from "@/lib/sports";
 import { RunHomePredictor } from "@/components/nrl/RunHomePredictor";
 import { ShareButton } from "@/components/ShareButton";
-import { Empty, ErrorState, Loading } from "@/components/States";
+import { ErrorState, Loading } from "@/components/States";
+import { Card, EmptyState, PageHead, TextLink } from "@/components/ui";
 
 export const revalidate = 300;
 
@@ -54,43 +55,50 @@ export default async function NrlRunHomePage() {
     : undefined;
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-extrabold">Predict your run home</h1>
-        <ShareButton label="Share my run home" title={`FinalWhistle run home — NRL ${fixtures.season}`} />
-      </div>
-      <p className="mt-1 text-sm text-muted">
-        Force a result on any remaining game and watch every club&apos;s top 8, top 4 and minor
-        premiership chances move inside the model&apos;s own finals simulation.
-      </p>
-
-      <div className="glass mt-6 rounded-2xl p-4">
-        <StandingsTable
-          standings={ladderRowsToStandings(ladder.rows, projectionsByTeam)}
-          zones={COMPETITIONS.nrl.zones}
-          badge="club"
-          teamBasePath="/nrl/team"
-          teamHeader="Club"
-          columns={projectionsByTeam ? ["wl", "diff", "pts", "top8"] : ["wl", "diff", "pts"]}
-        />
-      </div>
-
-      <div className="mt-6">
-        {remaining.length === 0 ? (
-          <Empty label="The regular season is done — no remaining fixtures left to predict." />
-        ) : baseline ? (
-          <Suspense fallback={<Loading label="Loading the run-home predictor…" />}>
-            <RunHomePredictor season={fixtures.season} rounds={remaining} baseline={baseline} />
-          </Suspense>
-        ) : (
-          <ErrorState
-            message="Couldn't load the run-home simulation right now."
-            hint="The prediction service may be waking up — try refreshing in a moment."
-          />
-        )}
-      </div>
-
-      <p className="mt-6 text-center text-xs leading-relaxed text-muted">{fixtures.disclaimer}</p>
-    </div>
+    <>
+      <PageHead
+        back={{ href: "/nrl/ladder", label: "Ladder" }}
+        eyebrow={`NRL · ${fixtures.season} season`}
+        title="Predict your run home"
+        sub="Force a result on any remaining game and watch every club’s finals chances move inside the model’s own finals simulation."
+        actions={
+          remaining.length > 0 ? (
+            <ShareButton label="Share my run home" title={`FinalWhistle run home — NRL ${fixtures.season}`} />
+          ) : null
+        }
+      />
+      {remaining.length === 0 ? (
+        <EmptyState
+          className="max-w-[900px]"
+          title="The regular season is done"
+          actions={<TextLink href="/nrl/ladder">See the ladder</TextLink>}
+        >
+          There are no remaining fixtures left to predict. The run home opens again during the {fixtures.season + 1} season.
+        </EmptyState>
+      ) : (
+        <div className="flex flex-col gap-6">
+          <Card pad aria-label="Ladder">
+            <StandingsTable
+              standings={ladderRowsToStandings(ladder.rows, projectionsByTeam)}
+              zones={COMPETITIONS.nrl.zones}
+              badge="club"
+              teamBasePath="/nrl/team"
+              teamHeader="Club"
+              columns={projectionsByTeam ? ["wl", "diff", "pts", "top8"] : ["wl", "diff", "pts"]}
+            />
+          </Card>
+          {baseline ? (
+            <Suspense fallback={<Loading label="Loading the run-home predictor…" />}>
+              <RunHomePredictor season={fixtures.season} rounds={remaining} baseline={baseline} />
+            </Suspense>
+          ) : (
+            <ErrorState
+              message="Couldn't load the run-home simulation right now."
+              hint="The prediction service may be waking up — try refreshing in a moment."
+            />
+          )}
+        </div>
+      )}
+    </>
   );
 }

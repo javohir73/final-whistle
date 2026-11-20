@@ -1,27 +1,34 @@
-/** The football match centre (MatchPageContent), rendered as the scoped
- *  /football/{comp}/match/{id} route renders it. Asserts the rebuilt order --
- *  hero → your pick → why → forecast & market → goals & scorers → lineups →
- *  footer -- and the honesty rules: the predicted score never sits in the
- *  real-score slot, the W/D/L split is drawn once, the footer timestamp is this
- *  prediction's own, and nothing is called KO / LIVE / FULL TIME that the feed
- *  has not confirmed. */
-import { fireEvent, render, screen, within } from "@testing-library/react";
+/** The direction-G match page (MatchPageContent), rendered as the scoped
+ *  /football/{comp}/match/{id} route renders it. Asserts the layout (top bar,
+ *  hero with the pick, the cards below) and the reveal rule end to end: an
+ *  OPEN fixture never carries the model's numbers -- not in the page, not in
+ *  the metadata -- until this viewer's pick is locked; a finished match shows
+ *  the call graded by the game's own scoring. */
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { generateMatchMetadata, renderMatchDetailPage } from "./MatchPageContent";
 import {
+  getGroupsServer,
   getMatchLineups,
   getMatchServer,
   getMatchSummary,
   getMatchSummaryServer,
-  getMatchGoalscorersServer,
-  getModelRecordServer,
-  getProbHistoryServer,
+  getUpcomingMatchesServer,
 } from "@/lib/api";
 import { getMyLeagueTips } from "@/lib/leagueTips";
 import { getOrCreateDeviceId } from "@/lib/session";
-import type { MatchSummary, Prediction } from "@/lib/types";
+import { resetRevealStore } from "@/lib/useModelReveal";
+import type { Group, LeagueTipsMineResponse, MatchSummary, Prediction } from "@/lib/types";
 import type { CompetitionId } from "@/lib/sports";
 
-jest.mock("@/lib/api");
+jest.mock("@/lib/api", () => ({
+  ...jest.requireActual("@/lib/api"),
+  getMatchServer: jest.fn(),
+  getMatchSummaryServer: jest.fn(),
+  getMatchSummary: jest.fn(),
+  getGroupsServer: jest.fn(),
+  getUpcomingMatchesServer: jest.fn(),
+  getMatchLineups: jest.fn(),
+}));
 jest.mock("@/lib/leagueTips");
 jest.mock("@/lib/session", () => {
   const actual = jest.requireActual("@/lib/session");
@@ -36,325 +43,256 @@ jest.mock("@/components/AuthProvider", () => ({
 const mockGet = getMatchServer as jest.MockedFunction<typeof getMatchServer>;
 const mockSummaryServer = getMatchSummaryServer as jest.MockedFunction<typeof getMatchSummaryServer>;
 const mockSummary = getMatchSummary as jest.MockedFunction<typeof getMatchSummary>;
-const mockGoalscorers = getMatchGoalscorersServer as jest.MockedFunction<typeof getMatchGoalscorersServer>;
-const mockHistory = getProbHistoryServer as jest.MockedFunction<typeof getProbHistoryServer>;
-const mockRecord = getModelRecordServer as jest.MockedFunction<typeof getModelRecordServer>;
-const mockMine = getMyLeagueTips as jest.MockedFunction<typeof getMyLeagueTips>;
+const mockGroups = getGroupsServer as jest.MockedFunction<typeof getGroupsServer>;
+const mockUpcoming = getUpcomingMatchesServer as jest.MockedFunction<typeof getUpcomingMatchesServer>;
 const mockLineups = getMatchLineups as jest.MockedFunction<typeof getMatchLineups>;
+const mockMine = getMyLeagueTips as jest.MockedFunction<typeof getMyLeagueTips>;
 const mockDevice = getOrCreateDeviceId as jest.MockedFunction<typeof getOrCreateDeviceId>;
 
-// Recharts (the feature chart) needs a non-zero layout size in jsdom.
-beforeAll(() => {
-  Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, value: 500 });
-  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 300 });
-});
-
-const FUTURE_KICKOFF = new Date(Date.now() + 3 * 24 * 60 * 60_000).toISOString();
+const FUTURE = new Date(Date.now() + 3 * 24 * 60 * 60_000).toISOString();
+const PAST = new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString();
 
 const prediction: Prediction = {
-  match_id: 1,
+  match_id: 205,
   model_version: "poisson-elo-v0.6",
-  generated_at: "2026-06-06T00:00:00Z",
-  teams: { home: "Brazil", away: "Serbia" },
-  home_team_id: 10,
-  away_team_id: 20,
-  group: "Group C",
-  group_id: 3,
+  generated_at: "2026-11-06T00:00:00Z",
+  teams: { home: "Newcastle", away: "Arsenal" },
+  home_team_id: 355,
+  away_team_id: 339,
+  group: "Premier League",
+  group_id: 1,
   stage: "group",
-  is_neutral: true,
-  kickoff_utc: FUTURE_KICKOFF,
-  venue: null,
-  venue_city: null,
+  is_neutral: false,
+  kickoff_utc: FUTURE,
+  venue: "St James' Park",
+  venue_city: "Newcastle",
   venue_country: null,
-  probabilities: { home_win: 0.62, draw: 0.24, away_win: 0.14 },
-  predicted_score: { home: 2, away: 0, probability: 0.17 },
-  confidence: "High",
-  reasons: ["Brazil has a higher Elo rating.", "Serbia have won their last three away games."],
-  top_features: [{ name: "elo_gap", weight: 0.66 }],
-  head_to_head: { matches: 1, home_wins: 1, draws: 0, away_wins: 0 },
+  probabilities: { home_win: 0.1385, draw: 0.2592, away_win: 0.6023 },
+  predicted_score: { home: 0, away: 2, probability: 0.1231 },
+  confidence: "Medium",
+  reasons: ["Arsenal has a much higher Elo rating (1868 vs 1566).", "Arsenal won 4 of the last 5 meetings."],
+  top_features: [],
+  head_to_head: { matches: 5, home_wins: 1, draws: 0, away_wins: 4 },
   odds_comparison: { available: false },
   disclaimer: "For analytics and entertainment only. Not betting advice.",
-  goal_markets: null,
+  goal_markets: {
+    home: { to_score: 0.5423, p2: 0.18, p3: 0.04, p4: 0.01 },
+    away: { to_score: 0.885, p2: 0.63, p3: 0.36, p4: 0.17 },
+    total: { over_1_5: 0.79, over_2_5: 0.5642, over_3_5: 0.34 },
+    btts: 0.4852,
+  },
+  matchweek: 11,
 };
 
 function summary(over: Partial<MatchSummary> = {}): MatchSummary {
   return {
-    match_id: 1, stage: "group", group: "Group C", kickoff_utc: FUTURE_KICKOFF,
-    venue: null, venue_city: null, venue_country: null, is_neutral: true,
+    match_id: 205, stage: "group", group: "Premier League", kickoff_utc: FUTURE,
+    venue: "St James' Park", venue_city: "Newcastle", venue_country: null, is_neutral: false,
     status: "scheduled", score_home: null, score_away: null, minute: null,
     period: null, injury_time: null, penalty_home: null, penalty_away: null,
-    goal_events: [], teams: { home: "Brazil", away: "Serbia" },
-    predicted_winner: "Brazil", probabilities: prediction.probabilities,
-    predicted_score: prediction.predicted_score, confidence: "High",
+    goal_events: [], teams: { home: "Newcastle", away: "Arsenal" },
+    predicted_winner: "Arsenal", probabilities: prediction.probabilities,
+    predicted_score: prediction.predicted_score, confidence: "Medium", matchweek: 11,
     ...over,
   };
 }
 
-const twoWeeksOfHistory = {
-  match_id: 1,
-  disclaimer: "",
-  points: [
-    { date: "2026-06-01", p_home: 0.5, p_draw: 0.3, p_away: 0.2 },
-    { date: "2026-06-03", p_home: 0.58, p_draw: 0.26, p_away: 0.16 },
-    { date: "2026-06-05", p_home: 0.62, p_draw: 0.24, p_away: 0.14 },
+const groups: Group[] = [{
+  id: 1, name: "Premier League",
+  standings: [
+    { team_id: 339, team: "Arsenal", projected_points: 27, projected_goals_for: 15, projected_goal_diff: 10, qualification_prob: null, played: 10, won: 9, drawn: 0, lost: 1, goals_against: 5 },
+    { team_id: 343, team: "Brighton", projected_points: 22, projected_goals_for: 26, projected_goal_diff: 19, qualification_prob: null, played: 10, won: 7, drawn: 1, lost: 2, goals_against: 7 },
+    { team_id: 355, team: "Newcastle", projected_points: 12, projected_goals_for: 12, projected_goal_diff: -3, qualification_prob: null, played: 10, won: 3, drawn: 3, lost: 4, goals_against: 15 },
   ],
-};
+}];
 
-async function renderPage(competition: CompetitionId = "wc26", id = "1") {
+const week = [
+  summary({ match_id: 204, teams: { home: "Leeds", away: "Everton" }, kickoff_utc: new Date(Date.parse(FUTURE) - 3600_000).toISOString() }),
+  summary(),
+  summary({ match_id: 206, teams: { home: "Chelsea", away: "Fulham" }, kickoff_utc: new Date(Date.parse(FUTURE) + 3600_000).toISOString() }),
+  summary({ match_id: 190, matchweek: 10, teams: { home: "A", away: "B" } }),
+];
+
+function mine(picked = false): LeagueTipsMineResponse {
+  return {
+    league: "epl", matchweek: 11, handle: null, disclaimer: "",
+    matches: week.filter((m) => m.matchweek === 11).map((m) => ({
+      id: m.match_id, home: m.teams.home, away: m.teams.away, kickoff_utc: m.kickoff_utc, status: "scheduled",
+      score_home: null, score_away: null,
+      model: picked && m.match_id === 205 ? { predicted_home: 0, predicted_away: 2, model_version: "x" } : null,
+      your_prediction: picked && m.match_id === 205
+        ? { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null }
+        : null,
+    })),
+  };
+}
+
+const fetchMock = jest.fn();
+
+async function renderPage(competition: CompetitionId = "epl", id = "205") {
   return render(await renderMatchDetailPage(Promise.resolve({ id }), competition));
 }
 
 beforeEach(() => {
-  // The footer and status lines render in the reader's zone; pin it.
+  resetRevealStore();
   window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "UTC", confirmed: true }));
   mockGet.mockResolvedValue(prediction);
   mockSummaryServer.mockResolvedValue(summary());
   mockSummary.mockResolvedValue(summary());
-  mockHistory.mockResolvedValue({ match_id: 1, points: [], disclaimer: "" });
-  mockGoalscorers.mockResolvedValue(null);
+  mockGroups.mockResolvedValue(groups);
+  mockUpcoming.mockResolvedValue(week);
+  mockLineups.mockResolvedValue({ available: false, message: null, home: null, away: null, fetched_at: null });
   mockDevice.mockReturnValue("8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e");
-  mockMine.mockResolvedValue({
-    league: "epl", matchweek: 11, handle: null, disclaimer: "",
-    matches: [{
-      id: 1, home: "Brazil", away: "Serbia", kickoff_utc: FUTURE_KICKOFF, status: "scheduled",
-      score_home: null, score_away: null, model: null, your_prediction: null,
-    }],
-  });
+  mockMine.mockResolvedValue(mine());
+  fetchMock.mockResolvedValue({ ok: true, json: async () => prediction });
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
 });
 afterEach(() => {
-  jest.resetAllMocks();
+  jest.clearAllMocks();
   window.localStorage.clear();
 });
 
-describe("section order", () => {
-  it("runs hero → your pick → why → forecast & market → goals & scorers → lineups → footer", async () => {
-    mockHistory.mockResolvedValue(twoWeeksOfHistory);
-    mockGet.mockResolvedValue({
-      ...prediction,
-      odds_comparison: { available: true, market: { home_win: 0.58, draw: 0.25, away_win: 0.17 } },
-      goal_markets: {
-        home: { to_score: 0.86, p2: 0.6, p3: 0.45, p4: 0.38 },
-        away: { to_score: 0.39, p2: 0.12, p3: 0.03, p4: 0.01 },
-        total: { over_1_5: 0.78, over_2_5: 0.55, over_3_5: 0.3 },
-        btts: 0.34,
-      },
-    });
-    mockGoalscorers.mockResolvedValue({
-      mode: "squad",
-      home: [{ name: "A. Striker", position: "F", p_score: 0.31, p_score_2plus: 0.06, xg: 0.37 }],
-      away: [{ name: "B. Forward", position: "F", p_score: 0.22, p_score_2plus: 0.03, xg: 0.25 }],
-    });
-    const { container } = await renderPage("wc26");
+const MODEL_NUMBERS = /14%|26%|60%|0–2|56%|49%|Medium confidence|Elo rating/;
 
-    const order = [
-      screen.getByRole("region", { name: "Brazil vs Serbia" }),
-      container.querySelector("#pick"),
-      container.querySelector("#why"),
-      container.querySelector("#forecast"),
-      container.querySelector("#goals"),
-      container.querySelector("#lineups"),
-      container.querySelector("footer"),
-    ];
-    order.forEach((el) => expect(el).not.toBeNull());
-    for (let i = 1; i < order.length; i += 1) {
-      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    }
-    // The pick is the second block: directly under the model's call.
-    expect(within(container.querySelector("#pick") as HTMLElement).getByRole("heading", { name: "Your pick" })).toBeInTheDocument();
-    expect(within(container.querySelector("#goals") as HTMLElement).getByText("Goals")).toBeInTheDocument();
-    expect(screen.getByText("Likely scorers")).toBeInTheDocument();
-    // No Overview/Lineups tab split any more: lineups are a section.
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-    expect(within(container.querySelector("#lineups") as HTMLElement).getByRole("heading", { name: "Lineups" })).toBeInTheDocument();
-  });
+describe("an open fixture, not picked", () => {
+  it("lays out the top bar, the hero with an empty pick, and the hidden state -- no model numbers", async () => {
+    const { container } = await renderPage();
+    expect(screen.getByRole("heading", { level: 1, name: "Newcastle v Arsenal" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Matchweek 11" })).toHaveAttribute("href", "/football/epl?mw=11");
+    expect(screen.getByText("Match 2 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Previous match: Leeds v Everton" })).toHaveAttribute("href", "/football/epl/match/204");
+    expect(screen.getByRole("link", { name: "Next match: Chelsea v Fulham" })).toHaveAttribute("href", "/football/epl/match/206");
+    expect(screen.getByText(/Premier League · .* · St James' Park/)).toBeInTheDocument();
+    // Real table rows: "1st · 27 points" under the club.
+    expect(screen.getByText("1st · 27 points")).toBeInTheDocument();
+    expect(screen.getByText("3rd · 12 points")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Newcastle 3rd/ })).toHaveAttribute("href", "/football/epl/team/355");
 
-  it("hands focus to the Lineups heading when the reader loads them", async () => {
-    mockLineups.mockResolvedValue({
-      available: false, message: "Lineups are announced ~40 minutes before kickoff.",
-      home: null, away: null, fetched_at: null,
-    });
-    await renderPage("wc26");
-    fireEvent.click(screen.getByRole("button", { name: "Show lineups" }));
-    expect(screen.getByRole("heading", { name: "Lineups" })).toHaveFocus();
-    expect(await screen.findByText(/announced ~40 minutes before kickoff/)).toBeInTheDocument();
-  });
-});
+    expect(await screen.findByRole("button", { name: "Use + and − to set a score" })).toBeDisabled();
+    const locked = screen.getByRole("region", { name: "Unlocked when you lock your pick" });
+    expect(within(locked).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "The model’s score", "Win, draw and loss chances", "Why the model thinks so", "Goal chances",
+    ]);
+    const stand = screen.getByRole("region", { name: "Where they stand" });
+    expect(within(stand).getByText("The table after 10 matchweeks.")).toBeInTheDocument();
+    expect(within(stand).getByRole("link", { name: "Full table" })).toHaveAttribute("href", "/football/epl/standings");
 
-describe("the hero says each thing once", () => {
-  it("keeps the predicted score out of the real-score slot and draws ONE labelled bar", async () => {
-    await renderPage("wc26");
-    const hero = screen.getByRole("region", { name: "Brazil vs Serbia" });
-
-    expect(within(hero).getByText("vs")).toBeInTheDocument();
-    expect(screen.queryByText(/MOST LIKELY SCORE/i)).not.toBeInTheDocument();
-    expect(within(hero).getByText("Most likely 2–0 · 17%")).toBeInTheDocument();
-    // One sentence, one bar for the whole page (no history, no market).
-    expect(within(hero).getByText("Brazil favoured")).toBeInTheDocument();
-    expect(screen.getAllByRole("img", { name: /win \d+%/ })).toHaveLength(1);
-    expect(screen.getByRole("img", { name: "Brazil win 62%, draw 24%, Serbia win 14%" })).toBeInTheDocument();
-    // Confidence is the tier chip, not a ring repeating the 62%.
-    expect(within(hero).getByText("High confidence")).toBeInTheDocument();
-    expect(screen.queryByText("HIGH")).not.toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: /High confidence/ })).not.toBeInTheDocument();
-  });
-
-  it("drops the forecast section entirely when there is no trajectory and no market", async () => {
-    const { container } = await renderPage("wc26");
+    await waitFor(() => expect(mockMine).toHaveBeenCalled());
+    expect(container.textContent).not.toMatch(MODEL_NUMBERS);
     expect(container.querySelector("#forecast")).toBeNull();
-    expect(screen.queryByText(/Forecast movement appears/i)).not.toBeInTheDocument();
+    // Hidden means not even fetched.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("puts the market in one row under a real trajectory, never two more bars", async () => {
-    mockHistory.mockResolvedValue(twoWeeksOfHistory);
-    mockGet.mockResolvedValue({
-      ...prediction,
-      odds_comparison: { available: true, market: { home_win: 0.58, draw: 0.25, away_win: 0.17 } },
+  it("server-renders no model numbers into the markup", async () => {
+    const tree = await renderMatchDetailPage(Promise.resolve({ id: "205" }), "epl");
+    const { renderToString } = jest.requireActual("react-dom/server.node") as typeof import("react-dom/server");
+    const g = globalThis as unknown as Record<string, unknown>;
+    if (!g.TextEncoder) g.TextEncoder = jest.requireActual("node:util").TextEncoder;
+    const html = renderToString(tree);
+    expect(html).not.toMatch(/14%|26%|60%|0–2|0\.6023|1868|Medium/);
+    expect(html).toContain("Unlocked when you lock your pick");
+  });
+});
+
+describe("an open fixture with a locked pick", () => {
+  it("reveals the call, the reasons and the goal chances (read after the lock)", async () => {
+    mockMine.mockResolvedValue(mine(true));
+    const { container } = await renderPage();
+    await screen.findByText("Medium confidence. Shown because your pick is locked.");
+    const call = screen.getByRole("region", { name: "The model’s call" });
+    expect(call).toHaveTextContent("You 2–1");
+    expect(call).toHaveTextContent("0–2");
+    expect(within(call).getByRole("img", { name: "Newcastle 14%, draw 26%, Arsenal 60%" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/backend-api/api/matches/205?competition=epl", expect.anything());
+    expect(container.querySelector("#forecast")).toBe(call);
+    expect(container.querySelector("#why")).toHaveTextContent("Arsenal won 4 of the last 5 meetings.");
+    expect(container.querySelector("#goals")).toHaveTextContent("Over 2.5 goals56%");
+    expect(screen.queryByRole("region", { name: "Unlocked when you lock your pick" })).not.toBeInTheDocument();
+    // Section order: hero (with #pick) → call → why/goals → where they stand.
+    const order = ["#pick", "#forecast", "#why", "#goals"].map((s) => container.querySelector(s)!);
+    for (let i = 1; i < order.length; i += 1) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // The pick in the hero is final.
+    expect(await within(container.querySelector("#pick") as HTMLElement).findByText(/Locked\./)).toBeInTheDocument();
+  });
+});
+
+describe("a finished match", () => {
+  const ft = summary({ status: "finished", kickoff_utc: PAST, score_home: 1, score_away: 2, score_home_90: 1, score_away_90: 2 });
+  beforeEach(() => {
+    mockGet.mockResolvedValue({ ...prediction, kickoff_utc: PAST });
+    mockSummaryServer.mockResolvedValue(ft);
+    mockSummary.mockResolvedValue(ft);
+  });
+
+  it("shows the full-time score and the model's call graded by the game's scoring", async () => {
+    const { container } = await renderPage();
+    expect(screen.getByText("Full time")).toBeInTheDocument();
+    const call = screen.getByRole("region", { name: "The model’s call" });
+    expect(within(call).getByText("Made before kick-off. Medium confidence.")).toBeInTheDocument();
+    // Model 0–2 vs result 1–2: right result.
+    expect(within(call).getByText("Right result · 2 points")).toBeInTheDocument();
+    expect(container.querySelector("#pick")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled(); // public: sent by the server
+  });
+
+  it("adds the viewer's own graded pick when there is one", async () => {
+    mockMine.mockResolvedValue({
+      ...mine(),
+      matches: [{
+        id: 205, home: "Newcastle", away: "Arsenal", kickoff_utc: PAST, status: "finished", score_home: 1, score_away: 2,
+        model: { predicted_home: 0, predicted_away: 2, model_version: "x" },
+        your_prediction: { predicted_home: 1, predicted_away: 2, points: 5, exact: true, graded_at: "2026-11-10T00:00:00Z", updated_at: null },
+      }],
     });
-    const { container } = await renderPage("wc26");
-    const forecast = container.querySelector("#forecast") as HTMLElement;
-    expect(within(forecast).getByRole("img", { name: /Model forecast for Brazil/ })).toBeInTheDocument();
-    expect(forecast).toHaveTextContent("Brazil: model 62% · market 58% (model +4 pts)");
-    expect(within(forecast).queryByRole("img", { name: /win \d+%/ })).not.toBeInTheDocument();
+    await renderPage();
+    const call = screen.getByRole("region", { name: "The model’s call" });
+    expect(await within(call).findByText("Exact score · 5 points")).toBeInTheDocument();
+    expect(call).toHaveTextContent("Your pick 1–2");
   });
 });
 
-describe("why", () => {
-  it("puts the reasons under one heading with neutral bullets", async () => {
-    const { container } = await renderPage("wc26");
-    const why = container.querySelector("#why") as HTMLElement;
-    expect(within(why).getByRole("heading", { name: "Why this prediction" })).toBeInTheDocument();
-    expect(within(why).getByText(/higher Elo rating/)).toBeInTheDocument();
-    // "Serbia have won..." argues against the pick: no supporting "+".
-    expect(within(why).queryByText("+")).not.toBeInTheDocument();
-  });
-});
-
-describe("the pick", () => {
-  it("is the scored scoreline game on a league match page, looked up in the payload's matchweek", async () => {
-    mockGet.mockResolvedValue({ ...prediction, matchweek: 11 });
-    mockSummaryServer.mockResolvedValue(summary({ matchweek: 11 }));
-    await renderPage("epl");
-    const pick = screen.getByRole("region", { name: "Your pick" });
-    expect(await within(pick).findByRole("button", { name: "Lock in 0–0" })).toBeInTheDocument();
-    expect(within(pick).getByText(/^Locks at kickoff · /)).toBeInTheDocument();
-    // One request, straight to the match's own week -- no walking.
-    expect(mockMine).toHaveBeenCalledTimes(1);
-    expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", 11);
-    // No browser-only W/D/L on a league page.
-    expect(within(pick).queryByRole("button", { name: "Draw" })).not.toBeInTheDocument();
+describe("other competitions", () => {
+  it("shows the Champions League call on an open fixture (no pick game)", async () => {
+    mockUpcoming.mockResolvedValue([]);
+    mockGroups.mockResolvedValue(null);
+    await renderPage("ucl");
+    expect(screen.getByText(/Score picks for the UEFA Champions League aren.t open yet/)).toBeInTheDocument();
+    const call = screen.getByRole("region", { name: "The model’s call" });
+    expect(within(call).getByText("Medium confidence.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Where they stand" })).not.toBeInTheDocument();
   });
 
-  it("still finds the week from an older backend that omits matchweek", async () => {
-    await renderPage("epl");
-    const pick = screen.getByRole("region", { name: "Your pick" });
-    expect(await within(pick).findByRole("button", { name: "Lock in 0–0" })).toBeInTheDocument();
-    expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", undefined);
-  });
-
-  it("keeps the W/D/L pick for the World Cup", async () => {
-    await renderPage("wc26");
-    const pick = screen.getByRole("region", { name: "Your pick" });
-    expect(within(pick).getByRole("button", { name: "Draw" })).toBeInTheDocument();
-    expect(mockMine).not.toHaveBeenCalled();
-  });
-
-  it("never hides the pick shell when the summary is unavailable", async () => {
-    mockSummaryServer.mockResolvedValue(null);
-    mockSummary.mockRejectedValue(new Error("cold start"));
-    await renderPage("wc26");
-    const pick = screen.getByRole("region", { name: "Your pick" });
-    expect(await within(pick).findByText("Picks unavailable right now")).toBeInTheDocument();
-    expect(within(pick).getByRole("button", { name: "Retry" })).toBeInTheDocument();
-  });
-});
-
-describe("honest time and labels", () => {
-  it("stamps the footer with THIS prediction's generated_at in the reader's zone, never the global record", async () => {
-    const { container } = await renderPage("wc26");
-    const footer = container.querySelector("footer") as HTMLElement;
-    expect(footer).toHaveTextContent("Prediction generated 6 Jun, 12:00 AM UTC · model poisson-elo-v0.6 ·");
-    expect(footer).toHaveTextContent(/Not betting advice/);
-    expect(mockRecord).not.toHaveBeenCalled();
-  });
-
-  it("ends a pre-kickoff forecast at 'Latest', never 'KO'", async () => {
-    mockHistory.mockResolvedValue(twoWeeksOfHistory);
-    await renderPage("wc26");
-    expect(screen.getByText("Latest · 5 Jun")).toBeInTheDocument();
-    expect(screen.queryByText("KO")).not.toBeInTheDocument();
-  });
-
-  it("marks an estimated live minute as such", async () => {
-    const live = summary({
-      kickoff_utc: new Date(Date.now() - 70 * 60_000).toISOString(),
-      status: "in_play", score_home: 1, score_away: 0, minute: 63, period: "second_half",
-    });
-    mockSummaryServer.mockResolvedValue(live);
-    mockSummary.mockResolvedValue(live);
-    await renderPage("wc26");
-    expect(screen.getByText(/LIVE · 63' est\./)).toBeInTheDocument();
-  });
-
-  it("says Result pending -- not FULL TIME, no verdict -- when the feed is stranded in play", async () => {
-    const stranded = summary({
-      kickoff_utc: new Date(Date.now() - 8 * 60 * 60_000).toISOString(),
-      status: "in_play", score_home: 2, score_away: 0, minute: 90, period: "second_half",
-    });
-    mockSummaryServer.mockResolvedValue(stranded);
-    mockSummary.mockResolvedValue(stranded);
-    await renderPage("wc26");
-    expect(screen.getByText("RESULT PENDING · Venue TBC")).toBeInTheDocument();
-    expect(screen.getByText("2–0")).toBeInTheDocument(); // the last known score
-    expect(screen.queryByText(/FULL TIME/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Exact score predicted|Result predicted right|Model missed/)).not.toBeInTheDocument();
-  });
-});
-
-describe("data loading", () => {
-  it("starts the prediction and summary together, then the secondary reads together", async () => {
-    let releaseGoalscorers!: (v: null) => void;
-    mockGoalscorers.mockReturnValue(new Promise((resolve) => { releaseGoalscorers = resolve; }));
-    const pending = renderMatchDetailPage(Promise.resolve({ id: "1" }), "wc26");
-
-    await new Promise((r) => setTimeout(r, 0));
-    expect(mockGet).toHaveBeenCalledWith("1", "wc26");
-    expect(mockSummaryServer).toHaveBeenCalledWith("1", "wc26");
-    // History was requested while goalscorers was still in flight.
-    expect(mockGoalscorers).toHaveBeenCalledWith("1");
-    expect(mockHistory).toHaveBeenCalledWith("1");
-
-    releaseGoalscorers(null);
-    render(await pending);
-    expect(screen.getByRole("region", { name: "Brazil vs Serbia" })).toBeInTheDocument();
+  it("renders the pending view when the prediction is not generated yet", async () => {
+    mockGet.mockResolvedValue(null);
+    mockSummaryServer.mockResolvedValue(summary({ probabilities: null, predicted_score: null }));
+    await renderPage();
+    expect(screen.getByRole("heading", { name: "The model’s call is on the way" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Use + and − to set a score" })).toBeInTheDocument();
   });
 
   it("calls notFound() for a match that does not exist", async () => {
     mockGet.mockResolvedValue(null);
     mockSummaryServer.mockResolvedValue(null);
-    await expect(renderMatchDetailPage(Promise.resolve({ id: "999" }), "wc26")).rejects.toThrow();
-    expect(mockGoalscorers).not.toHaveBeenCalled();
-  });
-
-  it("renders the pending view (same hero, same pick shell) when the prediction is not generated yet", async () => {
-    mockGet.mockResolvedValue(null);
-    mockSummaryServer.mockResolvedValue(summary({
-      match_id: 76, stage: "R32", group: null, venue_city: "Philadelphia", venue_country: "USA",
-      teams: { home: "Brazil", away: "Japan" }, probabilities: null, predicted_score: null,
-    }));
-    await renderPage("wc26", "76");
-
-    expect(screen.getByRole("region", { name: "Brazil vs Japan" })).toBeInTheDocument();
-    expect(screen.getByText(/prediction on the way/i)).toBeInTheDocument();
-    expect(screen.getByText(/Venue TBC, Philadelphia, USA/)).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Your pick" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Lineups" })).toBeInTheDocument();
+    await expect(renderMatchDetailPage(Promise.resolve({ id: "999" }), "epl")).rejects.toThrow();
   });
 });
 
 describe("metadata", () => {
-  it("canonicalises to the competition-scoped URL with a 100% description", async () => {
-    const meta = await generateMatchMetadata(Promise.resolve({ id: "1" }), "epl");
-    expect(meta.alternates?.canonical).toBe("/football/epl/match/1");
-    expect(meta.description).toContain("Brazil 62%, draw 24%, Serbia 14%");
+  it("never names the model's numbers for an open fixture", async () => {
+    const meta = await generateMatchMetadata(Promise.resolve({ id: "205" }), "epl");
+    expect(meta.alternates?.canonical).toBe("/football/epl/match/205");
+    expect(meta.title).toBe("Newcastle v Arsenal — make your pick | FinalWhistle");
+    const text = `${meta.title} ${meta.description} ${meta.openGraph?.description} ${meta.openGraph?.title}`;
+    expect(text).not.toMatch(/\d+%|0–2|Most likely/);
+  });
+
+  it("states the call once the match is finished", async () => {
+    mockSummaryServer.mockResolvedValue(summary({ status: "finished", kickoff_utc: PAST, score_home: 1, score_away: 2 }));
+    const meta = await generateMatchMetadata(Promise.resolve({ id: "205" }), "epl");
+    expect(meta.description).toContain("Newcastle 14%, draw 26%, Arsenal 60%");
+    expect(meta.description).toContain("Most likely score 0–2");
   });
 });

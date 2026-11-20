@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Empty, ErrorState, Loading } from "@/components/States";
+import { ErrorState, Loading } from "@/components/States";
+import { Card, CardHead, Chip, Note } from "@/components/ui";
 import { ShareButton } from "@/components/ShareButton";
 import { reportViewerHandle } from "@/components/play/viewerHandle";
 import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
@@ -54,29 +55,36 @@ export function YouVsAi() {
   }, [attempt, identityVersion]);
 
   return (
-    <section>
-      <h2 className="mb-2.5 px-0.5 text-label font-semibold uppercase tracking-wider text-muted">
-        You vs the model
-      </h2>
+    <Card pad aria-labelledby="nrl-you-vs-model">
+      <CardHead id="nrl-you-vs-model" title="You and the model" action="Season to date" />
       {state.status === "loading" && <Loading label="Loading your record…" />}
       {state.status === "error" && (
         <ErrorState message={state.message} onRetry={() => setAttempt((a) => a + 1)} />
       )}
       {state.status === "success" &&
         (state.data.rounds.length === 0 ? (
-          <Empty label="Play this round to start your record against the model." />
+          <Note className="mt-3">Play this round to start your record against the model.</Note>
         ) : (
-          <div className="glass rounded-2xl p-4">
-            <div className="flex items-center justify-center gap-6">
-              <Stat label="You" value={state.data.totals.your_points} />
-              <span className="text-xs font-semibold text-muted">vs</span>
-              <Stat label="Model" value={state.data.totals.model_points} />
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-notes text-muted">You</div>
+                <div className="text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-brand">
+                  {state.data.totals.your_points}
+                </div>
+              </div>
+              <div>
+                <div className="text-notes text-muted">Model</div>
+                <div className="text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-ink">
+                  {state.data.totals.model_points}
+                </div>
+              </div>
             </div>
-            <p className="mt-2 text-center text-xs text-muted">
+            <Note className="mt-2">
               {state.data.totals.rounds_played} round{state.data.totals.rounds_played === 1 ? "" : "s"} graded
-            </p>
+            </Note>
             <StreakChips data={state.data} />
-            <div className="mt-3 space-y-1.5 border-t border-border pt-3">
+            <ul className="mt-4 list-none p-0">
               {state.data.rounds.map((r) => {
                 // Own share-page URL, built from the player's handle -- never
                 // from anything the client already has other than that handle.
@@ -85,10 +93,13 @@ export function YouVsAi() {
                   ? `${SITE_URL}/nrl/tips/share/${r.season}/${r.round}/${encodeURIComponent(handle)}`
                   : null;
                 return (
-                  <div key={`${r.season}-${r.round}`} className="flex items-center justify-between text-xs">
+                  <li
+                    key={`${r.season}-${r.round}`}
+                    className="flex min-h-[48px] items-center justify-between gap-3 border-t border-line-soft py-2"
+                  >
                     <span className="text-muted">Round {r.round}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold tabular-nums">
+                    <span className="flex items-center gap-3">
+                      <span className="font-semibold">
                         {r.your_points} – {r.model_points}
                       </span>
                       {shareUrl && (
@@ -97,17 +108,16 @@ export function YouVsAi() {
                           title={`${handle} went ${r.your_points}/${r.matches_played} vs the model — NRL Round ${r.round}`}
                           url={shareUrl}
                           surface="nrl_tips_recap"
-                          className="gap-1 px-2 py-1 text-label"
                         />
                       )}
-                    </div>
-                  </div>
+                    </span>
+                  </li>
                 );
               })}
-            </div>
-          </div>
+            </ul>
+          </>
         ))}
-    </section>
+    </Card>
   );
 }
 
@@ -117,31 +127,14 @@ export function YouVsAi() {
 function StreakChips({ data }: { data: NrlTipsSummaryResponse }) {
   if (data.current_streak <= 0 && data.best_streak <= 0 && !data.best_round) return null;
   return (
-    <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-      {data.current_streak > 0 && (
-        <span className="rounded-full bg-win/15 px-2.5 py-1 text-label font-semibold uppercase tracking-wide text-lime-deep">
-          {data.current_streak}-pick streak
-        </span>
-      )}
-      {data.best_streak > 0 && (
-        <span className="rounded-full bg-surface-2 px-2.5 py-1 text-label font-semibold uppercase tracking-wide text-muted">
-          Best streak {data.best_streak}
-        </span>
-      )}
+    <div className="mt-3 flex flex-wrap gap-2">
+      {data.current_streak > 0 && <Chip tone="ok">{data.current_streak}-pick streak</Chip>}
+      {data.best_streak > 0 && <Chip>Best streak {data.best_streak}</Chip>}
       {data.best_round && (
-        <span className="rounded-full bg-surface-2 px-2.5 py-1 text-label font-semibold uppercase tracking-wide text-muted">
+        <Chip>
           Best round Rd {data.best_round.round} · {data.best_round.points}
-        </span>
+        </Chip>
       )}
     </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="text-center">
-      <span className="block font-display text-2xl font-extrabold tabular-nums">{value}</span>
-      <span className="block text-label font-semibold text-muted">{label}</span>
-    </span>
   );
 }

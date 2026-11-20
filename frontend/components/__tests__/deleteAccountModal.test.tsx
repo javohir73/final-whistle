@@ -101,7 +101,7 @@ it("announces a failed confirmation through role=alert", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("Wrong password.");
-  expect(alert).toHaveClass("text-loss-ink");
+  expect(alert).toHaveClass("text-miss");
 });
 
 describe("opened from the account menu", () => {

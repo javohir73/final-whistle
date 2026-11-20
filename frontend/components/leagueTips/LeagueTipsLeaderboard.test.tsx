@@ -89,7 +89,7 @@ it("switches back to the weekly board without re-fetching it", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Season" }));
   await screen.findByText("6 playing this season");
 
-  fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
+  fireEvent.click(screen.getByRole("button", { name: "Matchweek 1" }));
   expect(await screen.findByText("SwiftStriker42")).toBeInTheDocument();
   expect(mockLeaderboard).toHaveBeenCalledTimes(1);
 });
@@ -114,7 +114,7 @@ it("supports a season-only You view without fetching a guessed matchweek", async
   expect(await screen.findByText(/No graded picks yet this season/)).toBeInTheDocument();
   expect(mockSeasonLeaderboard).toHaveBeenCalledWith("laliga");
   expect(mockLeaderboard).not.toHaveBeenCalled();
-  expect(screen.queryByRole("button", { name: "Weekly" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "Leaderboard" })).toBeNull();
 });
 
 // ---- The model as a ranked row (C2-2) ---------------------------------------
@@ -252,7 +252,7 @@ it("names the model's tally on an empty season board", async () => {
   expect(await screen.findByText(/The model has 21 pts so far\./)).toBeInTheDocument();
 });
 
-it("prints rank #1 in the Daylight-safe gold ink", async () => {
+it("prints every rank, #1 included, in plain muted ink -- direction G has no gold", async () => {
   mockLeaderboard.mockResolvedValue({
     league: "epl", matchweek: 10, participant_count: 1,
     entries: [
@@ -264,6 +264,7 @@ it("prints rank #1 in the Daylight-safe gold ink", async () => {
   render(<LeagueTipsLeaderboard league="epl" matchweek={10} />);
   const rows = (await screen.findAllByRole("row")).slice(1);
   const rank = within(rows[0]).getByText("1", { selector: "td:first-child" });
-  expect(rank).toHaveClass("text-gold-ink");
+  expect(rank).toHaveClass("text-muted");
+  expect(rank).not.toHaveClass("text-gold-ink");
   expect(rank).not.toHaveClass("text-gold");
 });

@@ -246,11 +246,14 @@ describe("static and asset strategies", () => {
 describe("offline.html (precached fallback)", () => {
   const page: string = readFileSync(join(__dirname, "../public/offline.html"), "utf8");
 
-  it("defaults to the Floodlight canvas and boots a stored Daylight choice", () => {
-    expect(page).toMatch(/:root\s*{[^}]*--bg:\s*#0a1410/);
-    expect(page).toMatch(/<meta name="theme-color" content="#0a1410"/);
-    expect(page).toContain('localStorage.getItem("fw_theme") === "light"');
-    expect(page).toContain("theme-daylight");
+  it("uses the one direction G canvas (white, ink, brand) with no theme boot script", () => {
+    expect(page).toMatch(/:root\s*{[^}]*--bg:\s*#ffffff/);
+    expect(page).toMatch(/:root\s*{[^}]*--fg:\s*#14181f/);
+    expect(page).toMatch(/:root\s*{[^}]*--brand:\s*#0f4d3a/);
+    expect(page).toMatch(/<meta name="theme-color" content="#ffffff"/);
+    expect(page).not.toContain("fw_theme");
+    expect(page).not.toContain("theme-daylight");
+    expect(page).not.toMatch(/<script/i);
   });
 
   it("is sport-neutral (no World Cup bracket copy) and precaches what it shows", () => {

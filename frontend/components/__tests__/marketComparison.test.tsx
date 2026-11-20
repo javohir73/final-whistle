@@ -30,3 +30,26 @@ it("shows the comparison table and verdict when ready", () => {
   // The honest label renders in both the intro copy and the dataset footnote.
   expect(screen.getAllByText(/final pre-kickoff consensus/i).length).toBeGreaterThan(0);
 });
+
+it("uses sentence-case G table headers, no uppercase or letter-spacing", () => {
+  render(<MarketComparison bench={ready} />);
+  for (const name of ["Predictor", "Log-loss", "Brier", "Accuracy"]) {
+    const th = screen.getByRole("columnheader", { name });
+    expect(th.className).not.toMatch(/uppercase|tracking-/);
+    expect(th.closest("tr")?.className ?? "").not.toMatch(/uppercase|tracking-/);
+  }
+});
+
+it("prints the update as a date, never a raw timestamp", () => {
+  render(<MarketComparison bench={{ ...ready, updated_at: "2026-11-20T05:47:41.420627+00:00" }} />);
+  expect(screen.getByText(/Updated 20 November 2026\./)).toBeInTheDocument();
+  expect(screen.queryByText(/T05:47/)).not.toBeInTheDocument();
+});
+
+it("leaves out the update when the timestamp is missing or invalid", () => {
+  const { rerender } = render(<MarketComparison bench={{ ...ready, updated_at: "not a date" }} />);
+  expect(screen.queryByText(/Updated/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/not a date/)).not.toBeInTheDocument();
+  rerender(<MarketComparison bench={{ ...ready, updated_at: null }} />);
+  expect(screen.queryByText(/Updated/)).not.toBeInTheDocument();
+});

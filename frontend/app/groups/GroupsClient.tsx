@@ -4,8 +4,10 @@ import { usePathname } from "next/navigation";
 import { getGroups, getUpcomingMatches } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
 import { GroupCard } from "@/components/GroupCard";
+import { groupDecided } from "@/components/GroupTable";
 import { StandingsTable } from "@/components/StandingsTable";
 import { ErrorState, Empty } from "@/components/States";
+import { Card, Legend, PageHead } from "@/components/ui";
 import {
   COMPETITIONS,
   competitionFromPathname,
@@ -30,51 +32,45 @@ export function GroupsClient({
     30_000,
     initialGroups,
   );
-  // Match feed drives the per-group LIVE badge. Polled alongside groups; if it
-  // fails or is still loading, matches stays empty and no badge shows.
+  // Match feed drives the per-group Live chip. Polled alongside groups; if it
+  // fails or is still loading, matches stays empty and no chip shows.
   const matchesState = useFetch(
     () => getUpcomingMatches(activeCompetition),
     [activeCompetition],
     30_000,
   );
   const matches = matchesState.status === "success" ? matchesState.data : undefined;
-  // League-format standings paint the active competition's CL/Europa/relegation
-  // zone stripes (Floodlight P2). Resolve it from the path so any wired league
-  // gets the right bands; today's un-namespaced /groups falls back to WC26
-  // (zones: []), which renders a plain league table.
   // D1: a league is one Tournament + a single Group holding every team — show
-  // it as one full-width table instead of the WC26 multi-group card grid.
+  // it as one full-width table instead of the World Cup multi-group grid.
   const leagueMode =
     tournament.format === "league" && state.status === "success" && state.data.length === 1;
+  // The World Cup archive: every group settled, so the page reads as final.
+  const allDecided =
+    state.status === "success" && state.data.length > 0 && state.data.every((g) => groupDecided(g.standings));
 
   return (
     <div>
-      <header className="fade-up mb-8">
-        <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
-          {leagueMode ? (
-            tournament.name
-          ) : (
-            <>
-              Group <span className="text-lime-deep">tables</span>
-            </>
-          )}
-        </h1>
-        <p className="mt-2 max-w-xl text-muted">
-          {leagueMode
-            ? "Live standings, updated as results come in."
-            : "Live standings with each team's chance of finishing top two."}
-        </p>
-      </header>
+      <PageHead
+        eyebrow={leagueMode ? undefined : tournament.name}
+        title={leagueMode ? tournament.name : "Group tables"}
+        sub={
+          leagueMode
+            ? "Standings, updated as results come in."
+            : allDecided
+              ? "The final group tables. The top two in each group went through to the Round of 32, with the eight best third-placed teams."
+              : "Standings with each team's chance of finishing in the top two."
+        }
+      />
 
       {state.status === "loading" && (
-        <div className="grid gap-5 md:grid-cols-2">
+        <div className="grid gap-6 min-[900px]:grid-cols-2 min-[1280px]:grid-cols-3" aria-busy="true" aria-label="Loading groups">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="glass rounded-2xl p-5">
-              <div className="skeleton mb-4 h-5 w-24 rounded" />
+            <Card pad key={i}>
+              <div className="h-5 w-24 rounded-full bg-line-soft" />
               {Array.from({ length: 4 }).map((_, j) => (
-                <div key={j} className="skeleton mb-2 h-8 w-full rounded" />
+                <div key={j} className="mt-4 h-4 w-full rounded-full bg-line-soft" />
               ))}
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -83,25 +79,27 @@ export function GroupsClient({
         (state.data.length === 0 ? (
           <Empty />
         ) : leagueMode ? (
-          <div className="glass rounded-2xl p-5 sm:p-6">
+          <Card pad>
             <StandingsTable
               standings={state.data[0].standings}
               zones={COMPETITIONS[activeCompetition].zones}
             />
-          </div>
+          </Card>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2">
-            {state.data.map((g, i) => (
-              <GroupCard
-                key={g.id}
-                group={g}
-                index={i}
-                matches={matches}
-                groupBasePath={`${COMPETITIONS[activeCompetition].basePath}/groups`}
-                teamBasePath={`${COMPETITIONS[activeCompetition].basePath}/team`}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-6 min-[900px]:grid-cols-2 min-[1280px]:grid-cols-3">
+              {state.data.map((g) => (
+                <GroupCard
+                  key={g.id}
+                  group={g}
+                  matches={matches}
+                  groupBasePath={`${COMPETITIONS[activeCompetition].basePath}/groups`}
+                  teamBasePath={`${COMPETITIONS[activeCompetition].basePath}/team`}
+                />
+              ))}
+            </div>
+            {allDecided && <Legend items={[{ zone: "a", label: "Top two, through to the Round of 32" }]} />}
+          </>
         ))}
     </div>
   );

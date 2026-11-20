@@ -94,8 +94,8 @@ export function PlayerShirt({
 }) {
   const chip =
     tone === "away"
-      ? "bg-win text-pitch ring-win/50 hover:ring-white"
-      : "bg-white text-pitch ring-white/70 hover:ring-win";
+      ? "bg-brand text-white ring-brand hover:ring-ink"
+      : "bg-ground text-ink ring-line-strong hover:ring-ink";
   const label = [
     player.number != null ? `#${player.number}` : null,
     player.name,

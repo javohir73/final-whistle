@@ -14,7 +14,7 @@ export default function NrlMatchesLoading() {
 
       {/* Segmented Upcoming / Live / Finished control — mirrors the tablist
           container so the grid below it doesn't jump when the tabs paint. */}
-      <div className="mb-6 mt-4 flex gap-1 rounded-[14px] bg-surface-2 p-1">
+      <div className="mb-6 mt-4 flex gap-1 rounded-[14px] bg-soft p-1">
         {Array.from({ length: 3 }).map((_, i) => (
           <Skeleton key={i} className="h-9 flex-1 rounded-[11px]" />
         ))}

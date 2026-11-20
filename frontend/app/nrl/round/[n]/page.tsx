@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getNrlMatchesServer, getNrlTipsheetServer } from "@/lib/api";
-import { TimelineSpine } from "@/components/TimelineSpine";
-import { TipsheetBlock } from "@/components/nrl/TipsheetBlock";
-import { nrlExpectedMargin, nrlMatchHref, nrlMatchToSummary } from "@/lib/nrlAdapters";
+import { ChevronLeftIcon, ChevronRightIcon, EmptyState, PageHead, RoundLink } from "@/components/ui";
+import { NrlRoundCard } from "@/components/nrl/NrlRoundCard";
+import { nrlFinalsRounds } from "@/lib/nrlDisplay";
+import { isNrlOpenMatch } from "@/lib/nrlTips";
 import { APP_NAME } from "@/lib/constants";
 
 export const revalidate = 300;
@@ -57,11 +57,16 @@ export async function generateMetadata({
     : `NRL Round ${round} tips — AI predictions with a public record`;
   return {
     title,
-    description: `The model's pick for every NRL Round ${round} fixture — win probability, expected margin, and a season record graded after full time, misses published too.`,
+    description: `Every NRL Round ${round} fixture: tip the winners, then see the model's call and how it was graded after full time.`,
     alternates: { canonical: `/nrl/round/${round}` },
   };
 }
 
+/** /nrl/round/[n]: one round on the centred spine (the matchweek pattern) --
+ *  results with the model's verdict for finished matches; for open ones the
+ *  tip action, and the model's call only after the viewer tips (client, the
+ *  reveal rule). The server never prints the model's numbers for an open
+ *  match. */
 export default async function NrlRoundPage({
   params,
 }: {
@@ -84,64 +89,58 @@ export default async function NrlRoundPage({
   const idx = roundNumbers.indexOf(round);
   const prevRound = idx > 0 ? roundNumbers[idx - 1] : null;
   const nextRound = idx >= 0 && idx < roundNumbers.length - 1 ? roundNumbers[idx + 1] : null;
-
-  // The tipsheet is additive -- a hiccup here must not take down the fixture
-  // list above (same rationale as the match detail page's Wave 2/3 sections).
-  const tipsheet = await getNrlTipsheetServer(fixtures.season, round).catch(() => null);
-
-  // Per-card detail href + expected margin, keyed by match_id (= NrlMatch.id),
-  // for the fallback spine below. Built unconditionally (cheap) but only read
-  // when the tipsheet is absent.
-  const cardHref: Record<number, string | null> = {};
-  const cardMargin: Record<number, number | null> = {};
-  for (const m of current.matches) {
-    cardHref[m.id] = nrlMatchHref(fixtures.season, round, m.match_no);
-    cardMargin[m.id] = nrlExpectedMargin(m);
-  }
+  const now = new Date();
+  const open = current.matches.some((m) => isNrlOpenMatch(m, now));
+  const allDone = current.matches.length > 0 && current.matches.every((m) => m.status === "finished");
+  const stage = nrlFinalsRounds(fixtures.rounds).find((f) => f.round === round)?.stage ?? null;
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-extrabold">Round {round}</h1>
-        <span className="text-sm text-muted">Season {fixtures.season}</span>
-      </div>
-      <div className="mt-3 flex items-center justify-between text-sm">
-        {prevRound != null ? (
-          <Link href={`/nrl/round/${prevRound}`} className="font-semibold text-lime-deep">
-            ← Round {prevRound}
-          </Link>
-        ) : (
-          <span />
-        )}
-        {nextRound != null ? (
-          <Link href={`/nrl/round/${nextRound}`} className="font-semibold text-lime-deep">
-            Round {nextRound} →
-          </Link>
-        ) : (
-          <span />
-        )}
-      </div>
-      {tipsheet ? (
-        <div className="mt-6">
-          <TipsheetBlock tipsheet={tipsheet} />
-        </div>
-      ) : (
-        <div className="mt-6">
-          <TimelineSpine
-            days={[
-              {
-                key: `round-${round}`,
-                heading: `Round ${round}`,
-                matches: current.matches.map(nrlMatchToSummary),
-              },
-            ]}
-            tz="Australia/Sydney"
-            badge="club"
-            cardHref={cardHref}
-            cardMargin={cardMargin}
+    <>
+      <PageHead
+        back={{ href: "/nrl", label: "NRL" }}
+        eyebrow={`NRL · ${fixtures.season} season${stage ? ` · ${stage}` : ""}`}
+        title={`Round ${round}`}
+        titleAside={
+          <div className="flex gap-2">
+            <RoundLink
+              label={prevRound != null ? `Round ${prevRound}` : "No earlier round"}
+              href={prevRound != null ? `/nrl/round/${prevRound}` : undefined}
+              disabled={prevRound == null}
+            >
+              <ChevronLeftIcon />
+            </RoundLink>
+            <RoundLink
+              label={nextRound != null ? `Round ${nextRound}` : "No later round"}
+              href={nextRound != null ? `/nrl/round/${nextRound}` : undefined}
+              disabled={nextRound == null}
+            >
+              <ChevronRightIcon />
+            </RoundLink>
+          </div>
+        }
+        sub={
+          open
+            ? "Tip the winner of every match, one point each. The model’s call shows once you have tipped."
+            : allDone
+              ? "Results, and how the model’s call on each match went."
+              : "This round’s draw."
+        }
+      />
+      {current.matches.length > 0 ? (
+        <div className="max-w-[1100px]">
+          <NrlRoundCard
+            season={fixtures.season}
+            round={round}
+            matches={current.matches}
+            label={`Round ${round}`}
+            tipping={open}
           />
         </div>
+      ) : (
+        <EmptyState className="max-w-[900px]" title="No matches in this round">
+          The draw for this round has not been published.
+        </EmptyState>
       )}
-    </div>
+    </>
   );
 }

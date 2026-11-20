@@ -115,7 +115,7 @@ export function ShareButton({
         aria-haspopup="menu"
         aria-expanded={menu != null}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:text-foreground",
+          "inline-flex min-h-[44px] items-center gap-2 rounded-full border border-line bg-ground px-4 font-semibold text-ink transition hover:border-line-strong",
           className,
         )}
       >
@@ -136,14 +136,14 @@ export function ShareButton({
               closeMenu();
             }
           }}
-          className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-border bg-surface p-1 text-sm shadow-lg"
+          className="absolute right-0 top-full z-40 mt-2 flex min-w-[11rem] flex-col rounded-[14px] border border-line bg-ground p-1.5 shadow-menu"
         >
           <button
             ref={firstItemRef}
             type="button"
             role="menuitem"
             onClick={copy}
-            className="flex min-h-[40px] items-center rounded-lg px-3 text-left font-medium hover:bg-surface-2"
+            className="flex min-h-[44px] items-center rounded-[10px] px-3 text-left font-medium hover:bg-soft"
           >
             Copy link
           </button>
@@ -156,7 +156,7 @@ export function ShareButton({
               track("whatsapp");
               setMenu(null);
             }}
-            className="flex min-h-[40px] items-center rounded-lg px-3 font-medium hover:bg-surface-2"
+            className="flex min-h-[44px] items-center rounded-[10px] px-3 font-medium hover:bg-soft"
           >
             WhatsApp
           </a>
@@ -169,7 +169,7 @@ export function ShareButton({
               track("telegram");
               setMenu(null);
             }}
-            className="flex min-h-[40px] items-center rounded-lg px-3 font-medium hover:bg-surface-2"
+            className="flex min-h-[44px] items-center rounded-[10px] px-3 font-medium hover:bg-soft"
           >
             Telegram
           </a>

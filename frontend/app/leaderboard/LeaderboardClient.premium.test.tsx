@@ -1,7 +1,7 @@
 /** Leaderboard: premium rows get a small supporter badge next to the display
  *  name; non-premium rows get nothing. Badge renders purely from
  *  `row.premium` — no client-side entitlement derivation. */
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { getLeaderboard } from "@/lib/api";
 import type { LeaderboardRow } from "@/lib/types";
 
@@ -10,12 +10,13 @@ const mockGetLeaderboard = getLeaderboard as jest.MockedFunction<typeof getLeade
 
 const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
-jest.mock("@/components/leagueTips/LeagueYouVsAi", () => ({
-  LeagueYouVsAi: ({ league }: { league: string }) => <div data-testid="league-record">{league}</div>,
+jest.mock("@/lib/leagueTips", () => ({
+  getLeagueTipsSummary: jest.fn(() => new Promise(() => {})),
+  getMyLeagueTips: jest.fn(() => new Promise(() => {})),
 }));
 jest.mock("@/components/leagueTips/LeagueTipsLeaderboard", () => ({
-  LeagueTipsLeaderboard: ({ league, seasonOnly }: { league: string; seasonOnly: boolean }) => (
-    <div data-testid="league-board">{`${league}-${seasonOnly}`}</div>
+  LeagueTipsLeaderboard: ({ league, view }: { league: string; view?: string }) => (
+    <div data-testid="league-board">{`${league}-${view}`}</div>
   ),
 }));
 jest.mock("@/components/nrl/YouVsAi", () => ({ YouVsAi: () => <div data-testid="nrl-record" /> }));
@@ -74,18 +75,15 @@ describe("LeaderboardClient — supporter badge", () => {
     await waitFor(() => expect(mockGetLeaderboard).toHaveBeenCalled());
   });
 
-  it("shows La Liga's own record and season board without fetching World Cup brackets", async () => {
+  it("shows La Liga's own season board without fetching World Cup brackets", async () => {
     render(<LeaderboardClient competition="laliga" />);
     await act(async () => {});
 
-    expect(screen.getByTestId("league-record")).toHaveTextContent("laliga");
-    expect(screen.getByTestId("league-board")).toHaveTextContent("laliga-true");
+    expect(screen.getByTestId("league-board")).toHaveTextContent("laliga-season");
     expect(screen.queryByText(/Public brackets ranked/i)).toBeNull();
     expect(mockGetLeaderboard).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: "La Liga" })).toHaveAttribute(
-      "href",
-      "/leaderboard?competition=laliga",
-    );
+    expect(screen.getByRole("heading", { level: 1, name: "Leaderboard" })).toBeInTheDocument();
+    expect(screen.getByText(/^La Liga · \d{4}–\d{2}$/)).toBeInTheDocument();
   });
 
   it("shows NRL's own record and an honest empty season when no round is loaded", async () => {
@@ -99,7 +97,7 @@ describe("LeaderboardClient — supporter badge", () => {
   });
 });
 
-describe("LeaderboardClient — My picks, scoped to a competition", () => {
+describe("LeaderboardClient — scoped to a competition", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseAuth.mockReturnValue({ user: null, loading: false, openSignIn: jest.fn() });
@@ -110,55 +108,36 @@ describe("LeaderboardClient — My picks, scoped to a competition", () => {
     render(<LeaderboardClient />);
     await act(async () => {});
 
-    expect(screen.getByTestId("league-record")).toHaveTextContent("epl");
+    expect(screen.getByTestId("league-board")).toHaveTextContent("epl");
     expect(screen.queryByText(/brackets/i)).toBeNull();
     expect(mockGetLeaderboard).not.toHaveBeenCalled();
   });
 
-  it("names the competition in the page's heading and landmark", async () => {
+  it("names the competition in the landmark, states the scoring, and links to this week's matches", async () => {
     render(<LeaderboardClient competition="bundesliga" />);
     await act(async () => {});
 
-    expect(screen.getByRole("region", { name: "My picks · Bundesliga" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Bundesliga" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Play Bundesliga →" })).toHaveAttribute(
+    expect(screen.getByRole("region", { name: "Leaderboard · Bundesliga" })).toBeInTheDocument();
+    expect(screen.getByText(/Exact score 5 points, right result 2\. Everyone plays against the model\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pick this week’s matches" })).toHaveAttribute(
       "href",
-      "/play?competition=bundesliga",
-    );
-  });
-
-  it("groups the switcher as Football · Rugby league · Past tournaments", async () => {
-    render(<LeaderboardClient competition="epl" />);
-    await act(async () => {});
-
-    const nav = screen.getByRole("navigation", { name: "Competition" });
-    const groups = within(nav).getAllByRole("group");
-    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual([
-      "Football",
-      "Rugby league",
-      "Past tournaments",
-    ]);
-    expect(within(groups[0]).getByRole("link", { name: "Premier League" })).toHaveAttribute("aria-current", "page");
-    expect(within(groups[1]).getByRole("link", { name: "NRL" })).toBeInTheDocument();
-    expect(within(groups[2]).getByRole("link", { name: "World Cup 2026" })).toHaveAttribute(
-      "href",
-      "/leaderboard?competition=wc26",
+      "/football/bundesliga",
     );
   });
 
   it("labels the World Cup board as a past tournament's bracket leaderboard", async () => {
     render(<LeaderboardClient competition="wc26" initialRows={ROWS} />);
 
-    expect(screen.getByRole("region", { name: "My picks · World Cup 2026" })).toBeInTheDocument();
-    expect(screen.getByText("Past tournament")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Leaderboard · World Cup 2026" })).toBeInTheDocument();
+    expect(screen.getByText("World Cup 2026 · Past tournament")).toBeInTheDocument();
     await waitFor(() => expect(mockGetLeaderboard).toHaveBeenCalled());
   });
 
-  it("handles a competition with no tips loop yet without borrowing another's board", async () => {
+  it("handles a competition with no pick game without borrowing another's board", async () => {
     render(<LeaderboardClient competition="ucl" />);
     await act(async () => {});
 
-    expect(screen.getByText(/UEFA Champions League score-tip records are not available yet/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Picks are not open for this competition" })).toBeInTheDocument();
     expect(screen.queryByTestId("league-board")).toBeNull();
     expect(mockGetLeaderboard).not.toHaveBeenCalled();
   });

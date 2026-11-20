@@ -1,44 +1,26 @@
-import { COMPETITIONS, accentInkVar, type CompetitionId } from "@/lib/sports";
+import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 import { cn } from "@/lib/utils";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
 
 interface EyebrowProps {
   children: React.ReactNode;
+  /** Kept for old callers; direction G eyebrows are always muted. */
   tone?: "lime" | "muted";
 }
 
-/** Uppercase tracked label above a section (prototype:
- *  `font:700 11px 'Hanken Grotesk';letter-spacing:.16em`). Hanken is the body
- *  default, so no font-display class. 11px is the a11y floor for labels --
- *  never go smaller. */
-export function Eyebrow({ children, tone = "lime" }: EyebrowProps) {
-  return (
-    <p
-      className={cn(
-        "text-label font-semibold uppercase tracking-[0.16em]",
-        tone === "lime" ? "text-lime-deep" : "text-muted",
-      )}
-    >
-      {children}
-    </p>
-  );
+/** The small line above a heading: direction G's eyebrow (sentence case,
+ *  15px/500, muted — the same style PageHead uses). */
+export function Eyebrow({ children }: EyebrowProps) {
+  return <p className={cn("text-notes font-medium text-muted")}>{children}</p>;
 }
 
-/** League accent pill (plan §2): the per-competition accent color, used ONLY
- *  here and on the switcher overlay, at <=12% opacity -- lime stays the sole
- *  action color. Same idiom as CompetitionOverlay's accent pill. */
+/** Competition chip: the real logo plus the short name on the neutral chip
+ *  fill. G has one accent; a competition is identified by its logo. */
 export function CompEyebrowChip({ comp }: { comp: CompetitionId }) {
   const competition = COMPETITIONS[comp];
   return (
-    <span
-      className="inline-flex min-h-[28px] items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2 text-label font-bold uppercase tracking-wide"
-      style={{
-        backgroundColor: `hsl(var(${competition.accentVar}) / 0.12)`,
-        // Shared with CompetitionOverlay's pill — see accentInkVar.
-        color: `hsl(var(${accentInkVar(comp)}))`,
-      }}
-    >
-      <CompetitionLogo competition={comp} size={20} />
+    <span className="inline-flex min-h-[28px] items-center gap-1.5 rounded-full bg-chip py-0.5 pl-1 pr-2.5 text-label font-semibold text-ink">
+      <CompetitionLogo competition={comp} size={20} decorative />
       {competition.shortLabel}
     </span>
   );

@@ -1,59 +1,104 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getNrlRecordServer } from "@/lib/api";
+import { getNrlLadderServer, getNrlMatchesServer, getNrlRecordServer } from "@/lib/api";
+import { Card, CardHead, EmptyState, Main, Note, PageHead, PageLayout, Rail, Stat, StatGrid } from "@/components/ui";
+import { LadderCard } from "@/components/nrl/LadderCard";
+import { NrlFinalsCard } from "@/components/nrl/NrlRoundCard";
+import { nrlFinalsRounds, nrlLongDate, nrlModelCall, wholePct } from "@/lib/nrlDisplay";
+import { nrlSeasonState } from "@/lib/nrlTips";
 
 export const revalidate = 300;
 
 export const metadata: Metadata = { title: "NRL model record — FinalWhistle" };
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="glass rounded-2xl p-4">
-      <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-        {label}
-      </p>
-      <p className="mt-1 text-2xl font-extrabold tabular-nums">{value}</p>
-    </div>
-  );
+function listJoin(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
 }
 
-/** Empty state per spec: predictions are frozen but nothing is graded until
- *  the first tracked round finishes. Note: the record endpoint returns 200
- *  even with 0 graded matches, so a null fetch here means a real failure
- *  (not "season hasn't started"). */
+/** /nrl/record (prototype `pageNrlRecord`): the season total, the finals
+ *  series with the model's call on each, and the ladder in the rail. The
+ *  record endpoint returns 200 with 0 graded matches before the first tracked
+ *  round finishes, so a null fetch here is a real failure. */
 export default async function NrlRecordPage() {
-  const rec = await getNrlRecordServer().catch(() => null);
+  const [rec, fixtures, ladder] = await Promise.all([
+    getNrlRecordServer().catch(() => null),
+    getNrlMatchesServer().catch(() => null),
+    getNrlLadderServer().catch(() => null),
+  ]);
   if (!rec) notFound();
 
-  if (rec.evaluated_matches === 0) {
+  const season = fixtures?.season ?? ladder?.season ?? null;
+  const eyebrow = season ? `NRL · ${season} season` : "NRL";
+  const back = { href: "/nrl", label: "NRL" };
+
+  if (rec.evaluated_matches === 0 || rec.winner_accuracy == null) {
     return (
-      <div>
-        <h1 className="font-display text-2xl font-extrabold">NRL model record</h1>
-        <div className="panel-pitch mt-6 rounded-2xl p-6">
-          <p className="font-display text-lg font-bold">Season live — grading starts soon</p>
-          <p className="mt-2 max-w-lg text-sm text-white/75">
-            Predictions are frozen at kickoff and graded after full time. The record
-            appears once the first tracked round completes.
-          </p>
-          <p className="mt-4 text-xs text-white/50">Model {rec.model_version}</p>
-        </div>
-      </div>
+      <>
+        <PageHead back={back} eyebrow={eyebrow} title="The model’s record" />
+        <EmptyState title="Grading starts soon" className="max-w-[900px]">
+          Every call is published before kick-off and graded at full time. The record appears once the first round
+          is complete.
+        </EmptyState>
+      </>
     );
   }
 
+  const updated = nrlLongDate(rec.last_updated);
+  const called = Math.round(rec.winner_accuracy * rec.evaluated_matches);
+  const ci = rec.winner_accuracy_ci95;
+  const complete = fixtures ? nrlSeasonState(fixtures.rounds) === "complete" : false;
+  const finals = fixtures ? nrlFinalsRounds(fixtures.rounds) : [];
+  const noCallStages = finals
+    .filter((f) => f.matches.every((m) => !nrlModelCall(m)))
+    .map((f) => f.stage.toLowerCase());
+
   return (
-    <div>
-      <h1 className="font-display text-2xl font-extrabold">NRL model record</h1>
-      <p className="mt-1 text-sm text-muted">
-        Model {rec.model_version} · {rec.evaluated_matches} graded matches
-      </p>
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Winner accuracy"
-              value={rec.winner_accuracy != null ? `${(rec.winner_accuracy * 100).toFixed(1)}%` : "—"} />
-        <Stat label="Log loss" value={rec.avg_log_loss?.toFixed(3) ?? "—"} />
-        <Stat label="Brier" value={rec.avg_brier?.toFixed(3) ?? "—"} />
-        <Stat label="Best streak" value={String(rec.best_streak)} />
-      </div>
-    </div>
+    <>
+      <PageHead
+        back={back}
+        eyebrow={eyebrow}
+        title="The model’s record"
+        sub={`Every call was published before kick-off and graded at full time.${updated ? ` Last updated ${updated}.` : ""}`}
+      />
+      <PageLayout>
+        <Main>
+          <Card pad aria-labelledby="nrl-season-total">
+            <CardHead id="nrl-season-total" title={complete ? "Season total" : "Season so far"} />
+            <StatGrid>
+              <Stat
+                value={wholePct(rec.winner_accuracy)}
+                label={`of winners called, ${called} of ${rec.evaluated_matches}`}
+              />
+              {ci ? <Stat value={`${Math.round(ci[0] * 100)}–${wholePct(ci[1])}`} label="likely range of the true rate" /> : null}
+              <Stat value={rec.best_streak} label="best run of correct picks" />
+            </StatGrid>
+            <Note className="mt-5">
+              Model version {rec.model_version}.
+              {rec.avg_log_loss != null ? ` Average log loss ${rec.avg_log_loss.toFixed(3)}.` : ""}
+            </Note>
+          </Card>
+
+          {finals.length > 0 && season ? (
+            <div>
+              <h2 className="mb-3 text-h2 font-semibold text-ink">Finals series</h2>
+              <NrlFinalsCard finals={finals} season={season} />
+              {noCallStages.length > 0 ? (
+                <Note className="mt-3">The model made no call on the {listJoin(noCallStages)}.</Note>
+              ) : null}
+            </div>
+          ) : null}
+        </Main>
+        <Rail aria-label="Ladder">
+          {ladder ? (
+            <LadderCard
+              rows={ladder.rows}
+              title={complete ? "Final ladder" : "Ladder"}
+              note={complete ? "The top eight played finals." : "The top eight make the finals."}
+            />
+          ) : null}
+        </Rail>
+      </PageLayout>
+    </>
   );
 }

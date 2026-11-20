@@ -65,17 +65,12 @@ import type { Appearance } from "@stripe/stripe-js";
 import { ApiError } from "@/lib/session";
 import { PremiumCheckout } from "./PremiumCheckout";
 
-/** The real token sets from globals.css, trimmed to what the form borrows.
- *  jsdom resolves custom properties through the cascade, so toggling the
- *  Daylight class really does change what getComputedStyle returns. */
+/** The real direction G token set from globals.css, trimmed to what the
+ *  form borrows. jsdom resolves custom properties through the cascade. */
 const TOKEN_CSS = `
   :root {
-    --win: 84 78% 55%; --surface: 148 29% 9%; --foreground: 120 14% 96%;
-    --muted: 129 10% 62%; --loss: 351 90% 64%; --border: 140 14% 17%;
-  }
-  .theme-daylight {
-    --win: 84 66% 52%; --surface: 0 0% 100%; --foreground: 150 38% 9%;
-    --muted: 140 8% 38%; --loss: 350 84% 62%; --border: 84 20% 90%;
+    --win: 161.61 67.39% 18.04%; --surface: 0 0% 100%; --foreground: 218.18 21.57% 10%;
+    --muted: 214.29 10.34% 39.8%; --loss: 8.82 58.62% 34.12%; --border: 105 7.69% 89.8%;
   }`;
 
 function installTokens() {
@@ -93,7 +88,6 @@ describe("PremiumCheckout", () => {
     mockParams = new URLSearchParams();
     mockPublishableKey = "pk_test_x";
     mockElementsOptions.length = 0;
-    document.documentElement.classList.remove("theme-daylight");
     document.head.querySelectorAll("[data-test-tokens]").forEach((n) => n.remove());
     mockCreateSetupIntent.mockResolvedValue({ client_secret: "seti_1_secret_abc" });
   });
@@ -263,28 +257,17 @@ describe("PremiumCheckout", () => {
     await waitFor(() => expect(mockCreateSetupIntent).not.toHaveBeenCalled());
   });
 
-  it("rebuilds the appearance object when the theme changes", async () => {
+  it("builds the appearance from the direction G tokens on Stripe's light base", async () => {
     installTokens();
     mockConfirmSetup.mockResolvedValue({ setupIntent: { id: "seti_1" } });
 
     render(<PremiumCheckout plan="monthly" />);
     expect(await screen.findByTestId("payment-element")).toBeInTheDocument();
 
-    const floodlight = mockElementsOptions[mockElementsOptions.length - 1].appearance;
-    expect(floodlight?.theme).toBe("night");
+    const appearance = mockElementsOptions[mockElementsOptions.length - 1].appearance;
+    expect(appearance?.theme).toBe("stripe");
     // The bare triple wrapped into a colour the Appearance API can take.
-    expect(floodlight?.variables?.colorPrimary).toBe("hsl(84 78% 55%)");
-    expect(floodlight?.variables?.colorBackground).toBe("hsl(148 29% 9%)");
-
-    act(() => {
-      document.documentElement.classList.add("theme-daylight");
-    });
-
-    await waitFor(() => {
-      const daylight = mockElementsOptions[mockElementsOptions.length - 1].appearance;
-      expect(daylight?.theme).toBe("stripe");
-      expect(daylight?.variables?.colorPrimary).toBe("hsl(84 66% 52%)");
-      expect(daylight?.variables?.colorBackground).toBe("hsl(0 0% 100%)");
-    });
+    expect(appearance?.variables?.colorPrimary).toBe("hsl(161.61 67.39% 18.04%)");
+    expect(appearance?.variables?.colorBackground).toBe("hsl(0 0% 100%)");
   });
 });

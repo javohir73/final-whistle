@@ -1,34 +1,38 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { TeamBadge } from "@/components/TeamBadge";
-import { Skeleton } from "@/components/Skeleton";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MatchUserPrediction } from "@/components/MatchUserPrediction";
-import { useMatchLive, type MatchLive } from "@/components/match/MatchLiveProvider";
+import { useMatchLive } from "@/components/match/MatchLiveProvider";
 import {
   cachedPrediction,
   findMyLeagueTip,
   LeagueTipsNotOpen,
-  writePickerCache,
   type FoundTip,
 } from "@/components/match/leagueTipLookup";
 import { isLeagueTipsCompetition } from "@/components/match/picks";
+import {
+  agreementLine,
+  draftReady,
+  kickoffTimeLower,
+  EMPTY_DRAFT,
+  MAX_GOALS,
+  MIN_GOALS,
+  stepDraft,
+  type Draft,
+  type WeekFixture,
+} from "@/components/match/matchPageData";
 import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
+import { Button, CheckIcon, TextLink } from "@/components/ui";
 import { submitLeagueTip } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { recordEngagement } from "@/lib/engagement";
 import { trackEvent } from "@/lib/analytics";
-import { useTimezone } from "@/lib/useTimezone";
-import { kickoffDate, kickoffTime, relativeDayLabel, tzAbbrev } from "@/lib/datetime";
-import { formatScore } from "@/lib/format";
-import { isPickable, matchPhase, RESULT_PENDING, stoppedLabel, type MatchPhase } from "@/lib/matchStatus";
-import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { announceLockedPick, useModelRevealMap } from "@/lib/useModelReveal";
+import { kickoffDate, relativeDayLabel, tzAbbrev } from "@/lib/datetime";
+import { isPickable, matchPhase, stoppedLabel, type MatchPhase } from "@/lib/matchStatus";
+import { COMPETITIONS, footballMatchHref, type CompetitionId } from "@/lib/sports";
 import { cn } from "@/lib/utils";
 import type { LeagueTipsMineModel, LeagueTipsMineYourPrediction } from "@/lib/types";
-
-const MIN_GOALS = 0;
-const MAX_GOALS = 9;
 
 export { isLeagueTipsCompetition };
 
@@ -41,7 +45,7 @@ export function pickWindowOpen(status: string, kickoffUtc: string | null | undef
   return now.getTime() < Date.parse(kickoffUtc);
 }
 
-/** "Locks at kickoff · 3:00 PM AEDT" (today) / "· Sat 8 Nov, 3:00 PM AEDT". */
+/** "Locks at kickoff · 3:00 pm AEDT" (today) / "· Sat 8 Nov, 3:00 pm AEDT". */
 export function pickLockLine(
   status: string,
   kickoffUtc: string | null | undefined,
@@ -53,24 +57,25 @@ export function pickLockLine(
   if (stopped) return `${stopped} · picks closed`;
   if (!pickWindowOpen(status, kickoffUtc, now)) return "Locked at kickoff";
   if (!kickoffUtc) return "Locks at kickoff";
-  const time = `${kickoffTime(kickoffUtc, tz)} ${tzAbbrev(kickoffUtc, tz)}`.trim();
+  const time = `${kickoffTimeLower(kickoffUtc, tz)} ${tzAbbrev(kickoffUtc, tz)}`.trim();
   const day = relativeDayLabel(kickoffUtc, tz, now);
   if (day === "Today") return `Locks at kickoff · ${time}`;
   return `Locks at kickoff · ${day ?? kickoffDate(kickoffUtc, tz)}, ${time}`;
 }
 
-/** The pick, directly under the model's call (`#pick`, the target of every
- *  "Make your pick"). A sport-agnostic shell -- heading and lock line -- over
- *  one adapter per game:
+/** The scoring line under the lock button (the game's real rules). */
+export const PICK_RULES = "Exact score 5 points, right result 2. A locked pick is final.";
+
+/** The pick, inside the match hero under a hairline (`#pick`, the target of
+ *  every "Pick score"). Direction G: both boxes start EMPTY, round − / +
+ *  steppers either side of each box, the lock button stays disabled until a
+ *  score is set, and a locked pick is final (no edit, no unlock).
  *
- *  - club leagues: the SCORED scoreline game (the same /tips/submit as /play,
- *    5 pts exact / 2 pts right result), so a pick here counts;
- *  - the World Cup (knockout): the legacy W/D/L pick, kept for the archive;
- *  - anything else: an honest "not open" note.
- *
- *  The shell never disappears: when the API fails it says so and offers a
- *  retry. Pickability reads the page's shared live feed, so the controls lock
- *  at kickoff on an open tab without a reload. */
+ *  Club leagues play the SCORED scoreline game (the same /tips/submit as
+ *  /play, 5 points exact / 2 right result). The World Cup archive keeps its
+ *  local W/D/L pick while a fixture is open (none is today). Competitions
+ *  without a pick game say so in one line. Renders nothing where there is no
+ *  pick to show (a finished match: the call card carries the user's pick). */
 export function MatchPick({
   competition,
   matchId,
@@ -78,6 +83,9 @@ export function MatchPick({
   away,
   kickoffUtc,
   matchweek,
+  modelScore = null,
+  week = [],
+  onLocked,
 }: {
   competition: CompetitionId;
   matchId: number;
@@ -88,102 +96,83 @@ export function MatchPick({
   /** The match's league matchweek from the page payload (null: none;
    *  undefined: an older backend that does not send it). */
   matchweek?: number | null;
+  /** The model's predicted score when the page already has it (for the
+   *  "you and the model" line after a lock). */
+  modelScore?: { home: number; away: number } | null;
+  /** The matchweek's fixtures in kick-off order (for "Next: X v Y"). */
+  week?: WeekFixture[];
+  /** Called once the server has accepted a pick. */
+  onLocked?: () => void;
 }) {
   const live = useMatchLive();
-  const { tz } = useTimezone();
   const [fallbackNow] = useState(() => new Date());
   const now = live?.now ?? fallbackNow;
   const summary = live?.summary ?? null;
   const kickoff = summary?.kickoff_utc ?? kickoffUtc;
   // The polled summary carries the field too; whichever payload has it wins.
-  const week = summary?.matchweek !== undefined ? summary.matchweek : matchweek;
+  const mw = summary?.matchweek !== undefined ? summary.matchweek : matchweek;
   const status = summary?.status ?? "scheduled";
   const phase = matchPhase({ status, kickoff_utc: kickoff ?? null }, now);
 
+  if (isLeagueTipsCompetition(competition)) {
+    return (
+      <LeagueScorePick
+        league={competition}
+        competition={competition}
+        matchId={matchId}
+        home={home}
+        away={away}
+        kickoffUtc={kickoff ?? null}
+        matchweek={mw}
+        liveStatus={summary?.status ?? null}
+        phase={phase}
+        now={now}
+        refreshLive={live?.refresh}
+        modelScore={modelScore}
+        week={week}
+        onLocked={onLocked}
+      />
+    );
+  }
+  if (competition === "wc26") {
+    // The archive: only an open fixture (none today) still takes a W/D/L pick.
+    if (!summary || !pickWindowOpen(status, kickoff, now)) return null;
+    return (
+      <PickShell>
+        <MatchUserPrediction match={summary} now={now} />
+      </PickShell>
+    );
+  }
+  if (phase === "finished") return null;
   return (
-    <section id="pick" aria-labelledby="pick-heading" className="scroll-mt-24">
-      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0.5">
-        <h2 id="pick-heading" className="font-display text-lg font-bold text-foreground">
-          Your pick
-        </h2>
-        <span className="text-label font-semibold text-muted">{pickLockLine(status, kickoff, now, tz)}</span>
-      </div>
-      {isLeagueTipsCompetition(competition) ? (
-        <LeagueScorePick
-          league={competition}
-          competition={competition}
-          matchId={matchId}
-          home={home}
-          away={away}
-          kickoffUtc={kickoff ?? null}
-          matchweek={week}
-          liveStatus={summary?.status ?? null}
-          liveScore={summary ? { home: summary.score_home, away: summary.score_away } : null}
-          phase={phase}
-          now={now}
-          refreshLive={live?.refresh}
-        />
-      ) : competition === "wc26" ? (
-        <OutcomePick live={live} />
-      ) : (
-        <PicksNotOpen competition={competition} />
-      )}
-    </section>
-  );
-}
-
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("glass rounded-2xl p-4", className)}>{children}</div>;
-}
-
-function Unavailable({ onRetry }: { onRetry?: () => void }) {
-  return (
-    <Card className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm font-semibold text-foreground">Picks unavailable right now</p>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex min-h-[44px] items-center rounded-xl border border-border px-4 text-sm font-semibold text-foreground transition hover:border-win hover:text-lime-deep"
-        >
-          Retry
-        </button>
-      )}
-    </Card>
-  );
-}
-
-function PickSkeleton() {
-  return (
-    <Card>
-      <div role="status" aria-label="Loading your pick…" className="space-y-3">
-        <Skeleton className="h-11 w-full rounded-xl" />
-        <Skeleton className="h-11 w-full rounded-xl" />
-        <Skeleton className="h-11 w-full rounded-xl" />
-      </div>
-    </Card>
-  );
-}
-
-function PicksNotOpen({ competition }: { competition: CompetitionId }) {
-  return (
-    <Card>
-      <p className="text-sm text-foreground">
-        Score picks for {COMPETITIONS[competition].label} aren&apos;t open yet.
+    <PickShell heading={false}>
+      <p className="text-notes text-muted">
+        Score picks for the {COMPETITIONS[competition].label} aren&apos;t open yet, so the model&apos;s call is shown.
       </p>
-      <Link href="/play" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
-        See what&apos;s open in Play →
-      </Link>
-    </Card>
+    </PickShell>
   );
 }
 
-/** World Cup adapter: the local W/D/L pick, fed by the shared live summary so
- *  it locks at kickoff like everything else on the page. */
-function OutcomePick({ live }: { live: MatchLive | null }) {
-  if (live?.summary) return <MatchUserPrediction match={live.summary} now={live.now} />;
-  if (live?.loading) return <PickSkeleton />;
-  return <Unavailable onRetry={live?.refresh} />;
+/** The hairline and the 550px pick column inside the hero. */
+function PickShell({ children, heading = true }: { children: React.ReactNode; heading?: boolean }) {
+  return (
+    <>
+      <div aria-hidden="true" className="mt-7 h-px w-full max-w-[550px] bg-line min-[900px]:mt-8" />
+      <section
+        id="pick"
+        aria-labelledby={heading ? "pick-heading" : undefined}
+        aria-label={heading ? undefined : "Your pick"}
+        className="w-full max-w-[550px] scroll-mt-28 pt-7"
+      >
+        {heading && (
+          <h2 id="pick-heading" className="text-h2 font-semibold text-ink">
+            Your pick
+          </h2>
+        )}
+        {children}
+      </section>
+    </>
+  );
 }
 
 type LoadState =
@@ -196,7 +185,6 @@ type LoadState =
 interface Submitted {
   your: LeagueTipsMineYourPrediction;
   model: LeagueTipsMineModel | null;
-  handle: string;
 }
 
 function LeagueScorePick({
@@ -208,10 +196,12 @@ function LeagueScorePick({
   kickoffUtc,
   matchweek,
   liveStatus,
-  liveScore,
   phase,
   now,
   refreshLive,
+  modelScore,
+  week,
+  onLocked,
 }: {
   league: string;
   competition: CompetitionId;
@@ -222,10 +212,12 @@ function LeagueScorePick({
   matchweek?: number | null;
   /** The polled summary's status (fresher than the tips row), if any. */
   liveStatus: string | null;
-  liveScore: { home: number | null; away: number | null } | null;
   phase: MatchPhase;
   now: Date;
   refreshLive?: () => void;
+  modelScore: { home: number; away: number } | null;
+  week: WeekFixture[];
+  onLocked?: () => void;
 }) {
   // undefined until mounted (SSR / hydration), null when storage is blocked.
   const [deviceId, setDeviceId] = useState<string | null | undefined>(undefined);
@@ -233,7 +225,7 @@ function LeagueScorePick({
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [submitted, setSubmitted] = useState<Submitted | null>(null);
-  const [draft, setDraft] = useState({ home: 0, away: 0 });
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // The server said "kicked off": close the stepper now, not on the next tick
@@ -242,6 +234,10 @@ function LeagueScorePick({
   // The server said a pick already exists. If the re-fetch still cannot find
   // it (the week does not list the match), never offer the stepper again.
   const [finalized, setFinalized] = useState(false);
+  // Keyboard focus after a server-accepted lock: the lock button unmounts, so
+  // focus moves to the "Locked." status instead of dropping to <body>.
+  const lockedRef = useRef<HTMLParagraphElement>(null);
+  const focusLocked = useRef(false);
   // Bumps after a sign-in claim, which can move this device's picks to an
   // account (and drop the device's own player row): re-read the server, and
   // forget what this card only knew locally.
@@ -285,20 +281,22 @@ function LeagueScorePick({
     submitted?.your ??
     row?.your_prediction ??
     (cached ? { ...cached, points: null, exact: null, graded_at: null, updated_at: null } : null);
-  const model = submitted?.model ?? row?.model ?? null;
-  const handle = submitted?.handle ?? found?.handle ?? null;
+  const rowModel = submitted?.model ?? row?.model ?? null;
+  const model =
+    rowModel && rowModel.predicted_home != null && rowModel.predicted_away != null
+      ? { home: rowModel.predicted_home, away: rowModel.predicted_away }
+      : modelScore;
   // A confirmed result from either source wins: the page's summary can be
   // hours old (ISR), the tips row is never cached.
-  const status =
-    row?.status === "finished" ? "finished" : liveStatus ?? row?.status ?? "scheduled";
+  const status = row?.status === "finished" ? "finished" : liveStatus ?? row?.status ?? "scheduled";
   const effectivePhase: MatchPhase = status === "finished" ? "finished" : phase;
   const open = !serverLocked && !finalized && pickWindowOpen(status, kickoffUtc, now);
-  const finalScore =
-    row?.score_home != null && row?.score_away != null
-      ? formatScore(row.score_home, row.score_away)
-      : liveScore && liveScore.home != null && liveScore.away != null
-        ? formatScore(liveScore.home, liveScore.away)
-        : null;
+
+  useEffect(() => {
+    if (!focusLocked.current || !your || !lockedRef.current) return;
+    focusLocked.current = false;
+    lockedRef.current.focus({ preventScroll: true });
+  });
 
   const retry = useCallback(() => {
     setMessage(null);
@@ -307,7 +305,7 @@ function LeagueScorePick({
   }, [refreshLive]);
 
   async function lockIn() {
-    if (!deviceId || pending) return;
+    if (!deviceId || pending || !draftReady(draft)) return;
     setPending(true);
     setMessage(null);
     try {
@@ -327,14 +325,24 @@ function LeagueScorePick({
           updated_at: res.prediction.updated_at,
         },
         model: res.model,
-        handle: res.handle,
       });
-      if (foundWeek != null) {
-        writePickerCache(league, foundWeek, matchId, {
-          predicted_home: res.prediction.predicted_home,
-          predicted_away: res.prediction.predicted_away,
-        });
-      }
+      focusLocked.current = true;
+      // Every gated section on the page reveals at once (and the confirmed-
+      // pick cache /play reads is written, as writePickerCache did).
+      announceLockedPick({
+        competition,
+        matchId,
+        matchweek: foundWeek ?? (typeof matchweek === "number" ? matchweek : null),
+        pick: {
+          kind: "score",
+          home: res.prediction.predicted_home,
+          away: res.prediction.predicted_away,
+          points: null,
+          exact: null,
+          gradedAt: null,
+        },
+      });
+      onLocked?.();
       recordEngagement("pick"); // gates the install prompt
       trackEvent("pick_submit", { competition, match_id: matchId, source: "match_page" });
       pingDailyActivity().catch(() => {}); // retention instrumentation, best-effort
@@ -350,205 +358,272 @@ function LeagueScorePick({
         setServerLocked(true);
         refreshLive?.();
       } else {
-        setMessage(err instanceof ApiError ? err.message : "Couldn't save your pick. Try again.");
+        setMessage(err instanceof ApiError ? err.message : "Couldn’t save your pick. Check your connection and try again.");
       }
     } finally {
       setPending(false);
     }
   }
 
-  if (load.kind === "loading") return <PickSkeleton />;
-  if (load.kind === "error") return <Unavailable onRetry={retry} />;
-  if (load.kind === "closed") return <PicksNotOpen competition={competition} />;
-  if (load.kind === "no-device") {
-    return (
-      <Card>
-        <p className="text-sm text-foreground">
-          Picks need your browser&apos;s storage to remember you. Allow site data to play.
-        </p>
-      </Card>
-    );
-  }
+  // A finished match: the model's call card shows the result, the call and
+  // this viewer's pick with its points. Nothing to do here.
+  if (effectivePhase === "finished") return null;
 
   const playHref = `/play?competition=${competition}`;
-  const boardHref = `/leaderboard?competition=${competition}`;
   const note = message ? (
-    <p role="alert" className="mt-2 text-xs font-medium text-loss-ink">
+    <p role="alert" className="mt-3 text-notes font-medium text-miss">
       {message}
     </p>
   ) : null;
 
-  if (your) {
-    const yours = formatScore(your.predicted_home, your.predicted_away);
-    const models = model ? formatScore(model.predicted_home, model.predicted_away) : "—";
-    const graded = your.graded_at != null && your.points != null;
-    if (graded) {
-      const pts = your.points ?? 0;
-      const headline = your.exact
-        ? `You +${pts} pts · exact score`
-        : pts > 0
-          ? `You +${pts} pts · right result`
-          : "You 0 pts · not this time";
-      return (
-        <Card>
-          <p className={cn("font-display text-lg font-extrabold", pts > 0 ? "text-lime-deep" : "text-foreground")}>
-            {headline}
-          </p>
-          <p className="mt-1 text-sm tabular-nums text-muted">
-            You {yours} · Model {models}
-            {finalScore ? ` · Final ${finalScore}` : ""}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-x-5">
-            <Link href={playHref} className="inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
-              Your picks →
-            </Link>
-            <Link href={boardHref} className="inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
-              Leaderboard →
-            </Link>
-          </div>
-          {note}
-        </Card>
-      );
-    }
-    const progress =
-      status === "postponed"
-        ? "Postponed · your pick carries over to the new date"
-        : status === "cancelled"
-          ? "Cancelled · this pick won't be scored"
-          : status === "suspended"
-            ? "Suspended · points wait on the outcome"
-            : effectivePhase === "live"
-              ? "In play · points land at full time"
-              : effectivePhase === "stale"
-                ? `${RESULT_PENDING} · points land once it's confirmed`
-                : effectivePhase === "finished"
-                  ? `Full time${finalScore ? ` ${finalScore}` : ""} · points land when the result is graded`
-                  : "Locked in · 5 pts for the exact score, 2 for the right result";
+  if (load.kind === "loading") {
     return (
-      <Card>
-        <p className="font-display text-lg font-extrabold tabular-nums text-foreground">
-          You {yours} · Model {models}
+      <PickShell>
+        <div role="status" aria-label="Loading your pick…" className="mt-5 flex flex-col items-center gap-6">
+          <div className="h-[72px] w-full max-w-[420px] rounded-[14px] bg-soft min-[480px]:h-[84px]" />
+          <div className="h-14 w-full rounded-full bg-soft" />
+        </div>
+      </PickShell>
+    );
+  }
+  if (load.kind === "error") {
+    return (
+      <PickShell>
+        <div className="mt-4 flex flex-col items-center gap-3">
+          <p className="text-notes text-muted">Picks are unavailable right now.</p>
+          <Button onClick={retry}>Retry</Button>
+        </div>
+      </PickShell>
+    );
+  }
+  if (load.kind === "closed") {
+    return (
+      <PickShell>
+        <p className="mt-3 text-notes text-muted">
+          Score picks for the {COMPETITIONS[competition].label} aren&apos;t open yet.
         </p>
-        <p className="mt-1 text-sm text-muted">{progress}</p>
-        <Link href={playHref} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
-          Pick the rest of the matchweek →
-        </Link>
+      </PickShell>
+    );
+  }
+  if (load.kind === "no-device") {
+    return (
+      <PickShell>
+        <p className="mt-3 text-notes text-muted">
+          Picks need your browser&apos;s storage to remember you. Allow site data to play.
+        </p>
+      </PickShell>
+    );
+  }
+
+  if (your) {
+    const mine = { home: your.predicted_home, away: your.predicted_away };
+    const stopped = stoppedLabel(status);
+    const line =
+      status === "postponed"
+        ? "Postponed. Your pick carries over to the new date."
+        : status === "cancelled"
+          ? "Cancelled. This pick won’t be scored."
+          : status === "suspended"
+            ? "Suspended. Points wait on the outcome."
+            : effectivePhase === "live" || effectivePhase === "stale"
+              ? "Points land at full time."
+              : model
+                ? agreementLine(mine, model)
+                : null;
+    return (
+      <PickShell>
+        <div className="mb-6 mt-5 flex items-center justify-center gap-3.5">
+          <ScoreBox value={mine.home} team={home} />
+          <Dash />
+          <ScoreBox value={mine.away} team={away} />
+        </div>
+        <p
+          ref={lockedRef}
+          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          className="inline-flex items-center justify-center gap-2 rounded-input font-semibold text-brand"
+        >
+          <CheckIcon size={16} />
+          <span>
+            Locked.{line ? ` ${line}` : ""}
+            {stopped && !line ? ` ${stopped}.` : ""}
+          </span>
+        </p>
+        <NextPick competition={competition} matchId={matchId} week={week} playHref={playHref} />
         {note}
-      </Card>
+      </PickShell>
     );
   }
 
   if (finalized) {
     return (
-      <Card>
-        <p className="font-display text-base font-bold text-foreground">
-          Your pick for this match is already locked in
-        </p>
-        <Link href={playHref} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
-          See it in Play →
-        </Link>
+      <PickShell>
+        <p className="mt-3 font-semibold text-ink">Your pick for this match is already locked in.</p>
+        <div className="mt-4">
+          <TextLink href={playHref}>See it in My picks</TextLink>
+        </div>
         {note}
-      </Card>
+      </PickShell>
     );
   }
 
   if (!open) {
     const stopped = stoppedLabel(status);
     return (
-      <Card>
-        <p className="font-display text-base font-bold text-foreground">
-          {stopped ? `${stopped} · no picks` : "Picks closed at kickoff"}
+      <PickShell>
+        <p className="mt-3 text-notes text-muted">
+          {stopped ? `${stopped}. This match won’t be scored.` : "Picks closed at kick-off. You didn’t pick this one."}
         </p>
-        <p className="mt-1 text-sm tabular-nums text-muted">
-          {stopped ? "This match won't be scored." : "You didn't pick this one."}
-          {model ? ` Model ${formatScore(model.predicted_home, model.predicted_away)}.` : ""}
-        </p>
-        <Link href={playHref} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-lime-deep">
-          Pick what&apos;s still open →
-        </Link>
+        <NextPick competition={competition} matchId={matchId} week={week} playHref={playHref} quiet />
         {note}
-      </Card>
+      </PickShell>
     );
   }
 
-  const scoreline = formatScore(draft.home, draft.away);
+  const ready = draftReady(draft);
+  const step = (side: "home" | "away", dir: 1 | -1) => setDraft((d) => stepDraft(d, side, dir));
   return (
-    <Card>
-      <div className="space-y-2.5">
-        <GoalStepper
-          team={home}
-          value={draft.home}
-          disabled={pending}
-          onChange={(v) => setDraft((d) => ({ ...d, home: v }))}
-        />
-        <GoalStepper
-          team={away}
-          value={draft.away}
-          disabled={pending}
-          onChange={(v) => setDraft((d) => ({ ...d, away: v }))}
-        />
-      </div>
-      <button
-        type="button"
-        onClick={lockIn}
-        disabled={pending}
-        className="mt-3.5 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-win px-4 font-display text-sm font-bold text-action-ink transition hover:brightness-105 disabled:cursor-wait disabled:opacity-disabled-40"
+    <PickShell>
+      <div
+        role="group"
+        aria-label="Set your score"
+        className="mb-6 mt-5 flex items-center justify-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-3.5"
       >
-        {pending ? "Locking in…" : `Lock in ${scoreline}`}
-      </button>
-      <p className="mt-2.5 text-xs leading-relaxed text-muted">
-        5 pts for the exact score, 2 for the right result. Your first pick is final: locking in
-        reveals the model&apos;s frozen scoreline.
-        {handle ? ` Playing as ${handle}.` : ""}
+        <Stepper label={`Take a goal off ${home}`} disabled={pending || draft.home === MIN_GOALS} onClick={() => step("home", -1)}>
+          −
+        </Stepper>
+        <ScoreBox value={draft.home} team={home} live />
+        <Stepper label={`Add a goal for ${home}`} disabled={pending || draft.home === MAX_GOALS} onClick={() => step("home", 1)}>
+          +
+        </Stepper>
+        <Dash />
+        <Stepper label={`Take a goal off ${away}`} disabled={pending || draft.away === MIN_GOALS} onClick={() => step("away", -1)}>
+          −
+        </Stepper>
+        <ScoreBox value={draft.away} team={away} live />
+        <Stepper label={`Add a goal for ${away}`} disabled={pending || draft.away === MAX_GOALS} onClick={() => step("away", 1)}>
+          +
+        </Stepper>
+      </div>
+      <Button wide disabled={!ready || pending} onClick={lockIn}>
+        {pending
+          ? "Locking in…"
+          : ready
+            ? `Lock in ${home} ${draft.home}–${draft.away} ${away}`
+            : "Use + and − to set a score"}
+      </Button>
+      <p className="mt-3.5 text-notes text-muted">
+        {status === "postponed" ? "Postponed: picks stay open until the new kick-off. " : ""}
+        {PICK_RULES}
       </p>
       {note}
-    </Card>
+    </PickShell>
   );
 }
 
-function GoalStepper({
-  team,
-  value,
+function Stepper({
+  label,
   disabled,
-  onChange,
+  onClick,
+  children,
 }: {
-  team: string;
-  value: number;
+  label: string;
   disabled: boolean;
-  onChange: (value: number) => void;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
-  const step = (delta: 1 | -1) => onChange(Math.min(MAX_GOALS, Math.max(MIN_GOALS, value + delta)));
-  const button =
-    "grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-border bg-surface-2/50 text-lg font-bold text-muted transition hover:border-win/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-disabled-40";
   return (
-    <div role="group" aria-label={`${team} goals`} className="flex items-center gap-3">
-      <TeamBadge team={team} size={24} />
-      <span className="min-w-0 flex-1 truncate font-display text-sm font-bold">{team}</span>
-      <button
-        type="button"
-        aria-label={`Fewer ${team} goals`}
-        disabled={disabled || value <= MIN_GOALS}
-        onClick={() => step(-1)}
-        className={button}
-      >
-        −
-      </button>
-      <span
-        aria-live="polite"
-        aria-atomic="true"
-        className="w-7 text-center font-display text-xl font-extrabold tabular-nums text-foreground"
-      >
-        {value}
-      </span>
-      <button
-        type="button"
-        aria-label={`More ${team} goals`}
-        disabled={disabled || value >= MAX_GOALS}
-        onClick={() => step(1)}
-        className={button}
-      >
-        +
-      </button>
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-ground text-[20px] font-semibold leading-none text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:border-line min-[480px]:h-12 min-[480px]:w-12"
+    >
+      <span aria-hidden="true">{children}</span>
+    </button>
+  );
+}
+
+/** A score box: soft 72×84 (smaller on narrow phones), "–" while empty. */
+function ScoreBox({ value, team, live }: { value: number | null; team: string; live?: boolean }) {
+  return (
+    <div
+      aria-live={live ? "polite" : undefined}
+      aria-atomic={live ? "true" : undefined}
+      className={cn(
+        "grid h-16 w-12 shrink-0 place-items-center rounded-[14px] bg-soft text-[32px] font-semibold leading-none tracking-[-0.02em] tabular-nums min-[400px]:h-[72px] min-[400px]:w-14 min-[400px]:text-[36px] min-[480px]:h-[84px] min-[480px]:w-[72px] min-[480px]:text-[44px]",
+        value == null ? "text-placeholder" : "text-ink",
+      )}
+    >
+      <span className="sr-only">{team} </span>
+      {value == null ? (
+        <>
+          <span aria-hidden="true">–</span>
+          <span className="sr-only">not set</span>
+        </>
+      ) : (
+        value
+      )}
+    </div>
+  );
+}
+
+function Dash() {
+  return (
+    <span aria-hidden="true" className="px-0.5 text-[22px] text-dash">
+      –
+    </span>
+  );
+}
+
+/** "Next: X v Y" to the matchweek's next unpicked open fixture, else "All
+ *  picked. See my picks". Reads the same /tips/mine the reveal hooks share. */
+function NextPick({
+  competition,
+  matchId,
+  week,
+  playHref,
+  quiet,
+}: {
+  competition: CompetitionId;
+  matchId: number;
+  week: WeekFixture[];
+  playHref: string;
+  /** Closed without a pick: only offer a next match, never "All picked". */
+  quiet?: boolean;
+}) {
+  const fixtures = useMemo(
+    () =>
+      week.map((f) => ({
+        competition,
+        matchId: f.id,
+        status: f.status,
+        kickoffUtc: f.kickoffUtc,
+        matchweek: f.matchweek,
+      })),
+    [week, competition],
+  );
+  const reveals = useModelRevealMap(fixtures);
+  if (reveals.isLoading) return <div className="mt-6 min-h-[56px]" aria-hidden="true" />;
+  // Open and not picked by this device = the reveal rule's "hidden".
+  const next = week.find((f) => f.id !== matchId && reveals.get(f.id).reason === "hidden");
+  if (next) {
+    return (
+      <div className="mt-6">
+        <Button wide href={footballMatchHref(competition, next.id)}>
+          Next: {next.home} v {next.away}
+        </Button>
+      </div>
+    );
+  }
+  if (quiet) return null;
+  return (
+    <div className="mt-6">
+      <Button wide href={playHref}>
+        All picked. See my picks
+      </Button>
     </div>
   );
 }

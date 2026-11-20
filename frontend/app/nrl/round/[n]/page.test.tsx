@@ -1,7 +1,6 @@
 /** NRL round page tests — server component (SSR) output. The tipsheet fetch
- *  defaults to null in beforeEach so every pre-existing assertion keeps
- *  exercising the plain fixture-grid fallback unchanged; a dedicated test
- *  below covers the TipsheetBlock taking over when the endpoint succeeds. */
+ *  is only used by generateStaticParams now (the page renders the round from
+ *  /api/nrl/matches on the centred spine). */
 import { render, screen } from "@testing-library/react";
 import NrlRoundPage, { generateStaticParams } from "./page";
 import { getNrlMatchesServer, getNrlTipsheetServer } from "@/lib/api";
@@ -98,15 +97,29 @@ it("calls notFound() for a non-numeric round without hitting the API", async () 
   expect(mockMatches).not.toHaveBeenCalled();
 });
 
-it("renders the TipsheetBlock, season record and all, once the tipsheet endpoint succeeds", async () => {
-  mockMatches.mockResolvedValue(fixtures);
-  mockTipsheet.mockResolvedValue(tipsheet);
-  render(await NrlRoundPage({ params: params() }));
+it("never server-renders the model's call for an open match, and shows its verdict once finished", async () => {
+  // Open: a tip action, no numbers.
+  mockMatches.mockResolvedValue({
+    ...fixtures,
+    rounds: [{ round: 19, matches: [{ ...fixtures.rounds[1].matches[0],
+      kickoff_utc: new Date(Date.now() + 86_400_000).toISOString(),
+      prediction: { p_home: 0.55, p_draw: 0.02, p_away: 0.43, expected_margin: 2, model_version: "v", created_at: null, is_shadow: false } }] }],
+  });
+  const { container, unmount } = render(await NrlRoundPage({ params: params() }));
+  expect(container.textContent).not.toMatch(/55%|Called it|Missed/);
+  unmount();
 
-  expect(mockTipsheet).toHaveBeenCalledWith(2026, 19);
-  expect(screen.getByText("Wests Tigers")).toBeInTheDocument();
-  expect(screen.getByText(/5 graded/)).toBeInTheDocument();
+  // Finished: the model's verdict.
+  mockMatches.mockResolvedValue({
+    ...fixtures,
+    rounds: [{ round: 19, matches: [{ ...fixtures.rounds[1].matches[0], status: "finished", score_home: 12, score_away: 20,
+      prediction: { p_home: 0.55, p_draw: 0.02, p_away: 0.43, expected_margin: 2, model_version: "v", created_at: null, is_shadow: false } }] }],
+  });
+  render(await NrlRoundPage({ params: params() }));
+  expect(screen.getByText("Missed")).toBeInTheDocument();
+  expect(screen.getByText("55%")).toBeInTheDocument();
 });
+
 
 describe("generateStaticParams", () => {
   it("pre-renders the current round (from the tipsheet endpoint) and the next one", async () => {

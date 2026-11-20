@@ -1,63 +1,42 @@
+import { Card } from "@/components/ui";
 import { pct } from "@/lib/format";
-import type { GoalMarkets as GoalMarketsData, TeamGoalBands } from "@/lib/types";
+import type { GoalMarkets as GoalMarketsData } from "@/lib/types";
 
-/** Below this, the "4+ goals" row is hidden to keep even contests uncluttered. */
-const NOTABLE_4PLUS = 0.1;
-
-/** Goal-total markets for a match: per-team bands + match over/under + BTTS.
- *  All numbers come from the same Poisson distribution as the predicted score. */
+/** "Goal chances" (direction G): four rows from the same Poisson
+ *  distribution as the model's score -- over 2.5 goals, both teams score,
+ *  and each team scoring. The per-team 2+/3+/4+ bands and over 1.5/3.5 were
+ *  cut to keep the page calm (DECISIONS). Model numbers: render it only where
+ *  the reveal rule allows. */
 export function GoalMarkets({
   home,
   away,
   markets,
+  id = "goals",
 }: {
   home: string;
   away: string;
   markets: GoalMarketsData;
+  id?: string;
 }) {
-  return (
-    <section className="glass rounded-2xl p-6">
-      <h2 className="mb-4 font-display text-lg font-bold text-foreground">Goals</h2>
-      <div className="grid gap-5 sm:grid-cols-2">
-        <TeamBands team={home} bands={markets.home} />
-        <TeamBands team={away} bands={markets.away} />
-      </div>
-      <div className="mt-5 grid grid-cols-3 gap-2 border-t border-border pt-4">
-        <Stat label="Over 2.5" value={markets.total.over_2_5} />
-        <Stat label="Over 3.5" value={markets.total.over_3_5} />
-        <Stat label="Both score" value={markets.btts} />
-      </div>
-    </section>
-  );
-}
-
-function TeamBands({ team, bands }: { team: string; bands: TeamGoalBands }) {
   const rows: [string, number][] = [
-    ["To score", bands.to_score],
-    ["2+ goals", bands.p2],
-    ["3+ goals", bands.p3],
+    ["Over 2.5 goals", markets.total.over_2_5],
+    ["Both teams score", markets.btts],
+    [`${home} score`, markets.home.to_score],
+    [`${away} score`, markets.away.to_score],
   ];
-  if (bands.p4 >= NOTABLE_4PLUS) rows.push(["4+ goals", bands.p4]);
   return (
-    <div>
-      <p className="mb-2 font-display text-sm font-bold">{team}</p>
-      <ul className="space-y-1.5">
-        {rows.map(([label, v]) => (
-          <li key={label} className="flex items-center justify-between text-sm">
-            <span className="text-muted">{label}</span>
-            <span className="font-display font-bold tabular-nums text-lime-deep">{pct(v)}</span>
+    <Card pad id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-28">
+      <h2 id={`${id}-heading`} className="text-h2 font-semibold text-ink">
+        Goal chances
+      </h2>
+      <ul className="mt-4 list-none p-0">
+        {rows.map(([label, value]) => (
+          <li key={label} className="flex items-center justify-between gap-4 border-t border-line-soft py-3.5">
+            <span className="font-medium text-ink">{label}</span>
+            <b className="font-bold tabular-nums text-ink">{pct(value)}</b>
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center">
-      <p className="font-display text-lg font-extrabold tabular-nums text-lime-deep">{pct(value)}</p>
-      <p className="mt-0.5 text-label font-semibold text-muted">{label}</p>
-    </div>
+    </Card>
   );
 }

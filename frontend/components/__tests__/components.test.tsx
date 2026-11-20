@@ -105,15 +105,13 @@ describe("MatchCard", () => {
     goal_events: [],
   };
 
-  it("renders matchup, predicted winner, score and links to detail", () => {
+  it("renders the matchup and links to detail, keeping the model's call hidden before kickoff", () => {
     render(<MatchCard match={match} href="/football/wc26/match/7" />);
-    // Team names appear in their rows and again on the labelled bar legend.
-    expect(screen.getAllByText("Mexico").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("South Africa").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("2–0")).toBeInTheDocument();
+    expect(screen.getByText("Mexico")).toBeInTheDocument();
+    expect(screen.getByText("South Africa")).toBeInTheDocument();
+    // Reveal rule: an open fixture shows no model scoreline until a pick is locked.
+    expect(screen.queryByText("2–0")).not.toBeInTheDocument();
     expect(screen.getByRole("link")).toHaveAttribute("href", "/football/wc26/match/7");
-    // The card carries a status pill now, not a confidence badge — even though
-    // this fixture has a confidence level, no "… confidence" badge is rendered.
     expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
   });
 
@@ -132,6 +130,8 @@ describe("MatchCard", () => {
     // The free feed's minute is an estimate, and says so.
     expect(screen.getByText("67' est.")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument(); // home live score
+    // Kicked off: the model's call is public now.
+    expect(screen.getByText("2–0")).toBeInTheDocument();
   });
 });
 

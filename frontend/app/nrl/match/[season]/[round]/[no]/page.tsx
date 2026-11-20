@@ -1,26 +1,36 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  getNrlLadderServer, getNrlMatchDetailServer, getNrlProbHistoryServer, getNrlRoundServer,
+  getNrlLadderServer, getNrlMatchDetailServer, getNrlRoundServer,
 } from "@/lib/api";
 import { APP_NAME } from "@/lib/constants";
 import { pct } from "@/lib/format";
-import { StandingsTable } from "@/components/StandingsTable";
-import { ladderRowsToStandings } from "@/lib/nrlAdapters";
-import { LocalKickoff } from "@/components/LocalKickoff";
-import { ShareButton } from "@/components/ShareButton";
+import { ClubBadge } from "@/components/ClubBadge";
+import { WhyCard } from "@/components/match/MatchCards";
+import { BackLink, Card, CardHead, ClubCell, Note, Table, TableScroll, Td, TextLink, Th } from "@/components/ui";
+import { NrlMatchTipGate } from "@/components/nrl/NrlMatchTipGate";
+import { NrlModelCallCard } from "@/components/nrl/NrlModelCallCard";
+import { signedNumber } from "@/lib/nrlDisplay";
+import { canRevealModelPublicly } from "@/lib/reveal";
 import { LiveMatchProvider } from "./LiveMatchProvider";
-import { MatchIntelClient } from "./MatchIntelClient";
 import { NrlMatchHero } from "./NrlMatchHero";
-import type { NrlMatch } from "@/lib/types";
+import type { NrlFactor, NrlMatch, NrlMatchDetail } from "@/lib/types";
 
 export const revalidate = 300;
 
-/** NRL match detail: /nrl/match/{season}/{round}/{match_no} — the triple is the
- *  match identity (sports.py keys matches on it; there is no per-match endpoint,
- *  so the page reads the round payload and picks its match out). Mirrors the
- *  World Cup /match/[id] page, scaled to the data the NRL vertical has. */
+/** NRL match detail: /nrl/match/{season}/{round}/{match_no} -- the triple is
+ *  the match identity (sports.py keys matches on it; the page reads the round
+ *  payload and picks its match out).
+ *
+ *  Calm, like the football match page: the hero (crests, score or kick-off,
+ *  try scorers), one "The model's call" card, a short "Why the model thinks
+ *  so" list when the API gives reasons, and one card of match facts.
+ *
+ *  The reveal rule: until the match is past the point of tipping, NOTHING the
+ *  server renders or serialises carries the model's call -- the prediction is
+ *  stripped from the match row, the detail payload is not fetched at all, and
+ *  the model card is the client tip gate (it reads the viewer's tip, and only
+ *  then the model's call, from /tips/mine). */
 
 interface RouteParams {
   season: string;
@@ -41,11 +51,16 @@ async function loadMatch(
   season: number,
   round: number,
   no: number,
-): Promise<{ match: NrlMatch; disclaimer: string } | null> {
+): Promise<{ match: NrlMatch } | null> {
   const data = await getNrlRoundServer(season, round);
-  const match =
-    data?.rounds.flatMap((r) => r.matches).find((m) => m.match_no === no) ?? null;
-  return match && data ? { match, disclaimer: data.disclaimer } : null;
+  const match = data?.rounds.flatMap((r) => r.matches).find((m) => m.match_no === no) ?? null;
+  return match ? { match } : null;
+}
+
+/** Past the point of tipping (kicked off, live, finished, cancelled)? Same
+ *  rule as every public surface (lib/reveal.ts). */
+function modelIsPublic(match: NrlMatch, now: Date): boolean {
+  return canRevealModelPublicly("nrl", match.status, match.kickoff_utc, now);
 }
 
 export async function generateMetadata({
@@ -60,9 +75,14 @@ export async function generateMetadata({
     return { title: `NRL match — ${APP_NAME}` };
   }
   const { match } = found;
-  const p = match.prediction;
-  const title = `${match.home} vs ${match.away} — NRL prediction | ${APP_NAME}`;
-  const description = p
+  const p = modelIsPublic(match, new Date()) ? match.prediction : null;
+  const open = !modelIsPublic(match, new Date());
+  const title = open
+    ? `${match.home} v ${match.away} — tip it | ${APP_NAME}`
+    : `${match.home} vs ${match.away} — NRL prediction | ${APP_NAME}`;
+  const description = open
+    ? `NRL round ${ids.round}: ${match.home} v ${match.away}. Tip the winner before kick-off, then see the model's call.`
+    : p
     ? `Model prediction for ${match.home} vs ${match.away} (NRL round ${ids.round}): ` +
       `${match.home} ${pct(p.p_home)}, draw ${pct(p.p_draw)}, ${match.away} ${pct(p.p_away)}.`
     : `NRL round ${ids.round}: ${match.home} vs ${match.away} — Model prediction, kickoff and ladder context.`;
@@ -87,91 +107,119 @@ export default async function NrlMatchDetailPage({
     getNrlLadderServer().catch(() => null),
   ]);
   if (!found) notFound();
-  const { match, disclaimer } = found;
+  const revealed = modelIsPublic(found.match, new Date());
+  const hadPrediction = found.match.prediction != null;
+  // Open match: the prediction never leaves the server.
+  const match: NrlMatch = revealed ? found.match : { ...found.match, prediction: null };
 
-  // Match Intelligence sections are additive — a hiccup must not take down
-  // the existing matchup/ladder content above. `match.id` comes straight out
-  // of the round payload just fetched by loadMatch (NrlMatch now carries the
-  // SportMatch id), so this needs no extra round lookup.
-  const [detail, probHistory] = await Promise.all([
-    getNrlMatchDetailServer(match.id).catch(() => null),
-    getNrlProbHistoryServer(match.id).catch(() => null),
-  ]);
+  // The detail payload only adds the model's reasons and a promoted
+  // scoreline, both part of the model's call -- so it is only fetched once
+  // the call is public. (Form, head-to-head, the scoring breakdown and the
+  // live win-chance card were cut from the calm page.)
+  const detail: NrlMatchDetail | null = revealed
+    ? await getNrlMatchDetailServer(match.id).catch(() => null)
+    : null;
 
   const home = match.home ?? "TBC";
   const away = match.away ?? "TBC";
   const p = match.prediction;
-  const clubRows = (ladder?.rows ?? []).filter(
-    (r) => r.name === match.home || r.name === match.away,
-  );
+  const roundLabel = `Round ${ids.round}`;
+  const reasons = p && detail ? whyReasons(detail.factors, home, away) : [];
+  const clubRows = (ladder?.rows ?? [])
+    .filter((r) => r.name === match.home || r.name === match.away)
+    .sort((a, b) => a.rank - b.rank);
 
   return (
     <LiveMatchProvider match={match}>
-      <div className="fade-up mx-auto max-w-2xl space-y-6">
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href="/nrl/matches"
-            className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground"
-          >
-            <span aria-hidden>←</span> All fixtures
-          </Link>
-          <span className="font-display text-body font-semibold text-muted">
-            Round {ids.round} · {ids.season}
-          </span>
-          <ShareButton title={`${home} vs ${away} — NRL round ${ids.round} prediction`} />
+      <div className="flex flex-col gap-6">
+        <div className="-mt-2">
+          <BackLink href={`/nrl/round/${ids.round}`}>{roundLabel}</BackLink>
         </div>
 
-        <LocalKickoff iso={match.kickoff_utc} venue={match.venue} />
+        <NrlMatchHero match={match} home={home} away={away} roundLabel={roundLabel} />
 
-        <NrlMatchHero match={match} home={home} away={away} />
-
-        {/* A fixture the model hasn't frozen yet (predictions freeze in the
-            lead-up to each round) — matchup renders above, never a 404. */}
-        {!p && match.status !== "finished" && (
-          <section className="glass rounded-2xl p-6 text-center">
-            <h2 className="font-display text-base font-bold text-foreground">
-              Model prediction on the way
-            </h2>
-            <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted">
-              The model freezes its call for this match in the lead-up to the round.
-              Check back closer to kickoff.
-            </p>
-          </section>
-        )}
-
-        {detail && (
-          <MatchIntelClient detail={detail} probHistory={probHistory} />
-        )}
-
-        {/* Season context: the two clubs' ladder rows. */}
-        {clubRows.length > 0 && (
-          <section className="glass rounded-2xl p-6">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-lg font-bold">Season so far</h2>
-              <Link href="/nrl/ladder" className="text-xs font-semibold text-lime-deep">
-                Full ladder →
-              </Link>
-            </div>
-            <StandingsTable
-              standings={ladderRowsToStandings(clubRows)}
-              zones={[]}
-              badge="club"
-              teamBasePath="/nrl/team"
-              teamHeader="Club"
-              columns={["wl", "diff", "pts"]}
+        {revealed ? (
+          p ? (
+            <NrlModelCallCard
+              match={match}
+              home={home}
+              away={away}
+              season={ids.season}
+              round={ids.round}
+              detailPrediction={detail?.prediction ?? null}
             />
-          </section>
+          ) : (
+            <Card pad aria-labelledby="nrl-no-call">
+              <CardHead id="nrl-no-call" title="No call from the model" />
+              <Note className="mt-1.5">The model did not publish a call on this match before kick-off.</Note>
+            </Card>
+          )
+        ) : (
+          <NrlMatchTipGate
+            season={ids.season}
+            round={ids.round}
+            matchId={match.id}
+            home={home}
+            away={away}
+            hasPrediction={hadPrediction}
+          />
         )}
 
-        <p className="text-center text-xs leading-relaxed text-muted">
-          {p ? (
-            <>
-              Prediction frozen at kickoff · graded after full time · model {p.model_version} ·{" "}
-            </>
-          ) : null}
-          {disclaimer}
-        </p>
+        {reasons.length > 0 ? <WhyCard reasons={reasons} /> : null}
+
+        {/* The one card of match facts: where the two clubs stand. */}
+        {clubRows.length > 0 && (
+          <Card pad aria-labelledby="nrl-where-they-stand">
+            <CardHead id="nrl-where-they-stand" title="Where they stand" />
+            <TableScroll className="mt-2.5">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th align="left">
+                      <span className="sr-only">Position</span>
+                    </Th>
+                    <Th align="left">Club</Th>
+                    <Th>W–L</Th>
+                    <Th>Diff</Th>
+                    <Th>Pts</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clubRows.map((r) => (
+                    <tr key={r.team_id}>
+                      <Td pos>{r.rank}</Td>
+                      <Td align="left" className="whitespace-normal">
+                        <ClubCell
+                          href={`/nrl/team/${r.team_id}`}
+                          crest={<ClubBadge name={r.name} size={26} decorative />}
+                          name={r.name}
+                        />
+                      </Td>
+                      <Td>
+                        {r.wins}–{r.losses}
+                      </Td>
+                      <Td>{signedNumber(r.diff)}</Td>
+                      <Td pts>{r.points}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </TableScroll>
+            <p className="mt-4">
+              <TextLink href="/nrl/ladder">Full ladder</TextLink>
+            </p>
+          </Card>
+        )}
       </div>
     </LiveMatchProvider>
   );
+}
+
+/** "Why the model thinks so", in words, from the API's own factors (largest
+ *  first): "Elo rating gap favours Roosters". */
+function whyReasons(factors: NrlFactor[], home: string, away: string): string[] {
+  return [...factors]
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 3)
+    .map((f) => `${f.label} favours ${f.favors === "home" ? home : away}`);
 }

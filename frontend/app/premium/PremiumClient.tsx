@@ -13,6 +13,7 @@ import {
 } from "@/lib/session";
 import { PREMIUM_FEATURES, PREMIUM_PRICING, annualSavingLabel } from "@/lib/premium";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { Button, Card, CardHead, CheckIcon, Note, PageHead } from "@/components/ui";
 
 type Plan = "monthly" | "annual";
 
@@ -32,7 +33,7 @@ const PremiumCheckout = dynamic(
   {
     ssr: false,
     loading: () => (
-      <p role="status" className="text-sm text-muted">
+      <p role="status" className="text-notes text-muted">
         Loading secure payment form…
       </p>
     ),
@@ -133,142 +134,118 @@ export function PremiumClient() {
     }
   };
 
+  const planClass = (on: boolean) =>
+    `rounded-card border p-5 text-left transition-colors ${
+      on ? "border-brand bg-brand-soft" : "border-line bg-ground hover:border-line-strong"
+    }`;
+
   return (
-    <div className="fade-up mx-auto max-w-2xl space-y-8">
-      <header>
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">
-          FinalWhistle <span className="text-lime-deep">Premium</span>
-        </h1>
-        <p className="mt-3 text-muted">
-          The analyst tier — every market our model prices, on every match.
-          Everything free today stays free.
-        </p>
-      </header>
+    <div>
+      <PageHead
+        eyebrow="FinalWhistle"
+        title="Premium"
+        sub="The analyst tier: every market the model prices, on every match. Everything free today stays free."
+      />
 
-      {justPaid && (
-        <div
-          role="status"
-          className="glass rounded-2xl bg-win/[0.06] p-4 text-sm ring-1 ring-win/25"
-        >
-          {user?.premium
-            ? "You're Premium. Enjoy the full markets."
-            : "Payment received — activating your membership…"}
-          {hasContext && (
-            <Link
-              href={returnTo}
-              className="ml-2 font-semibold text-lime-deep underline underline-offset-2"
+      <div className="flex max-w-[760px] flex-col gap-6">
+        {justPaid && (
+          <div role="status" className="rounded-card border border-brand bg-brand-soft px-5 py-4 text-ink">
+            {user?.premium
+              ? "You're Premium. Enjoy the full markets."
+              : "Payment received — activating your membership…"}
+            {hasContext && (
+              <Link
+                href={returnTo}
+                className="ml-2 font-semibold text-brand underline underline-offset-[3px]"
+              >
+                Back to {COMPETITIONS[competition].label}
+              </Link>
+            )}
+          </div>
+        )}
+
+        {user?.premium_status === "past_due" && (
+          <div role="status" className="rounded-card border border-miss/30 bg-miss-soft px-5 py-4 text-ink">
+            <span className="font-semibold text-miss">There&rsquo;s a payment issue</span> with your
+            subscription. Your membership stays active for a few days while you
+            update your card.{" "}
+            <button
+              type="button"
+              onClick={() => void onManage()}
+              className="font-semibold text-brand underline underline-offset-[3px]"
             >
-              Back to {COMPETITIONS[competition].label}
-            </Link>
-          )}
-        </div>
-      )}
+              Update payment method
+            </button>
+          </div>
+        )}
 
-      {user?.premium_status === "past_due" && (
-        <div
-          role="status"
-          className="rounded-2xl border border-draw/30 bg-draw/10 p-4 text-sm text-amber-ink"
-        >
-          <span className="font-semibold">There&rsquo;s a payment issue</span> with your
-          subscription — your membership stays active for a few days while you
-          update your card.{" "}
-          <button
-            type="button"
-            onClick={() => void onManage()}
-            className="font-bold underline underline-offset-2"
-          >
-            Update payment method
-          </button>
-        </div>
-      )}
+        <Card pad>
+          <CardHead title="What you get" />
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {PREMIUM_FEATURES.map((f) => (
+              <li key={f} className="flex items-start gap-2.5">
+                <CheckIcon className="mt-1 shrink-0 text-brand" />
+                {f}
+              </li>
+            ))}
+          </ul>
+        </Card>
 
-      <ul className="grid gap-2.5 sm:grid-cols-2">
-        {PREMIUM_FEATURES.map((f) => (
-          <li key={f} className="flex items-start gap-2 text-sm">
-            <span aria-hidden className="mt-0.5 font-bold text-lime-deep">✓</span>
-            {f}
-          </li>
-        ))}
-      </ul>
-
-      {!user?.premium && (
-        <div>
+        {!user?.premium && (
           <div role="radiogroup" aria-label="Billing period" className="grid grid-cols-2 gap-3">
             <button
               type="button"
               role="radio"
               aria-checked={plan === "monthly"}
               onClick={() => setPlan("monthly")}
-              className={`rounded-2xl border p-4 text-left transition ${
-                plan === "monthly"
-                  ? "border-win/60 bg-win/15 text-foreground"
-                  : "border-border bg-surface-2/50 text-muted hover:border-win/40 hover:text-foreground"
-              }`}
+              className={planClass(plan === "monthly")}
             >
-              <div className="font-display text-2xl font-extrabold text-foreground">
+              <div className="text-2xl font-semibold text-ink">
                 ${PREMIUM_PRICING.monthly.toFixed(2)}
-                <span className="text-sm font-normal text-muted">/month</span>
+                <span className="text-notes font-normal text-muted">/month</span>
               </div>
-              <div className="mt-1 text-xs text-muted">Billed monthly</div>
+              <div className="mt-1 text-notes text-muted">Billed monthly</div>
             </button>
             <button
               type="button"
               role="radio"
               aria-checked={plan === "annual"}
               onClick={() => setPlan("annual")}
-              className={`rounded-2xl border p-4 text-left transition ${
-                plan === "annual"
-                  ? "border-win/60 bg-win/15 text-foreground"
-                  : "border-border bg-surface-2/50 text-muted hover:border-win/40 hover:text-foreground"
-              }`}
+              className={planClass(plan === "annual")}
             >
-              <div className="font-display text-2xl font-extrabold text-foreground">
+              <div className="text-2xl font-semibold text-ink">
                 ${PREMIUM_PRICING.annual.toFixed(2)}
-                <span className="text-sm font-normal text-muted">/year</span>
+                <span className="text-notes font-normal text-muted">/year</span>
               </div>
-              <div className="mt-1 text-xs font-semibold text-lime-deep">
+              <div className="mt-1 text-notes font-semibold text-brand">
                 {annualSavingLabel()}
               </div>
             </button>
           </div>
-        </div>
-      )}
-
-      <div>
-        {user?.premium ? (
-          <button
-            type="button"
-            onClick={() => void onManage()}
-            disabled={busy}
-            className="min-h-[44px] w-full rounded-xl bg-win px-4 py-3 text-sm font-bold text-pitch transition hover:brightness-110 disabled:opacity-50 sm:w-auto"
-          >
-            {busy ? "Please wait…" : "Manage subscription"}
-          </button>
-        ) : payOpen ? (
-          <PremiumCheckout
-            plan={plan}
-            checkoutContext={checkoutContext}
-            onActivated={() => setSubscribed(true)}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={onBuy}
-            disabled={busy || loading}
-            className="min-h-[44px] w-full rounded-xl bg-win px-4 py-3 text-sm font-bold text-pitch transition hover:brightness-110 disabled:opacity-50 sm:w-auto"
-          >
-            {busy ? "Please wait…" : "Start free trial"}
-          </button>
         )}
-        <p className="mt-2.5 text-xs text-muted">
-          7-day free trial, cancel anytime. Payments handled by Stripe.
-        </p>
-        {error && <p className="mt-2 text-sm text-loss">{error}</p>}
-      </div>
 
-      <p className="text-label leading-snug text-muted">
-        For analytics and entertainment only. Not betting advice.
-      </p>
+        <div>
+          {user?.premium ? (
+            <Button onClick={() => void onManage()} disabled={busy} className="w-full sm:w-auto">
+              {busy ? "Please wait…" : "Manage subscription"}
+            </Button>
+          ) : payOpen ? (
+            <PremiumCheckout
+              plan={plan}
+              checkoutContext={checkoutContext}
+              onActivated={() => setSubscribed(true)}
+            />
+          ) : (
+            <Button onClick={onBuy} disabled={busy || loading} className="w-full sm:w-auto">
+              {busy ? "Please wait…" : "Start free trial"}
+            </Button>
+          )}
+          <Note className="mt-3">7-day free trial, cancel anytime. Payments handled by Stripe.</Note>
+          {error && <p className="mt-2 text-notes text-miss">{error}</p>}
+        </div>
+
+        <Note>For analytics and entertainment only. Not betting advice.</Note>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Button, Card, Note } from "@/components/ui";
 import { getNrlTipsShareServer } from "@/lib/api";
 import { APP_NAME } from "@/lib/constants";
 
@@ -75,30 +75,25 @@ export default async function NrlTipsShareCardPage({
         : `${share.handle_display} is tied with the model so far this round`;
 
   return (
-    <div className="fade-up mx-auto max-w-md space-y-6 text-center">
-      <div className="glass rounded-2xl p-8">
-        <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
+    <div className="flex max-w-[560px] flex-col gap-6">
+      <Card pad className="text-center">
+        <p className="text-notes font-medium text-muted">
           NRL Round {share.round} · {share.season}
         </p>
-        <p className="mt-3 font-display text-2xl font-extrabold leading-snug tracking-tight">
+        <p className="mt-3 text-2xl font-semibold leading-snug text-ink">
           {share.handle_display} went {share.player_points}/{share.player_of} — the model went{" "}
           {share.model_points}/{share.model_of}
         </p>
-        <p className="mt-2 text-sm font-semibold text-lime-deep">{verdict}</p>
-        {!share.round_complete && (
-          <p className="mt-1 text-label text-muted">Round still in progress — more matches to come.</p>
-        )}
-        {share.margin_note && <p className="mt-3 text-xs text-muted">{share.margin_note}</p>}
+        <p className="mt-2 font-semibold text-brand">{verdict}</p>
+        {!share.round_complete && <Note className="mt-1">Round still in progress — more matches to come.</Note>}
+        {share.margin_note && <Note className="mt-3">{share.margin_note}</Note>}
+      </Card>
+
+      <div>
+        <Button href="/nrl/tips">Beat the model at the NRL</Button>
       </div>
 
-      <Link
-        href="/nrl/tips"
-        className="inline-block rounded-lg bg-win px-6 py-3 text-sm font-bold text-pitch transition hover:brightness-110"
-      >
-        Beat the model at the NRL →
-      </Link>
-
-      <p className="text-xs leading-relaxed text-muted">{share.disclaimer}</p>
+      <p className="text-label text-muted">{share.disclaimer}</p>
     </div>
   );
 }

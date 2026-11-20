@@ -2,20 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { ErrorState, Loading } from "@/components/States";
+import { Card, CardHead, Note, Segmented, Table, TableScroll, Tag, Td, Th } from "@/components/ui";
 import {
-  BoardNote,
-  EmptyBoard,
-  PlayerCell,
-  ViewerVsModel,
   boardState,
-  rowClassName,
+  isViewerRow,
   rowKey,
+  viewerVsModelLine,
+  type BoardScope,
   type WithModelFlag,
 } from "@/components/play/leaderboardRows";
 import { useViewerHandle } from "@/components/play/viewerHandle";
 import { getNrlSeasonLeaderboard, getNrlTipsLeaderboard } from "@/lib/nrlTips";
 import { ApiError } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
 import type { NrlSeasonLeaderboardEntry, NrlSeasonLeaderboardResponse, NrlTipsLeaderboardEntry, NrlTipsLeaderboardResponse } from "@/lib/types";
 
 // The model's row carries no margin (it never guesses one) and, on an older
@@ -57,11 +57,16 @@ export function NrlTipsLeaderboard({
   round,
   seasonOnly = false,
   viewerHandle: viewerHandleProp,
+  title = "Leaderboard",
+  className,
 }: {
   season: number;
   round?: number;
   seasonOnly?: boolean;
   viewerHandle?: string | null;
+  /** Card heading; null drops it (the page's h1 already says "Leaderboard"). */
+  title?: string | null;
+  className?: string;
 }) {
   const reportedHandle = useViewerHandle();
   const viewerHandle = viewerHandleProp !== undefined ? viewerHandleProp : reportedHandle;
@@ -112,28 +117,21 @@ export function NrlTipsLeaderboard({
   }, [tab, season, seasonAttempt]);
 
   return (
-    <section>
-      <div className="mb-2.5 flex items-center justify-between px-0.5">
-        <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Leaderboard</h2>
-        {!seasonOnly && <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5 text-label font-semibold">
-          <button
-            type="button"
-            onClick={() => setTab("weekly")}
-            aria-pressed={tab === "weekly"}
-            className={cn("rounded-md px-2 py-1", tab === "weekly" ? "bg-win text-pitch" : "text-muted")}
-          >
-            Weekly
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("season")}
-            aria-pressed={tab === "season"}
-            className={cn("rounded-md px-2 py-1", tab === "season" ? "bg-win text-pitch" : "text-muted")}
-          >
-            Season
-          </button>
-        </div>}
-      </div>
+    <Card pad className={className} aria-label={title ?? "Leaderboard"}>
+      {title != null || !seasonOnly ? (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          {title != null ? <CardHead title={title} /> : <span />}
+          {!seasonOnly && (
+            <Segmented
+              label="Leaderboard period"
+              items={[
+                { label: "Weekly", current: tab === "weekly", onSelect: () => setTab("weekly") },
+                { label: "Season", current: tab === "season", onSelect: () => setTab("season") },
+              ]}
+            />
+          )}
+        </div>
+      ) : null}
 
       {tab === "weekly" ? (
         <>
@@ -142,10 +140,12 @@ export function NrlTipsLeaderboard({
             <ErrorState message={weeklyState.message} onRetry={() => setWeeklyAttempt((a) => a + 1)} />
           )}
           {weeklyState.status === "success" && (
-            <WeeklyBoard
+            <Board
+              scope="round"
               participantCount={weeklyState.data.participant_count}
-              entries={weeklyState.data.entries}
+              entries={weeklyState.data.entries.map((e: WeeklyEntry) => ({ ...e, margin: e.round_margin ?? null }))}
               viewerHandle={viewerHandle}
+              emptyMessage="No one has tipped this round yet — make your picks to take on the model."
             />
           )}
         </>
@@ -156,128 +156,105 @@ export function NrlTipsLeaderboard({
             <ErrorState message={seasonState.message} onRetry={() => setSeasonAttempt((a) => a + 1)} />
           )}
           {seasonState.status === "success" && (
-            <SeasonBoard
+            <Board
+              scope="season"
               participantCount={seasonState.data.participant_count}
-              entries={seasonState.data.entries}
+              entries={seasonState.data.entries.map((e: SeasonEntry) => ({
+                ...e,
+                margin: e.total_margin ?? null,
+                rounds: e.rounds_played ?? null,
+              }))}
               viewerHandle={viewerHandle}
+              emptyMessage="No graded tips yet this season — the board fills in after full time."
             />
           )}
         </>
       )}
-    </section>
+    </Card>
   );
 }
 
-function WeeklyBoard({
+type BoardEntry = WithModelFlag<{ handle: string; points: number; margin: number | null; rounds?: number | null }>;
+
+function pts(n: number): string {
+  return `${n} pt${n === 1 ? "" : "s"}`;
+}
+
+function QuietNote({ children }: { children: ReactNode }) {
+  return <Note className="py-4 text-center">{children}</Note>;
+}
+
+/** One board (round or season) on the G table parts: rank, Tipster (with a
+ *  "Model" tag on the model's row and "You" on this device's), Rounds (season
+ *  board), Margin (the tiebreak -- only when someone has one), Points. */
+function Board({
+  scope,
   participantCount,
   entries,
   viewerHandle,
+  emptyMessage,
 }: {
+  scope: BoardScope;
   participantCount: number;
-  entries: WeeklyEntry[];
+  entries: BoardEntry[];
   viewerHandle: string | null;
+  emptyMessage: string;
 }) {
   const state = boardState(participantCount, entries);
   if (state === "empty") {
+    const model = entries.find((e) => e.is_model);
     return (
-      <EmptyBoard entries={entries} message="No one has tipped this round yet — make your picks to take on the model." />
+      <QuietNote>
+        {emptyMessage}
+        {model && model.points > 0 ? ` The model has ${pts(model.points)} so far.` : null}
+      </QuietNote>
     );
   }
-  if (state === "withheld") return <BoardNote>{participantCount} playing this round</BoardNote>;
+  if (state === "withheld") return <QuietNote>{participantCount} playing this {scope}</QuietNote>;
+
+  const line = viewerVsModelLine(entries, viewerHandle, scope);
+  const showRounds = scope === "season";
+  const showMargin = entries.some((e) => e.margin != null);
   return (
     <>
-      <ViewerVsModel entries={entries} viewerHandle={viewerHandle} scope="round" />
-      <WeeklyTable entries={entries} viewerHandle={viewerHandle} />
-    </>
-  );
-}
-
-function SeasonBoard({
-  participantCount,
-  entries,
-  viewerHandle,
-}: {
-  participantCount: number;
-  entries: SeasonEntry[];
-  viewerHandle: string | null;
-}) {
-  const state = boardState(participantCount, entries);
-  if (state === "empty") {
-    return (
-      <EmptyBoard entries={entries} message="No graded tips yet this season — the board fills in after full time." />
-    );
-  }
-  if (state === "withheld") return <BoardNote>{participantCount} playing this season</BoardNote>;
-  return (
-    <>
-      <ViewerVsModel entries={entries} viewerHandle={viewerHandle} scope="season" />
-      <SeasonTable entries={entries} viewerHandle={viewerHandle} />
-    </>
-  );
-}
-
-function WeeklyTable({ entries, viewerHandle }: { entries: WeeklyEntry[]; viewerHandle: string | null }) {
-  return (
-    <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-label uppercase tracking-wider text-muted">
-            <th className="px-2 pb-2 text-left font-medium">#</th>
-            <th className="px-2 pb-2 text-left font-medium">Player</th>
-            <th className="px-2 pb-2 text-right font-medium">Points</th>
-            <th className="px-2 pb-2 text-right font-medium">Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((row, i) => (
-            <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
-              <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
-              >
-                {i + 1}
-              </td>
-              <PlayerCell row={row} viewerHandle={viewerHandle} />
-              <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">{row.points}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.round_margin ?? "—"}</td>
+      {line ? (
+        <p className={cn("mb-2 font-semibold", line.ahead ? "text-brand" : "text-ink")}>{line.text}</p>
+      ) : null}
+      <TableScroll>
+        <Table>
+          <thead>
+            <tr>
+              <Th align="left">
+                <span className="sr-only">Rank</span>
+              </Th>
+              <Th align="left">Tipster</Th>
+              {showRounds ? <Th>Rounds</Th> : null}
+              {showMargin ? <Th>Margin</Th> : null}
+              <Th>Points</Th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Same table idiom as WeeklyTable, plus the season's Rounds column and a
- *  cumulative Margin (total_margin, summed across the season's rounds). */
-function SeasonTable({ entries, viewerHandle }: { entries: SeasonEntry[]; viewerHandle: string | null }) {
-  return (
-    <div className="glass overflow-x-auto rounded-2xl p-2 sm:p-4">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-label uppercase tracking-wider text-muted">
-            <th className="px-2 pb-2 text-left font-medium">#</th>
-            <th className="px-2 pb-2 text-left font-medium">Player</th>
-            <th className="px-2 pb-2 text-right font-medium">Points</th>
-            <th className="px-2 pb-2 text-right font-medium">Margin</th>
-            <th className="px-2 pb-2 text-right font-medium">Rounds</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((row, i) => (
-            <tr key={rowKey(row)} className={rowClassName(row, viewerHandle)}>
-              <td
-                className={cn("px-2 py-2.5 font-semibold tabular-nums", i === 0 ? "text-gold-ink" : "text-muted")}
-              >
-                {i + 1}
-              </td>
-              <PlayerCell row={row} viewerHandle={viewerHandle} />
-              <td className="px-2 py-2.5 text-right font-display font-bold tabular-nums">{row.points}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.total_margin ?? "—"}</td>
-              <td className="px-2 py-2.5 text-right tabular-nums text-muted">{row.rounds_played ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {entries.map((row, i) => {
+              const you = isViewerRow(row, viewerHandle);
+              return (
+                <tr key={rowKey(row)} className={cn(you && "bg-brand-soft")}>
+                  <Td pos>{i + 1}</Td>
+                  <Td align="left" className="whitespace-normal font-semibold">
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <span className="break-all">{row.handle}</span>
+                      {row.is_model ? <Tag>Model</Tag> : null}
+                      {you ? <Tag className="bg-brand text-white">You</Tag> : null}
+                    </span>
+                  </Td>
+                  {showRounds ? <Td>{row.rounds ?? "—"}</Td> : null}
+                  {showMargin ? <Td className="text-muted">{row.margin ?? "—"}</Td> : null}
+                  <Td pts>{row.points}</Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
+      </TableScroll>
+    </>
   );
 }

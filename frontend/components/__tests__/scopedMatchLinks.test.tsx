@@ -123,16 +123,16 @@ describe("TeamFixtures", () => {
     render(
       <TeamFixtures matches={[upcoming(5)]} teamName="Arsenal" matchBasePath="/football/epl/match" />,
     );
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/football/epl/match/5");
+    expect(screen.getByRole("link", { name: /^Arsenal v Spurs/ })).toHaveAttribute("href", "/football/epl/match/5");
   });
 
   it("falls back to each fixture's own competition when it is known", () => {
     render(<TeamFixtures matches={[upcoming(5, "laliga")]} teamName="Arsenal" />);
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/football/laliga/match/5");
+    expect(screen.getByRole("link", { name: /^Arsenal v Spurs/ })).toHaveAttribute("href", "/football/laliga/match/5");
   });
 
   it("otherwise uses the /match/:id lookup, never a WC26 guess", () => {
     render(<TeamFixtures matches={[upcoming(5)]} teamName="Arsenal" />);
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/match/5");
+    expect(screen.getByRole("link", { name: /^Arsenal v Spurs/ })).toHaveAttribute("href", "/match/5");
   });
 });

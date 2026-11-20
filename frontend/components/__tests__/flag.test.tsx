@@ -33,3 +33,17 @@ it("uses the initials chip directly for an unknown team (no image)", () => {
   expect(flagImg()).toBeNull();
   expect(screen.getByText("A")).toBeInTheDocument();
 });
+
+it("names the flag by default and hides it when decorative", () => {
+  const { rerender } = render(<Flag team="Brazil" />);
+  expect(flagImg()).toHaveAttribute("alt", "Brazil");
+  rerender(<Flag team="Brazil" decorative />);
+  expect(flagImg()).toHaveAttribute("alt", "");
+  expect(flagImg()).toHaveAttribute("aria-hidden", "true");
+});
+
+it("uses the neutral monogram for a missing flag", () => {
+  render(<Flag team="Atlantis" size={26} />);
+  const chip = screen.getByRole("img", { name: "Atlantis" });
+  expect(chip).toHaveClass("bg-soft", "border-line", "text-muted", "rounded-full");
+});

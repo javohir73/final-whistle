@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils";
  *  as inside client islands. The shimmer sweep and its reduced-motion gate live
  *  on the `skeleton` class in globals.css. */
 
-/** One shimmer block. Composes the `skeleton` class with caller layout classes.
+/** One soft block (line-soft fill; the faint sweep stops under reduced
+ *  motion). Composes the `skeleton` class with caller layout classes.
  *  `aria-hidden` because a shimmer block carries no meaning on its own — the
  *  announcing `role="status"` lives on the surrounding SkeletonScreen. */
 export function Skeleton({ className }: { className?: string }) {
@@ -28,26 +29,28 @@ export function SkeletonScreen({
   );
 }
 
-/** The six-card glass grid States.Loading draws — shared by the football and
- *  NRL list loaders so they don't each hand-roll the card markup. */
+/** A fixture-list placeholder in the direction-G card: a day band and six
+ *  rows shaped like the centred fixture spine. Shared by the football and NRL
+ *  list loaders (and States.Loading) so they don't each hand-roll it. */
 export function SkeletonCardGrid() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="overflow-hidden rounded-card border border-line bg-ground">
+      <div className="border-b border-line-soft bg-soft px-4 py-3 min-[900px]:px-7">
+        <Skeleton className="h-4 w-40 rounded-full" />
+      </div>
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="glass rounded-2xl p-4">
-          <Skeleton className="mb-4 h-3 w-20 rounded" />
-          <div className="mb-2.5 flex items-center gap-2.5">
+        <div
+          key={i}
+          className="grid min-h-[74px] grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] items-center gap-3 border-t border-line-soft px-4 first:border-t-0 min-[900px]:px-7"
+        >
+          <div className="flex items-center justify-end gap-3">
+            <Skeleton className="h-4 w-24 rounded-full" />
             <Skeleton className="h-6 w-6 rounded-full" />
-            <Skeleton className="h-4 w-28 rounded" />
           </div>
-          <div className="mb-4 flex items-center gap-2.5">
+          <Skeleton className="h-8 w-[72px] rounded-[10px]" />
+          <div className="flex items-center gap-3">
             <Skeleton className="h-6 w-6 rounded-full" />
-            <Skeleton className="h-4 w-24 rounded" />
-          </div>
-          <Skeleton className="h-2.5 w-full rounded-full" />
-          <div className="mt-4 flex justify-between border-t border-border pt-3">
-            <Skeleton className="h-4 w-24 rounded" />
-            <Skeleton className="h-5 w-10 rounded" />
+            <Skeleton className="h-4 w-24 rounded-full" />
           </div>
         </div>
       ))}
@@ -60,11 +63,11 @@ export function SkeletonCardGrid() {
  *  real table fills — no layout shift when data lands. */
 export function SkeletonRows({ rows = 8 }: { rows?: number }) {
   return (
-    <div className="glass rounded-2xl p-4">
-      <Skeleton className="mb-3 h-4 w-32 rounded" />
+    <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
+      <Skeleton className="mb-4 h-5 w-32 rounded-full" />
       <div className="space-y-2">
         {Array.from({ length: rows }).map((_, i) => (
-          <Skeleton key={i} className="h-9 w-full rounded-lg" />
+          <Skeleton key={i} className="h-9 w-full rounded-[10px]" />
         ))}
       </div>
     </div>

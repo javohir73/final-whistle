@@ -4,10 +4,10 @@
  *  entitlement (403 premium_required) — so this can stay optimistic and simple.
  *  Billing off (BILLING_ENABLED=false) renders nothing: the site must look
  *  exactly as it did before Premium existed. */
-import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { BILLING_ENABLED } from "@/lib/constants";
 import type { CompetitionId } from "@/lib/sports";
+import { Button, Card, Note, TextLink } from "@/components/ui";
 
 export function PremiumGate({
   teaser,
@@ -32,41 +32,35 @@ export function PremiumGate({
   const premiumHref = contextQuery ? `/premium?${contextQuery}` : "/premium";
 
   return (
-    <section className="glass rounded-2xl p-6">
-      <div aria-hidden className="pointer-events-none select-none blur-[3px] opacity-60">
+    <Card pad>
+      <div aria-hidden className="pointer-events-none select-none opacity-60 blur-[3px]">
         {teaser}
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <span className="text-sm text-muted">
-          Full scoreline grid, totals, BTTS and handicaps — for members.
-        </span>
+      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Note className="basis-full sm:basis-auto">
+          Full scoreline grid, totals, both teams to score and handicaps, for members.
+        </Note>
         {user ? (
-          <Link
-            href={premiumHref}
-            className="rounded-lg bg-win/15 px-3 py-1.5 text-sm font-semibold text-lime-deep ring-1 ring-win/30 transition hover:bg-win/25"
-          >
+          <Button size="sm" href={premiumHref}>
             Go Premium
-          </Link>
+          </Button>
         ) : (
           <>
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={() =>
                 openSignIn({
                   mode: "signup",
                   onSuccess: () => window.location.assign(premiumHref),
                 })
               }
-              className="rounded-lg bg-win/15 px-3 py-1.5 text-sm font-semibold text-lime-deep ring-1 ring-win/30 transition hover:bg-win/25"
             >
               Create a free account
-            </button>
-            <Link href={premiumHref} className="text-sm text-muted underline">
-              About Premium
-            </Link>
+            </Button>
+            <TextLink href={premiumHref}>About Premium</TextLink>
           </>
         )}
       </div>
-    </section>
+    </Card>
   );
 }

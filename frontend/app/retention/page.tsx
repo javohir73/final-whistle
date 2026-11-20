@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { APP_NAME } from "@/lib/constants";
 import { getRetentionServer } from "@/lib/api";
 import type { RetentionStats } from "@/lib/types";
+import { Card, CardHead, Note, PageHead, Stat, StatGrid, Table, TableScroll, Td, Th } from "@/components/ui";
 
 export const metadata: Metadata = {
   title: `Retention — ${APP_NAME}`,
@@ -22,91 +23,81 @@ export default async function RetentionPage() {
   }
 
   return (
-    <article className="fade-up mx-auto max-w-2xl space-y-8">
-      <header>
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">
-          Retention <span className="text-lime-deep">stats</span>
-        </h1>
-        <p className="mt-3 text-muted">
-          Anonymous device cohorts measured since the World Cup final — updates daily.
-        </p>
-      </header>
+    <article>
+      <PageHead
+        eyebrow="FinalWhistle"
+        title="Retention"
+        sub="Anonymous device cohorts measured since the World Cup final — updates daily."
+      />
 
       {stats ? (
-        <>
-          <section className="glass grid grid-cols-2 gap-4 rounded-2xl p-6 text-center sm:grid-cols-3">
-            <div>
-              <p className="font-display text-2xl font-extrabold tabular-nums">{stats.since}</p>
-              <p className="mt-1 text-xs text-muted">Since</p>
-            </div>
-            <div>
-              <p className="font-display text-2xl font-extrabold tabular-nums">
-                {stats.total_devices.toLocaleString()}
-              </p>
-              <p className="mt-1 text-xs text-muted">Total devices</p>
-            </div>
-          </section>
+        <div className="flex max-w-[900px] flex-col gap-6">
+          <Card pad>
+            <CardHead title="Devices" />
+            <StatGrid>
+              <Stat value={stats.total_devices.toLocaleString()} label={`devices since ${stats.since}`} />
+            </StatGrid>
+          </Card>
 
-          <section className="glass rounded-2xl p-6">
-            <h2 className="font-display text-lg font-bold">Daily active devices</h2>
-            <p className="mt-1 text-sm text-muted">Last 30 days.</p>
-            <div className="mt-4 max-h-80 overflow-y-auto overflow-x-auto">
-              <table className="w-full text-sm">
+          <Card pad>
+            <CardHead title="Daily active devices" action="Last 30 days" />
+            <TableScroll className="mt-2 max-h-96 overflow-y-auto">
+              <Table>
                 <thead>
-                  <tr className="text-left font-display text-label uppercase tracking-wider text-muted">
-                    <th className="py-1.5 pr-2 font-semibold">Day</th>
-                    <th className="py-1.5 text-right font-semibold">Devices</th>
+                  <tr>
+                    <Th align="left">Day</Th>
+                    <Th>Devices</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {stats.dau.map((row) => (
-                    <tr key={row.day} className="border-t border-border">
-                      <td className="py-2 pr-2 tabular-nums">{row.day}</td>
-                      <td className="py-2 text-right tabular-nums">{row.devices}</td>
+                    <tr key={row.day}>
+                      <Td align="left">{row.day}</Td>
+                      <Td>{row.devices}</Td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
-          </section>
+              </Table>
+            </TableScroll>
+          </Card>
 
-          <section className="glass rounded-2xl p-6">
-            <h2 className="font-display text-lg font-bold">Cohort retention</h2>
-            <p className="mt-1 text-sm text-muted">
-              Each row is the devices whose FIRST-ever visit was that day, and what
-              share came back 1 / 7 / 14 days later. An em dash means that
-              checkpoint hasn&apos;t happened yet.
-            </p>
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm">
+          <Card pad>
+            <CardHead title="Cohort retention" />
+            <Note className="mt-1.5 max-w-prose">
+              Each row is the devices whose first-ever visit was that day, and the
+              share that came back 1, 7 and 14 days later. A dash means that
+              checkpoint has not happened yet.
+            </Note>
+            <TableScroll className="mt-2 max-h-[480px] overflow-y-auto">
+              <Table>
                 <thead>
-                  <tr className="text-left font-display text-label uppercase tracking-wider text-muted">
-                    <th className="py-1.5 pr-2 font-semibold">Day</th>
-                    <th className="py-1.5 text-right font-semibold">Cohort</th>
-                    <th className="py-1.5 text-right font-semibold">D1</th>
-                    <th className="py-1.5 text-right font-semibold">D7</th>
-                    <th className="py-1.5 text-right font-semibold">D14</th>
+                  <tr>
+                    <Th align="left">Day</Th>
+                    <Th>Cohort</Th>
+                    <Th>D1</Th>
+                    <Th>D7</Th>
+                    <Th>D14</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {stats.cohorts.map((row) => (
-                    <tr key={row.day} className="border-t border-border">
-                      <td className="py-2 pr-2 tabular-nums">{row.day}</td>
-                      <td className="py-2 text-right tabular-nums">{row.cohort_size}</td>
-                      <td className="py-2 text-right tabular-nums">{pct(row.d1)}</td>
-                      <td className="py-2 text-right tabular-nums">{pct(row.d7)}</td>
-                      <td className="py-2 text-right tabular-nums">{pct(row.d14)}</td>
+                    <tr key={row.day}>
+                      <Td align="left">{row.day}</Td>
+                      <Td>{row.cohort_size}</Td>
+                      <Td>{pct(row.d1)}</Td>
+                      <Td>{pct(row.d7)}</Td>
+                      <Td>{pct(row.d14)}</Td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
-          </section>
-        </>
+              </Table>
+            </TableScroll>
+          </Card>
+        </div>
       ) : (
-        <section className="glass rounded-2xl p-6 text-center text-sm text-muted">
-          Retention stats are temporarily unavailable — please check back shortly.
-        </section>
+        <Card pad className="max-w-[900px]">
+          <Note>Retention stats are temporarily unavailable — please check back shortly.</Note>
+        </Card>
       )}
     </article>
   );

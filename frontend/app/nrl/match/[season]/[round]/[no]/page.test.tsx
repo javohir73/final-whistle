@@ -1,6 +1,7 @@
 /** NRL match detail page tests — server component (SSR) output. */
 import { act, render, screen } from "@testing-library/react";
-import NrlMatchDetailPage from "./page";
+import NrlMatchDetailPage, { generateMetadata } from "./page";
+import { resetMyNrlRoundCache } from "@/components/nrl/useMyNrlRound";
 import {
   getNrlLadderServer, getNrlLiveClient, getNrlMatchDetailServer, getNrlProbHistoryServer,
   getNrlRoundServer,
@@ -8,6 +9,10 @@ import {
 import type { NrlMatch, NrlMatchDetail, NrlMatchesResponse } from "@/lib/types";
 
 jest.mock("@/lib/api");
+jest.mock("@/lib/nrlTips", () => ({
+  ...jest.requireActual("@/lib/nrlTips"),
+  getMyNrlTips: jest.fn(() => Promise.reject(new Error("offline"))),
+}));
 const mockRound = getNrlRoundServer as jest.MockedFunction<typeof getNrlRoundServer>;
 const mockLadder = getNrlLadderServer as jest.MockedFunction<typeof getNrlLadderServer>;
 const mockLive = getNrlLiveClient as jest.MockedFunction<typeof getNrlLiveClient>;
@@ -90,7 +95,10 @@ beforeEach(() => {
   mockDetail.mockResolvedValue(null);
   mockProbHistory.mockResolvedValue(null);
 });
-afterEach(() => jest.resetAllMocks());
+afterEach(() => {
+  jest.clearAllMocks();
+  resetMyNrlRoundCache();
+});
 
 it("updates the match hero from the shared live endpoint", async () => {
   mockLive.mockResolvedValue({
@@ -103,7 +111,7 @@ it("updates the match hero from the shared live endpoint", async () => {
   expect(screen.getByText(/Live match: .*42′/)).toBeInTheDocument();
 });
 
-it("server-renders the matchup, the AI's call, margin and disclaimer", async () => {
+it("server-renders the matchup and the model's call once kicked off, in plain words", async () => {
   await renderPage();
 
   expect(screen.getAllByText("Wests Tigers").length).toBeGreaterThanOrEqual(1);
@@ -112,19 +120,13 @@ it("server-renders the matchup, the AI's call, margin and disclaimer", async () 
   const links = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
   expect(links).toContain("/nrl/team/17");
   expect(links).toContain("/nrl/team/16");
-  expect(screen.getByText(/Warriors to win · 67%/)).toBeInTheDocument();
-  expect(screen.getByText("Warriors by 5.5")).toBeInTheDocument();
-  expect(screen.getByText(/Not betting advice/)).toBeInTheDocument();
-  expect(screen.getByText(/model nrl-elo-v0.1/)).toBeInTheDocument();
-
-  // The shared ProbabilityBar carries the three percentages in its aria-label
-  // (a11y floor) — a two-way NRL contest still renders the 3-way bar, draw
-  // segment small.
-  expect(
-    screen.getByRole("img", {
-      name: "Wests Tigers win 31%, draw 2%, Warriors win 67%",
-    }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "The model’s call" })).toBeInTheDocument();
+  expect(screen.getByText("Made before kick-off.")).toBeInTheDocument();
+  expect(screen.getByText("It picked Warriors at 67% and expected a win by about 6 points.")).toBeInTheDocument();
+  // Calm page: no share pill, no in-page disclaimer/footnote (banner + footer carry it).
+  expect(screen.queryByRole("button", { name: /share/i })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Not betting advice/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/nrl-elo-v0.1/)).not.toBeInTheDocument();
 });
 
 it("shows the final score and grades the call once finished", async () => {
@@ -135,10 +137,8 @@ it("shows the final score and grades the call once finished", async () => {
 
   expect(screen.getByText("12–26")).toBeInTheDocument();
   expect(screen.getByText("Full time")).toBeInTheDocument();
-  expect(screen.getByText(/Called it/)).toBeInTheDocument();
-  // The pre-match call and margin chip make way for the result.
-  expect(screen.queryByText(/to win ·/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Model margin/)).not.toBeInTheDocument();
+  expect(screen.getByText("Called it")).toBeInTheDocument();
+  expect(screen.getByText(/Warriors won 26–12, so the call was right\./)).toBeInTheDocument();
 });
 
 it("marks a result the model got wrong as a miss", async () => {
@@ -146,15 +146,45 @@ it("marks a result the model got wrong as a miss", async () => {
     roundPayload({ ...match, status: "finished", score_home: 30, score_away: 8 }),
   );
   await renderPage();
-  expect(screen.getByText(/we missed it/)).toBeInTheDocument();
+  expect(screen.getByText("Missed")).toBeInTheDocument();
+  expect(screen.getByText(/Wests Tigers won 30–8, an upset the model did not see\./)).toBeInTheDocument();
 });
 
-it("renders a prediction-pending view (not 404) when the match has no prediction yet", async () => {
+it("says so (not 404) when a kicked-off match has no prediction", async () => {
   mockRound.mockResolvedValue(roundPayload({ ...match, prediction: null }));
   await renderPage();
 
   expect(screen.getAllByText("Wests Tigers").length).toBeGreaterThanOrEqual(1);
-  expect(screen.getByText(/prediction on the way/i)).toBeInTheDocument();
+  expect(screen.getByText("No call from the model")).toBeInTheDocument();
+});
+
+describe("an OPEN match (the reveal rule)", () => {
+  const open: NrlMatch = { ...match, kickoff_utc: new Date(Date.now() + 2 * 86_400_000).toISOString() };
+
+  it("server-renders no model numbers, no reasons and no model card -- the tip gate instead", async () => {
+    mockRound.mockResolvedValue(roundPayload(open));
+    mockDetail.mockResolvedValue({ ...detail, match: { ...detail.match, kickoff_utc: open.kickoff_utc } });
+    const page = await NrlMatchDetailPage({ params: params() });
+    const { container } = render(page);
+    await act(async () => {});
+
+    const html = container.innerHTML;
+    expect(html).not.toMatch(/67%|31%|Picked Warriors|picked Warriors|model's pick|Warriors by|favours/);
+    expect(screen.queryByRole("heading", { name: "The model’s call" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Why the model thinks so" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Unlocked when you tip this match" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Tip Round 19" })).toHaveAttribute("href", "/nrl/tips");
+    // The detail (reasons, scoreline) and the probability history are never fetched.
+    expect(mockDetail).not.toHaveBeenCalled();
+    expect(mockProbHistory).not.toHaveBeenCalled();
+  });
+
+  it("keeps the model's numbers out of the page title and description", async () => {
+    mockRound.mockResolvedValue(roundPayload(open));
+    const meta = await generateMetadata({ params: params() });
+    expect(String(meta.description)).not.toMatch(/%/);
+    expect(String(meta.title)).toMatch(/tip it/);
+  });
 });
 
 it("shows the two clubs' ladder rows when the ladder is available", async () => {
@@ -169,7 +199,8 @@ it("shows the two clubs' ladder rows when the ladder is available", async () => 
   });
   await renderPage();
 
-  expect(screen.getByText("Season so far")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Where they stand" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Full ladder" })).toHaveAttribute("href", "/nrl/ladder");
   // Only the two clubs in this matchup — not the rest of the ladder.
   expect(screen.queryByText("Storm")).not.toBeInTheDocument();
   // Rendered via the shared StandingsTable (W–L / Diff / Pts) — the W–L cell
@@ -201,29 +232,27 @@ it("calls notFound() for non-numeric params without hitting the API", async () =
   expect(mockRound).not.toHaveBeenCalled();
 });
 
-it("renders the Match Intelligence sections when the detail endpoint has data", async () => {
+it("lists the API's reasons as 'Why the model thinks so', and none of the old data sections", async () => {
   mockDetail.mockResolvedValue(detail);
   await renderPage();
 
-  // "Overview"/"Model" each appear twice (the sticky-nav pill AND the
-  // section's own <h2>) -- query by heading role so the assertion is
-  // unambiguous. "Form & H2H" is pill-only text (the section's own heading
-  // reads "Form & head-to-head"), so plain getByText is unambiguous there.
-  //
-  // findBy (rather than getBy) on this first assertion so the awaited,
-  // act()-wrapped wait flushes MatchupSection's own-fetched profile lookup
-  // (a Wave 2 client island that kicks off a request on mount) before the
-  // test finishes -- otherwise its state update lands after this test's
-  // synchronous assertions and logs a harmless-but-noisy "not wrapped in
-  // act()" warning. Additive test-setup only; no assertions changed.
-  expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-  expect(screen.getByText("Form & H2H")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Model" })).toBeInTheDocument();
-  expect(screen.getByText(/Warriors are the model's pick/)).toBeInTheDocument();
-  expect(screen.queryByText(/Predicted total/)).not.toBeInTheDocument();
+  const why = await screen.findByRole("heading", { name: "Why the model thinks so" });
+  expect(why).toBeInTheDocument();
+  const items = screen.getAllByRole("listitem").map((li) => li.textContent);
+  expect(items).toEqual(
+    expect.arrayContaining([
+      "Elo rating gap favours Warriors",
+      "Recent form favours Warriors",
+      "Home advantage favours Wests Tigers",
+    ]),
+  );
+  for (const old of ["Overview", "Model", "Form & head-to-head", "Scoring breakdown", "Try timeline"]) {
+    expect(screen.queryByRole("heading", { name: old })).not.toBeInTheDocument();
+  }
+  expect(screen.queryByText(/Elo comparison|What's driving this/)).not.toBeInTheDocument();
 });
 
-it("renders a fixture-specific scoreline only when the API promotes it", async () => {
+it("mentions a fixture-specific scoreline only when the API promotes it", async () => {
   mockDetail.mockResolvedValue({
     ...detail,
     prediction: {
@@ -235,15 +264,13 @@ it("renders a fixture-specific scoreline only when the API promotes it", async (
   });
   await renderPage();
 
-  expect(await screen.findByText("Predicted score")).toBeInTheDocument();
-  expect(screen.getByText(/Wests Tigers 18–26 Warriors/)).toBeInTheDocument();
-  expect(screen.getByText("44 total points")).toBeInTheDocument();
+  expect(await screen.findByText(/Its predicted score was Wests Tigers 18–26 Warriors\./)).toBeInTheDocument();
 });
 
-it("renders without the Match Intelligence sections when the detail endpoint is unavailable", async () => {
+it("still shows the model's call without the detail endpoint (and no reasons card)", async () => {
   await renderPage();
 
-  expect(screen.queryByRole("heading", { name: "Overview" })).not.toBeInTheDocument();
-  // The existing matchup content still renders (backward compatible).
-  expect(screen.getByText(/Warriors to win · 67%/)).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Why the model thinks so" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/predicted score/)).not.toBeInTheDocument();
+  expect(screen.getByText(/It picked Warriors at 67%/)).toBeInTheDocument();
 });

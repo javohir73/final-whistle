@@ -1,11 +1,21 @@
-/** FeatureHero (Floodlight P2 slice p2-s5): the home hub's "tonight's feature"
- *  match -- a giant win % at display-hero scale, a thin W/D/L bar whose
- *  printed-% aria-label is the accessible source of truth for that number, two
- *  CTAs into the match page, and the league accent chip. `match={null}` degrades
- *  to an honest placeholder, never a fabricated number. */
-import { render, screen } from "@testing-library/react";
+/** FeatureHero (direction G): one featured match as a calm card with real
+ *  crests and the next step. Reveal rule: the model's scoreline, leading
+ *  chance and margin stay hidden on an open fixture until the viewer locks a
+ *  pick (never in the server HTML); finished/live matches and competitions
+ *  without a pick game show it. `match={null}` is an honest placeholder. */
+import { render, screen, waitFor } from "@testing-library/react";
 import { FeatureHero } from "@/components/FeatureHero";
-import type { MatchSummary } from "@/lib/types";
+import { getMyLeagueTips } from "@/lib/leagueTips";
+import { resetRevealStore } from "@/lib/useModelReveal";
+import type { LeagueTipsMineResponse, MatchSummary } from "@/lib/types";
+
+jest.mock("@/lib/leagueTips");
+jest.mock("@/lib/nrlTips");
+jest.mock("@/lib/session", () => {
+  const actual = jest.requireActual("@/lib/session");
+  return { ...actual, getOrCreateDeviceId: jest.fn(() => "device-1") };
+});
+const mockMine = getMyLeagueTips as jest.MockedFunction<typeof getMyLeagueTips>;
 
 function makeMatch(overrides: Partial<MatchSummary> = {}): MatchSummary {
   return {
@@ -31,132 +41,108 @@ function makeMatch(overrides: Partial<MatchSummary> = {}): MatchSummary {
     predicted_score: { home: 2, away: 0, probability: 0.1 },
     confidence: "High",
     goal_events: [],
+    matchweek: 11,
     ...overrides,
   };
 }
 
-describe("FeatureHero", () => {
-  it("renders the giant win %, an accessible probability bar, both CTAs, and the comp chip", () => {
-    render(<FeatureHero match={makeMatch()} comp="wc26" tz="UTC" />);
+const week = (matches: LeagueTipsMineResponse["matches"]): LeagueTipsMineResponse => ({
+  league: "epl", matchweek: 11, handle: null, matches, disclaimer: "",
+});
 
-    // The decorative-scale giant number (max of home/draw/away = 62).
-    expect(screen.getByText("62")).toBeInTheDocument();
+beforeEach(() => {
+  resetRevealStore();
+  window.localStorage.clear();
+  mockMine.mockReset();
+  mockMine.mockResolvedValue(week([]));
+});
 
-    // The bar's printed-% aria-label is the accessible source of truth for it.
-    const bar = screen.getByRole("img");
-    expect(bar).toHaveAttribute("aria-label", expect.stringContaining("62%"));
-
-    // Two CTAs into the competition-scoped match page, each landing on its
-    // own section: the pick and the "why". The legacy /match/<id> default
-    // 308s into the World Cup and soft-404s for every club match.
-    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
-      "href",
-      "/football/wc26/match/101#pick",
-    );
-    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute(
-      "href",
-      "/football/wc26/match/101#why",
-    );
-
-    // The league accent chip carries the competition's short label.
-    expect(screen.getByText("WC26")).toBeInTheDocument();
+describe("FeatureHero reveal rule", () => {
+  it("hides the model's numbers on an open fixture with no locked pick", async () => {
+    const { container } = render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" />);
+    await waitFor(() => expect(mockMine).toHaveBeenCalled());
+    expect(container).not.toHaveTextContent("2–0");
+    expect(container).not.toHaveTextContent(/62|%/);
+    expect(screen.getByText(/appears once you lock yours/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Why/ })).toBeNull();
   });
 
-  it("renders an honest placeholder for a null match -- never a fabricated %", () => {
-    render(<FeatureHero match={null} comp="wc26" />);
-
-    expect(screen.getByText("No featured match right now")).toBeInTheDocument();
-    // No probability bar, no CTAs, no invented percentage.
-    expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.queryByRole("link")).toBeNull();
-    expect(screen.queryByText(/%/)).toBeNull();
+  it("keeps them out of the server HTML", () => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    if (!g.TextEncoder) g.TextEncoder = jest.requireActual("node:util").TextEncoder;
+    const server = jest.requireActual("react-dom/server.node") as typeof import("react-dom/server");
+    const html = server.renderToString(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" />);
+    expect(html).not.toContain("2–0");
+    expect(html).not.toContain("62%");
   });
 
-  it("routes both CTAs through the href override, onto the sections that exist", () => {
-    render(
-      <FeatureHero match={makeMatch()} comp="epl" tz="UTC" href="/football/epl/match/101" />,
+  it("reveals You and Model after a locked pick", async () => {
+    mockMine.mockResolvedValue(
+      week([
+        {
+          id: 101, home: "Brazil", away: "Uruguay", kickoff_utc: null, status: "scheduled",
+          score_home: null, score_away: null, model: null,
+          your_prediction: { predicted_home: 3, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
+        },
+      ]),
     );
-    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
-      "href",
-      "/football/epl/match/101#pick",
-    );
-    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute(
+    render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" />);
+    expect(await screen.findByText("3–1")).toBeInTheDocument();
+    expect(screen.getByText("2–0")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Why the model thinks so" })).toHaveAttribute(
       "href",
       "/football/epl/match/101#why",
     );
   });
 
-
-  it("dates the kickoff and names its zone, not a bare clock time", () => {
-    render(
-      <FeatureHero
-        match={makeMatch({ kickoff_utc: "2026-11-08T15:00:00Z" })}
-        comp="epl"
-        tz="Europe/London"
-      />,
-    );
-    // Sun 8 Nov · 3:00 PM GMT — the tz label form is ICU-dependent, so only
-    // require that a non-empty zone label follows the clock time.
-    expect(screen.getByText(/^Sun 8 Nov · 3:00 PM \S+$/)).toBeInTheDocument();
+  it("shows the call where there is no pick game (Champions League)", () => {
+    render(<FeatureHero match={makeMatch()} comp="ucl" tz="UTC" />);
+    expect(screen.getByText("2–0")).toBeInTheDocument();
+    expect(screen.getByText(/Brazil win 62%/)).toBeInTheDocument();
   });
 
-  it("accepts truthful feature copy when the match is not tonight", () => {
-    render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" eyebrow="Next up" />);
-
-    expect(screen.getByText("Next up")).toBeInTheDocument();
-    expect(screen.queryByText("Tonight's feature")).toBeNull();
-  });
-
-  it("drops both CTA links when href is null -- never falls through to /match/<id>", () => {
-    // An NRL fixture whose round is still TBC (nrlMatchHref -> null): the CTAs
-    // must degrade to non-interactive labels, not the football detail route.
-    render(<FeatureHero match={makeMatch()} comp="nrl" tz="UTC" badge="club" href={null} />);
-
-    expect(screen.queryByRole("link")).toBeNull();
-    // The labels stay for layout, but there's no link to the wrong sport.
-    const primary = screen.getByText("Make your pick");
-    const secondary = screen.getByText("Why 62%?");
-    expect(primary).toHaveClass("opacity-disabled");
-    expect(secondary).toHaveClass("opacity-disabled");
-  });
-
-  it("prints the expected margin in the caption when there's no predicted score", () => {
-    // Brazil (home) leads on win probability, so it's the favoured side.
-    render(
-      <FeatureHero
-        match={makeMatch({ predicted_score: null })}
-        comp="nrl"
-        tz="UTC"
-        margin={5.5}
-      />,
-    );
-
-    expect(screen.getByText(/Model most likely: Brazil by 5\.5/)).toBeInTheDocument();
-  });
-
-  it("badge=\"club\" swaps the country crests for self-hosted club logos", () => {
+  it("keeps an open NRL margin hidden", () => {
     const { container } = render(
-      <FeatureHero
-        match={makeMatch({ teams: { home: "Panthers", away: "Eels" } })}
-        comp="nrl"
-        tz="UTC"
-        badge="club"
-      />,
+      <FeatureHero match={makeMatch({ predicted_score: null })} comp="nrl" tz="UTC" margin={5.5} />,
     );
-
-    expect(container.querySelector('[data-club-logo="Panthers"] img')).toHaveAttribute(
-      "src",
-      "/clubs/nrl/panthers.svg",
-    );
-    expect(container.querySelector('[data-club-logo="Eels"] img')).toHaveAttribute(
-      "src",
-      "/clubs/nrl/eels.svg",
-    );
+    expect(container).not.toHaveTextContent("by 5.5");
   });
 });
 
-/** M2: the primary call to action only says "Make your pick" where a pick can
- *  actually be made. */
+describe("FeatureHero", () => {
+  it("renders an honest placeholder for a null match", () => {
+    render(<FeatureHero match={null} comp="wc26" />);
+    expect(screen.getByText("No featured match right now")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
+  });
+
+  it("dates the kickoff and names its zone", () => {
+    render(<FeatureHero match={makeMatch({ kickoff_utc: "2099-11-08T15:00:00Z" })} comp="epl" tz="Europe/London" />);
+    expect(screen.getByText(/^Sun 8 Nov · 3:00 PM \S+$/)).toBeInTheDocument();
+  });
+
+  it("accepts the eyebrow copy", () => {
+    render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" eyebrow="Next up" />);
+    expect(screen.getByText("Next up")).toBeInTheDocument();
+  });
+
+  it("drops the CTA link when href is null -- never falls through to /match/<id>", () => {
+    render(<FeatureHero match={makeMatch()} comp="nrl" tz="UTC" badge="club" href={null} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByRole("button", { name: "Make your pick" })).toBeDisabled();
+  });
+
+  it('badge="club" uses real club crests, decorative beside the printed names', () => {
+    const { container } = render(
+      <FeatureHero match={makeMatch({ teams: { home: "Panthers", away: "Eels" } })} comp="nrl" tz="UTC" badge="club" />,
+    );
+    expect(container.querySelector('[data-club-logo="Panthers"] img')).toHaveAttribute("src", "/clubs/nrl/panthers.svg");
+    expect(container.querySelector('[data-club-logo="Eels"] img')).toHaveAttribute("src", "/clubs/nrl/eels.svg");
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
+  });
+});
+
 describe("FeatureHero primary call to action", () => {
   const live = () =>
     makeMatch({
@@ -166,10 +152,12 @@ describe("FeatureHero primary call to action", () => {
 
   it("sends a pre-kickoff league fixture to the pick", () => {
     render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" />);
-    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute(
-      "href",
-      "/football/epl/match/101#pick",
-    );
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute("href", "/football/epl/match/101#pick");
+  });
+
+  it("routes through the href override", () => {
+    render(<FeatureHero match={makeMatch()} comp="epl" tz="UTC" href="/football/epl/match/7" />);
+    expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute("href", "/football/epl/match/7#pick");
   });
 
   it("offers a Preview -- no #pick -- where picks are not open (Champions League)", () => {
@@ -178,10 +166,10 @@ describe("FeatureHero primary call to action", () => {
     expect(screen.getByRole("link", { name: "Preview" })).toHaveAttribute("href", "/football/ucl/match/101");
   });
 
-  it("says Live now for a live featured match, without the closed pick anchor", () => {
+  it("says Live now for a live featured match, and shows the call", () => {
     render(<FeatureHero match={live()} comp="epl" tz="UTC" />);
-    expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Live now" })).toHaveAttribute("href", "/football/epl/match/101");
+    expect(screen.getByText("2–0")).toBeInTheDocument();
   });
 
   it("says Match centre once the match is over", () => {
@@ -195,28 +183,8 @@ describe("FeatureHero primary call to action", () => {
     expect(screen.getByRole("link", { name: "Match centre" })).toHaveAttribute("href", "/football/epl/match/101");
   });
 
-  it("sends an NRL pick to the NRL tips game, which is where NRL picks are made", () => {
+  it("sends an NRL pick to the NRL tips game", () => {
     render(<FeatureHero match={makeMatch()} comp="nrl" tz="UTC" href="/nrl/match/2026/19/3" />);
     expect(screen.getByRole("link", { name: "Make your pick" })).toHaveAttribute("href", "/nrl/tips");
-    expect(screen.getByRole("link", { name: "Why 62%?" })).toHaveAttribute("href", "/nrl/match/2026/19/3#model");
-  });
-
-  it("prints the bar's own rounded share as the giant number (L6)", () => {
-    // Rounded alone 0.456 is 46%; the bar's sum-to-100 split gives home 45.
-    render(
-      <FeatureHero
-        match={makeMatch({ probabilities: { home_win: 0.456, draw: 0.267, away_win: 0.277 } })}
-        comp="epl"
-        tz="UTC"
-      />,
-    );
-    expect(screen.getByText("45")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Why 45%?" })).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAttribute("aria-label", expect.stringContaining("Brazil win 45%"));
-  });
-
-  it("paints the Live label in the AA-safe live ink (L11)", () => {
-    render(<FeatureHero match={live()} comp="epl" tz="UTC" />);
-    expect(screen.getByText("Live")).toHaveClass("text-loss-ink");
   });
 });

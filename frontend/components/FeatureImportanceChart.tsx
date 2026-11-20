@@ -32,22 +32,22 @@ export function FeatureImportanceChart({ features }: { features: FeatureWeight[]
     <div>
       <div data-feature-bars aria-hidden="true" className="space-y-2.5">
         {rows.map((r) => (
-          <div key={r.key} className="grid grid-cols-[6.5rem_minmax(0,1fr)_2.25rem] items-center gap-3">
-            <span className="truncate text-meta text-foreground">{r.label}</span>
-            <span className="h-[18px] overflow-hidden rounded-r-md bg-surface-2">
+          <div key={r.key} className="grid grid-cols-[8.5rem_minmax(0,1fr)_2.75rem] items-center gap-3">
+            <span className="truncate text-notes text-ink">{r.label}</span>
+            <span className="h-3 overflow-hidden rounded-full bg-soft">
               <span
                 data-weight={String(r.weight)}
-                className="block h-full min-w-[2px] rounded-r-md bg-lime-deep"
+                className="block h-full min-w-[2px] rounded-full bg-ink"
                 style={{ width: `${Math.round(share(r.weight) * 100)}%` }}
               />
             </span>
-            <span className="text-right text-label font-semibold tabular-nums text-feature-chart-ink">
+            <span className="text-right text-notes font-semibold tabular-nums text-ink">
               {fmt(r.weight)}
             </span>
           </div>
         ))}
       </div>
-      <p className="mt-2 text-label text-muted">Relative weight · the factors sum to 1</p>
+      <p className="mt-3 text-label text-muted">Relative weight · the factors sum to 1</p>
       {/* sr-only on a wrapping div, never on the <table>: table layout ignores
           width:1px and grows to its content, so a "hidden" table still widened
           the page (scrollWidth 555px at a 390px viewport). */}

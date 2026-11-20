@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Group, MatchSummary } from "@/lib/types";
 import { groupHasLiveMatch } from "@/lib/liveLabel";
 import { COMPETITIONS } from "@/lib/sports";
+import { Card, CardHead, Chip } from "@/components/ui";
 import { GroupTable } from "./GroupTable";
 
 /** Groups exist only where the registry says hasGroups (the World Cup), so
@@ -18,12 +19,12 @@ const WC26_BASE = COMPETITIONS.wc26.basePath;
  *  overlay (relative z-10) so its team links stay independently clickable. */
 export function GroupCard({
   group,
-  index = 0,
   matches,
   groupBasePath = `${WC26_BASE}/groups`,
   teamBasePath = `${WC26_BASE}/team`,
 }: {
   group: Group;
+  /** Kept for callers that still pass it; cards no longer stagger in. */
   index?: number;
   matches?: MatchSummary[];
   groupBasePath?: string;
@@ -33,34 +34,31 @@ export function GroupCard({
   const live = groupHasLiveMatch(group.name, matches);
 
   return (
-    <div
-      style={{ animationDelay: `${Math.min(index * 40, 400)}ms` }}
-      className="glass card-hover fade-up group relative cursor-pointer rounded-2xl p-4 sm:p-5"
-    >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="font-display text-lg font-bold tracking-tight">{group.name}</span>
-          {live && (
-            <span
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-loss/15 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss-wash-ink"
-              aria-hidden
-            >
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-loss" />
-              Live
-            </span>
-          )}
-        </div>
-        <Link
-          href={href}
-          aria-label={`${group.name}${live ? " — match in progress" : ""} — view matches and standings`}
-          className="shrink-0 text-xs font-semibold text-muted transition after:absolute after:inset-0 after:content-[''] group-hover:text-lime-deep"
-        >
-          View matches <span aria-hidden>→</span>
-        </Link>
+    <Card pad className="group relative transition-colors hover:border-line-strong">
+      <CardHead
+        title={
+          <span className="inline-flex items-center gap-2">
+            {group.name}
+            {live && (
+              <Chip tone="good" aria-hidden>
+                Live
+              </Chip>
+            )}
+          </span>
+        }
+        action={
+          <Link
+            href={href}
+            aria-label={`${group.name}${live ? " — match in progress" : ""} — view matches and standings`}
+            className="font-semibold text-brand no-underline underline-offset-[3px] after:absolute after:inset-0 after:rounded-card after:content-[''] group-hover:underline"
+          >
+            View matches
+          </Link>
+        }
+      />
+      <div className="relative z-10 mt-2">
+        <GroupTable standings={group.standings} teamBasePath={teamBasePath} compact />
       </div>
-      <div className="relative z-10">
-        <GroupTable standings={group.standings} teamBasePath={teamBasePath} />
-      </div>
-    </div>
+    </Card>
   );
 }

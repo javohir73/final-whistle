@@ -8,10 +8,11 @@ import { useCompetitionScope } from "@/components/TournamentProvider";
 import { isNavTabActive, navTabsFor, normalizePathname } from "@/lib/sports";
 import { cn } from "@/lib/utils";
 
-/** Mobile-only sticky bottom tab bar: the same five tabs in the same order on
- *  every route except /embed — Home, Fixtures, Table, Play, My picks — scoped
- *  to the current competition (lib/sports.ts navTabsFor). Only the
- *  destinations and the Table slot's word ("Ladder", "Groups") change. */
+/** Phone/tablet tab bar (below lg): the same tabs as the header row, in the
+ *  same order, on every route except /embed — Matches, Table, My picks,
+ *  Leaderboard (NRL: Matches, Ladder, My tips, Leaderboard; WC26 adds
+ *  Bracket) — scoped to the current competition (lib/sports.ts navTabsFor).
+ *  White ground, a line on top, muted labels, brand for the current tab. */
 export function BottomNav() {
   return (
     <Suspense fallback={<BottomNavContent queryCompetition={null} />}>
@@ -43,9 +44,9 @@ function BottomNavContent({ queryCompetition }: { queryCompetition: string | nul
   return (
     <nav
       aria-label="Primary"
-      className="safe-x safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-border bg-surface/90 backdrop-blur-xl lg:hidden"
+      className="safe-x safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-line bg-ground lg:hidden"
     >
-      <div className="mx-auto flex max-w-md items-stretch justify-around">
+      <div className="mx-auto flex max-w-lg items-stretch justify-around">
         {tabs.map((tab) => {
           const active = isNavTabActive(tab, pathname);
           return (
@@ -55,11 +56,11 @@ function BottomNavContent({ queryCompetition }: { queryCompetition: string | nul
               data-tab={tab.id}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-[44px] flex-1 flex-col items-center gap-1 py-2.5 text-label font-medium transition",
-                active ? "text-lime-deep" : "text-muted hover:text-foreground",
+                "flex min-h-[56px] min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-center text-label font-medium leading-tight no-underline transition-colors",
+                active ? "font-semibold text-brand" : "text-muted hover:text-ink",
               )}
             >
-              <NavIcon id={tab.id} active={active} className="h-[23px] w-[23px]" />
+              <NavIcon id={tab.id} active={active} className="h-[22px] w-[22px]" />
               {tab.label}
             </Link>
           );

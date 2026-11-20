@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { Bricolage_Grotesque, Hanken_Grotesk } from "next/font/google";
+import { Instrument_Sans } from "next/font/google";
 import "./globals.css";
-import { APP_NAME, SITE_URL } from "@/lib/constants";
-import { Wordmark } from "@/components/Logo";
+import { APP_NAME, BILLING_ENABLED, SITE_URL } from "@/lib/constants";
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { HideOnEmbed } from "@/components/HideOnEmbed";
@@ -19,13 +18,11 @@ import { getTournament } from "@/lib/tournament";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsightsMount } from "@/components/SpeedInsightsMount";
 
-const display = Bricolage_Grotesque({
+// Direction G: Instrument Sans everywhere. One font file, exposed under both
+// legacy variables so `font-display` and `font-sans` keep working.
+const instrument = Instrument_Sans({
   subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-});
-const body = Hanken_Grotesk({
-  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-body",
   display: "swap",
 });
@@ -66,47 +63,35 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#0a1410",
+  themeColor: "#ffffff",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
 };
+
+const FOOTER_LINKS = [
+  { href: "/about", label: "How the model works" },
+  { href: "/methodology", label: "Methodology" },
+  ...(BILLING_ENABLED ? [{ href: "/premium", label: "Premium" }] : []),
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+];
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const tournament = await getTournament();
   return (
     <html
       lang="en"
-      className={`${display.variable} ${body.variable}`}
-      // The theme boot script below adds .theme-daylight before React hydrates,
-      // which would otherwise log a className mismatch on every Daylight load.
-      suppressHydrationWarning
+      className={instrument.variable}
     >
       <head>
-        {/* Theme boot. MUST stay inline, synchronous, and first in <head>: it
-            runs before the first paint, so a reader who chose Daylight never
-            sees a flash of the dark canvas. React cannot do this job — by the
-            time it hydrates, the wrong theme has already been painted.
-            Deliberately dependency-free and tiny; the key and class name are
-            duplicated from lib/theme.ts (THEME_KEY / LIGHT_CLASS) because this
-            executes before any module loads. Dark is the default: absent or
-            unreadable storage falls through to it untouched. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              'try{if(localStorage.getItem("fw_theme")==="light"){' +
-              'document.documentElement.classList.add("theme-daylight");' +
-              'var m=document.querySelector(\'meta[name="theme-color"]\');' +
-              'if(m)m.setAttribute("content","#f2f6ef");}}catch(e){}',
-          }}
-        />
         {/* Warm the flag CDN connection: the country chooser fires ~48 flag
             requests at once on first paint, so the early TLS handshake cuts
             transient drops. */}
         <link rel="preconnect" href="https://flagcdn.com" crossOrigin="" />
         <link rel="dns-prefetch" href="https://flagcdn.com" />
       </head>
-      <body className="min-h-[100dvh] font-sans antialiased">
+      <body className="min-h-[100dvh] bg-ground font-sans text-ink antialiased">
         <ServiceWorker />
         <SentryInit />
         <TournamentProvider tournament={tournament}>
@@ -118,50 +103,58 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               their scope from the URL, so SSR and client always agree. */}
           <CompetitionProvider>
             <AuthProvider>
-              <a href="#main" className="skip-link glass rounded-lg px-4 py-2 text-sm font-semibold">
+              <a
+                href="#main"
+                className="skip-link inline-flex min-h-[44px] items-center rounded-full bg-brand px-5 font-semibold text-white no-underline"
+              >
                 Skip to content
               </a>
-              <div className="app-top sticky top-0 z-50 bg-background">
+              <div className="app-top sticky top-0 z-50 bg-ground">
                 <SiteNav />
                 <OfflineBanner />
               </div>
               {/* Outside the sticky bar so the one-line, dismissible disclaimer
                   scrolls away with the page (the footer carries the full
-                  compliance copy). Below the bar, not above it: .app-top owns
+                  compliance line). Below the bar, not above it: .app-top owns
                   the standalone-PWA safe-area inset, so anything above it would
                   sit under the iPhone status bar in the native shell. */}
               <HideOnEmbed>
                 <DisclaimerBanner />
               </HideOnEmbed>
+              {/* ONE container for header, main and footer (.fw-wrap: 1,360px,
+                  40px gutters, 16px under 900px). Pages put their content
+                  straight in (32px top padding is already here); a page with a
+                  rail uses components/ui/PageLayout.
+                  Bottom padding clears the fixed phone tab bar + the iPhone home
+                  indicator below lg, where BottomNav shows. */}
               <main
                 id="main"
-                className="mx-auto max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+72px)] pt-8 sm:px-5 lg:pb-8"
+                tabIndex={-1}
+                className="fw-wrap pb-[calc(env(safe-area-inset-bottom)+88px)] pt-8 focus:outline-none lg:pb-0"
               >
                 {children}
               </main>
-              {/* Bottom padding clears the fixed mobile tab bar + the iPhone home
-                  indicator (safe-area inset is 0 on desktop/non-notched devices).
-                  Released at lg, not sm: BottomNav is lg:hidden, so anything that
-                  drops this padding at sm tucks the last ~72px of the page under
-                  the tab bar for every 640-1023px viewport. */}
               <HideOnEmbed>
-                <footer className="mx-auto mt-16 max-w-6xl px-5 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-10 text-center text-xs text-muted lg:pb-10">
-                  <Wordmark className="font-bold" />{" "}
-                  · Explainable sports predictions · For analytics and entertainment
-                  only. Not betting advice.
-                  <span className="mt-1.5 block">
-                    <Link href="/methodology" className="underline-offset-2 hover:text-foreground hover:underline">
-                      Methodology
-                    </Link>{" "}
-                    ·{" "}
-                    <Link href="/privacy" className="underline-offset-2 hover:text-foreground hover:underline">
-                      Privacy
-                    </Link>{" "}
-                    ·{" "}
-                    <Link href="/terms" className="underline-offset-2 hover:text-foreground hover:underline">
-                      Terms &amp; support
-                    </Link>
-                  </span>
+                <footer className="fw-wrap pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pb-10">
+                  <div className="flex flex-wrap justify-between gap-x-6 gap-y-3 mt-16 border-t border-line pt-7 text-notes text-muted">
+                    <span>
+                      FinalWhistle. Predictions with their uncertainty, for analytics and
+                      entertainment only. Not betting advice.
+                    </span>
+                    {/* Phone: each link is a 44px-tall target (rows touch, no
+                        extra gap); from lg the links sit on one calm line. */}
+                    <nav aria-label="Footer" className="-my-2.5 flex flex-wrap gap-x-6 lg:my-0 lg:gap-y-2">
+                      {FOOTER_LINKS.map((l) => (
+                        <Link
+                          key={l.href}
+                          href={l.href}
+                          className="inline-flex min-h-[44px] items-center no-underline underline-offset-[3px] hover:text-ink hover:underline lg:min-h-0"
+                        >
+                          {l.label}
+                        </Link>
+                      ))}
+                    </nav>
+                  </div>
                 </footer>
               </HideOnEmbed>
               <BottomNav />

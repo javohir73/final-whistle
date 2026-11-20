@@ -20,7 +20,7 @@ export default function EmbedLayout({ children }: { children: React.ReactNode })
     <div
       // Transparent background so the widget blends into the partner's page;
       // narrow column caps the width around the card's own 340px max. Font vars
-      // are inherited from the root <html> (Bricolage / Hanken via next/font).
+      // are inherited from the root <html> (Instrument Sans via next/font).
       style={{
         display: "flex",
         justifyContent: "center",

@@ -24,16 +24,6 @@ export default function GlobalError({
 
   return (
     <html lang="en">
-      <head>
-        <style>{`:root { --crash-muted: #6b7c71; } .theme-daylight { --crash-muted: #59685f; }`}</style>
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              'try{if(localStorage.getItem("fw_theme")==="light"){' +
-              'document.documentElement.classList.add("theme-daylight");}}catch(e){}',
-          }}
-        />
-      </head>
       <body
         style={{
           margin: 0,
@@ -45,13 +35,13 @@ export default function GlobalError({
           gap: "1rem",
           padding: "2rem",
           textAlign: "center",
-          background: "#f6f8f3",
-          color: "#0f2117",
+          background: "#ffffff",
+          color: "#14181f",
           fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
       >
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Something went wrong</h1>
-        <p style={{ fontSize: "0.875rem", color: "var(--crash-muted)", maxWidth: "28rem" }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 600, margin: 0 }}>Something went wrong</h1>
+        <p style={{ fontSize: "1rem", color: "#5b6470", maxWidth: "28rem" }}>
           The app hit an unexpected error. Please try again.
         </p>
         <button
@@ -59,13 +49,14 @@ export default function GlobalError({
           onClick={reset}
           style={{
             cursor: "pointer",
-            borderRadius: "0.75rem",
+            borderRadius: "999px",
             border: "none",
-            background: "#8fd633",
-            color: "#123723",
-            fontWeight: 700,
-            padding: "0.5rem 1rem",
-            fontSize: "0.875rem",
+            background: "#0f4d3a",
+            color: "#ffffff",
+            fontWeight: 600,
+            minHeight: "48px",
+            padding: "0 24px",
+            fontSize: "1rem",
           }}
         >
           Try again
