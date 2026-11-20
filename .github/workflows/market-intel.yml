@@ -1,12 +1,12 @@
 # Prediction-market odds snapshot (Polymarket + Kalshi) for the intel panel,
-# every 3 hours post-WC (was hourly during the tournament; only thin NRL
+# daily since 2026-11 (was every 3 hours post-WC, hourly during it; only thin NRL
 # coverage remains). Read-only public APIs — no keys. Migrations are
 # refresh.yml's job; this workflow assumes the schema is already at head.
 name: market-intel
 
 on:
   schedule:
-    - cron: "23 */3 * * *"
+    - cron: "23 5 * * *"   # daily: private repo, 2,000 free Actions minutes a month
   workflow_dispatch: {}
 
 jobs:

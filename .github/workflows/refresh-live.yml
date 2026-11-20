@@ -12,8 +12,9 @@
 # went dark for every competition after the 2026 World Cup ended.
 #
 # GitHub's minimum schedule interval is 5 minutes, so each run loops internally
-# (~1-minute cadence) to cover the gap to the next tick. This repo is public, so
-# Actions minutes are free; on a private repo, widen the cron or drop the loop.
+# (~1-minute cadence) to cover the gap to the next tick. This repo is private
+# (2,000 free Actions minutes a month), so the loop only continues while the
+# server reports a match in a live window; an idle response ends the run.
 #
 # SETUP (one time) — GitHub → repo → Settings → Secrets and variables → Actions:
 #   - API_URL          the deployed API base, e.g. https://pitchprophet-api.onrender.com
@@ -25,9 +26,15 @@
 # point an external uptime cron (e.g. cron-job.org) at the same endpoint instead.
 name: refresh-live
 
+# Every 2 hours, not every 5 minutes: each run bills at least one Actions
+# minute on this private repo (a 5-minute cron asks for 8,640 a month before it
+# polls anything), and GitHub was only delivering a few runs a day anyway.
+# Visitors on the matches board drive live refreshes; this is the backstop that
+# also retries an owed learning chain. Real-time polling needs an external
+# trigger on the same endpoint, not this workflow.
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "7 */2 * * *"
   workflow_dispatch: {}
 
 # Don't let a slow run overlap the next scheduled tick.
@@ -57,6 +64,13 @@ jobs:
               -H "X-Recompute-Token: ${RECOMPUTE_TOKEN}" || echo 000)
             echo "[$i/5] HTTP ${code} $(cat /tmp/live.json 2>/dev/null || true)"
             if [ "${code}" -ge 200 ] && [ "${code}" -lt 300 ]; then ok=1; fi
+            # Idle exit: the server skipped the pass because nothing is in a
+            # live window, so sleeping out the window only burns Action-minutes.
+            # The single ping above has already retried any owed learning chain.
+            if [ "${code}" = 200 ] && [ "$(jq -r '.live.skipped // empty' /tmp/live.json 2>/dev/null)" = idle ]; then
+              echo "No match in a live window -- exiting early."
+              break
+            fi
             if [ "$i" -lt 5 ]; then sleep 55; fi
           done
           if [ "${ok}" != 1 ]; then

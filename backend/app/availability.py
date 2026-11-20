@@ -17,6 +17,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import Match, Player
+from app.run_memo import memo
 from ml.models.availability import availability_offset
 
 
@@ -34,7 +35,7 @@ def availability_inputs(
     rows = _lineup_rows(db, match.id, side)
     if not rows:
         return None
-    squad = db.query(Player).filter_by(team_id=team_id).all()
+    squad = _squad_rows(db, team_id)
     by_pid = {p.provider_player_id: p for p in squad}
     starters: list[dict] = []
     for lp in rows:
@@ -51,10 +52,17 @@ def availability_inputs(
     return starters, [_player_dict(p, None) for p in squad]
 
 
+def _squad_rows(db: Session, team_id: int) -> list[Player]:
+    """A team's Player rows — memoised per team inside a batch pass
+    (app/run_memo.py), where every match re-reads both squads per twin."""
+    return memo(db, ("squad", team_id),
+                lambda: db.query(Player).filter_by(team_id=team_id).all())
+
+
 def _squad_dicts(db: Session, team_id: int) -> list[dict]:
     from app.goalscorers import _player_dict  # lazy: avoids import cycle
 
-    return [_player_dict(p, None) for p in db.query(Player).filter_by(team_id=team_id).all()]
+    return [_player_dict(p, None) for p in _squad_rows(db, team_id)]
 
 
 def _injury_statuses(match: Match, side: str, squad_ids: set) -> dict[int, dict]:

@@ -67,6 +67,32 @@ def matches_in_live_window(db: Session, now: datetime | None = None) -> list[Spo
     )
 
 
+def next_kickoff_in_seconds(db: Session, now: datetime | None = None) -> int | None:
+    """Seconds until the earliest scheduled NRL kickoff still in the future,
+    or None when there is none. Lets the live workflow tell "idle until the
+    next cron tick" apart from "a kickoff lands before the next tick, keep
+    polling" -- the live window only looks _WINDOW_AHEAD ahead. Kickoff is
+    normalized the same way as _elapsed_minutes (SQLite returns it naive)."""
+    now = now or datetime.now(timezone.utc)
+    kickoff = (
+        db.query(SportMatch.kickoff_utc)
+        .filter(
+            SportMatch.sport == SPORT,
+            SportMatch.status == "scheduled",
+            SportMatch.kickoff_utc.isnot(None),
+            SportMatch.kickoff_utc > now,
+        )
+        .order_by(SportMatch.kickoff_utc.asc())
+        .limit(1)
+        .scalar()
+    )
+    if kickoff is None:
+        return None
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=timezone.utc)
+    return int((kickoff - now).total_seconds())
+
+
 def _pregame_prob(db: Session, match: SportMatch) -> float:
     latest = (
         db.query(SportPrediction)
@@ -190,7 +216,13 @@ def poll_live_matches(db: Session, provider: StatsProvider, now: datetime | None
     on them are graded before returning (`tips_graded`), so tippers get their
     points in the same request that finishes the match rather than hours
     later from nrl-refresh, while the beat-the-model boards hold the match
-    back until they do (app.api.nrl_user_tips._awaiting_grading)."""
+    back until they do (app.api.nrl_user_tips._awaiting_grading).
+
+    `next_kickoff_in_seconds` (see next_kickoff_in_seconds) is read before
+    any poll so .github/workflows/nrl-live-refresh.yml can end an idle run
+    early only when no kickoff falls before its next scheduled tick."""
+    now = now or datetime.now(timezone.utc)
+    next_kickoff = next_kickoff_in_seconds(db, now=now)
     matches = matches_in_live_window(db, now=now)
     # Read before any poll commits (and expires these rows).
     already_finished = {m.id for m in matches if m.status == "finished"}
@@ -202,7 +234,8 @@ def poll_live_matches(db: Session, provider: StatsProvider, now: datetime | None
         polled += 1
         if result["status"] == "final" and result["match_id"] not in already_finished:
             finished += 1
-    summary = {"candidates": len(matches), "polled": polled, "finished": finished}
+    summary = {"candidates": len(matches), "polled": polled, "finished": finished,
+               "next_kickoff_in_seconds": next_kickoff}
     if finished:
         summary["tips_graded"] = _grade_tips(db)
     return summary

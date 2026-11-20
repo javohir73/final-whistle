@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.models import HistoricalMatch, Team, TeamStats
+from app.run_memo import memo
 
 # Rough Elo-equivalent strength per confederation, for teams with no Elo and no
 # FIFA rank (last-resort cold start). Intentionally coarse.
@@ -39,17 +40,17 @@ def estimate_strength(team: Team) -> tuple[float, str]:
 
 
 def latest_stats(db: Session, team_id: int) -> TeamStats | None:
-    return (
+    return memo(db, ("latest_stats", team_id), lambda: (
         db.query(TeamStats)
         .filter_by(team_id=team_id)
         .order_by(TeamStats.as_of_date.desc())
         .first()
-    )
+    ))
 
 
 def head_to_head(db: Session, a_id: int, b_id: int, last_n: int = 5) -> dict:
     """Recent head-to-head record from team A's perspective."""
-    rows = (
+    rows = memo(db, ("head_to_head", a_id, b_id, last_n), lambda: (
         db.query(HistoricalMatch)
         .filter(
             ((HistoricalMatch.team_a_id == a_id) & (HistoricalMatch.team_b_id == b_id))
@@ -58,7 +59,7 @@ def head_to_head(db: Session, a_id: int, b_id: int, last_n: int = 5) -> dict:
         .order_by(HistoricalMatch.date.desc())
         .limit(last_n)
         .all()
-    )
+    ))
     a_wins = b_wins = draws = 0
     for m in rows:
         if m.score_a == m.score_b:

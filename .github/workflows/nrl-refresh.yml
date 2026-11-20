@@ -49,7 +49,11 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
-        run: python -m pipeline.sports.nrl_ingest --seasons 2017 2026
+        # END is the current UTC year, not a literal: a hardcoded season would
+        # silently stop ingesting results (and so stop feeding the Elo replay
+        # in nrl_predict) the day the next season kicks off. A year whose feed
+        # isn't published yet is a logged no-op (fetch_season never raises).
+        run: python -m pipeline.sports.nrl_ingest --seasons 2017 "$(date -u +%Y)"
       - name: Ingest NRL team stats + try events (idempotent, resumable)
         # Stats are an additive layer -- a failure here must not block the
         # core predict/grade/projections steps below.
@@ -57,7 +61,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
-        run: python -m pipeline.sports.nrl_stats --seasons 2024 2026
+        run: python -m pipeline.sports.nrl_stats --seasons 2024 "$(date -u +%Y)"
       - name: Generate frozen shadow predictions + grade finished matches
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -80,12 +84,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
-        run: python -m pipeline.sports.nrl_team_lists --season 2026
+        run: python -m pipeline.sports.nrl_team_lists --season "$(date -u +%Y)"
       - name: Ingest State of Origin (seed + live seasons, idempotent)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
-        run: python -m pipeline.sports.origin_ingest --seed --seasons 2025 2027
+        run: python -m pipeline.sports.origin_ingest --seed --seasons 2025 "$(( $(date -u +%Y) + 1 ))"
       - name: Origin frozen shadow predictions + grading
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

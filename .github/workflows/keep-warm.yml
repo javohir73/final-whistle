@@ -8,9 +8,13 @@
 # a free cron-job.org job at the same URL (every 10 min) instead.
 name: keep-warm
 
+#
+# NOT SCHEDULED since 2026-11: this repo is private, so every run bills at
+# least one of the 2,000 free Actions minutes a month. A 5-minute cron asks for
+# 8,640 minutes a month and, as noted above, still does not keep the service
+# warm. Use an external pinger on the public /api/health URL (no secret needed);
+# this workflow stays for a manual one-off ping.
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 jobs:
