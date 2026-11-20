@@ -918,9 +918,11 @@ class SportPrediction(Base):
     p_draw: Mapped[float] = mapped_column(Float)
     p_away: Mapped[float] = mapped_column(Float)
     expected_margin: Mapped[float | None] = mapped_column(Float)
-    # NRL score fields come from the fixture-specific shadow scoring model,
-    # independently of expected_margin (the Elo W/D/L model's estimate).
-    # Public APIs suppress them until the chronological MAE gate is promoted.
+    # predicted_total and the predicted scoreline come from the
+    # fixture-specific shadow scoring model; public APIs suppress them until
+    # its chronological MAE gate is promoted. predicted_margin is served, and
+    # since the 2026-11-20 audit it is the winner model's margin (the same
+    # value as expected_margin on new rows); older rows hold the score model's.
     predicted_margin: Mapped[float | None] = mapped_column(Float)
     predicted_total: Mapped[float | None] = mapped_column(Float)
     predicted_score_home: Mapped[int | None] = mapped_column(Integer)

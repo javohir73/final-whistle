@@ -1,0 +1,77 @@
+
+=== 1. Feed (fixturedownload.com, fetched today) vs production database (public API) ===
+feed rows 2017, production rows 2017
+only in feed: 0, only in production: 0
+field differences: none
+
+=== 2. Internal integrity of the feed data ===
+season  rows finished draws rounds teams  first..last kickoff
+2017   192      192     0     26    16  2017-03-02..2017-09-03
+2018   201      201     0     29    16  2018-03-08..2018-09-30
+2019   201      201     1     29    16  2019-03-14..2019-10-06
+2020   169      169     1     24    16  2020-03-12..2020-10-25
+2021   201      201     0     29    16  2021-03-11..2021-10-03
+2022   201      201     0     29    16  2022-03-10..2022-10-02
+2023   213      213     1     31    17  2023-03-02..2023-10-01
+2024   213      213     1     31    17  2024-03-03..2024-10-06
+2025   213      213     1     31    17  2025-03-02..2025-10-05
+2026   213      213     0     31    17  2026-03-01..2026-10-04
+duplicate (season, home, away, kickoff): 0
+null scores on finished: 0
+team identity: 'Tigers' seasons [2017, 2018]; 'Wests Tigers' seasons 2019-2026
+matches sharing a kickoff timestamp with another match: 0
+team playing twice on one UTC date: 0
+
+=== 3. Feed vs official results (nrl.com draw data) ===
+finished matches per season, official vs feed:
+  2017: official  201  feed  192   <-- differs
+  2018: official  201  feed  201
+  2019: official  201  feed  201
+  2020: official  169  feed  169
+  2021: official  201  feed  201
+  2022: official  201  feed  201
+  2023: official  213  feed  213
+  2024: official  213  feed  213
+  2025: official  213  feed  213
+  2026: official  213  feed  213
+feed matches matched to an official result: 2016
+feed matches with no official counterpart: 1
+    2018 29 Storm v Roosters 2018-09-30T09:20:00+00:00
+score disagreements: 3
+    (2018, 7, 'Rabbitohs', 'Raiders', (42, 18), (42, 22))
+    (2019, 17, 'Panthers', 'Titans', (21, 2), (24, 2))
+    (2026, 27, 'Sharks', 'Storm', (20, 23), (20, 24))
+kickoff differs by more than 1 hour: 0
+official full-time matches absent from the feed: 10
+    (2017, 'Finals Week 1') 4
+    (2017, 'Finals Week 2') 2
+    (2017, 'Finals Week 3') 2
+    (2017, 'Grand Final') 1
+    (2018, 'Grand Final') 1
+
+=== 4. Live predictions (production store) vs local replay ===
+replay params: NrlParams(version='nrl-elo-v0.1', k=24.0, home_adv=45.0, margin_mult_cap=1.8, season_regress=0.35, margin_slope=0.045, margin_sigma=15.0, p_draw=0.008)
+production model record: {'evaluated_matches': 76, 'winner_accuracy': 0.6447, 'avg_log_loss': 0.6589, 'avg_brier': 0.4532, 'model_version': 'nrl-elo-v0.1', 'last_updated': '2026-10-04T14:46:34.349846+00:00'}
+production matches carrying a stored prediction: 76 (all season [2026])
+earliest stored prediction created: 2026-07-09T14:50:51.579368+00:00
+matches kicking off after the first prediction: 80; without any served prediction: 4
+   missing: 29 Roosters v Sharks 2026-09-19T09:50:00+00:00
+   missing: 29 Warriors v Knights 2026-09-20T06:05:00+00:00
+   missing: 30 Dolphins v Roosters 2026-09-25T09:50:00+00:00
+   missing: 30 Panthers v Knights 2026-09-27T06:00:00+00:00
+model versions on stored predictions: {'nrl-elo-v0.1': 76}
+lead time kickoff - created (hours): min 0.6 median 20.1 max 208.4; created after kickoff: 0
+live (as stored in production)             n= 76 log_loss=0.6589 brier=0.4532 acc=0.6447
+replay, state when prediction was created  n= 76 log_loss=0.6589 brier=0.4532 acc=0.6447
+replay, state at kickoff                   n= 76 log_loss=0.6575 brier=0.4519 acc=0.6447
+replay at kickoff, Tigers identity merged  n= 76 log_loss=0.6575 brier=0.4519 acc=0.6447
+p_home, live - replay at creation: mean abs 0.00000  max abs 0.00000  exact (<1e-9) 76/76  over 0.01: 0
+p_home, live - replay at kickoff : mean abs 0.00246  max abs 0.05962  exact (<1e-9) 69/76  over 0.01: 6
+p_home, unmerged - merged identity: mean abs 0.00000  max abs 0.00000  exact (<1e-9) 1/76  over 0.01: 0
+expected_margin, live - replay at creation: mean abs 0.00000  max abs 0.00000  exact (<1e-9) 76/76  over 0.01: 0
+largest live-vs-replay-at-creation gaps:
+   0.0000  r19 Wests Tigers v Warriors kickoff 2026-07-10T10:00:00+00:00 created 2026-07-09T14:50:51.579368+00:00
+   0.0000  r19 Dolphins v Sharks kickoff 2026-07-11T05:00:00+00:00 created 2026-07-10T14:41:46.979903+00:00
+   0.0000  r19 Bulldogs v Raiders kickoff 2026-07-11T07:30:00+00:00 created 2026-07-10T14:41:46.979903+00:00
+   0.0000  r19 Roosters v Eels kickoff 2026-07-11T09:35:00+00:00 created 2026-07-10T14:41:46.979903+00:00
+   0.0000  r19 Rabbitohs v Knights kickoff 2026-07-12T04:00:00+00:00 created 2026-07-10T14:41:46.979903+00:00

@@ -1,0 +1,78 @@
+seasons: {2017: 201, 2018: 201, 2019: 201, 2020: 169, 2021: 201, 2022: 201, 2023: 213, 2024: 213, 2025: 213, 2026: 213}
+shipped: NrlParams(version='nrl-elo-v0.1', k=24.0, home_adv=45.0, margin_mult_cap=1.8, season_regress=0.35, margin_slope=0.045, margin_sigma=15.0, p_draw=0.008)
+sanity, shipped params on 2026: this script 0.6730340381  repo evaluate_season 0.6730340381
+
+parameters chosen per fold
+  R0 2019: k=24.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0080 tau=1.0 damp=False
+  R0 2020: k=24.0 home_adv=45.0 cap=1.8 regress=0.25 p_draw=0.0080 tau=1.0 damp=False
+  R0 2021: k=32.0 home_adv=25.0 cap=2.6 regress=0.35 p_draw=0.0080 tau=1.0 damp=False
+  R0 2022: k=24.0 home_adv=45.0 cap=2.6 regress=0.15 p_draw=0.0080 tau=1.0 damp=False
+  R0 2023: k=24.0 home_adv=65.0 cap=2.6 regress=0.35 p_draw=0.0080 tau=1.0 damp=False
+  R0 2024: k=24.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0080 tau=1.0 damp=False
+  R0 2025: k=24.0 home_adv=65.0 cap=1.8 regress=0.35 p_draw=0.0080 tau=1.0 damp=False
+  R0 2026: k=24.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0080 tau=1.0 damp=False
+  R1 2019: k=16.0 home_adv=55.0 cap=1.8 regress=0.65 p_draw=0.0040 tau=1.0 damp=False
+  R1 2020: k=12.0 home_adv=45.0 cap=2.2 regress=0.35 p_draw=0.0040 tau=1.0 damp=False
+  R1 2021: k=20.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0040 tau=1.0 damp=False
+  R1 2022: k=16.0 home_adv=45.0 cap=3.0 regress=0.25 p_draw=0.0040 tau=1.0 damp=False
+  R1 2023: k=20.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=False
+  R1 2024: k=20.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=False
+  R1 2025: k=16.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=False
+  R1 2026: k=16.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=False
+  R2 2019: k=12.0 home_adv=45.0 cap=2.2 regress=0.65 p_draw=0.0040 tau=0.8 damp=False
+  R2 2020: k=12.0 home_adv=45.0 cap=2.2 regress=0.35 p_draw=0.0040 tau=1.0 damp=False
+  R2 2021: k=20.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0040 tau=1.0 damp=False
+  R2 2022: k=16.0 home_adv=45.0 cap=3.0 regress=0.25 p_draw=0.0040 tau=1.0 damp=False
+  R2 2023: k=20.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=False
+  R2 2024: k=20.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=False
+  R2 2025: k=16.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=0.9 damp=False
+  R2 2026: k=16.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=0.9 damp=False
+  R4 2019: k=12.0 home_adv=55.0 cap=3.0 regress=0.65 p_draw=0.0040 tau=1.0 damp=True
+  R4 2020: k=12.0 home_adv=45.0 cap=2.2 regress=0.35 p_draw=0.0040 tau=1.0 damp=True
+  R4 2021: k=16.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=True
+  R4 2022: k=16.0 home_adv=45.0 cap=3.0 regress=0.15 p_draw=0.0040 tau=1.0 damp=True
+  R4 2023: k=28.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0040 tau=1.0 damp=True
+  R4 2024: k=20.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=True
+  R4 2025: k=24.0 home_adv=45.0 cap=1.8 regress=0.35 p_draw=0.0040 tau=1.0 damp=True
+  R4 2026: k=16.0 home_adv=45.0 cap=3.0 regress=0.45 p_draw=0.0040 tau=1.0 damp=True
+
+log loss by season (nested walk-forward)
+  season   n        R0       R1       R2       R4
+  2019   201   0.6824   0.6840   0.6819   0.6815
+  2020   169   0.6122   0.6284   0.6284   0.6296
+  2021   201   0.5393   0.5446   0.5446   0.5442
+  2022   201   0.5987   0.5885   0.5885   0.5956
+  2023   213   0.6618   0.6530   0.6530   0.6595
+  2024   213   0.6760   0.6770   0.6770   0.6758
+  2025   213   0.6883   0.6805   0.6825   0.6855
+  2026   213   0.6730   0.6676   0.6718   0.6666
+
+pooled 2019-2026
+  R0: n=1624 log_loss=0.6430 brier=0.4356 acc=0.6613 ece=0.0258
+  R1: n=1624 log_loss=0.6415 brier=0.4361 acc=0.6576 ece=0.0165
+  R2: n=1624 log_loss=0.6421 brier=0.4364 acc=0.6576 ece=0.0179
+  R4: n=1624 log_loss=0.6434 brier=0.4377 acc=0.6601 ece=0.0209
+  shipped params, 2026 only: n=213 log_loss=0.6730 brier=0.4697 acc=0.6244
+
+gates
+  R1_vs_R0: delta=-0.00147 ci95=[-0.00648, +0.00353] better in 4/8 seasons; 2026 vs shipped -0.00540; FAIL
+     by season: {2019: 0.0016, 2020: 0.0163, 2021: 0.0053, 2022: -0.0102, 2023: -0.0089, 2024: 0.001, 2025: -0.0078, 2026: -0.0054}
+     checks: {'1_point_negative_and_ci_upper_le_0': False, '1a_point_negative': True, '2_better_in_5_of_8': False, '3_2026_not_worse_than_shipped_by_0.002': True, '4_ece_not_worse_by_0.01': True}
+  R2_vs_R1: delta=+0.00056 ci95=[-0.00043, +0.00157] better in 1/8 seasons; 2026 vs shipped -0.00125; FAIL
+     by season: {2019: -0.0021, 2020: 0.0, 2021: 0.0, 2022: 0.0, 2023: 0.0, 2024: 0.0, 2025: 0.002, 2026: 0.0042}
+     checks: {'1_point_negative_and_ci_upper_le_0': False, '1a_point_negative': False, '2_better_in_5_of_8': False, '3_2026_not_worse_than_shipped_by_0.002': True, '4_ece_not_worse_by_0.01': True}
+  R4_vs_R1: delta=+0.00188 ci95=[+0.00014, +0.00360] better in 4/8 seasons; 2026 vs shipped -0.00640; FAIL
+     by season: {2019: -0.0024, 2020: 0.0011, 2021: -0.0004, 2022: 0.0071, 2023: 0.0065, 2024: -0.0012, 2025: 0.005, 2026: -0.001}
+     checks: {'1_point_negative_and_ci_upper_le_0': False, '1a_point_negative': False, '2_better_in_5_of_8': False, '3_2026_not_worse_than_shipped_by_0.002': True, '4_ece_not_worse_by_0.01': True}
+  R2_vs_R0: delta=-0.00091 ci95=[-0.00579, +0.00388] better in 5/8 seasons; 2026 vs shipped -0.00125; COLLECT MORE EVIDENCE
+     by season: {2019: -0.0005, 2020: 0.0163, 2021: 0.0053, 2022: -0.0102, 2023: -0.0089, 2024: 0.001, 2025: -0.0058, 2026: -0.0012}
+     checks: {'1_point_negative_and_ci_upper_le_0': False, '1a_point_negative': True, '2_better_in_5_of_8': True, '3_2026_not_worse_than_shipped_by_0.002': True, '4_ece_not_worse_by_0.01': True}
+  R4_vs_R0: delta=+0.00041 ci95=[-0.00434, +0.00515] better in 6/8 seasons; 2026 vs shipped -0.00640; FAIL
+     by season: {2019: -0.0008, 2020: 0.0174, 2021: 0.0049, 2022: -0.003, 2023: -0.0023, 2024: -0.0002, 2025: -0.0028, 2026: -0.0064}
+     checks: {'1_point_negative_and_ci_upper_le_0': False, '1a_point_negative': False, '2_better_in_5_of_8': True, '3_2026_not_worse_than_shipped_by_0.002': True, '4_ece_not_worse_by_0.01': True}
+
+parameters each recipe would ship for 2027 (fitted on 2017-2026)
+  R1: {'version': 'nrl-elo-v0.1', 'k': 16.0, 'home_adv': 45.0, 'margin_mult_cap': 3.0, 'season_regress': 0.45, 'margin_slope': 0.045, 'margin_sigma': 15.0, 'p_draw': 0.004} tau=1.0 damp=False
+  R2: {'version': 'nrl-elo-v0.1', 'k': 16.0, 'home_adv': 45.0, 'margin_mult_cap': 3.0, 'season_regress': 0.45, 'margin_slope': 0.045, 'margin_sigma': 15.0, 'p_draw': 0.004} tau=1.0 damp=False
+  R4: {'version': 'nrl-elo-v0.1', 'k': 16.0, 'home_adv': 45.0, 'margin_mult_cap': 3.0, 'season_regress': 0.45, 'margin_slope': 0.045, 'margin_sigma': 15.0, 'p_draw': 0.004} tau=1.0 damp=True
+wrote /Users/lobster/Projects/fw-nrl-audit/docs/experiments/2026-11-20-nrl-model-audit/results.json

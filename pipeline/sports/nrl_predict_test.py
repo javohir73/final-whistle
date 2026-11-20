@@ -203,6 +203,35 @@ def test_generate_season_regression_applied_at_boundary(db_session):
 
     n = generate(db_session, PARAMS)
     assert n == 1
+    # The 2026 fixture is in a later season than the last finished match, so
+    # it must be predicted from the REGRESSED ratings (what the tuner and the
+    # backtests enter a season with), not last season's closing ratings.
+    from ml.sports.nrl.model import predict, regress_season
+    from pipeline.sports.nrl_predict import _current_elos
+    closing = _current_elos(db_session)
+    entering = regress_season(closing, PARAMS)
+    row = db_session.query(SportPrediction).filter_by(match_id=scheduled.id).one()
+    expected = predict(entering[broncos.id], entering[storm.id], PARAMS)
+    unregressed = predict(closing[broncos.id], closing[storm.id], PARAMS)
+    assert abs(row.p_home - expected["p_home"]) < 1e-12
+    assert abs(row.p_home - unregressed["p_home"]) > 1e-3
+
+
+def test_generate_does_not_regress_within_the_current_season(db_session):
+    broncos = _team(db_session, "Broncos")
+    storm = _team(db_session, "Storm")
+    _match(db_session, broncos, storm, 2026, 1, _kickoff(2026, 3, 1),
+           status="finished", score_home=50, score_away=0)
+    scheduled = _match(db_session, broncos, storm, 2026, 2, _kickoff(2026, 3, 8),
+                        status="scheduled")
+
+    generate(db_session, PARAMS)
+
+    from ml.sports.nrl.model import predict
+    from pipeline.sports.nrl_predict import _current_elos
+    closing = _current_elos(db_session)
+    row = db_session.query(SportPrediction).filter_by(match_id=scheduled.id).one()
+    assert abs(row.p_home - predict(closing[broncos.id], closing[storm.id], PARAMS)["p_home"]) < 1e-12
     row = db_session.query(SportPrediction).filter_by(match_id=scheduled.id).one()
     assert abs((row.p_home + row.p_draw + row.p_away) - 1.0) < 1e-9
 
@@ -492,7 +521,34 @@ def test_generate_rewrites_when_only_margin_params_change_even_if_probs_unchange
     assert len(rows) == 2
     assert rows[0].id == first_row.id
     assert abs(rows[1].p_home - rows[0].p_home) < 1e-9  # win-prob triple unchanged
-    assert abs(rows[1].predicted_margin - rows[0].predicted_margin) > 1e-9  # margin changed
+    assert abs(rows[1].predicted_total - rows[0].predicted_total) > 1e-9  # score model changed
+
+
+def test_generate_serves_the_winner_models_margin_not_the_score_models(db_session):
+    """The unpromoted score model failed its margin gate and disagreed with the
+    win-probability favourite in a quarter of matches (2026-11-20 audit), so
+    the served margin must be the winner model's and always side with it."""
+    strong = _team(db_session, "Storm")
+    weak = _team(db_session, "Titans")
+    # Elo says Storm are far stronger; the weak side's one win was a blowout,
+    # so the score model's points-for/against view leans the other way.
+    _match(db_session, strong, weak, 2026, 1, _kickoff(2026, 3, 1),
+           status="finished", score_home=14, score_away=12)
+    _match(db_session, strong, weak, 2026, 2, _kickoff(2026, 3, 8),
+           status="finished", score_home=16, score_away=14)
+    _match(db_session, weak, strong, 2026, 3, _kickoff(2026, 3, 15),
+           status="finished", score_home=60, score_away=0)
+    _match(db_session, strong, weak, 2026, 4, _kickoff(2026, 3, 22),
+           status="finished", score_home=13, score_away=12)
+    _match(db_session, strong, weak, 2026, 5, _kickoff(2026, 3, 29),
+           status="finished", score_home=13, score_away=12)
+    scheduled = _match(db_session, strong, weak, 2026, 6, _kickoff(2026, 4, 5), status="scheduled")
+
+    generate(db_session, PARAMS)
+
+    row = db_session.query(SportPrediction).filter_by(match_id=scheduled.id).one()
+    assert row.predicted_margin == row.expected_margin
+    assert (row.predicted_margin > 0) == (row.p_home > row.p_away)
 
 
 def test_generate_preview_text_survives_a_team_with_no_prior_form(db_session):

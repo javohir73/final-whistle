@@ -242,13 +242,38 @@ def generate(
     team_names = dict(
         db.query(SportTeam.id, SportTeam.name).filter(SportTeam.sport == SPORT).all()
     )
+    # _current_elos only regresses when a FINISHED match of a new season
+    # appears, so until round 1 is played the replayed state is still last
+    # season's closing ratings. A fixture in a later season than the last
+    # finished match must be predicted from the regressed state -- the one the
+    # tuner and both backtests enter a season with. Without this, round-1
+    # win probabilities were off by 0.04-0.06 on average (up to 0.11).
+    last_finished_season = finished[-1].season if finished else None
+    new_season_elos = regress_season(elos, params) if elos else elos
+
     written = 0
     for m in scheduled:
-        elo_home = elos.get(m.home_team_id, 1500.0)
-        elo_away = elos.get(m.away_team_id, 1500.0)
+        state = (
+            new_season_elos
+            if last_finished_season is not None
+            and m.season is not None
+            and m.season > last_finished_season
+            else elos
+        )
+        elo_home = state.get(m.home_team_id, 1500.0)
+        elo_away = state.get(m.away_team_id, 1500.0)
         out = predict(elo_home, elo_away, params)
         score = predict_scoreline(score_state, m.home_team_id, m.away_team_id)
-        predicted_margin = score.expected_margin
+        # predicted_margin is served and quoted in the preview, so it comes
+        # from the winner model, not the unpromoted score model: over
+        # 2023-2026 the score model's margin was 0.4 points worse (MAE) and
+        # pointed against this same row's win-probability favourite in a
+        # quarter of matches (docs/experiments/2026-11-20-nrl-model-audit).
+        # The score model still owns the total and the scoreline, which stay
+        # hidden behind NRL_SCORE_MODEL_PROMOTED. Before that flag is ever
+        # turned on, the scoreline must be made consistent with this margin
+        # (or the margin source switched with it) -- see app.config.
+        predicted_margin = out["expected_margin"]
         predicted_total = score.expected_total
 
         home_name = team_names.get(m.home_team_id, "Home")

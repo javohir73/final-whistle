@@ -347,10 +347,10 @@ def test_main_one_bad_season_does_not_abort_the_backfill(monkeypatch, db_session
 
     real_upsert_season = nrl_ingest.upsert_season
 
-    def _flaky_upsert_season(db, year, rows):
+    def _flaky_upsert_season(db, year, rows, **kwargs):
         if year == 2020:
             raise RuntimeError("boom: season 2020 is broken")
-        return real_upsert_season(db, year, rows)
+        return real_upsert_season(db, year, rows, **kwargs)
 
     monkeypatch.setattr(nrl_ingest, "upsert_season", _flaky_upsert_season)
     monkeypatch.setattr(sys, "argv", ["nrl_ingest.py", "--seasons", "2020", "2021"])
@@ -361,3 +361,37 @@ def test_main_one_bad_season_does_not_abort_the_backfill(monkeypatch, db_session
     assert db_session.query(SportMatch).filter_by(sport="nrl", season=2020).count() == 0
     match = db_session.query(SportMatch).filter_by(sport="nrl", season=2021).one()
     assert match.match_no == SAMPLE["MatchNumber"]
+
+
+# ---- reviewed corrections (pipeline.sports.nrl_result_corrections) ----
+
+WRONG_2026 = {"MatchNumber": 204, "RoundNumber": 27, "DateUtc": "2026-09-05 09:30:00Z",
+              "Location": "Ocean Protect Stadium", "HomeTeam": "Sharks", "AwayTeam": "Storm",
+              "Group": None, "HomeTeamScore": 20, "AwayTeamScore": 23, "Winner": "Storm"}
+
+
+def test_upsert_season_rewrites_a_stored_score_only_for_a_reviewed_correction(db_session):
+    upsert_season(db_session, 2026, [WRONG_2026])  # the feed's wrong 20-23, as production holds it
+    fixed = dict(WRONG_2026, AwayTeamScore=24)
+
+    # Without the reviewed key the immutability guard still wins...
+    assert upsert_season(db_session, 2026, [fixed]) == {"created": 0, "updated": 0}
+    # ...with it, the score (and only the score) is repaired, once.
+    assert upsert_season(db_session, 2026, [fixed], corrected={(27, 204)}) == {"created": 0, "updated": 1}
+    assert upsert_season(db_session, 2026, [fixed], corrected={(27, 204)}) == {"created": 0, "updated": 0}
+
+    match = db_session.query(SportMatch).filter_by(sport="nrl", season=2026, match_no=204).one()
+    assert (match.score_home, match.score_away, match.status) == (20, 24, "finished")
+
+
+def test_main_applies_reviewed_corrections_to_an_existing_database(monkeypatch, db_session):
+    upsert_season(db_session, 2026, [WRONG_2026])
+    db_session.close = lambda: None
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(nrl_ingest, "fetch_season", lambda year, timeout=20.0: [WRONG_2026])
+    monkeypatch.setattr(sys, "argv", ["nrl_ingest.py", "--seasons", "2026", "2026"])
+
+    assert nrl_ingest.main() == 0
+
+    match = db_session.query(SportMatch).filter_by(sport="nrl", season=2026, match_no=204).one()
+    assert (match.score_home, match.score_away) == (20, 24)
