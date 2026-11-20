@@ -39,6 +39,11 @@ def _require_token(provided: str | None) -> None:
                                                      "message": "Invalid recompute token"})
 
 
+def _now() -> datetime:
+    """Wall clock for the recompute kickoff cutoff; patched in tests."""
+    return datetime.now(timezone.utc)
+
+
 @router.post("/recompute")
 def recompute(
     db: Session = Depends(get_db),
@@ -52,8 +57,13 @@ def recompute(
     # success advances the chain watermark, failure is recorded for /api/health.
     from pipeline.learning_loop import run_tracked_post_results_chain
 
+    # Never re-predict a fixture whose kickoff has passed but whose result has
+    # not landed (generate_predictions docstring) -- this is the endpoint an
+    # operator hits after repairing fixtures, exactly when stale "scheduled"
+    # rows exist.
     summary = run_tracked_post_results_chain(
-        db, current_model_version(), trigger="recompute", n_sims=5000, tournament_sims=2000
+        db, current_model_version(), trigger="recompute", n_sims=5000, tournament_sims=2000,
+        kickoff_after=_now(), clock=_now,
     )
     cache.clear()
     return {"status": "ok", "recomputed": summary}

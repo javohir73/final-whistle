@@ -1224,6 +1224,8 @@ def generate_predictions(
     base_strengths: dict[int, float] | None = None,
     standings_advance_count: int = 2,
     commit: bool = True,
+    kickoff_after: datetime | None = None,
+    clock: "Callable[[], datetime] | None" = None,
 ) -> dict:
     """Predict every upcoming match with both teams set — all group fixtures plus
     any drawn knockout ties — simulate every group's standings, and run the
@@ -1275,6 +1277,26 @@ def generate_predictions(
     ``commit=False`` lets a multi-tournament orchestrator keep every scoped
     pass in one transaction. The default preserves every existing standalone
     caller's commit behavior.
+
+    ``kickoff_after`` (the production entry points pass "now") skips a match
+    still marked "scheduled" whose kickoff has already passed. The status
+    filter alone is not a kickoff freeze: a fixture whose result has not been
+    ingested yet -- a delayed-results feed, a provider-cutover duplicate, an
+    orphaned qualifier -- stays "scheduled" and was re-predicted on every run,
+    appending production rows after the whistle (audit 2026-11-20: 1,942 such
+    rows across 51 club fixtures). Evaluation already ignores them
+    (learning_loop._frozen_prediction), but they were served as the match's
+    current prediction. None keeps the status-only behavior for callers that
+    seed fixtures at fixed historical dates.
+
+    The cutoff is re-read per match as ``max(kickoff_after, clock())``: the
+    caller captures ``kickoff_after`` at run start, but a pass reaches each
+    match minutes later, and a fixture kicking off in between must not be
+    priced after its whistle. That matters beyond serving: ``created_at`` is
+    the transaction start on Postgres, so such a row would read as pre-kickoff
+    and become the graded one. Checking at the moment each match is priced
+    keeps every written row genuinely pre-kickoff. ``clock`` (default: the
+    wall clock) exists for tests.
     """
     # Tournament-adjusted strengths (base Elo + conservative delta + capped
     # form) so match predictions and both simulations move together once the
@@ -1309,6 +1331,8 @@ def generate_predictions(
     if tournament_id is not None:
         matches_q = matches_q.filter(Match.tournament_id == tournament_id)
     matches = matches_q.all()
+    skipped_past_kickoff = 0
+    clock = clock or (lambda: datetime.now(timezone.utc))
     predicted = 0
     # Run memo (app/run_memo.py) for the match loop only: it reads teams,
     # stats, squads, lineups, odds and finished matches, and writes nothing
@@ -1316,6 +1340,13 @@ def generate_predictions(
     with run_memo(db) as cache:
         _prefill_run_memo(db, cache, matches)
         for match in matches:
+            if kickoff_after is not None and match.kickoff_utc is not None:
+                # Compared in Python: SQLite hands back naive datetimes, Postgres
+                # aware ones. An unknown kickoff cannot be proven started.
+                cutoff = max(_as_utc(kickoff_after), _as_utc(clock()))
+                if _as_utc(match.kickoff_utc) <= cutoff:
+                    skipped_past_kickoff += 1
+                    continue
             payload = build_payload(db, match, active_model_version,
                                     strengths=strengths, params=params, booster=booster)
             if payload is None:
@@ -1391,8 +1422,23 @@ def generate_predictions(
         db.commit()
     else:
         db.flush()
-    return {
+    out = {
         "matches_predicted": predicted,
         "groups_simulated": len(groups),
         "tournament_teams": teams_simulated,
     }
+    if kickoff_after is not None:
+        if skipped_past_kickoff:
+            log.warning(
+                "skipped %d scheduled match(es) already past kickoff (status "
+                "not yet updated); their pre-kickoff prediction stays frozen",
+                skipped_past_kickoff,
+            )
+        out["matches_skipped_past_kickoff"] = skipped_past_kickoff
+    return out
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

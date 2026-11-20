@@ -119,6 +119,30 @@ def test_offending_rows_name_their_competition(db_session, epl):
     assert row["status"] == "in_play"
 
 
+def test_stale_fixture_count_is_not_capped_by_the_row_list(db_session, epl):
+    """2026-11-20 audit: health said "20 match(es)" while 45 were stuck — the
+    detail counted the capped row list. The count is exact; the list stays
+    bounded for the payload."""
+    for h in range(25):
+        _match(db_session, epl, status="scheduled", hours_ago=100 + h)
+    (deg,) = data_status(db_session, now=NOW)["degradations"]
+    assert deg["kind"] == "stale_fixture"
+    assert deg["count"] == 25
+    assert deg["detail"].startswith("25 match(es)")
+    assert len(deg["matches"]) == 20
+
+
+def test_old_stuck_fixtures_cannot_hide_a_stuck_live_match(db_session, epl):
+    # The capped list was ordered by kickoff, so 20 older stuck fixtures
+    # pushed a newer stuck in_play row out of it and its degradation vanished.
+    for h in range(20):
+        _match(db_session, epl, status="scheduled", hours_ago=100 + h)
+    _match(db_session, epl, status="in_play", hours_ago=9)
+    kinds = {d["kind"]: d for d in data_status(db_session, now=NOW)["degradations"]}
+    assert kinds["stale_live_match"]["count"] == 1
+    assert kinds["stale_fixture"]["count"] == 20
+
+
 def test_matches_without_a_kickoff_are_ignored(db_session, epl):
     # WC26 knockout placeholders have no kickoff until the bracket resolves.
     db_session.add(Match(tournament_id=epl.id, stage="SF", status="scheduled"))
@@ -184,6 +208,55 @@ def test_coverage_gaps_do_not_flip_the_api_to_degraded(db_session, epl):
     assert out["status"] == "ok"
     assert out["degradations"] == []
     assert out["coverage"]["without_venue"] == 1
+
+
+def _predict(db, match, *, hours_ago, shadow=False):
+    from app.models import Prediction
+
+    db.add(Prediction(
+        match_id=match.id, model_version="poisson-elo-club-v0.3",
+        created_at=NOW - timedelta(hours=hours_ago),
+        prob_home_win=0.5, prob_draw=0.3, prob_away_win=0.2, is_shadow=shadow,
+    ))
+    db.commit()
+
+
+def test_an_imminent_fixture_priced_days_ago_is_reported_stale(db_session, epl):
+    """The 2026-11-20 audit: when the daily pipeline stopped, frozen club
+    predictions were a median 4-6 days old and nothing in /api/health said so."""
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    _predict(db_session, m, hours_ago=5 * 24)
+    cov = coverage_gaps(db_session, now=NOW)
+    assert cov["with_stale_prediction"] == 1
+    assert cov["prediction_stale_hours"] == 36.0
+
+
+def test_the_latest_production_row_decides_staleness(db_session, epl):
+    """An old row followed by a fresh one is current; a fresh SHADOW row does
+    not make a stale production row current (shadows are never served)."""
+    fresh = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    _predict(db_session, fresh, hours_ago=5 * 24)
+    _predict(db_session, fresh, hours_ago=3)
+    shadowed = _match(db_session, epl, status="scheduled", hours_ago=-8)
+    _predict(db_session, shadowed, hours_ago=5 * 24)
+    _predict(db_session, shadowed, hours_ago=1, shadow=True)
+    assert coverage_gaps(db_session, now=NOW)["with_stale_prediction"] == 1
+
+
+def test_an_unpredicted_fixture_is_not_double_counted_as_stale(db_session, epl):
+    # Missing predictions are prediction_coverage's job.
+    _match(db_session, epl, status="scheduled", hours_ago=-6)
+    assert coverage_gaps(db_session, now=NOW)["with_stale_prediction"] == 0
+
+
+def test_a_stale_prediction_does_not_flip_the_api_to_degraded(db_session, epl):
+    # A quality gauge, like the venue and market gaps: the fixture feed's own
+    # staleness check is what reports a dead daily refresh as an outage.
+    m = _match(db_session, epl, status="scheduled", hours_ago=-6)
+    _predict(db_session, m, hours_ago=5 * 24)
+    out = data_status(db_session, now=NOW)
+    assert out["status"] == "ok"
+    assert out["coverage"]["with_stale_prediction"] == 1
 
 
 def test_matches_beyond_the_window_are_not_counted(db_session, epl):

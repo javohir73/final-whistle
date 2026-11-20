@@ -1,5 +1,7 @@
 """Knockout advance block serving: /api/matches/{id} exposes the v0.5
 `knockout` block for knockout fixtures and omits it for group games."""
+from datetime import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -9,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.cache import cache
 from app.db import Base, get_db
 from app.main import app
-from app.models import Match, Team
+from app.models import Match, Prediction, Team
 from pipeline.generate_predictions import _write_prediction, build_payload
 from pipeline.ingest.wc26_structure import load_structure
 
@@ -40,6 +42,11 @@ def ko_client():
     for m in (ko, group):
         _write_prediction(seed, m, build_payload(seed, m, "poisson-elo-v0.5"),
                           "poisson-elo-v0.5")
+    seed.commit()
+    # The WC26 structure's kickoffs (June 2026) are in the past on the wall
+    # clock; served reads only present rows written by kickoff
+    # (serializers.created_by_kickoff), so date the seeded rows pre-tournament.
+    seed.query(Prediction).update({Prediction.created_at: datetime(2026, 6, 1)})
     seed.commit()
     ids = {"ko": ko.id, "group": group.id}
     seed.close()

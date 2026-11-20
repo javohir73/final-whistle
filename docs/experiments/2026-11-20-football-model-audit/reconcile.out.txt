@@ -1,0 +1,22 @@
+== epl: fd 100 | api rows 380 {'finished': 100, 'scheduled': 280} | team names 20
+   dup entities: {}
+   issues: {}
+   recording: {'frozen_pre_kickoff': 100}
+   graded 100: LL 1.0457 Brier 0.6274 acc 0.470 | market AvgC LL 1.0108 (n 100) | model-market +0.0349 [-0.0094, +0.0794] | BFEC +0.0357 [-0.0092, +0.0792] | shin +0.0347 [-0.0102, +0.0788]
+   lead h median 128.8 max 487.7; >48h 61; with unseen results 46; versions {'poisson-elo-club-v0.3': 100}
+== laliga: fd 119 | api rows 454 {'finished': 121, 'scheduled': 333} | team names 22
+   dup entities: {'Racing Santander': ['Racing Santander', 'Real Racing Club de Santander'], 'Deportivo La Coruna': ['Deportivo La Coruna', 'RC Deportivo La Coruña']}
+   issues: {'duplicate_api_rows': 24, 'multiple_finished_api_rows': 2}
+   recording: {'frozen_pre_kickoff': 115, 'never_predicted': 4}
+   graded 115: LL 0.9483 Brier 0.5602 acc 0.539 | market AvgC LL 0.9046 (n 115) | model-market +0.0437 [+0.0109, +0.0812] | BFEC +0.0509 [+0.0193, +0.0871] | shin +0.0472 [+0.0143, +0.0850]
+   lead h median 106.4 max 487.5; >48h 70; with unseen results 55; versions {'poisson-elo-club-v0.3': 115}
+== bundesliga: fd 81 | api rows 340 {'finished': 81, 'scheduled': 259} | team names 19
+   dup entities: {'SV Elversberg': ['SV Elversberg', 'SV 07 Elversberg']}
+   issues: {'duplicate_api_rows': 9}
+   recording: {'frozen_pre_kickoff': 80, 'never_predicted': 1}
+   graded 80: LL 0.9713 Brier 0.5794 acc 0.550 | market AvgC LL 0.9608 (n 80) | model-market +0.0105 [-0.0183, +0.0414] | BFEC +0.0122 [-0.0127, +0.0413] | shin +0.0102 [-0.0155, +0.0394]
+   lead h median 144.6 max 484.6; >48h 44; with unseen results 29; versions {'poisson-elo-club-v0.3': 80}
+== ucl {'api_rows': 234, 'finished_to_cutoff': 148, 'recording': {'never_predicted': 56, 'frozen_pre_kickoff': 92}, 'graded_by_stage': {'qualifying': 20, 'group': 72}, 'model_1x2_ll': 0.8699954385372386, 'model_brier': 0.5080729860872425, 'model_accuracy': 0.75, 'n_graded': 92}
+   stuck: ['#1249 2026-08-18 Fenerbahçe-Lyon (qualifying)', '#1250 2026-08-18 Dinamo Zagreb-Viking (qualifying)', '#1251 2026-08-18 Levski Sofia-AEK Athens FC (qualifying)', '#1247 2026-08-19 Celtic-Lask Linz (qualifying)', '#1252 2026-08-19 NEC Nijmegen-Bodo/Glimt (qualifying)', '#1253 2026-08-19 Hapoel Beer Sheva-Sabah FA (qualifying)', '#1254 2026-08-19 Slovan Bratislava-Celje (qualifying)', '#1255 2026-08-25 Sabah FA-Hapoel Beer Sheva (qualifying)', '#1248 2026-08-25 Lask Linz-Celtic (qualifying)', '#1256 2026-08-25 Bodo/Glimt-NEC Nijmegen (qualifying)', '#1257 2026-08-26 Lyon-Fenerbahçe (qualifying)', '#1258 2026-08-26 AEK Athens FC-Levski Sofia (qualifying)', '#1259 2026-08-26 Viking-Dinamo Zagreb (qualifying)', '#1260 2026-08-26 Celje-Slovan Bratislava (qualifying)']
+== post-kickoff writes {'epl': {'matches_with_post_kickoff_rows': 1, 'post_kickoff_rows': 1}, 'laliga': {'matches_with_post_kickoff_rows': 26, 'post_kickoff_rows': 783}, 'bundesliga': {'matches_with_post_kickoff_rows': 9, 'post_kickoff_rows': 303}, 'ucl': {'matches_with_post_kickoff_rows': 15, 'post_kickoff_rows': 855}}
+== missing frozen breakdown {'bundesliga | never_predicted | duplicate-entity row': 1, 'laliga | never_predicted | duplicate-entity row': 4}

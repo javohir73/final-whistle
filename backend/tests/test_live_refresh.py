@@ -136,6 +136,29 @@ def test_final_whistle_triggers_post_results_chain(monkeypatch):
     assert summary["post_results"] == {"learning": {"evaluated_new": 1}}
 
 
+def test_post_results_chain_never_repredicts_past_kickoff(monkeypatch):
+    """The live chain regenerates predictions; it must pass the wall clock as
+    the kickoff cutoff so a fixture still "scheduled" after its kickoff is not
+    given a post-whistle production row (audit 2026-11-20)."""
+    monkeypatch.setattr(
+        "pipeline.ingest.live_scores.refresh_live",
+        lambda db: {"updated": 1, "live": 0, "finished": 1, "newly_finished": 1},
+    )
+    seen = []
+    monkeypatch.setattr(
+        "pipeline.learning_loop.run_post_results_chain",
+        lambda db, mv, **kw: seen.append(kw.get("kickoff_after")) or {},
+    )
+    factory = _factory_with(Match(tournament_id=1, stage="group", status="in_play"))
+
+    before = _now()
+    live_refresh.maybe_refresh_live(session_factory=factory)
+
+    assert len(seen) == 1
+    assert seen[0] is not None and seen[0].tzinfo is not None
+    assert before <= seen[0] <= _now()
+
+
 def test_chain_failure_keeps_the_refresh_summary(monkeypatch):
     """The chain is best-effort: scores are committed either way, so a chain
     crash must be swallowed (the next trigger or the daily run retries)."""
@@ -186,6 +209,9 @@ def test_pending_finish_is_swept_by_next_refresh_without_transition(monkeypatch)
     summary = live_refresh.maybe_refresh_live(session_factory=factory)
 
     assert len(chain_kwargs) == 1
+    # The wall-clock kickoff cutoff is asserted by its own test above.
+    assert chain_kwargs[0].pop("kickoff_after").tzinfo is not None
+    assert chain_kwargs[0].pop("clock") is None  # generate_predictions' wall clock
     assert chain_kwargs[0] == {
         "n_sims": settings.chain_n_sims,
         "tournament_sims": settings.chain_tournament_sims,

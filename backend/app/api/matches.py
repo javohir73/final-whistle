@@ -70,9 +70,11 @@ def upcoming_matches(
                 )
                 .label("row_number"),
             )
+            .join(Match, Prediction.match_id == Match.id)
             .where(
                 Prediction.match_id.in_(match_ids),
                 Prediction.is_shadow.is_(False),
+                serializers.created_by_kickoff(),
             )
             .subquery()
         )

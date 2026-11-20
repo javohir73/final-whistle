@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.cache import cache
 from app.db import Base, get_db
 from app.main import app
-from app.models import Match, Odds, Team
+from app.models import Match, Odds, Prediction, Team
 from pipeline.generate_predictions import _write_prediction, build_payload
 from pipeline.ingest.wc26_structure import load_structure
 
@@ -49,6 +49,11 @@ def odds_client():
                   odds_home=2.2, odds_draw=3.3, odds_away=3.4,
                   implied_prob_home=0.44, implied_prob_draw=0.28, implied_prob_away=0.28,
                   captured_at=datetime(2026, 7, 8, 9, 0, tzinfo=timezone.utc)))
+    seed.commit()
+    # The WC26 structure's kickoffs (June 2026) are in the past on the wall
+    # clock; served reads only present rows written by kickoff
+    # (serializers.created_by_kickoff), so date the seeded rows pre-tournament.
+    seed.query(Prediction).update({Prediction.created_at: datetime(2026, 6, 1)})
     seed.commit()
     ids = {"priced": priced.id, "unpriced": unpriced.id}
     seed.close()

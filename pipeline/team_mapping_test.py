@@ -64,6 +64,9 @@ def test_none_and_empty_are_safe():
         ("Paderborn", "SC Paderborn 07"),
         ("Schalke 04", "FC Schalke 04"),
         ("Stuttgart", "VfB Stuttgart"),
+        # 2026-27 promoted clubs, as spelled in the in-season SP1/D1 files.
+        ("Santander", "Racing Santander"),
+        ("Elversberg", "SV Elversberg"),
     ],
 )
 def test_sp1_d1_club_aliases_resolve_to_the_api_football_spelling(raw, expected):

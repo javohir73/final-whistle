@@ -483,6 +483,80 @@ def test_no_prediction_written_after_kickoff(db_session):
     assert db_session.query(Prediction).count() == before
 
 
+def test_scheduled_match_past_kickoff_is_not_repredicted(db_session):
+    """A fixture can stay "scheduled" after its kickoff (delayed results feed,
+    provider-cutover duplicate, orphaned qualifier). With kickoff_after set, the
+    status filter is backed by a kickoff check: those fixtures get no new row,
+    every later one still does, and the skip is counted (audit 2026-11-20)."""
+    load_structure(db_session)
+    _set_elos(db_session)
+    cutoff = datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc)
+    scheduled = (
+        db_session.query(Match)
+        .filter(Match.status == "scheduled", Match.team_home_id.isnot(None),
+                Match.team_away_id.isnot(None))
+        .all()
+    )
+    started = [m for m in scheduled
+               if m.kickoff_utc.replace(tzinfo=timezone.utc) <= cutoff]
+    upcoming = [m for m in scheduled
+                if m.kickoff_utc.replace(tzinfo=timezone.utc) > cutoff]
+    assert started and upcoming
+
+    out = generate_predictions(db_session, n_sims=50, tournament_sims=20,
+                               kickoff_after=cutoff, clock=lambda: cutoff)
+
+    assert out["matches_skipped_past_kickoff"] == len(started)
+    assert out["matches_predicted"] == len(upcoming)
+    for m in started:
+        assert db_session.query(Prediction).filter_by(
+            match_id=m.id, is_shadow=False).count() == 0
+    for m in upcoming:
+        assert db_session.query(Prediction).filter_by(
+            match_id=m.id, is_shadow=False).count() == 1
+
+
+def test_kickoff_cutoff_is_rechecked_as_the_pass_reaches_each_match(db_session):
+    """The caller captures kickoff_after at run start, but the pass prices each
+    match later. A fixture kicking off in between must be skipped, judged by
+    the clock when that match is reached -- else its post-whistle row would
+    carry the transaction-start created_at and grade as pre-kickoff."""
+    load_structure(db_session)
+    _set_elos(db_session)
+    run_start = datetime(2026, 6, 11, 0, 0, tzinfo=timezone.utc)
+    scheduled = (
+        db_session.query(Match)
+        .filter(Match.status == "scheduled", Match.team_home_id.isnot(None),
+                Match.team_away_id.isnot(None))
+        .all()
+    )
+    # By the time the pass gets going, the clock reads a week into the
+    # tournament: every match kicking off before then has started.
+    later = datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc)
+    started_since = [m for m in scheduled
+                     if run_start < m.kickoff_utc.replace(tzinfo=timezone.utc) <= later]
+    assert started_since
+
+    out = generate_predictions(db_session, n_sims=50, tournament_sims=20,
+                               kickoff_after=run_start, clock=lambda: later)
+
+    assert out["matches_skipped_past_kickoff"] == len(
+        [m for m in scheduled if m.kickoff_utc.replace(tzinfo=timezone.utc) <= later])
+    for m in started_since:
+        assert db_session.query(Prediction).filter_by(
+            match_id=m.id, is_shadow=False).count() == 0
+
+
+def test_kickoff_after_none_keeps_the_status_only_rule(db_session):
+    """The default leaves every existing caller unchanged: no kickoff check, and
+    no extra summary key."""
+    load_structure(db_session)
+    _set_elos(db_session)
+    out = generate_predictions(db_session, n_sims=50, tournament_sims=20)
+    assert "matches_skipped_past_kickoff" not in out
+    assert out["matches_predicted"] == 72
+
+
 def test_team_offsets_shift_simulated_standings_when_enabled(db_session, tmp_path):
     """End-to-end over the standings path: enabling a store that boosts one
     team's attack AND weakens every group rival must lift that team's simulated

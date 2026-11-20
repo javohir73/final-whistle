@@ -315,6 +315,20 @@ def test_post_results_chain_runs_end_to_end_and_rescores(db_session):
     assert db_session.query(PredictionResult).filter_by(is_shadow=False).count() == 1
 
 
+def test_post_results_chain_forwards_the_kickoff_cutoff(db_session):
+    """A cutoff after every seeded kickoff means every still-"scheduled"
+    fixture has already started: the chain must regenerate none of them."""
+    _seed(db_session)
+    m = _first_group_match(db_session)
+    _finish(db_session, m, 1, 0)
+
+    summary = run_post_results_chain(
+        db_session, MV, n_sims=120, tournament_sims=50,
+        kickoff_after=datetime(2030, 1, 1, tzinfo=timezone.utc),
+    )
+    assert summary["predictions"]["matches_predicted"] == 0
+
+
 def test_post_results_chain_grades_players_score_predictions_in_the_same_run(db_session):
     """The whistle-time chain grades players' scoreline picks too. Left to
     the 06:00 UTC pipeline, a finished match counted for the model's
