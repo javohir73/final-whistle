@@ -1,18 +1,16 @@
-/** Mobile standings layout contract (EPL table + NRL ladder at 360-430px).
+/** Mobile standings layout contract (EPL table + NRL ladder at 320-430px).
  *
- *  At 390px the numbers used to paint over the club names and the header sat
- *  one column off: the numeric cells were plain flex items, so flex shrank
- *  them by different amounts in the header row (whose "Team" label refuses to
- *  shrink) and in each body row (whose rowheader is `min-w-0` and collapses),
- *  and the crest + name spilled out of a rowheader squeezed narrower than its
- *  content. jsdom has no layout engine, so this pins the structural contract
- *  that makes the geometry hold in a real browser (verified there with a
- *  Playwright sweep at 360/390/430/1280):
- *   - every row has exactly as many columns as the header;
- *   - each numeric column carries identical width/visibility classes in the
- *     header and in every body row, and never shrinks;
- *   - the team column is the only flexible one, and the name truncates on
- *     phones instead of overflowing into the numbers. */
+ *  History: the flex-div table used to slide its header a column off the
+ *  numbers at 390px. The table is now a semantic <table> (direction G), so
+ *  header/body alignment comes from the table model itself. What still needs
+ *  pinning in jsdom is the phone policy, verified in a real browser at
+ *  390/1024/1440 (shots in the redesign scratch folder):
+ *   - every row has exactly as many cells as the header;
+ *   - a column's visibility classes are identical in its header cell and every
+ *     body cell, so hiding a column never misaligns the rest;
+ *   - below 640px only position, club, P, GD and Pts stay (W/D/L/GF/GA go),
+ *     Pts and P never hide, and below 360px GD / Diff go too;
+ *   - long club names wrap at word boundaries on phones instead of being cut. */
 import { render, screen } from "@testing-library/react";
 import {
   FULL_LEAGUE_COLUMNS,
@@ -21,37 +19,6 @@ import {
   type StandingsTableRow,
 } from "@/components/StandingsTable";
 import { COMPETITIONS } from "@/lib/sports";
-
-/** The classes that decide a column's box: width, responsive visibility and
- *  flex behaviour. Typography/colour may differ between header and cell. */
-const GEOMETRY = /^((sm|max-sm|max-\[\d+px\]):)?(w-|min-w-|hidden$|block$|shrink-0$|flex-1$)/;
-const geometry = (el: Element) =>
-  [...el.classList].filter((c) => GEOMETRY.test(c)).sort().join(" ");
-
-function columnsOf(row: Element): Element[] {
-  return [...row.children].filter((c) =>
-    ["columnheader", "rowheader", "cell"].includes(c.getAttribute("role") ?? ""),
-  );
-}
-
-function expectAlignedColumns(expectedHeaders: string[]) {
-  const [header, ...body] = screen.getAllByRole("row");
-  const headCols = columnsOf(header);
-  expect(headCols.map((c) => c.textContent)).toEqual(expectedHeaders);
-  expect(body.length).toBeGreaterThan(0);
-  for (const row of body) {
-    const cols = columnsOf(row);
-    expect(cols).toHaveLength(headCols.length);
-    // Numeric columns: same box in the header and in the row, never shrinking.
-    cols.slice(1).forEach((cell, j) => {
-      expect(geometry(cell)).toBe(geometry(headCols[j + 1]));
-      expect(cell).toHaveClass("shrink-0");
-    });
-    // The team column is the flexible one in both rows, and may shrink to 0.
-    expect(cols[0]).toHaveClass("min-w-0", "flex-1");
-  }
-  expect(headCols[0]).toHaveClass("min-w-0", "flex-1");
-}
 
 const eplRows: StandingsTableRow[] = [
   {
@@ -71,6 +38,25 @@ const nrlRows: StandingsTableRow[] = [
   { team_id: 9, team: "Sea Eagles", wins: 11, losses: 13, diff: 99, points: 22, projected_points: 22, projection_pct: 0 },
 ];
 
+const VIS = /^(max-sm:hidden|max-\[359px\]:hidden|max-md:hidden)$/;
+const visibility = (el: Element) => [...el.classList].filter((c) => VIS.test(c)).sort().join(" ");
+const cellsOf = (row: Element) => [...row.children];
+
+function expectAlignedColumns(expectedHeaders: string[]) {
+  const [header, ...body] = screen.getAllByRole("row");
+  const headCols = cellsOf(header);
+  expect(headCols.map((c) => c.textContent)).toEqual(["Position", ...expectedHeaders]);
+  expect(body.length).toBeGreaterThan(0);
+  for (const row of body) {
+    const cols = cellsOf(row);
+    expect(cols).toHaveLength(headCols.length);
+    cols.forEach((cell, j) => expect(visibility(cell)).toBe(visibility(headCols[j])));
+  }
+}
+
+const phoneHidden = (row: Element) => cellsOf(row).map((c) => c.classList.contains("max-sm:hidden"));
+const xsHidden = (row: Element) => cellsOf(row).map((c) => c.classList.contains("max-[359px]:hidden"));
+
 describe("football league table (P W D L GF GA GD Pts)", () => {
   beforeEach(() => {
     render(
@@ -84,37 +70,29 @@ describe("football league table (P W D L GF GA GD Pts)", () => {
     );
   });
 
-  it("keeps the header and every row on the same fixed column grid", () => {
+  it("keeps the header and every row on the same columns", () => {
     expectAlignedColumns(["Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"]);
   });
 
-  it("drops only GF/GA below sm, in the header and the rows alike", () => {
+  it("keeps position, club, P, GD and Pts on phones and drops W/D/L/GF/GA, in the header and the rows alike", () => {
     const [header, ...body] = screen.getAllByRole("row");
-    const wideOnly = (cols: Element[]) =>
-      cols.map((c) => c.classList.contains("hidden") && c.classList.contains("sm:block"));
-    const expected = [false, false, false, false, false, true, true, false, false];
-    expect(wideOnly(columnsOf(header))).toEqual(expected);
-    for (const row of body) expect(wideOnly(columnsOf(row))).toEqual(expected);
+    // Position, Team, P, W, D, L, GF, GA, GD, Pts
+    const expected = [false, false, false, true, true, true, true, true, false, false];
+    expect(phoneHidden(header)).toEqual(expected);
+    for (const row of body) expect(phoneHidden(row)).toEqual(expected);
   });
 
-  it("never hides Pts or GD on a phone", () => {
-    const header = screen.getAllByRole("row")[0];
-    for (const label of ["GD", "Pts"]) {
-      const col = columnsOf(header).find((c) => c.textContent === label)!;
-      expect(col).not.toHaveClass("hidden");
-    }
-  });
-
-  it("truncates a long club name on phones instead of letting it overflow", () => {
+  it("wraps a long club name on phones instead of cutting it", () => {
     const name = screen.getByText("Nottingham Forest");
-    expect(name).toHaveClass("min-w-0", "max-sm:truncate");
-    // The full name stays in the DOM for assistive tech and the link.
+    const cell = name.closest("th");
+    expect(cell).toHaveClass("max-sm:whitespace-normal");
+    expect(cell?.className).not.toMatch(/truncate/);
     expect(name.closest("a")).toHaveTextContent("Nottingham Forest");
   });
 });
 
 describe("NRL ladder (W–L Diff Pts Top 8%)", () => {
-  it("keeps the header and every row on the same fixed column grid", () => {
+  it("keeps the header and every row on the same columns, all visible on phones", () => {
     render(
       <StandingsTable
         standings={nrlRows}
@@ -126,6 +104,7 @@ describe("NRL ladder (W–L Diff Pts Top 8%)", () => {
       />,
     );
     expectAlignedColumns(["Club", "W–L", "Diff", "Pts", "Top 8%"]);
+    expect(phoneHidden(screen.getAllByRole("row")[0]).some(Boolean)).toBe(false);
   });
 });
 
@@ -140,48 +119,35 @@ describe("default football path and the WC26 group shape", () => {
     expectAlignedColumns(["Team", "GD", "Pts", "Top 2"]);
   });
 
-  // The NRL home snippet (Pts only) and the match page's "Season so far".
   const subsets: StandingsColumn[][] = [["pts"], ["wl", "diff", "pts"]];
   for (const columns of subsets) {
     it(`aligns a caller-chosen column subset (${columns.join(", ")})`, () => {
       render(<StandingsTable standings={nrlRows} zones={[]} badge="club" columns={columns} />);
       const [header, ...body] = screen.getAllByRole("row");
-      for (const row of body) expect(columnsOf(row)).toHaveLength(columnsOf(header).length);
+      for (const row of body) expect(cellsOf(row)).toHaveLength(cellsOf(header).length);
     });
   }
 });
 
 describe("320px phones", () => {
-  // At 320px the six numeric columns left the club name ~51px (football) and
-  // the ladder's four ~35px (about three characters). Below 360px the
-  // tiebreak column goes -- GD on the football table, Diff on the ladder --
-  // in the header and every row alike; the reading columns stay.
-  const xsHidden = (cols: Element[]) => cols.map((c) => c.classList.contains("max-[359px]:hidden"));
-
-  it("drops GD below 360px and keeps P/W/D/L/Pts", () => {
-    render(
-      <StandingsTable standings={eplRows} zones={[]} badge="club" columns={FULL_LEAGUE_COLUMNS} />,
-    );
+  it("drops GD below 360px and keeps P/Pts", () => {
+    render(<StandingsTable standings={eplRows} zones={[]} badge="club" columns={FULL_LEAGUE_COLUMNS} />);
     const [header, ...body] = screen.getAllByRole("row");
-    // Team, P, W, D, L, GF, GA, GD, Pts
-    const expected = [false, false, false, false, false, false, false, true, false];
-    expect(xsHidden(columnsOf(header))).toEqual(expected);
-    for (const row of body) expect(xsHidden(columnsOf(row))).toEqual(expected);
+    const expected = [false, false, false, false, false, false, false, false, true, false];
+    expect(xsHidden(header)).toEqual(expected);
+    for (const row of body) expect(xsHidden(row)).toEqual(expected);
   });
 
   it("drops Diff below 360px on the ladder and keeps W–L/Pts/Top 8%", () => {
-    render(
-      <StandingsTable standings={nrlRows} zones={[]} badge="club" columns={["wl", "diff", "pts", "top8"]} />,
-    );
+    render(<StandingsTable standings={nrlRows} zones={[]} badge="club" columns={["wl", "diff", "pts", "top8"]} />);
     const [header, ...body] = screen.getAllByRole("row");
-    const expected = [false, false, true, false, false];
-    expect(xsHidden(columnsOf(header))).toEqual(expected);
-    for (const row of body) expect(xsHidden(columnsOf(row))).toEqual(expected);
+    const expected = [false, false, false, true, false, false];
+    expect(xsHidden(header)).toEqual(expected);
+    for (const row of body) expect(xsHidden(row)).toEqual(expected);
   });
 
   it("drops GD from the default GD/Pts table too, never Pts", () => {
     render(<StandingsTable standings={eplRows} zones={[]} />);
-    const header = screen.getAllByRole("row")[0];
-    expect(xsHidden(columnsOf(header))).toEqual([false, true, false]);
+    expect(xsHidden(screen.getAllByRole("row")[0])).toEqual([false, false, true, false]);
   });
 });

@@ -15,7 +15,7 @@ export function Sparkline({ values, tone }: { values: number[]; tone: "up" | "do
         points={pts}
         fill="none"
         strokeWidth="1.6"
-        className={tone === "up" ? "stroke-lime-deep" : "stroke-loss"}
+        className={tone === "up" ? "stroke-brand" : "stroke-miss"}
       />
     </svg>
   );

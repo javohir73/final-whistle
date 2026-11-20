@@ -4,7 +4,9 @@
  *  labelled chip, and grades the call only on a feed-confirmed result. */
 import { render, screen } from "@testing-library/react";
 import { MatchCard } from "@/components/MatchCard";
-import { MatchScoreboard } from "@/components/MatchScoreboard";
+import { MatchHero } from "@/components/match/MatchHero";
+import { ModelCallCard } from "@/components/match/ModelCallCard";
+import type { ModelData } from "@/components/match/matchPageData";
 import * as api from "@/lib/api";
 import type { MatchSummary } from "@/lib/types";
 
@@ -75,32 +77,24 @@ afterEach(() => {
 });
 
 describe("MatchCard", () => {
-  it("shows a plain-language call before kickoff (no result yet)", () => {
+  it("keeps the model's call hidden before kickoff (reveal rule)", () => {
     render(<MatchCard match={base} href={HREF} />);
-    // home_win 0.6 clears 55% → "Mexico favoured".
-    expect(screen.getByText("Mexico favoured")).toBeInTheDocument();
-    // ML-model-labelled predicted scoreline, no promoted actual score.
-    expect(screen.getByText("Model")).toBeInTheDocument();
-    expect(screen.getByText("1–0")).toBeInTheDocument();
+    expect(screen.queryByText("1–0")).not.toBeInTheDocument();
+    expect(screen.getByText(/appears once you lock yours/)).toBeInTheDocument();
   });
 
-  it("at full time shows actual score, ML-model-labelled prediction, and a verdict", () => {
+  it("at full time shows actual score, the model-labelled prediction, and a verdict", () => {
     render(<MatchCard match={finished} href={HREF} />);
-    // Actual score per team row…
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
-    // …a "Full time" status pill (not a confidence badge)…
     expect(screen.getByText("Full time")).toBeInTheDocument();
     expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
-    // …prediction explicitly labelled as the model's call…
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.getByText("1–0")).toBeInTheDocument();
-    // …and the plain-language scorecard.
-    expect(screen.getByText("Called it")).toBeInTheDocument();
+    expect(screen.getByText("Right result")).toBeInTheDocument();
   });
 
-  it("shows an amber kickoff-time pill (not a confidence badge) before kickoff", () => {
-    // tz is required for the time pill to render in the user's local time.
+  it("shows the kickoff time (not a confidence badge) before kickoff", () => {
     render(<MatchCard match={{ ...base, kickoff_utc: "2099-06-11T19:00:00+00:00" }} tz="UTC" href={HREF} />);
     expect(screen.getByText("7:00 PM")).toBeInTheDocument();
     expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
@@ -108,132 +102,80 @@ describe("MatchCard", () => {
 
   it("calls out a miss when the favoured side lost", () => {
     render(<MatchCard match={{ ...finished, score_home: 0, score_away: 2 }} href={HREF} />);
-    expect(screen.getByText("Upset — we missed it")).toBeInTheDocument();
+    expect(screen.getByText("Missed")).toBeInTheDocument();
   });
 });
 
-describe("MatchScoreboard (the match hero)", () => {
-  const renderBoard = (initialSummary: MatchSummary | null) =>
+// The match hero and the model's call, rewritten from the deleted
+// MatchScoreboard onto its replacements (MatchHero + ModelCallCard). The model's
+// call is no longer in the hero at all; whether it shows is the reveal rule's
+// job (covered in app/match/[id]/MatchPageContent.test.tsx).
+describe("MatchHero + ModelCallCard (the match page)", () => {
+  const team = (name: string) => ({ name, href: null, standing: null });
+  const renderHero = (s: MatchSummary | null, phase: Parameters<typeof MatchHero>[0]["phase"]) =>
     render(
-      <MatchScoreboard
-        matchId={1}
-        home="Mexico"
-        away="South Africa"
-        homeTeamId={10}
-        awayTeamId={20}
-        kickoffUtc={initialSummary?.kickoff_utc ?? FUTURE_KICKOFF}
-        probabilities={base.probabilities!}
-        predicted={base.predicted_score!}
-        initialSummary={initialSummary}
-        confidence="High"
-      />,
+      <MatchHero competitionLabel="World Cup 2026" home={team("Mexico")} away={team("South Africa")}
+        kickoffUtc={s?.kickoff_utc ?? FUTURE_KICKOFF} venue="Estadio Azteca" summary={s} phase={phase} />,
     );
+  const data: ModelData = {
+    probabilities: base.probabilities!,
+    predicted: base.predicted_score!,
+    confidence: "High",
+    reasons: [],
+    goalMarkets: null,
+  };
 
-  it("keeps the score slot for real scores: 'vs' before kickoff, the model's score in a labelled chip", () => {
-    mockGetMatchSummary.mockResolvedValue(base);
-    renderBoard(base);
-    expect(screen.getByText("vs")).toBeInTheDocument();
-    expect(screen.queryByText(/MOST LIKELY SCORE/i)).not.toBeInTheDocument();
-    // The predicted score appears exactly once, labelled as the model's.
-    expect(screen.getByText("Most likely 1–0 · 18%")).toBeInTheDocument();
-    expect(screen.queryByText("1–0")).not.toBeInTheDocument();
+  beforeEach(() => window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "UTC", confirmed: true })));
+
+  it("keeps the centre slot for real scores: the kick-off time before, never the model's score", () => {
+    const { container } = renderHero(base, "upcoming");
+    expect(screen.getByText("kick-off")).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/1–0|60%|High/);
   });
 
-  it("says the model's call in one sentence over one labelled bar, with the tier as a chip", () => {
-    mockGetMatchSummary.mockResolvedValue(base);
-    renderBoard(base);
-    expect(screen.getByText("Model's call")).toBeInTheDocument();
-    expect(screen.getByText("Mexico favoured")).toBeInTheDocument();
-    // ONE bar in the whole hero, and its numbers sum to 100.
-    expect(screen.getAllByRole("img", { name: /win/ })).toHaveLength(1);
-    expect(
-      screen.getByRole("img", { name: "Mexico win 60%, draw 25%, South Africa win 15%" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("High confidence")).toBeInTheDocument();
-    // The tier is a chip, not a second rendering of the % in a ring.
-    expect(screen.queryByText("HIGH")).not.toBeInTheDocument();
+  it("carries the date and the venue in the eyebrow", () => {
+    renderHero({ ...base, kickoff_utc: "2099-06-20T19:00:00Z" }, "upcoming");
+    expect(screen.getByText("World Cup 2026 · Saturday 20 June · Estadio Azteca")).toBeInTheDocument();
+    expect(screen.getByText("7:00 PM")).toBeInTheDocument();
   });
 
-  it("carries the kickoff date and timezone (not just clock time) in the upcoming status line", () => {
-    // Pin the zone via storage so the assertion is deterministic.
-    window.localStorage.setItem(
-      "pp:timezone",
-      JSON.stringify({ tz: "Europe/London", confirmed: true }),
-    );
-    const upcoming = { ...base, kickoff_utc: "2099-06-20T19:00:00Z" };
-    mockGetMatchSummary.mockResolvedValue(upcoming);
-    render(
-      <MatchScoreboard
-        matchId={1}
-        home="Mexico"
-        away="South Africa"
-        probabilities={base.probabilities!}
-        predicted={base.predicted_score!}
-        initialSummary={upcoming}
-        kickoffUtc="2099-06-20T19:00:00Z"
-        venue="Wembley"
-      />,
-    );
-    // The tz label form (BST vs GMT+1) is ICU-version dependent, so assert only
-    // that a non-empty zone label sits between the clock and the venue.
-    expect(screen.getByText(/20 Jun · 8:00 PM .+ · Wembley/)).toBeInTheDocument();
-  });
-
-  it("promotes the live score to the scorebug with an estimated minute", () => {
-    mockGetMatchSummary.mockResolvedValue(live);
-    renderBoard(live);
-    expect(screen.getByText("1–0")).toBeInTheDocument(); // actual (1–0 at 63')
-    expect(screen.getByText(/LIVE · 63' est\./)).toBeInTheDocument();
-    expect(screen.getByText("Model predicted 1–0")).toBeInTheDocument();
-    expect(screen.getByText("Pre-match: Mexico favoured")).toBeInTheDocument();
-  });
-
-  it("labels the in-play probability as the live win chance when the feed carries one", () => {
-    const withLive = { ...live, live_probabilities: { home_win: 0.81, draw: 0.14, away_win: 0.05 } };
-    mockGetMatchSummary.mockResolvedValue(withLive);
-    renderBoard(withLive);
-    expect(screen.getByText("Live win chance")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Mexico win 81%, draw 14%, South Africa win 5%" })).toBeInTheDocument();
+  it("promotes the live score with an estimated minute", () => {
+    renderHero(live, "live");
+    expect(screen.getByRole("status")).toHaveTextContent("Live: Mexico 1–0 South Africa");
+    expect(screen.getByText(/Live · 63' est\./)).toBeInTheDocument();
   });
 
   it("shows HT at half-time instead of a ticking minute", () => {
-    mockGetMatchSummary.mockResolvedValue(halfTime);
-    renderBoard(halfTime);
-    expect(screen.getByText(/LIVE · HT/)).toBeInTheDocument();
+    renderHero(halfTime, "live");
+    expect(screen.getByText(/Live · HT/)).toBeInTheDocument();
     expect(screen.queryByText(/\d+' est\./)).not.toBeInTheDocument();
   });
 
-  it("shows PENS, the 90-minute score, and the live shootout tally during a shootout", () => {
-    mockGetMatchSummary.mockResolvedValue(shootout);
-    renderBoard(shootout);
-    expect(screen.getByText(/LIVE · PENS/)).toBeInTheDocument();
-    expect(screen.getByText("1–1")).toBeInTheDocument(); // level after 90/ET
-    expect(screen.getByText(/5–4 pens/)).toBeInTheDocument();
+  it("shows PENS, the level score, and the live shootout tally during a shootout", () => {
+    renderHero(shootout, "live");
+    expect(screen.getByText(/Live · PENS/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Mexico 1–1 South Africa");
+    expect(screen.getByText("5–4 on penalties")).toBeInTheDocument();
   });
 
-  it("at full time shows actual + predicted + verdict together", () => {
-    renderBoard(finished);
-    expect(screen.getByText("2–0")).toBeInTheDocument(); // actual headline
-    expect(screen.getByText("FULL TIME")).toBeInTheDocument();
-    expect(screen.getByText("Model predicted 1–0")).toBeInTheDocument(); // prediction kept visible
-    expect(screen.getByText("Result predicted right")).toBeInTheDocument();
+  it("at full time: the result in the hero, the call graded below", () => {
+    renderHero(finished, "finished");
+    expect(screen.getByText("Full time")).toBeInTheDocument();
+    render(<ModelCallCard home="Mexico" away="South Africa" data={data} mode="finished" pick={null} result={{ home: 2, away: 0 }} />);
+    expect(screen.getByText("Right result · 2 points")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Mexico 60%, draw 25%, South Africa 15%" })).toBeInTheDocument();
   });
 
   it("never infers full time from a stranded in_play: Result pending, no verdict", () => {
-    mockGetMatchSummary.mockResolvedValue(stranded);
-    renderBoard(stranded);
-    expect(screen.getByText("RESULT PENDING")).toBeInTheDocument();
-    expect(screen.queryByText(/FULL TIME/)).not.toBeInTheDocument();
-    expect(screen.getByText("1–0")).toBeInTheDocument(); // last known score
-    expect(screen.queryByText("Exact score predicted")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Result predicted right|Model missed/)).not.toBeInTheDocument();
+    renderHero(stranded, "stale");
+    expect(screen.getByText("Result pending")).toBeInTheDocument();
+    expect(screen.queryByText("Full time")).not.toBeInTheDocument();
+    render(<ModelCallCard home="Mexico" away="South Africa" data={data} mode="made" pick={null} result={null} />);
+    expect(screen.queryByText(/points/)).not.toBeInTheDocument();
   });
 
-  it("falls back to prediction-only when no summary is available", async () => {
-    mockGetMatchSummary.mockRejectedValue(new Error("offline"));
-    renderBoard(null);
-    expect(screen.getByText("vs")).toBeInTheDocument(); // upcoming scorebug
-    expect(screen.getByText("Most likely 1–0 · 18%")).toBeInTheDocument();
-    await screen.findByText("Mexico favoured");
+  it("falls back to the kick-off when no summary is available", () => {
+    renderHero(null, "upcoming");
+    expect(screen.getByText("kick-off")).toBeInTheDocument();
   });
 });

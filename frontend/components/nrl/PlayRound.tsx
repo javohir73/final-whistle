@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ClubBadge } from "@/components/ClubBadge";
+import { Card, CARD_X, Tag } from "@/components/ui";
+import { visibleModel } from "@/components/nrl/useMyNrlRound";
 import { ConfidenceRing } from "@/components/ConfidenceRing";
 import { ErrorState, Loading } from "@/components/States";
-import { kickoffLabel } from "@/components/nrl/TipsheetBlock";
+import { nrlKickoffLabel as kickoffLabel } from "@/lib/nrlDisplay";
 import { reportViewerHandle } from "@/components/play/viewerHandle";
 import { NRL_TIPS_CACHE_PREFIX, useTipsIdentityVersion } from "@/components/play/tipsIdentity";
 import { trackEvent } from "@/lib/analytics";
@@ -194,29 +196,32 @@ export function PlayRound({
   if (!matches) return <Loading label="Loading this round's tips…" />;
   if (matches.length === 0) return null;
 
+  const tipped = matches.filter((m) => m.your_tip).length;
   return (
-    <section>
-      <div className="mb-2.5 flex items-center justify-between gap-3 px-0.5">
-        <h2 className="text-label font-semibold uppercase tracking-wider text-muted">Play this round</h2>
-        {handle ? <span className="text-xs text-muted">Playing as {handle}</span> : null}
+    <Card flush aria-labelledby="nrl-play-round">
+      <div className={cn("flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-5", CARD_X)}>
+        <h2 id="nrl-play-round" className="text-h2 font-semibold text-ink">
+          Round {round}
+        </h2>
+        <span className="text-notes text-muted">
+          {tipped} of {matches.length} tipped{handle ? ` · Playing as ${handle}` : ""}
+        </span>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {matches.map((m) => (
-          <PlayRow
-            key={m.id}
-            match={m}
-            now={now}
-            showConfidence={showConfidence}
-            pending={!!pending[m.id]}
-            error={rowError[m.id]}
-            marginDraft={marginDraft[m.id]}
-            onPick={(pick) => submit(m.id, pick)}
-            onMarginChange={(v) => setMarginDraft((d) => ({ ...d, [m.id]: v }))}
-            onMarginCommit={(pick, margin) => submit(m.id, pick, margin)}
-          />
-        ))}
-      </div>
-    </section>
+      {matches.map((m) => (
+        <PlayRow
+          key={m.id}
+          match={m}
+          now={now}
+          showConfidence={showConfidence}
+          pending={!!pending[m.id]}
+          error={rowError[m.id]}
+          marginDraft={marginDraft[m.id]}
+          onPick={(pick) => submit(m.id, pick)}
+          onMarginChange={(v) => setMarginDraft((d) => ({ ...d, [m.id]: v }))}
+          onMarginCommit={(pick, margin) => submit(m.id, pick, margin)}
+        />
+      ))}
+    </Card>
   );
 }
 
@@ -243,57 +248,55 @@ function PlayRow({
 }) {
   const locked = match.kickoff_utc != null && now.getTime() >= new Date(match.kickoff_utc).getTime();
   const tip = match.your_tip;
-  const model = match.model;
+  // The reveal rule (lib/reveal.ts): the model's call on this match only once
+  // it is tipped or has kicked off -- whatever /tips/mine sends.
+  const model = visibleModel(match, now);
+  const home = match.home ?? "TBC";
+  const away = match.away ?? "TBC";
 
   return (
-    <div className="glass rounded-2xl p-4">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-label font-semibold uppercase tracking-wider text-muted">
-          {locked ? "Locked" : kickoffLabel(match.kickoff_utc)}
-        </span>
-        {match.is_featured ? (
-          <span className="rounded-full bg-gold/15 px-2 py-0.5 text-note font-bold uppercase tracking-wide text-gold-wash-ink">
-            Featured match — margin for tiebreaks
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-2 flex items-center justify-center gap-2 text-sm font-semibold">
-        <ClubBadge name={match.home} />
-        <span>{match.home ?? "TBC"}</span>
-        <span className="text-muted">vs</span>
-        <span>{match.away ?? "TBC"}</span>
-        <ClubBadge name={match.away} />
+    <div className={cn("border-t border-line-soft py-5", CARD_X)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-notes font-medium text-muted">{locked ? "Locked" : kickoffLabel(match.kickoff_utc)}</span>
+        {match.is_featured ? <Tag>Featured match — margin for tiebreaks</Tag> : null}
       </div>
 
       {locked ? (
-        <p className="mt-3 text-center text-sm">
-          {tip ? (
-            <>
-              You picked <strong>{pickLabel(tip.pick, match)}</strong>
-              {tip.points != null ? (
-                <span className={tip.points > 0 ? "text-lime-deep" : "text-loss-ink"}>
-                  {" "}
-                  — {tip.points > 0 ? "scored" : "missed"}
-                </span>
-              ) : (
-                <span className="text-muted"> — awaiting full time</span>
-              )}
-            </>
-          ) : (
-            <span className="text-muted">No tip submitted</span>
-          )}
-        </p>
+        <div className="mt-3 flex flex-col gap-1">
+          <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
+            <ClubBadge name={match.home} size={22} decorative />
+            {home} v {away}
+            <ClubBadge name={match.away} size={22} decorative />
+          </p>
+          <p className="text-notes">
+            {tip ? (
+              <>
+                You picked <strong className="text-brand">{pickLabel(tip.pick, match)}</strong>
+                {tip.points != null ? (
+                  <span className={tip.points > 0 ? "text-brand" : "text-miss"}>
+                    {" "}
+                    — {tip.points > 0 ? "scored" : "missed"}
+                  </span>
+                ) : (
+                  <span className="text-muted"> — awaiting full time</span>
+                )}
+              </>
+            ) : (
+              <span className="text-muted">No tip submitted</span>
+            )}
+          </p>
+        </div>
       ) : (
         <>
           <div
-            className="mt-3 grid grid-cols-3 gap-2"
+            className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2"
             role="group"
             aria-label={`Your pick for ${match.home ?? "home"} vs ${match.away ?? "away"}`}
           >
             {(["home", "draw", "away"] as const).map((side) => {
-              const label = side === "home" ? (match.home ?? "Home") : side === "away" ? (match.away ?? "Away") : "Draw";
+              const label = side === "home" ? home : side === "away" ? away : "Draw";
               const active = tip?.pick === side;
+              const crestName = side === "home" ? match.home : side === "away" ? match.away : null;
               return (
                 <button
                   key={side}
@@ -302,21 +305,23 @@ function PlayRow({
                   disabled={pending}
                   onClick={() => onPick(side)}
                   className={cn(
-                    "truncate rounded-lg border px-2 py-2 text-xs font-semibold transition disabled:opacity-disabled",
+                    "inline-flex min-h-[48px] min-w-0 items-center justify-center gap-2 rounded-full border px-3 font-semibold transition-colors disabled:cursor-not-allowed",
+                    side === "draw" && "px-4 text-notes",
                     active
-                      ? "border-win/60 bg-win/15 text-foreground"
-                      : "border-border bg-surface-2/50 text-muted hover:border-win/40 hover:text-foreground",
+                      ? "border-brand bg-brand text-white"
+                      : "border-line bg-ground text-ink hover:border-ink",
                   )}
                 >
-                  {label}
+                  {crestName ? <ClubBadge name={crestName} size={22} decorative /> : null}
+                  <span className="min-w-0 truncate">{label}</span>
                 </button>
               );
             })}
           </div>
 
           {match.is_featured ? (
-            <label className="mt-3 flex items-center justify-between gap-2 text-xs text-muted">
-              <span>Margin guess</span>
+            <label className="mt-3 flex items-center justify-between gap-3 text-notes text-muted">
+              <span>Margin guess (points)</span>
               <input
                 type="number"
                 min={0}
@@ -329,34 +334,38 @@ function PlayRow({
                   const n = Number(e.target.value);
                   if (tip?.pick && e.target.value !== "" && Number.isFinite(n)) onMarginCommit(tip.pick, n);
                 }}
-                className="w-16 rounded-lg border border-border bg-surface-2/50 px-2 py-1 text-right text-foreground"
+                className="h-11 w-20 rounded-input border border-line-strong bg-ground px-3 text-right text-ink disabled:bg-soft"
               />
             </label>
           ) : null}
         </>
       )}
 
-      {/* The model's call, ringed by confidence (Floodlight P5 p5-s5). Play-hub
-          only (showConfidence) and gated on model presence -- a match with no
-          model prediction renders nothing here (honest degrade). The shared
-          ConfidenceRing already prints the %, the tier word and an aria-label
-          carrying both, so it needs no extra a11y scaffolding. */}
-      {showConfidence && model ? (
-        <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-          <div className="min-w-0">
-            <p className="text-label font-semibold uppercase tracking-wider text-muted">Model&apos;s call</p>
-            <p className="truncate text-sm font-semibold">{pickLabel(model.pick, match)}</p>
+      {/* The model's call, after the reveal. The Play hub (showConfidence)
+          rings it by confidence; /nrl/tips prints it as one quiet line. */}
+      {model ? (
+        showConfidence ? (
+          <div className="fw-rise mt-3 flex items-center justify-between gap-3 border-t border-line-soft pt-3">
+            <div className="min-w-0">
+              <p className="text-label font-medium text-muted">Model&apos;s call</p>
+              <p className="truncate font-semibold">{pickLabel(model.pick, match)}</p>
+            </div>
+            <ConfidenceRing
+              probability={model.pick_confidence}
+              confidence={confidenceTier(model.pick_confidence)}
+              outcomeLabel={pickLabel(model.pick, match)}
+              size={56}
+            />
           </div>
-          <ConfidenceRing
-            probability={model.pick_confidence}
-            confidence={confidenceTier(model.pick_confidence)}
-            outcomeLabel={pickLabel(model.pick, match)}
-            size={56}
-          />
-        </div>
+        ) : (
+          <p className="fw-rise mt-3 text-notes text-muted">
+            Model {pickLabel(model.pick, match)}{" "}
+            <b className="font-bold text-ink">{Math.round(model.pick_confidence * 100)}%</b>
+          </p>
+        )
       ) : null}
 
-      {error ? <p className="mt-2 text-center text-xs font-medium text-loss-ink">{error}</p> : null}
+      {error ? <p className="mt-2 text-notes font-medium text-miss">{error}</p> : null}
     </div>
   );
 }

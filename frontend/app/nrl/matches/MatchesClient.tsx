@@ -4,10 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { getNrlMatches } from "@/lib/api";
 import { finishedRounds, liveNow, upcomingRounds } from "@/lib/nrlLive";
 import type { NrlMatchesResponse } from "@/lib/types";
-import { MatchCard } from "@/components/MatchCard";
-import { TimelineSpine } from "@/components/TimelineSpine";
-import { nrlExpectedMargin, nrlMatchHref, nrlMatchToSummary } from "@/lib/nrlAdapters";
-import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { Card, DayBand, Note, PageHead, Segmented } from "@/components/ui";
+import { NrlFixtureRow, NrlRoundCard } from "@/components/nrl/NrlRoundCard";
 
 type Filter = "Upcoming" | "Live" | "Finished";
 const FILTERS: Filter[] = ["Upcoming", "Live", "Finished"];
@@ -24,7 +23,14 @@ const EMPTY: Record<Filter, string> = {
  *  refetch stays gated on ≥1 live match. */
 export function MatchesClient({ initial }: { initial: NrlMatchesResponse }) {
   const [fixtures, setFixtures] = useState(initial);
-  const [filter, setFilter] = useState<Filter>("Upcoming");
+  // Off-season nothing is upcoming: open on the results instead of an empty tab.
+  const [filter, setFilter] = useState<Filter>(() =>
+    upcomingRounds(initial.rounds).length === 0 &&
+    liveNow(initial.rounds).length === 0 &&
+    finishedRounds(initial.rounds).length > 0
+      ? "Finished"
+      : "Upcoming",
+  );
   const [now, setNow] = useState(() => new Date());
 
   const live = useMemo(() => liveNow(fixtures.rounds, now), [fixtures, now]);
@@ -55,104 +61,68 @@ export function MatchesClient({ initial }: { initial: NrlMatchesResponse }) {
     [fixtures, filter, now],
   );
 
-  // Per-card detail href + expected margin for every fixture in the visible
-  // groups, keyed by match_id (= NrlMatch.id). Match ids are unique across
-  // rounds, so one flat map feeds every day of the spine.
-  const { cardHref, cardMargin } = useMemo(() => {
-    const href: Record<number, string | null> = {};
-    const margin: Record<number, number | null> = {};
-    for (const g of groups) {
-      for (const m of g.matches) {
-        href[m.id] = nrlMatchHref(fixtures.season, g.round, m.match_no);
-        margin[m.id] = nrlExpectedMargin(m);
-      }
-    }
-    return { cardHref: href, cardMargin: margin };
-  }, [groups, fixtures.season]);
-
   const showStrip = filter !== "Finished" && live.length > 0;
   const empty =
     (filter === "Live" && live.length === 0) ||
     (filter !== "Live" && groups.length === 0 && !showStrip);
 
   return (
-    <div>
-      <h1 className="font-display text-2xl font-extrabold">NRL fixtures</h1>
-
-      {/* Segmented control: Upcoming / Live / Finished — styling mirrors the
-       *  WC26 MatchesClient island so the two fixtures pages match. */}
-      <div
-        role="tablist"
-        aria-label="Fixture filter"
-        className="mb-6 mt-4 flex gap-1 rounded-[14px] bg-surface-2 p-1"
-      >
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            role="tab"
-            aria-selected={f === filter}
-            onClick={() => setFilter(f)}
-            className={cn(
-              "flex-1 rounded-[11px] px-3 py-2 text-sm font-semibold transition",
-              f === filter
-                ? "bg-surface text-foreground shadow-[0_1px_3px_rgba(18,40,25,0.1)]"
-                : "text-muted hover:text-foreground",
-            )}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      {/* Live strip: keep the custom pulse eyebrow, but render each in-window
-       *  match through the shared compact MatchCard (club badges, margin chip,
-       *  detail link). Same idiom as the football MatchesClient live strip — a
-       *  plain grid pinned above the spine, not itself a spine day. Liveness
-       *  detection (nrlLive.liveNow) is unchanged. */}
-      {showStrip ? (
-        <section>
-          <div className="mb-3.5 flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-loss" aria-hidden />
-            <h2 className="font-display text-label font-bold uppercase tracking-wider text-loss">
+    <>
+      <PageHead
+        eyebrow={`NRL · ${fixtures.season} season`}
+        title="Fixtures"
+        actions={
+          <Segmented
+            label="Show"
+            items={FILTERS.map((f) => ({ label: f, current: f === filter, onSelect: () => setFilter(f) }))}
+          />
+        }
+      />
+      <div className="flex max-w-[1100px] flex-col gap-6">
+        {/* Live strip: every in-window match, pinned above the rounds. */}
+        {showStrip ? (
+          <Card flush aria-label="Live now">
+            <DayBand as="h2" className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-miss motion-reduce:animate-none" aria-hidden />
               Live now
-            </h2>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+            </DayBand>
             {live.map(({ round, match }) => (
-              <MatchCard
+              <NrlFixtureRow
                 key={`${round}-${match.match_no}`}
-                match={nrlMatchToSummary(match)}
-                tz="Australia/Sydney"
-                variant="compact"
-                badge="club"
-                href={nrlMatchHref(fixtures.season, round, match.match_no)}
-                margin={nrlExpectedMargin(match)}
+                match={match.score_home != null && match.score_away != null ? { ...match, status: "in_play" } : match}
+                season={fixtures.season}
+                round={round}
+                tipping={false}
               />
             ))}
-          </div>
-        </section>
-      ) : null}
+          </Card>
+        ) : null}
 
-      {/* Round sections fall down the shared Floodlight spine — one day group
-       *  per round (heading arbitrary, so the round structure is preserved). */}
-      {filter !== "Live" && groups.length > 0 ? (
-        <div className="mt-8">
-          <TimelineSpine
-            days={groups.map((g) => ({
-              key: `round-${g.round ?? "tbc"}`,
-              heading: `Round ${g.round ?? "TBC"}`,
-              matches: g.matches.map(nrlMatchToSummary),
-            }))}
-            tz="Australia/Sydney"
-            badge="club"
-            cardHref={cardHref}
-            cardMargin={cardMargin}
-          />
-        </div>
-      ) : null}
+        {filter !== "Live"
+          ? groups.map((g) => (
+              <section key={`round-${g.round ?? "tbc"}`} aria-labelledby={`nrl-round-${g.round ?? "tbc"}`}>
+                <h2 id={`nrl-round-${g.round ?? "tbc"}`} className="mb-3 text-h2 font-semibold text-ink">
+                  {g.round != null ? (
+                    <Link href={`/nrl/round/${g.round}`} className="no-underline hover:underline">
+                      Round {g.round}
+                    </Link>
+                  ) : (
+                    "Round TBC"
+                  )}
+                </h2>
+                <NrlRoundCard
+                  season={fixtures.season}
+                  round={g.round}
+                  matches={g.matches}
+                  label={`Round ${g.round ?? "TBC"}`}
+                  tipping={filter === "Upcoming"}
+                />
+              </section>
+            ))
+          : null}
 
-      {empty ? <p className="mt-8 text-sm text-muted">{EMPTY[filter]}</p> : null}
-    </div>
+        {empty ? <Note>{EMPTY[filter]}</Note> : null}
+      </div>
+    </>
   );
 }

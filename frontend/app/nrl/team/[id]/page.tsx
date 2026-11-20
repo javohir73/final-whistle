@@ -1,16 +1,35 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getNrlTeamServer, getNrlStatsProfileServer } from "@/lib/api";
+import { getNrlLadderServer, getNrlMatchesServer, getNrlTeamServer } from "@/lib/api";
 import { APP_NAME } from "@/lib/constants";
-import { pct } from "@/lib/format";
-import { slugify } from "@/lib/nrlSlug";
-import { ChanceChip } from "@/components/ChanceChip";
 import { ClubBadge } from "@/components/ClubBadge";
-import { FormStrip } from "@/components/FormStrip";
-import { ShareButton } from "@/components/ShareButton";
-import { TeamHeader } from "@/components/TeamHeader";
-import { VenueSplits } from "@/components/nrl/VenueSplits";
+import {
+  Card,
+  CardHead,
+  Chip,
+  DayBand,
+  FixtureRow,
+  Main,
+  Note,
+  PageHead,
+  PageLayout,
+  Rail,
+  Stat,
+  StatGrid,
+} from "@/components/ui";
+import { LadderCard } from "@/components/nrl/LadderCard";
+import { NrlFinalsCard } from "@/components/nrl/NrlRoundCard";
+import { nrlMatchHref } from "@/lib/nrlAdapters";
+import {
+  nrlDayMonth,
+  nrlFinalsRounds,
+  nrlGrandFinal,
+  nrlTimeLabel,
+  nrlWinner,
+  ordinal,
+  signedNumber,
+} from "@/lib/nrlDisplay";
+import { nrlSeasonState } from "@/lib/nrlTips";
 import type { NrlTeamFixture, NrlTeamResult } from "@/lib/types";
 
 export const revalidate = 60; // ISR window: rendered on demand, then served from the CDN for 60 s
@@ -19,26 +38,6 @@ export const revalidate = 60; // ISR window: rendered on demand, then served fro
 export async function generateStaticParams() {
   return [];
 }
-
-/** NRL club profile: ladder slot + record, season snapshot, recent form, how
- *  the AI has fared on this club, upcoming fixtures with the club's win
- *  chance, and every result — each linking to its match page. */
-
-function kickoffLabel(iso: string | null): string {
-  if (!iso) return "TBC";
-  return new Date(iso).toLocaleString("en-AU", {
-    weekday: "short", day: "numeric", month: "short",
-    hour: "numeric", minute: "2-digit",
-    timeZone: "Australia/Sydney", timeZoneName: "short",
-  });
-}
-
-const ordinal = (n: number): string => {
-  const rem100 = n % 100;
-  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
-  const suffix = { 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th";
-  return `${n}${suffix}`;
-};
 
 export async function generateMetadata({
   params,
@@ -59,14 +58,18 @@ export async function generateMetadata({
     .join(", ");
   const description =
     `${team.name} in the ${season} NRL season` +
-    `${standing ? ` — ${standing}` : ""}. Form, results and predictions from the FinalWhistle model.`;
+    `${standing ? ` — ${standing}` : ""}. Results, finals and the FinalWhistle model's record on the club.`;
   return {
-    title, description,
+    title,
+    description,
     alternates: { canonical: `/nrl/team/${id}` },
     openGraph: { title, description },
   };
 }
 
+/** NRL club page (prototype `pageNrlClub`): crest + name, where the club
+ *  finished, the season in three numbers, then its finals (or, in season, the
+ *  next matches and recent results), and the ladder in the rail. */
 export default async function NrlTeamPage({
   params,
 }: {
@@ -74,309 +77,152 @@ export default async function NrlTeamPage({
 }) {
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
-  const data = await getNrlTeamServer(id);
+  const [data, fixtures, ladder] = await Promise.all([
+    getNrlTeamServer(id),
+    getNrlMatchesServer().catch(() => null),
+    getNrlLadderServer().catch(() => null),
+  ]);
   if (!data) notFound();
-  const { team, ladder, summary, results, upcoming, model, season, disclaimer } = data;
-  const statsProfile = await getNrlStatsProfileServer(slugify(team.name)).catch(() => null);
+  const { team, season, results, upcoming, model, disclaimer } = data;
+  const row = data.ladder;
 
-  const record = summary ? `${summary.wins}–${summary.losses}–${summary.draws}` : null;
-  const subtitle = [
-    ladder ? `${ordinal(ladder.rank)} on the ladder` : null,
-    record,
-    ladder ? `${ladder.points} pts` : null,
-    team.elo_rating != null ? `Elo ${Math.round(team.elo_rating)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const complete = fixtures ? nrlSeasonState(fixtures.rounds) === "complete" : false;
+  const gf = fixtures ? nrlGrandFinal(fixtures.rounds) : null;
+  const premiers = gf ? nrlWinner(gf.match) === team.name : false;
+  const isClub = (m: { home_team_id: number | null; away_team_id: number | null; home: string | null; away: string | null }) =>
+    m.home_team_id === team.id || m.away_team_id === team.id || m.home === team.name || m.away === team.name;
+  const finals = (fixtures ? nrlFinalsRounds(fixtures.rounds) : [])
+    .map((f) => ({ ...f, matches: f.matches.filter(isClub) }))
+    .filter((f) => f.matches.length > 0);
 
-  // NRL header tiles stand in for the football Elo/FIFA pair: ladder slot,
-  // W–L–D record, competition points, raw Elo. Missing figures drop out.
-  const nrlTiles = [
-    ladder ? { label: "Ladder", value: ordinal(ladder.rank) } : null,
-    record ? { label: "Record", value: record } : null,
-    ladder ? { label: "Points", value: String(ladder.points) } : null,
-    team.elo_rating != null
-      ? { label: "Elo", value: String(Math.round(team.elo_rating)) }
-      : null,
-  ].filter(Boolean) as { label: string; value: string }[];
-
-  const streak = summary?.streak ?? null;
-  const form = results.slice(0, 5).map((r) => ({
-    opponent: r.opponent ?? "TBC",
-    score_for: r.score_for,
-    score_against: r.score_against,
-    result: r.result,
-    date: r.kickoff_utc,
-  }));
+  const sub = row
+    ? complete
+      ? `Finished ${ordinal(row.rank)} on the ladder with ${row.points} points.${premiers ? ` ${season} premiers.` : ""}`
+      : `${ordinal(row.rank)} on the ladder with ${row.points} points after ${row.played} matches.`
+    : `No ladder position yet for ${season}.`;
 
   return (
-    <div className="fade-up mx-auto max-w-3xl space-y-6">
-      <div className="flex justify-end">
-        <ShareButton title={`${team.name} — NRL ${season} profile`} />
-      </div>
-
-      {/* Full-bleed crest banner (shared Floodlight TeamHeader). The country
-          crest becomes the ClubBadge club mark, the FavoriteStar drops (NRL
-          clubs aren't in the country-favorites store), the meta line carries
-          the ladder/record/pts/Elo join, and the tiles carry the NRL ratings. */}
-      <TeamHeader
-        team={{
-          id: team.id,
-          name: team.name,
-          country_code: null,
-          confederation: null,
-          fifa_rank: null,
-          elo_rating: team.elo_rating,
-          is_host: false,
-        }}
-        comp="nrl"
-        backHref="/nrl/ladder"
-        backLabel="Ladder"
-        badge="club"
-        showFavorite={false}
-        meta={subtitle}
-        tiles={nrlTiles}
+    <>
+      <PageHead
+        back={{ href: "/nrl/ladder", label: "Ladder" }}
+        leading={<ClubBadge name={team.name} size={64} decorative />}
+        eyebrow={`NRL · ${season} season`}
+        title={team.name}
+        sub={sub}
       />
+      <PageLayout>
+        <Main>
+          {row ? (
+            <Card pad aria-labelledby="club-season">
+              <CardHead id="club-season" title={`${season} season`} />
+              <StatGrid>
+                <Stat value={row.wins} label="won" />
+                {row.draws > 0 ? <Stat value={row.draws} label="drawn" /> : null}
+                <Stat value={row.losses} label="lost" />
+                <Stat value={signedNumber(row.diff)} label="points difference" />
+              </StatGrid>
+              {model && model.graded > 0 ? (
+                <Note className="mt-5">
+                  The model called {model.called} of {model.graded} of their graded matches.
+                </Note>
+              ) : null}
+            </Card>
+          ) : null}
 
-      {/* Streak pill — NRL-specific (no football analog), kept as a sibling
-          below the shared header. */}
-      {streak && streak.length >= 2 && (
-        <div>
-          <span
-            className={`inline-block rounded-full px-2 py-0.5 text-label font-semibold uppercase tracking-wide ${
-              streak.result === "W"
-                ? "bg-win/15 text-lime-deep"
-                : streak.result === "L"
-                  ? "bg-loss/15 text-loss-wash-ink"
-                  : "bg-draw/15 text-gold-wash-ink"
-            }`}
-          >
-            {streak.length}-game{" "}
-            {streak.result === "W" ? "winning" : streak.result === "L" ? "losing" : "drawn"}{" "}
-            run
-          </span>
-        </div>
-      )}
+          {finals.length > 0 && fixtures ? (
+            <div>
+              <h2 className="mb-3 text-h2 font-semibold text-ink">Finals</h2>
+              <NrlFinalsCard finals={finals} season={fixtures.season} label={`${team.name} finals`} />
+            </div>
+          ) : complete && row ? (
+            <Card pad aria-labelledby="club-finals">
+              <CardHead id="club-finals" title="Finals" />
+              <Note className="mt-1.5">
+                {team.name} did not play finals in {season}.
+              </Note>
+            </Card>
+          ) : null}
 
-      {/* Season snapshot — per-game tiles + splits + bookend results */}
-      {summary && (
-        <section className="glass rounded-2xl p-6">
-          <span className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-            Season snapshot · {summary.played} games
-          </span>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <StatTile label="Avg scored" value={summary.avg_for.toFixed(1)} />
-            <StatTile label="Avg conceded" value={summary.avg_against.toFixed(1)} />
-            <StatTile
-              label="Avg margin"
-              value={`${summary.avg_margin > 0 ? "+" : ""}${summary.avg_margin.toFixed(1)}`}
-              tone={summary.avg_margin > 0 ? "up" : summary.avg_margin < 0 ? "down" : undefined}
+          {!complete && upcoming.length > 0 ? (
+            <Card flush aria-label="Next matches">
+              <DayBand as="h2">Next up</DayBand>
+              {upcoming.slice(0, 3).map((f) => (
+                <ClubFixtureRow key={f.id} club={team.name} fixture={f} season={season} />
+              ))}
+            </Card>
+          ) : null}
+
+          {!complete && results.length > 0 ? (
+            <Card flush aria-label="Recent results">
+              <DayBand as="h2">Recent results</DayBand>
+              {results.slice(0, 5).map((r) => (
+                <ClubFixtureRow key={r.id} club={team.name} fixture={r} season={season} />
+              ))}
+            </Card>
+          ) : null}
+
+          <p className="text-label text-muted">{disclaimer}</p>
+        </Main>
+        <Rail aria-label="Ladder">
+          {ladder ? (
+            <LadderCard
+              rows={ladder.rows}
+              highlightTeamId={team.id}
+              title={complete ? "Final ladder" : "Ladder"}
+              note={complete ? "The top eight played finals." : "The top eight make the finals."}
             />
-            {ladder && (
-              <StatTile
-                label="For/against"
-                value={`${ladder.diff > 0 ? "+" : ""}${ladder.diff}`}
-                tone={ladder.diff > 0 ? "up" : ladder.diff < 0 ? "down" : undefined}
-              />
-            )}
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-3 text-xs text-muted">
-            <span>
-              Home{" "}
-              <strong className="font-bold tabular-nums text-foreground">
-                {summary.home.wins}–{summary.home.losses}–{summary.home.draws}
-              </strong>
-            </span>
-            <span>
-              Away{" "}
-              <strong className="font-bold tabular-nums text-foreground">
-                {summary.away.wins}–{summary.away.losses}–{summary.away.draws}
-              </strong>
-            </span>
-            {summary.biggest_win && (
-              <span>
-                Biggest win{" "}
-                <strong className="font-bold tabular-nums text-foreground">
-                  {summary.biggest_win.score_for}–{summary.biggest_win.score_against}
-                </strong>{" "}
-                vs {summary.biggest_win.opponent ?? "TBC"}
-              </span>
-            )}
-            {summary.biggest_loss && (
-              <span>
-                Heaviest loss{" "}
-                <strong className="font-bold tabular-nums text-foreground">
-                  {summary.biggest_loss.score_for}–{summary.biggest_loss.score_against}
-                </strong>{" "}
-                vs {summary.biggest_loss.opponent ?? "TBC"}
-              </span>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* Recent form */}
-      <section className="glass rounded-2xl p-6">
-        <span className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-          Recent form
-        </span>
-        <div className="mt-3">
-          <FormStrip form={form} />
-        </div>
-      </section>
-
-      {/* The AI on this club — from the frozen, append-only grading ledger */}
-      {model && (
-        <section className="glass rounded-2xl p-6">
-          <span className="font-display text-label font-semibold uppercase tracking-wider text-lime-deep">
-            The model on the {team.name}
-          </span>
-          <p className="mb-4 mt-2 font-display text-lg font-bold leading-snug tracking-tight">
-            The model has called {model.called} of {model.graded} graded{" "}
-            {team.name} {model.graded === 1 ? "game" : "games"} this season.
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            <StatTile label="Graded" value={String(model.graded)} />
-            <StatTile label="Called right" value={String(model.called)} />
-            <StatTile label="Hit rate" value={pct(model.accuracy)} tone="up" />
-          </div>
-          <p className="mt-3 text-xs leading-relaxed text-muted">
-            Graded from predictions frozen at kickoff — never revised after the game.
-          </p>
-        </section>
-      )}
-
-      {/* Next up — fixtures with the club's win chance */}
-      {upcoming.length > 0 && (
-        <section>
-          <h2 className="mb-3 font-display text-label font-semibold uppercase tracking-wider text-muted">
-            Next up
-          </h2>
-          <div className="space-y-2">
-            {upcoming.map((f) => (
-              <FixtureRow key={`${f.round}-${f.match_no}`} fixture={f} season={season} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Results — every finished game, most recent first */}
-      {results.length > 0 && (
-        <section>
-          <h2 className="mb-3 font-display text-label font-semibold uppercase tracking-wider text-muted">
-            Results
-          </h2>
-          <div className="space-y-2">
-            {results.map((r) => (
-              <ResultRow key={`${r.round}-${r.match_no}`} result={r} season={season} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {statsProfile ? <VenueSplits splits={statsProfile.venue_splits} /> : null}
-
-      <p className="text-center text-xs leading-relaxed text-muted">{disclaimer}</p>
-    </div>
+          ) : null}
+        </Rail>
+      </PageLayout>
+    </>
   );
 }
 
-function StatTile({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "up" | "down";
-}) {
-  return (
-    <div className="rounded-2xl bg-win/[0.06] px-2 py-3 text-center">
-      <p
-        className={`font-display text-xl font-extrabold tabular-nums ${
-          tone === "up" ? "text-lime-deep" : tone === "down" ? "text-loss-ink" : "text-foreground"
-        }`}
-      >
-        {value}
-      </p>
-      <p className="mt-0.5 text-label font-semibold text-muted">{label}</p>
-    </div>
-  );
-}
-
-/** Row wrapper: links to the match page when the round is known (the detail
- *  URL needs the (season, round, match_no) triple). */
-function MatchRow({
+/** A club-centric fixture or result on the centred spine. No model numbers on
+ *  a match still to come (the reveal rule; this page is public); a finished
+ *  one carries the ledger's "Called it" / "Missed". */
+function ClubFixtureRow({
+  club,
+  fixture: f,
   season,
-  round,
-  matchNo,
-  children,
 }: {
+  club: string;
+  fixture: NrlTeamFixture | NrlTeamResult;
   season: number;
-  round: number | null;
-  matchNo: number;
-  children: React.ReactNode;
 }) {
-  const className = "glass flex items-center gap-3 rounded-2xl p-3.5";
-  return round != null ? (
-    <Link href={`/nrl/match/${season}/${round}/${matchNo}`} className={`card-hover ${className}`}>
-      {children}
-    </Link>
-  ) : (
-    <div className={className}>{children}</div>
-  );
-}
-
-function FixtureRow({ fixture: f, season }: { fixture: NrlTeamFixture; season: number }) {
+  const opp = f.opponent ?? "TBC";
+  const home = f.was_home ? club : opp;
+  const away = f.was_home ? opp : club;
+  const result = "score_for" in f ? f : null;
+  const score = result
+    ? f.was_home
+      ? { home: result.score_for, away: result.score_against }
+      : { home: result.score_against, away: result.score_for }
+    : undefined;
+  const date = nrlDayMonth(f.kickoff_utc);
   return (
-    <MatchRow season={season} round={f.round} matchNo={f.match_no}>
-      <ClubBadge name={f.opponent} size={28} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-display text-lead font-semibold">
-          {f.was_home ? "vs" : "at"} {f.opponent ?? "TBC"}
-        </p>
-        <p className="text-xs text-muted">
-          Rd {f.round ?? "TBC"} · {kickoffLabel(f.kickoff_utc)}
-        </p>
-      </div>
-      {f.win_prob != null && (
-        <ChanceChip prob={f.win_prob} deltaText={null} tone={f.win_prob >= 0.5 ? "up" : "muted"} />
-      )}
-    </MatchRow>
-  );
-}
-
-const RESULT_TONE: Record<string, string> = {
-  W: "bg-win/15 text-lime-deep",
-  D: "bg-draw/15 text-gold-wash-ink",
-  L: "bg-loss/15 text-loss-wash-ink",
-};
-
-function ResultRow({ result: r, season }: { result: NrlTeamResult; season: number }) {
-  return (
-    <MatchRow season={season} round={r.round} matchNo={r.match_no}>
-      <span
-        className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg font-display text-xs font-extrabold ${RESULT_TONE[r.result]}`}
-      >
-        {r.result}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-display text-lead font-semibold">
-          {r.was_home ? "vs" : "at"} {r.opponent ?? "TBC"}
-        </p>
-        <p className="text-xs text-muted">Rd {r.round ?? "TBC"}</p>
-      </div>
-      {r.model_called != null && (
-        <span
-          className={`text-xs font-semibold ${r.model_called ? "text-lime-deep" : "text-loss-ink"}`}
-          title={r.model_called ? "The model called this one" : "The model missed this one"}
-        >
-          <span aria-hidden>{r.model_called ? "✓" : "✕"}</span> Model
-        </span>
-      )}
-      <span className="font-display text-base font-extrabold tabular-nums">
-        {r.score_for}–{r.score_against}
-      </span>
-    </MatchRow>
+    <FixtureRow
+      href={nrlMatchHref(season, f.round, f.match_no) ?? undefined}
+      left={
+        <>
+          {f.round != null ? `Round ${f.round}` : "Round TBC"}
+          {date ? (
+            <>
+              <br />
+              {date}
+            </>
+          ) : null}
+        </>
+      }
+      home={{ name: home, crest: <ClubBadge name={home} size={26} decorative /> }}
+      away={{ name: away, crest: <ClubBadge name={away} size={26} decorative /> }}
+      score={score}
+      kickoff={nrlTimeLabel(f.kickoff_utc)}
+      right={
+        result && result.model_called != null ? (
+          <Chip tone={result.model_called ? "good" : "miss"}>{result.model_called ? "Model called it" : "Model missed"}</Chip>
+        ) : null
+      }
+    />
   );
 }

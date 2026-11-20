@@ -1,13 +1,9 @@
-/** NRL home page tests — server component (SSR) output. The FeatureHero leads
- *  with the round's first still-to-play fixture; the remaining fixtures fall
- *  down the shared timeline spine (the feature is excluded, so it never shows
- *  twice); the State of Origin teaser links out when the series endpoint has
- *  data. Once nothing is left to play, the page switches to its off-season
- *  state instead of dressing a played match up as "Tonight's feature".
- *  IntelPanel does its own client fetch, so it's stubbed here to keep these
- *  assertions on the restyled fixture surfaces. Kickoffs are relative to now
- *  so the in-season fixtures never age into the off-season branch. */
-import { render, screen } from "@testing-library/react";
+/** NRL home -- server component (SSR) output, by season state: the season-
+ *  complete page (Grand Final, the model's season, Origin, final ladder), the
+ *  in-season round on the centred spine (tips + the reveal rule), and the
+ *  pre-season Round 1. Kickoffs are relative to now. */
+import { act, render, screen, within } from "@testing-library/react";
+import { resetMyNrlRoundCache } from "@/components/nrl/useMyNrlRound";
 import NrlHomePage from "./page";
 import {
   getNrlLadderServer,
@@ -16,13 +12,14 @@ import {
   getOriginSeriesServer,
 } from "@/lib/api";
 import type { NrlMatch, NrlMatchesResponse, NrlPrediction, NrlRecord, OriginSeriesResponse } from "@/lib/types";
-import { nrlStartLabel } from "@/lib/nrlTips";
+import { getMyNrlTips, nrlStartLabel } from "@/lib/nrlTips";
 
 jest.mock("@/lib/api");
-// IntelPanel fetches market intel in a client effect; irrelevant here, but
-// its presence is asserted (in season) / absence (off-season).
-jest.mock("@/components/IntelPanel", () => ({
-  IntelPanel: () => <div data-testid="intel-panel" />,
+// The client tip cells read /tips/mine after mount; offline here, so they
+// fall back to the "Tip" action. The server HTML is what is under test.
+jest.mock("@/lib/nrlTips", () => ({
+  ...jest.requireActual("@/lib/nrlTips"),
+  getMyNrlTips: jest.fn(() => new Promise(() => {})),
 }));
 
 const mockMatches = getNrlMatchesServer as jest.MockedFunction<typeof getNrlMatchesServer>;
@@ -72,220 +69,178 @@ const origin: OriginSeriesResponse = {
   disclaimer: "For analytics and entertainment only. Not betting advice.",
 };
 
-beforeEach(() => {
-  mockLadder.mockResolvedValue(null); // mini ladder migrates in p3-s5; not under test here
-  mockOrigin.mockResolvedValue(null);
-  mockRecord.mockResolvedValue(null);
-});
-afterEach(() => jest.resetAllMocks());
 
-it("leads with the FeatureHero for the round's first scheduled fixture", async () => {
-  mockMatches.mockResolvedValue(fixtures);
-  render(await NrlHomePage());
+const ladderRows = Array.from({ length: 17 }, (_, i) => ({
+  rank: i + 1, team_id: 100 + i, name: i === 1 ? "Roosters" : `Club ${i + 1}`,
+  played: 24, wins: 20 - i, draws: 0, losses: 4 + i, points: 40 - 2 * i, diff: 100 - 10 * i,
+}));
 
-  // Featured = first scheduled match of the current round (Broncos v Storm).
-  // getByText throwing on duplicates also proves the feature is NOT repeated in
-  // the timeline below.
-  expect(screen.getByText("Broncos")).toBeInTheDocument();
-  // Its display-hero win % (max of 70/03/27).
-  expect(screen.getByText("70")).toBeInTheDocument();
+const record: NrlRecord = {
+  evaluated_matches: 76, winner_accuracy: 0.6447, winner_accuracy_ci95: [0.5326, 0.743],
+  avg_log_loss: 0.6589, avg_brier: 0.4532, best_streak: 6, last_updated: "2026-10-04T14:46:34Z",
+  model_version: "nrl-elo-v0.1", disclaimer: "",
+};
+
+const fin = (id: number, home: string, away: string, sh: number, sa: number, d: number, p: NrlPrediction | null = null): NrlMatch => ({
+  id, match_no: id, kickoff_utc: daysFromNow(d), venue: "Accor Stadium", home, away,
+  home_team_id: id * 10, away_team_id: id * 10 + 1, score_home: sh, score_away: sa, status: "finished", prediction: p,
 });
 
-it("lists the round's remaining fixtures on the shared spine, feature excluded", async () => {
-  mockMatches.mockResolvedValue(fixtures);
-  render(await NrlHomePage());
-
-  // The spine carries the round as its heading and the non-featured fixture.
-  expect(screen.getByText("Round 20")).toBeInTheDocument();
-  expect(screen.getAllByText(/Panthers/).length).toBeGreaterThan(0);
-  // That fixture links to its (season, round, match_no) detail page.
-  expect(screen.getAllByText(/Panthers/)[0].closest("a")).toHaveAttribute(
-    "href",
-    "/nrl/match/2026/20/2",
-  );
-});
-
-it("does not link the FeatureHero CTAs to the football route when the round is TBC", async () => {
-  // A fixture whose round is still null has no detail page (nrlMatchHref -> null).
-  // The hero must degrade to non-interactive CTAs, never the football /match/<id>
-  // route (NRL and football ids share the small-integer namespace).
-  const tbc: NrlMatchesResponse = {
-    ...fixtures,
-    rounds: [
-      {
-        round: null,
-        matches: [
-          {
-            id: 7, match_no: 1, kickoff_utc: daysFromNow(5), venue: "Suncorp",
-            home: "Broncos", away: "Storm", home_team_id: 1, away_team_id: 2,
-            score_home: null, score_away: null, status: "scheduled", prediction: pred(0.7, 0.27, 8.5),
-          },
-        ],
-      },
-    ],
-  };
-  mockMatches.mockResolvedValue(tbc);
-  render(await NrlHomePage());
-
-  // The hero still leads with the fixture, but its CTAs don't navigate anywhere.
-  expect(screen.getByText("Broncos")).toBeInTheDocument();
-  expect(screen.getByText("Make your pick")).toBeInTheDocument();
-  expect(screen.getByText("Make your pick").closest("a")).toBeNull();
-});
-
-it("still renders the State of Origin teaser when the series endpoint has data", async () => {
-  mockMatches.mockResolvedValue(fixtures);
-  mockOrigin.mockResolvedValue(origin);
-  render(await NrlHomePage());
-
-  const originLink = screen.getByRole("link", { name: /State of Origin/i });
-  expect(originLink).toHaveAttribute("href", "/nrl/origin");
-});
-
-// ---- Off-season (C2-4): nothing left to play -------------------------------
-
-const played = (
-  id: number,
-  daysAgo: number,
-  home: string,
-  away: string,
-  score: [number, number],
-): NrlMatch => ({
-  id, match_no: id, kickoff_utc: daysFromNow(-daysAgo), venue: "Accor Stadium",
-  home, away, home_team_id: id * 2, away_team_id: id * 2 + 1,
-  score_home: score[0], score_away: score[1], status: "finished", prediction: pred(0.55, 0.42, 2),
-});
-
-const completeSeason: NrlMatchesResponse = {
+/** A finished season: a regular round, then finals 4/2/2/1 ending in the GF. */
+const complete: NrlMatchesResponse = {
   season: 2026,
-  disclaimer: "For analytics and entertainment only. Not betting advice.",
+  disclaimer: "",
   rounds: [
-    { round: 30, matches: [played(211, 38, "Dolphins", "Roosters", [20, 36]), played(212, 37, "Panthers", "Knights", [14, 22])] },
-    { round: 31, matches: [played(213, 30, "Roosters", "Knights", [19, 18])] },
+    { round: 27, matches: Array.from({ length: 8 }, (_, i) => fin(100 + i, "A", "B", 10, 8, -60)) },
+    { round: 28, matches: [1, 2, 3, 4].map((i) => fin(i, "C", "D", 10, 8, -55)) },
+    { round: 29, matches: [5, 6].map((i) => fin(i, "C", "D", 10, 8, -50)) },
+    { round: 30, matches: [7, 8].map((i) => fin(i, "C", "D", 10, 8, -45)) },
+    { round: 31, matches: [fin(9, "Roosters", "Knights", 19, 18, -40, pred(0.64, 0.35, 4.6))] },
   ],
 };
 
-const record: NrlRecord = {
-  evaluated_matches: 76, winner_accuracy: 0.6447, winner_accuracy_ci95: [0.53, 0.75],
-  avg_log_loss: 0.6589, avg_brier: 0.4532, best_streak: 6, model_version: "nrl-elo-v0.1",
-  last_updated: "2026-10-04T14:46:34Z", disclaimer: "For analytics and entertainment only.",
-};
-
-it("switches to the off-season state once no fixture is left to play", async () => {
-  mockMatches.mockResolvedValue(completeSeason);
-  mockRecord.mockResolvedValue(record);
-  render(await NrlHomePage());
-
-  expect(screen.getByRole("heading", { name: "2026 season complete" })).toBeInTheDocument();
-  expect(screen.getByText(/Roosters are the 2026 premiers/)).toBeInTheDocument();
-  expect(screen.getByText(/Back for Round 1, March 2027/)).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
-  expect(screen.getByRole("link", { name: /64% of winners/ })).toHaveAttribute("href", "/nrl/record");
+beforeEach(() => {
+  mockLadder.mockResolvedValue(null);
+  mockOrigin.mockResolvedValue(null);
+  mockRecord.mockResolvedValue(null);
+});
+afterEach(() => {
+  jest.clearAllMocks();
+  resetMyNrlRoundCache();
 });
 
-it("never presents a played match as tonight's feature, and hides the movers panel", async () => {
-  mockMatches.mockResolvedValue(completeSeason);
-  render(await NrlHomePage());
-
-  expect(screen.queryByText(/Tonight's feature/i)).not.toBeInTheDocument();
-  expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
-  expect(screen.queryByTestId("intel-panel")).not.toBeInTheDocument();
-});
-
-it("omits the premier when the last round isn't a single decided final", async () => {
-  mockMatches.mockResolvedValue({
-    ...completeSeason,
-    rounds: [{ round: 27, matches: [played(201, 40, "Eels", "Storm", [10, 12]), played(202, 40, "Sharks", "Titans", [30, 6])] }],
+describe("season complete", () => {
+  beforeEach(() => {
+    mockMatches.mockResolvedValue(complete);
+    mockRecord.mockResolvedValue(record);
+    mockLadder.mockResolvedValue({ season: 2026, rows: ladderRows, disclaimer: "" });
+    mockOrigin.mockResolvedValue({ ...origin, games: [{ round: 1, match_no: 1, kickoff_utc: null, venue: null, neutral: false, home: "NSW Blues", away: "QLD Maroons", score_home: 22, score_away: 20, status: "finished", prediction: null }] });
   });
-  render(await NrlHomePage());
 
-  expect(screen.getByRole("heading", { name: "2026 season complete" })).toBeInTheDocument();
-  expect(screen.queryByText(/premiers/)).not.toBeInTheDocument();
-  // No record payload -> no record line, never a fabricated number.
-  expect(screen.queryByRole("link", { name: /of winners/ })).not.toBeInTheDocument();
-});
-
-it("in season, ignores a ghost fixture still marked scheduled long after kickoff", async () => {
-  mockMatches.mockResolvedValue({
-    ...fixtures,
-    rounds: [
-      {
-        round: 19,
-        matches: [{
-          id: 9, match_no: 9, kickoff_utc: daysFromNow(-6), venue: "Suncorp",
-          home: "Dragons", away: "Rabbitohs", home_team_id: 9, away_team_id: 10,
-          score_home: null, score_away: null, status: "scheduled", prediction: pred(0.5, 0.45, 1),
-        }],
-      },
-      ...fixtures.rounds,
-    ],
+  it("heads the page with the premiers from the Grand Final and no promised date", async () => {
+    render(await NrlHomePage());
+    expect(screen.getByRole("heading", { level: 1, name: "Season complete" })).toBeInTheDocument();
+    expect(screen.getByText("NRL · 2026 season")).toBeInTheDocument();
+    expect(
+      screen.getByText("The Roosters are premiers. Tips reopen when the 2027 draw is released."),
+    ).toBeInTheDocument();
   });
-  render(await NrlHomePage());
 
-  // The feature is the real next fixture, from the round that is actually live.
-  expect(screen.getByText("Broncos")).toBeInTheDocument();
-  expect(screen.queryByText("Dragons")).not.toBeInTheDocument();
-  expect(screen.getByTestId("intel-panel")).toBeInTheDocument();
-});
-
-it("between rounds, keeps the season view with an honest empty hero -- not 'season complete'", async () => {
-  mockMatches.mockResolvedValue({
-    ...fixtures,
-    rounds: [{ round: 27, matches: [played(301, 3, "Eels", "Storm", [10, 12]), played(302, 3, "Sharks", "Titans", [30, 6])] }],
+  it("shows the Grand Final with the model's real call and no sample 'You' cell", async () => {
+    render(await NrlHomePage());
+    await act(async () => {});
+    const gf = screen.getByRole("region", { name: /Full time Grand Final/ });
+    expect(gf).toHaveTextContent("19");
+    expect(gf).toHaveTextContent("18");
+    expect(within(gf).getByText("Picked Roosters at 64%")).toBeInTheDocument();
+    expect(within(gf).getByText("Called it")).toBeInTheDocument();
+    // No tip from this device -> no "You" cell at all (never a sample).
+    expect(within(gf).queryByText("You")).not.toBeInTheDocument();
+    expect(within(gf).queryByText(/Sample/)).not.toBeInTheDocument();
   });
-  render(await NrlHomePage());
 
-  expect(screen.queryByRole("heading", { name: /season complete/ })).not.toBeInTheDocument();
-  expect(screen.getByText("No featured match right now")).toBeInTheDocument();
-  expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
+  it("shows the viewer's REAL Grand Final tip once /tips/mine returns it", async () => {
+    (getMyNrlTips as jest.Mock).mockImplementationOnce(() =>
+      Promise.resolve({
+        season: 2026, round: 31, handle: "SwiftHalfback1", disclaimer: "",
+        matches: [{ id: 9, home: "Roosters", away: "Knights", kickoff_utc: daysFromNow(-40), status: "finished",
+          score_home: 19, score_away: 18, is_featured: true, model: null,
+          your_tip: { pick: "home", margin: 2, points: 1, round_margin: 1, graded_at: null, updated_at: null } }],
+      }),
+    );
+    render(await NrlHomePage());
+    expect(await screen.findByText("Tipped Roosters")).toBeInTheDocument();
+    expect(screen.getByText("Right result")).toBeInTheDocument();
+  });
+
+  it("states how the model went, with the API's own interval", async () => {
+    render(await NrlHomePage());
+    expect(screen.getByRole("heading", { name: "How the model went in 2026" })).toBeInTheDocument();
+    expect(screen.getByText("64%")).toBeInTheDocument();
+    expect(screen.getByText("76")).toBeInTheDocument();
+    expect(screen.getByText("With 76 matches the true rate is likely between 53% and 74%.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "See the full record" })).toHaveAttribute("href", "/nrl/record");
+  });
+
+  it("links to the Origin series and shows the top eight of the final ladder", async () => {
+    render(await NrlHomePage());
+    expect(screen.getByRole("link", { name: /NSW Blues 2–1 QLD Maroons/ })).toHaveAttribute("href", "/nrl/origin");
+    const ladder = screen.getByRole("region", { name: "Final ladder" });
+    expect(within(ladder).getAllByRole("row")).toHaveLength(9); // header + 8
+    expect(within(ladder).getByRole("link", { name: "All 17 clubs" })).toHaveAttribute("href", "/nrl/ladder");
+    expect(within(ladder).getByText("The top eight played finals.")).toBeInTheDocument();
+  });
+
+  it("offers no reminder (there is no reminder endpoint)", async () => {
+    render(await NrlHomePage());
+    expect(screen.queryByRole("button", { name: /remind/i })).not.toBeInTheDocument();
+  });
 });
 
-// ---- Pre-season: next season's draw is loaded, Round 1 is months away (M3) --
+describe("in season", () => {
+  it("opens on the current round on the centred spine with round arrows", async () => {
+    mockMatches.mockResolvedValue({
+      ...fixtures,
+      rounds: [{ round: 19, matches: [fin(50, "Sharks", "Dragons", 30, 12, -5, pred(0.6, 0.38, 6))] }, ...fixtures.rounds],
+    });
+    render(await NrlHomePage());
+    expect(screen.getByRole("heading", { level: 1, name: "Round 20" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Round 19" })).toHaveAttribute("href", "/nrl/round/19");
+    expect(screen.getByRole("link", { name: /Broncos v Storm/ })).toHaveAttribute("href", "/nrl/match/2026/20/1");
+    expect(screen.getByText("Suncorp")).toBeInTheDocument();
+  });
 
-const upcoming = (id: number, daysAhead: number, home: string, away: string): NrlMatch => ({
-  id, match_no: id, kickoff_utc: daysFromNow(daysAhead), venue: "Accor Stadium",
-  home, away, home_team_id: id * 2, away_team_id: id * 2 + 1,
-  score_home: null, score_away: null, status: "scheduled", prediction: null,
+  it("never server-renders the model's numbers for open matches (the reveal rule)", async () => {
+    mockMatches.mockResolvedValue(fixtures);
+    const { container } = render(await NrlHomePage());
+    expect(container.textContent).not.toMatch(/70%|55%|Model/);
+  });
+
+  it("shows the tip action once the client knows there is no tip yet", async () => {
+    (getMyNrlTips as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error("offline")));
+    mockMatches.mockResolvedValue(fixtures);
+    render(await NrlHomePage());
+    await act(async () => {});
+    expect(await screen.findByRole("link", { name: "Tip Broncos v Storm" })).toHaveAttribute("href", "/nrl/tips");
+  });
+
+  it("between rounds: the last round's results with the model's verdicts, not 'season complete'", async () => {
+    mockMatches.mockResolvedValue({
+      ...fixtures,
+      rounds: [{ round: 20, matches: [
+        { ...fixtures.rounds[0].matches[0], kickoff_utc: daysFromNow(-2), status: "finished", score_home: 30, score_away: 10 },
+        { ...fixtures.rounds[0].matches[1], kickoff_utc: daysFromNow(-1), status: "finished", score_home: 10, score_away: 30 },
+      ] }],
+    });
+    render(await NrlHomePage());
+    expect(screen.queryByText("Season complete")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Round 20" })).toBeInTheDocument();
+    expect(screen.getByText("Called it")).toBeInTheDocument();
+    expect(screen.getByText("70%")).toBeInTheDocument();
+    expect(screen.getByText("Missed")).toBeInTheDocument();
+  });
+
+  it("ignores a ghost fixture still marked scheduled long after kickoff", async () => {
+    mockMatches.mockResolvedValue({
+      ...fixtures,
+      rounds: [
+        { round: 19, matches: [{ ...fixtures.rounds[0].matches[0], id: 9, kickoff_utc: daysFromNow(-6) }] },
+        ...fixtures.rounds,
+      ],
+    });
+    render(await NrlHomePage());
+    expect(screen.getByRole("heading", { level: 1, name: "Round 20" })).toBeInTheDocument();
+  });
 });
 
-it("shows a pre-season state, not a 'feature', once next season's draw is loaded", async () => {
-  const draw: NrlMatchesResponse = {
+it("pre-season: Round 1 of the new draw, with its start date", async () => {
+  const opener = daysFromNow(100);
+  mockMatches.mockResolvedValue({
     season: 2027,
-    disclaimer: "For analytics and entertainment only. Not betting advice.",
-    rounds: [
-      { round: 1, matches: [upcoming(1, 100, "Roosters", "Rabbitohs"), upcoming(2, 101, "Storm", "Panthers")] },
-      { round: 2, matches: [upcoming(3, 107, "Broncos", "Cowboys")] },
-    ],
-  };
-  mockMatches.mockResolvedValue(draw);
-  mockRecord.mockResolvedValue(record);
+    disclaimer: "",
+    rounds: [{ round: 1, matches: [{ ...fixtures.rounds[0].matches[0], kickoff_utc: opener }] }],
+  });
   render(await NrlHomePage());
-
-  const opener = nrlStartLabel(draw.rounds[0].matches[0].kickoff_utc!);
-  expect(screen.getByRole("heading", { name: `Season 2027 starts ${opener} · draw is out` })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Last season the model called 64% of winners/ })).toHaveAttribute(
-    "href",
-    "/nrl/record",
-  );
-  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
-  expect(screen.getByRole("link", { name: /See the 2027 draw/ })).toHaveAttribute("href", "/nrl/matches");
-  // No feature card for a March fixture, no movers, no all-zero ladder.
-  expect(screen.queryByText("Make your pick")).not.toBeInTheDocument();
-  expect(screen.queryByText(/Tonight's feature|Next up/i)).not.toBeInTheDocument();
-  expect(screen.queryByTestId("intel-panel")).not.toBeInTheDocument();
-  expect(screen.queryByText("Roosters")).not.toBeInTheDocument();
-});
-
-it("in season, labels the hero 'Next up', never 'Tonight's feature'", async () => {
-  mockMatches.mockResolvedValue(fixtures);
-  render(await NrlHomePage());
-
-  expect(screen.getByText("Next up")).toBeInTheDocument();
-  expect(screen.queryByText(/Tonight's feature/i)).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Season 2027" })).toBeInTheDocument();
+  expect(screen.getByText(new RegExp(`Round 1 starts ${nrlStartLabel(opener)}`))).toBeInTheDocument();
 });

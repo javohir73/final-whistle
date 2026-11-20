@@ -4,6 +4,10 @@ import { getNrlMatches } from "@/lib/api";
 import type { NrlMatchesResponse } from "@/lib/types";
 
 jest.mock("@/lib/api", () => ({ getNrlMatches: jest.fn() }));
+jest.mock("@/lib/nrlTips", () => ({
+  ...jest.requireActual("@/lib/nrlTips"),
+  getMyNrlTips: jest.fn(() => new Promise(() => {})),
+}));
 
 const mins = (n: number) => new Date(Date.now() + n * 60_000).toISOString();
 
@@ -51,15 +55,15 @@ it("defaults to Upcoming with the live strip pinned on top", () => {
 
 it("Finished tab shows results, latest round first, and hides live", () => {
   render(<MatchesClient initial={fixtures} />);
-  fireEvent.click(screen.getByRole("tab", { name: "Finished" }));
+  fireEvent.click(screen.getByRole("button", { name: "Finished" }));
   expect(screen.getByText(/Dolphins/)).toBeInTheDocument();
   expect(screen.queryByText(/Panthers/)).not.toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Finished" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("button", { name: "Finished" })).toHaveAttribute("aria-pressed", "true");
 });
 
 it("Live tab shows only in-window matches", () => {
   render(<MatchesClient initial={fixtures} />);
-  fireEvent.click(screen.getByRole("tab", { name: "Live" }));
+  fireEvent.click(screen.getByRole("button", { name: "Live" }));
   expect(screen.getByText(/Panthers/)).toBeInTheDocument();
   expect(screen.queryByText(/Raiders/)).not.toBeInTheDocument();
 });
@@ -68,6 +72,12 @@ it("shows the per-tab empty state", () => {
   render(<MatchesClient initial={{ ...fixtures, rounds: [] }} />);
   expect(screen.getByText("No upcoming fixtures yet.")).toBeInTheDocument();
   expect(getNrlMatches).toHaveBeenCalledTimes(1); // stale SSR data refreshes even with no live game
+});
+
+it("opens on the results when nothing is upcoming or live (off-season)", () => {
+  render(<MatchesClient initial={{ ...fixtures, rounds: [fixtures.rounds[0]] }} />);
+  expect(screen.getByRole("button", { name: "Finished" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText(/Dolphins/)).toBeInTheDocument();
 });
 
 it("self-promotes a match into the live strip at kickoff, from the clock tick alone", () => {

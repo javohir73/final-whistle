@@ -1,21 +1,32 @@
 "use client";
 
-import Link from "next/link";
-import { ClubBadge } from "@/components/ClubBadge";
-import { ProbabilityBar } from "@/components/ProbabilityBar";
-import { expectedMarginLabel, pct } from "@/lib/format";
+import { Card, CheckIcon, Chip } from "@/components/ui";
+import { HeroTeam } from "@/components/nrl/GrandFinalCard";
 import { isNrlLiveNow } from "@/lib/nrlLive";
+import { expectedMarginLabel } from "@/lib/format";
+import { nrlDayLabel, nrlTimeLabel, wholePct } from "@/lib/nrlDisplay";
+import { cn } from "@/lib/utils";
 import type { NrlMatch } from "@/lib/types";
 import { useLiveMatch } from "./LiveMatchProvider";
 
+/** The NRL match header (the football match page's hero pattern): status
+ *  chip + round/venue/date line, both clubs with their crests, and the score
+ *  (live from the shared feed, or final) or the kick-off in the centre.
+ *
+ *  The model's call shows here only when the page passes a prediction, and
+ *  the page only does that once the match is past the point of tipping (the
+ *  reveal rule, decided server-side) -- an open match reaches this component
+ *  with `prediction: null`. */
 export function NrlMatchHero({
   match,
   home,
   away,
+  roundLabel,
 }: {
   match: NrlMatch;
   home: string;
   away: string;
+  roundLabel?: string;
 }) {
   const state = useLiveMatch();
   const liveState = state.status === "success" ? state.data : null;
@@ -25,125 +36,85 @@ export function NrlMatchHero({
   // like every other NRL surface -- a poller that died mid-match leaves /live
   // answering "live" with a frozen minute indefinitely.
   const isLive = !isFinal && liveState?.status === "live" && isNrlLiveNow(match);
-  const scoreHome =
-    isLive || liveState?.status === "final" ? liveState.score_home : match.score_home;
-  const scoreAway =
-    isLive || liveState?.status === "final" ? liveState.score_away : match.score_away;
+  const scoreHome = isLive || liveState?.status === "final" ? liveState.score_home : match.score_home;
+  const scoreAway = isLive || liveState?.status === "final" ? liveState.score_away : match.score_away;
   const score = `${scoreHome ?? "–"}–${scoreAway ?? "–"}`;
   const p = match.prediction;
-  const favoured = p ? (p.p_home >= p.p_away ? home : away) : null;
+  const favoured = p && p.p_home !== p.p_away ? (p.p_home > p.p_away ? home : away) : null;
   const favouredProb = p ? Math.max(p.p_home, p.p_away) : null;
   // Post-match verdict: did the model's favoured side win? (A drawn game with
   // no draw lean counts as a miss, same as the football cards.)
   const called =
     isFinal && p && scoreHome != null && scoreAway != null
-      ? (p.p_home > p.p_away && scoreHome > scoreAway) ||
-        (p.p_away > p.p_home && scoreAway > scoreHome)
+      ? (p.p_home > p.p_away && scoreHome > scoreAway) || (p.p_away > p.p_home && scoreAway > scoreHome)
       : null;
+  const meta = [roundLabel, match.venue, match.kickoff_utc ? nrlDayLabel(match.kickoff_utc) : null]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <section className="glass rounded-2xl p-6">
+    <Card flush aria-labelledby="nrl-match-heading">
       {/* One always-mounted live region carrying the SCORE, not just the badge.
-          Screen readers announce content CHANGES inside an existing region —
-          a region that mounts at kickoff, or one whose aria-label changes, is
-          unreliably announced (and the old version announced only the minute,
-          never the score). Empty while not live, so it says nothing early. */}
+          Screen readers announce content CHANGES inside an existing region --
+          a region that mounts at kickoff is unreliably announced. Empty while
+          not live, so it says nothing early. */}
       <p className="sr-only" role="status">
         {isLive
-          ? `Live match: ${home} ${score} ${away}` +
-            (liveState.minute != null ? `, ${liveState.minute}′` : "")
+          ? `Live match: ${home} ${score} ${away}` + (liveState.minute != null ? `, ${liveState.minute}′` : "")
           : ""}
       </p>
-      {isLive && (
-        <p className="mb-4 text-center" aria-hidden="true">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-loss/10 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-loss">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-            LIVE{liveState.minute != null ? ` · ${liveState.minute}′` : ""}
-          </span>
-        </p>
-      )}
-      {isFinal && (
-        <p className="mb-4 text-center">
-          <span className="rounded-full bg-surface-2/70 px-2 py-0.5 text-label font-bold uppercase tracking-wide text-muted">
-            Full time
-          </span>
-        </p>
-      )}
-      <div className="flex items-center justify-center gap-6">
-        <TeamCol name={home} teamId={match.home_team_id ?? null} />
-        <span className="font-display text-2xl font-extrabold tabular-nums text-muted">
-          {isLive || isFinal ? score : "vs"}
-        </span>
-        <TeamCol name={away} teamId={match.away_team_id ?? null} />
+      <div className="flex flex-col items-center px-4 pb-7 pt-7 text-center min-[900px]:px-10 min-[900px]:pb-9 min-[900px]:pt-10">
+        <div className="flex flex-wrap items-center justify-center gap-2.5 text-notes font-medium text-muted">
+          {isLive ? (
+            <span aria-hidden="true">
+              <Chip className="bg-ink text-white">LIVE{liveState.minute != null ? ` · ${liveState.minute}′` : ""}</Chip>
+            </span>
+          ) : isFinal ? (
+            <Chip className="text-ink">Full time</Chip>
+          ) : null}
+          <span>{meta}</span>
+        </div>
+        <h1 id="nrl-match-heading" className="sr-only">
+          {home} v {away}
+        </h1>
+        <div className="mt-6 grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 min-[900px]:gap-x-8">
+          <HeroTeam name={home} teamId={match.home_team_id ?? null} side="home" size={60} />
+          {isLive || isFinal ? (
+            <div className="whitespace-nowrap text-[40px] font-semibold leading-none tracking-[-0.03em] text-ink min-[900px]:text-[60px]">
+              {score}
+            </div>
+          ) : (
+            <div className="whitespace-nowrap text-[20px] font-semibold leading-[1.1] tracking-[-0.02em] text-ink min-[900px]:text-[28px]">
+              {nrlTimeLabel(match.kickoff_utc)}
+            </div>
+          )}
+          <HeroTeam name={away} teamId={match.away_team_id ?? null} side="away" size={60} />
+        </div>
       </div>
 
-      {p && (
-        <>
-          {!isLive && !isFinal && favoured && (
-            <p className="mt-5 text-center text-sm font-semibold text-lime-deep">
-              {favoured} to win · {pct(favouredProb)}
-            </p>
-          )}
-          {isLive && favoured && (
-            <p className="mt-5 text-center text-sm font-semibold text-lime-deep">
-              Pre-match model pick · {favoured} {pct(favouredProb)}
-            </p>
-          )}
-          {called != null && (
-            <p
-              className={`mt-5 text-center text-xs font-semibold ${
-                called ? "text-lime-deep" : "text-loss"
-              }`}
-            >
-              <span aria-hidden>{called ? "✓" : "✕"}</span>{" "}
-              {called ? "Called it" : "Upset — we missed it"}
-            </p>
-          )}
-
-          {/* Shared W/D/L bar — the role="img" aria-label prints the three
-              percentages (a11y floor). Two-way NRL contests keep the 3-way
-              bar; the draw segment naturally renders small. */}
-          <div className="mt-4">
-            <ProbabilityBar
-              probabilities={{ home_win: p.p_home, draw: p.p_draw, away_win: p.p_away }}
-              homeLabel={home}
-              awayLabel={away}
-              showLabels
-            />
+      {p && favoured && favouredProb != null ? (
+        <div className="border-t border-line px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
+          <div className="text-notes text-muted">{isFinal ? "The model" : "The model’s pre-match pick"}</div>
+          <div className="text-h2 font-semibold text-ink">
+            Picked {favoured} at {wholePct(favouredProb)}
           </div>
-
-          {p.expected_margin != null && !isLive && !isFinal && (
-            <p className="mt-4 text-center">
-              <span className="rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-bold tabular-nums text-foreground">
-                <span className="mr-1.5 font-semibold text-muted">Model margin</span>
-                {expectedMarginLabel(p.expected_margin, home, away)}
-              </span>
-            </p>
-          )}
-        </>
-      )}
-    </section>
+          {called != null ? (
+            <div
+              className={cn(
+                "mt-2 inline-flex items-center gap-1.5 text-notes font-semibold",
+                called ? "text-brand" : "text-miss",
+              )}
+            >
+              {called ? <CheckIcon /> : null}
+              {called ? "Called it" : "Missed — an upset"}
+            </div>
+          ) : p.expected_margin != null && !isLive ? (
+            <div className="mt-2 text-notes text-muted">
+              Expected margin: {expectedMarginLabel(p.expected_margin, home, away)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </Card>
   );
 }
-
-/** Badge + name column; links to the club profile when the id is known
- *  (an old cached payload may predate team ids — degrade to plain text). */
-function TeamCol({ name, teamId }: { name: string; teamId: number | null }) {
-  const inner = (
-    <>
-      <ClubBadge name={name} size={48} />
-      <span className="font-display text-sm font-bold">{name}</span>
-    </>
-  );
-  return teamId != null ? (
-    <Link
-      href={`/nrl/team/${teamId}`}
-      className="flex flex-col items-center gap-2 text-center underline-offset-2 hover:underline"
-    >
-      {inner}
-    </Link>
-  ) : (
-    <div className="flex flex-col items-center gap-2 text-center">{inner}</div>
-  );
-}
-

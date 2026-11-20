@@ -59,7 +59,7 @@ function renderHero(match: NrlMatch = scheduledMatch) {
 
 afterEach(() => jest.resetAllMocks());
 
-it("keeps VS and the normal prediction copy before kickoff", async () => {
+it("shows the kick-off time and the model's pre-match pick (when the page passes one)", async () => {
   mockLive.mockResolvedValue({
     ...livePayload(),
     status: "pre",
@@ -69,8 +69,15 @@ it("keeps VS and the normal prediction copy before kickoff", async () => {
   });
   renderHero();
   await act(async () => {});
-  expect(screen.getByText("vs")).toBeInTheDocument();
-  expect(screen.getByText(/Warriors to win · 67%/)).toBeInTheDocument();
+  expect(screen.queryByText(/LIVE/)).not.toBeInTheDocument();
+  expect(screen.getByText("Picked Warriors at 67%")).toBeInTheDocument();
+  expect(screen.getByText(/Expected margin: Warriors by 5.5/)).toBeInTheDocument();
+});
+
+it("shows no model call at all when the page withholds the prediction (open match)", () => {
+  mockLive.mockReturnValue(new Promise(() => {}));
+  renderHero({ ...scheduledMatch, prediction: null });
+  expect(screen.queryByText(/Picked|%/)).not.toBeInTheDocument();
 });
 
 it("shows the updating result and labels the prediction as pre-match while live", async () => {
@@ -83,8 +90,9 @@ it("shows the updating result and labels the prediction as pre-match while live"
   );
   expect(screen.getByText("LIVE · 42′")).toBeInTheDocument();
   expect(screen.getByText("12–6")).toBeInTheDocument();
-  expect(screen.getByText(/Pre-match model pick · Warriors 67%/)).toBeInTheDocument();
-  expect(screen.queryByText(/Model margin/)).not.toBeInTheDocument();
+  expect(screen.getByText("The model’s pre-match pick")).toBeInTheDocument();
+  expect(screen.getByText("Picked Warriors at 67%")).toBeInTheDocument();
+  expect(screen.queryByText(/Expected margin/)).not.toBeInTheDocument();
 });
 
 it("formats a partial live score without adding punctuation for a missing minute", async () => {
@@ -133,5 +141,5 @@ it("does not pin LIVE on a match far past its window", async () => {
   await act(async () => {});
   expect(screen.queryByText(/LIVE/)).not.toBeInTheDocument();
   expect(screen.getByRole("status")).toBeEmptyDOMElement();
-  expect(screen.getByText("vs")).toBeInTheDocument();
+  expect(screen.queryByText("18–12")).not.toBeInTheDocument();
 });

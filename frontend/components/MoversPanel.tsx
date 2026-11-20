@@ -66,12 +66,10 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
   }
 
   return (
-    <section className="panel-pitch mt-6 rounded-2xl p-5">
-      <p className="font-display text-label font-semibold uppercase tracking-[0.2em] text-white/60">
-        Today&apos;s movers
-      </p>
+    <section className="mt-6 rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
+      <h2 className="text-h2 font-semibold text-ink">Today&apos;s movers</h2>
       {movers === null ? (
-        <div className="skeleton mt-4 h-32 rounded-xl" aria-hidden="true" />
+        <div className="skeleton mt-4 h-32 rounded-[10px]" aria-hidden="true" />
       ) : (
         <ul className="mt-2">
           {movers.map((m) => {
@@ -79,10 +77,10 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
             const rowInner = (
               <>
                 <span className="flex-1">
-                  <span className="font-display text-lead font-semibold text-white">
+                  <span className="font-semibold text-ink">
                     {m.name}
                   </span>
-                  <span className="block text-label font-medium text-pitch-subtle-ink">
+                  <span className="block text-label font-medium text-muted">
                     {marketLabel(m.market)}
                   </span>
                 </span>
@@ -91,14 +89,13 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
                   prob={m.prob}
                   deltaText={formatDelta(m.delta)}
                   tone={m.delta === null ? "muted" : up ? "up" : "down"}
-                  surface="pitch"
                 />
               </>
             );
             return (
               <li
                 key={`${m.entity_id}-${m.market}`}
-                className="flex items-center gap-3 border-t border-white/10 py-2.5 first:border-t-0"
+                className="flex items-center gap-3 border-t border-line-soft py-3 first:border-t-0"
               >
                 {m.match_url ? (
                   <Link href={m.match_url} className="flex flex-1 items-center gap-3">
@@ -114,9 +111,9 @@ export function MoversPanel({ sport }: { sport: "football" | "nrl" }) {
       )}
       <Link
         href={sport === "nrl" ? "/nrl/matches" : "/matches"}
-        className="mt-2 inline-block text-sm font-semibold text-win"
+        className="mt-3 inline-block text-notes font-semibold text-brand underline-offset-[3px] hover:underline"
       >
-        All fixtures →
+        All fixtures
       </Link>
     </section>
   );

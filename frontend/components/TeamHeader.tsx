@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { PageHead, Tag } from "@/components/ui";
 import type { Team } from "@/lib/types";
 import type { CompetitionId } from "@/lib/sports";
 import { ClubBadge } from "@/components/ClubBadge";
@@ -6,7 +6,11 @@ import { TeamBadge } from "@/components/TeamBadge";
 import { FavoriteStar } from "@/components/FavoriteStar";
 
 /**
- * TeamHeader (Floodlight P2 slice p2-s6): the full-bleed crest banner atop a
+ * TeamHeader -- direction G: a PageHead (back link, 64px crest, meta as the
+ * eyebrow, the name as h1, the favourite star beside it) plus a quiet row of
+ * the team's rating figures. Historical notes below describe the slots.
+ *
+ * Originally (Floodlight P2 slice p2-s6): the full-bleed crest banner atop a
  * team page (design/Floodlight Prototype.dc.html, Recon 3 Team Detail). A
  * `.floodlight-glow-left` wash sits behind a `border-b` header that breaks out
  * of the page's max-w-3xl column, edge-to-edge -- the symmetric `-mx`/`px`
@@ -90,56 +94,28 @@ export function TeamHeader({
   const statTiles = tiles === undefined ? footballTiles : tiles;
 
   return (
-    <header className="floodlight-glow-left -mx-4 border-b border-border px-4 pb-4 pt-1 sm:-mx-5 sm:px-5">
-      <Link
-        href={backHref}
-        className="inline-flex min-h-[44px] items-center text-sm font-semibold text-foreground/80 transition hover:text-lime-deep"
-      >
-        <span aria-hidden>{"‹ "}</span>
-        {backLabel}
-      </Link>
-
-      {/* Crest + Bricolage name + favorite star */}
-      <div className="mt-1 flex items-center gap-3.5">
-        {badge === "club" ? (
-          <ClubBadge name={team.name} size={56} />
-        ) : (
-          <TeamBadge team={team.name} size={56} />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <h1 className="truncate font-display text-2xl font-extrabold tracking-[-0.02em]">
-              {team.name}
-            </h1>
-            {showFavorite && <FavoriteStar team={team.name} size={20} />}
-          </div>
-          {metaLine && <p className="mt-0.5 text-sm text-muted">{metaLine}</p>}
-        </div>
-      </div>
-
-      {/* Host badge -- gold pill, amber-ink at 12px bold to clear the a11y floor */}
-      {team.is_host && (
-        <span className="mt-2.5 inline-block rounded-full bg-gold/15 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-gold-wash-ink ring-1 ring-gold/30">
-          Tournament host
-        </span>
-      )}
-
-      {/* Stat tiles -- 8.5px labels are labels, not body copy (a11y-exempt) */}
+    <header>
+      <PageHead
+        back={{ href: backHref, label: backLabel }}
+        leading={
+          badge === "club" ? (
+            <ClubBadge name={team.name} size={64} decorative />
+          ) : (
+            <TeamBadge team={team.name} size={64} decorative />
+          )
+        }
+        eyebrow={metaLine || undefined}
+        title={team.name}
+        titleAside={showFavorite ? <FavoriteStar team={team.name} size={22} /> : undefined}
+        sub={team.is_host ? <Tag>Tournament host</Tag> : undefined}
+        className="pb-0 min-[900px]:pb-0"
+      />
       {statTiles.length > 0 && (
-        <div className="mt-3.5 flex gap-2">
+        <div className="mt-6 flex flex-wrap gap-x-10 gap-y-4">
           {statTiles.map((t) => (
-            <div
-              key={t.label}
-              title={t.gloss}
-              className="flex-1 rounded-[12px] border border-border bg-surface/80 px-2.5 py-2.5"
-            >
-              <p className="font-display text-sub font-extrabold tabular-nums text-foreground">
-                {t.value}
-              </p>
-              <p
-                className="mt-0.5 text-micro font-semibold uppercase tracking-[0.06em] text-muted"
-                aria-label={t.gloss}
-              >
+            <div key={t.label} title={t.gloss}>
+              <p className="text-2xl font-semibold tabular-nums text-ink">{t.value}</p>
+              <p className="mt-0.5 text-notes text-muted" aria-label={t.gloss}>
                 {t.label}
               </p>
             </div>

@@ -20,8 +20,8 @@ function fmt(value: number, pct?: boolean): string {
 
 export function ScoringBreakdown({ stats }: { stats: NrlMatchStatsResponse }) {
   return (
-    <div className="glass rounded-2xl p-6">
-      <h3 className="font-display text-sm font-semibold uppercase tracking-wider text-muted">
+    <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
+      <h3 className="text-sm font-semibold text-muted">
         Scoring breakdown
       </h3>
       <ul className="mt-4 space-y-2">
@@ -32,17 +32,17 @@ export function ScoringBreakdown({ stats }: { stats: NrlMatchStatsResponse }) {
           const homeShare = total > 0 ? (home / total) * 100 : 50;
           return (
             <li key={key} className="grid grid-cols-[64px_1fr_64px] items-center gap-3">
-              <span className="text-right text-sm font-extrabold tabular-nums text-foreground">
+              <span className="text-right text-sm font-semibold tabular-nums text-ink">
                 {fmt(home, pct)}
               </span>
               <div>
                 <div className="text-center text-xs text-muted">{label}</div>
-                <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-surface-2">
-                  <div className="bg-win/60" style={{ width: `${homeShare}%` }} />
-                  <div className="bg-loss/60" style={{ width: `${100 - homeShare}%` }} />
+                <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-soft">
+                  <div className="bg-brand/60" style={{ width: `${homeShare}%` }} />
+                  <div className="bg-miss/60" style={{ width: `${100 - homeShare}%` }} />
                 </div>
               </div>
-              <span className="text-left text-sm font-extrabold tabular-nums text-foreground">
+              <span className="text-left text-sm font-semibold tabular-nums text-ink">
                 {fmt(away, pct)}
               </span>
             </li>

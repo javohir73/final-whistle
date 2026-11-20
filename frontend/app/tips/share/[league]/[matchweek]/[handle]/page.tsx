@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueTipsShareServer } from "@/lib/api";
 import { leagueLabel } from "@/lib/leagueConfig";
 import { APP_NAME } from "@/lib/constants";
+import { isCompetitionId } from "@/lib/sports";
+import { CompetitionLogo } from "@/components/CompetitionLogo";
+import { Button, Card, Note } from "@/components/ui";
 
 // Matches getLeagueTipsShareServer's fetch revalidate (lib/api.ts) -- kept
 // short so a pre-grading 404 (see that comment) can't pin the route render
@@ -75,30 +77,56 @@ export default async function LeagueTipsShareCardPage({
         ? "The model is ahead so far this matchweek"
         : `${share.handle_display} is tied with the model so far this matchweek`;
 
+  const top = Math.max(share.player_points, share.model_points, 1);
+  const competition = isCompetitionId(share.league) ? share.league : null;
+
   return (
-    <div className="fade-up mx-auto max-w-md space-y-6 text-center">
-      <div className="glass rounded-2xl p-8">
-        <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-          {leagueLabel(share.league)} Matchweek {share.matchweek}
-        </p>
-        <p className="mt-3 font-display text-2xl font-extrabold leading-snug tracking-tight">
+    <div className="mx-auto flex max-w-[560px] flex-col gap-6">
+      <Card pad className="flex flex-col gap-5">
+        <div className="flex items-center gap-3">
+          {competition ? <CompetitionLogo competition={competition} size={32} decorative /> : null}
+          <p className="text-notes font-medium text-muted">
+            {leagueLabel(share.league)} Matchweek {share.matchweek}
+          </p>
+        </div>
+        <h1 className="text-2xl font-semibold leading-snug text-ink">
           {share.handle_display} went {share.player_points}/{share.player_of} — the model went{" "}
           {share.model_points}/{share.model_of}
-        </p>
-        <p className="mt-2 text-sm font-semibold text-lime-deep">{verdict}</p>
-        {!share.matchweek_complete && (
-          <p className="mt-1 text-label text-muted">Matchweek still in progress — more matches to come.</p>
-        )}
-      </div>
+        </h1>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="break-words text-notes text-muted">{share.handle_display}</div>
+            <div className="text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-brand tabular-nums">
+              {share.player_points}
+            </div>
+          </div>
+          <div>
+            <div className="text-notes text-muted">The model</div>
+            <div className="text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-ink tabular-nums">
+              {share.model_points}
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-1.5" aria-hidden="true">
+          <span className="block h-1.5 rounded-[3px] bg-brand" style={{ width: `${(share.player_points / top) * 100}%` }} />
+          <span className="block h-1.5 rounded-[3px] bg-ink" style={{ width: `${(share.model_points / top) * 100}%` }} />
+        </div>
+        <div>
+          <p className="font-semibold text-ink">{verdict}</p>
+          {!share.matchweek_complete && (
+            <Note className="mt-1">Matchweek still in progress — more matches to come.</Note>
+          )}
+          <Note className="mt-1">Points from finished matches only. Exact score 5, right result 2.</Note>
+        </div>
+      </Card>
 
-      <Link
-        href={`/play?competition=${encodeURIComponent(share.league)}`}
-        className="inline-block rounded-lg bg-win px-6 py-3 text-sm font-bold text-pitch transition hover:brightness-110"
-      >
-        Beat the model at the {leagueLabel(share.league)} →
-      </Link>
+      <p>
+        <Button href={`/play?competition=${encodeURIComponent(share.league)}`}>
+          Beat the model at the {leagueLabel(share.league)} →
+        </Button>
+      </p>
 
-      <p className="text-xs leading-relaxed text-muted">{share.disclaimer}</p>
+      <Note>{share.disclaimer}</Note>
     </div>
   );
 }

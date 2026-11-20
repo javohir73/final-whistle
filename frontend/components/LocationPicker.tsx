@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTimezone, detectTimezone } from "@/lib/useTimezone";
 import { tzCityLabel } from "@/lib/datetime";
+import { Button } from "@/components/ui";
 
 /** Curated list of IANA timezones grouped by region, for the change dropdown. */
 const TIMEZONES: { group: string; zones: [string, string][] }[] = [
@@ -72,7 +73,7 @@ function Select({
       aria-label="Choose your timezone"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="min-w-0 flex-1 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm font-medium text-foreground outline-none transition focus:border-win sm:flex-none"
+      className="min-h-[44px] min-w-0 flex-1 rounded-input border border-line-strong bg-ground px-3 text-notes font-medium text-ink focus-visible:border-brand sm:flex-none"
     >
       {extras.length > 0 && (
         <optgroup label="Detected">
@@ -109,38 +110,27 @@ export function LocationPicker() {
 
   if (!confirmed) {
     return (
-      <div className="glass flex flex-col gap-3 rounded-xl px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2.5 text-sm">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-win/15 text-lime-deep">
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11Z" strokeLinejoin="round" />
-              <circle cx="12" cy="10" r="2.5" />
-            </svg>
-          </span>
+      <div className="flex flex-col gap-3 rounded-card border border-line bg-ground px-4 py-4 sm:flex-row sm:items-center sm:justify-between min-[900px]:px-7">
+        <div className="flex items-center gap-3 text-notes">
+          <PinIcon className="h-5 w-5 shrink-0 text-muted" />
           <span className="text-muted">
-            Kickoff times in your local time —{" "}
-            <span className="font-semibold text-foreground">{tzCityLabel(tz)}</span>. Not right?
+            Kick-off times in your local time,{" "}
+            <span className="font-semibold text-ink">{tzCityLabel(tz)}</span>. Not right?
           </span>
         </div>
-        <div className="flex w-full items-center gap-2 sm:w-auto">
+        <div className="flex w-full items-center gap-3 sm:w-auto">
           <Select value={tz} onChange={setTimezone} />
-          <button
-            onClick={confirm}
-            className="shrink-0 rounded-lg bg-win px-3.5 py-1.5 text-sm font-display font-bold text-pitch transition hover:brightness-110"
-          >
+          <Button size="sm" onClick={confirm} className="shrink-0">
             Use this
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 text-sm text-muted">
-      <svg viewBox="0 0 24 24" className="h-4 w-4 text-lime-deep" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11Z" strokeLinejoin="round" />
-        <circle cx="12" cy="10" r="2.5" />
-      </svg>
+    <div className="flex flex-wrap items-center gap-2 text-notes text-muted">
+      <PinIcon className="h-4 w-4 text-muted" />
       {editing ? (
         <Select
           value={tz}
@@ -152,17 +142,26 @@ export function LocationPicker() {
       ) : (
         <>
           <span>
-            Times in{" "}
-            <span className="font-semibold text-foreground">{tzCityLabel(tz)}</span>
+            Times in <span className="font-semibold text-ink">{tzCityLabel(tz)}</span>
           </span>
           <button
+            type="button"
             onClick={() => setEditing(true)}
-            className="rounded-md px-2 py-0.5 text-xs font-medium text-lime-deep underline-offset-2 transition hover:bg-win/10 hover:underline"
+            className="min-h-[44px] px-2 font-semibold text-brand underline-offset-[3px] hover:underline"
           >
             Change
           </button>
         </>
       )}
     </div>
+  );
+}
+
+function PinIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11Z" strokeLinejoin="round" />
+      <circle cx="12" cy="10" r="2.5" />
+    </svg>
   );
 }

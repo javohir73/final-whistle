@@ -8,6 +8,9 @@
  */
 import { getMarketBenchmarkServer } from "@/lib/api";
 import type { MarketBenchmarkGroup } from "@/lib/types";
+import { Card, CardHead, Note, PageHead, Table, TableScroll, Td, Th } from "@/components/ui";
+
+const DETAILS = "rounded-card border border-line bg-ground px-5 py-4 [&>summary]:min-h-[44px] [&>summary]:cursor-pointer [&>summary]:py-2.5 [&>summary]:font-semibold [&_ul]:mt-2 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ul]:text-notes [&_h3]:mt-3 [&_h3]:font-semibold";
 
 export const metadata = {
   title: "Market benchmark (experimental) — FinalWhistle research",
@@ -17,58 +20,60 @@ export const metadata = {
 function Group({ group }: { group: MarketBenchmarkGroup }) {
   if (group.status !== "READY") {
     return (
-      <section data-testid={`group-${group.venue}`} style={{ margin: "1.5rem 0" }}>
-        <h2>{group.venue}</h2>
-        <p>
-          <strong>Not enough data:</strong> {group.n_matches} matches (minimum{" "}
+      <Card pad as="section" data-testid={`group-${group.venue}`}>
+        <CardHead title={group.venue} />
+        <Note className="mt-2">
+          <strong className="font-semibold text-ink">Not enough data:</strong> {group.n_matches} matches (minimum{" "}
           {group.min_matches}). No verdict and no ranking on a sample this
           small.
-        </p>
-      </section>
+        </Note>
+      </Card>
     );
   }
   const ci = group.delta_ci95_match_clustered;
   return (
-    <section data-testid={`group-${group.venue}`} style={{ margin: "1.5rem 0" }}>
-      <h2>{group.venue}</h2>
-      <p>
+    <Card pad as="section" data-testid={`group-${group.venue}`}>
+      <CardHead title={group.venue} />
+      <Note className="mt-1.5">
         {group.n_matches} holdout matches
         {group.capture_window
           ? ` · kickoffs ${group.capture_window.first_kickoff.slice(0, 10)} → ${group.capture_window.last_kickoff.slice(0, 10)}`
           : null}
-      </p>
-      <table>
-        <thead>
-          <tr>
-            <th>series</th>
-            <th>log loss</th>
-            <th>Brier</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>model</td>
-            <td>{group.model?.log_loss}</td>
-            <td>{group.model?.brier}</td>
-          </tr>
-          <tr>
-            <td>venue (vig-normalized)</td>
-            <td>{group.venue_normalized?.log_loss}</td>
-            <td>{group.venue_normalized?.brier}</td>
-          </tr>
-          <tr>
-            <td>baseline (uniform)</td>
-            <td>{group.baseline_uniform?.log_loss}</td>
-            <td>{group.baseline_uniform?.brier}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p>
+      </Note>
+      <TableScroll className="mt-3">
+        <Table>
+          <thead>
+            <tr>
+              <Th align="left">Series</Th>
+              <Th>Log loss</Th>
+              <Th>Brier</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <Td align="left">Model</Td>
+              <Td>{group.model?.log_loss}</Td>
+              <Td>{group.model?.brier}</Td>
+            </tr>
+            <tr>
+              <Td align="left">Venue (vig-normalized)</Td>
+              <Td>{group.venue_normalized?.log_loss}</Td>
+              <Td>{group.venue_normalized?.brier}</Td>
+            </tr>
+            <tr>
+              <Td align="left">Baseline (uniform)</Td>
+              <Td>{group.baseline_uniform?.log_loss}</Td>
+              <Td>{group.baseline_uniform?.brier}</Td>
+            </tr>
+          </tbody>
+        </Table>
+      </TableScroll>
+      <Note className="mt-3">
         Δ log loss (model − venue): {group.delta_log_loss_model_minus_venue}
         {ci ? ` · 95% CI [${ci[0]}, ${ci[1]}] (match-clustered)` : " · CI unavailable"}
         {" · "}verdict: {group.verdict}
-      </p>
-    </section>
+      </Note>
+    </Card>
   );
 }
 
@@ -81,18 +86,17 @@ export default async function MarketBenchmarkPage() {
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: "2rem 1rem" }}>
-      <p
-        style={{
-          border: "1px solid currentColor",
-          padding: "0.5rem 0.75rem",
-          fontWeight: 600,
-        }}
-      >
+    <div>
+      <PageHead
+        eyebrow="FinalWhistle research"
+        title="Venue market benchmark"
+        sub="How the model's probabilities compare with prediction-market prices on the same matches."
+      />
+      <div className="flex max-w-[900px] flex-col gap-6">
+      <p className="rounded-card border border-line bg-soft px-5 py-4 font-semibold text-ink">
         EXPERIMENTAL / SHADOW — research data only. Nothing on this page feeds
         predictions, and readiness here is never a deployment switch.
       </p>
-      <h1>Venue market benchmark</h1>
 
       {/* `no_data` is the ONLY state that may claim emptiness, so it is
           matched first and by name. Everything else that is not a complete
@@ -101,13 +105,13 @@ export default async function MarketBenchmarkPage() {
           way means a status we have never seen fails toward "something is
           wrong" rather than toward "there is nothing here". */}
       {data && data.status === "no_data" ? (
-        <p data-testid="no-data">
+        <p data-testid="no-data" className="max-w-prose text-muted">
           No benchmark data yet. An operator generates this artifact with{" "}
           <code>pipeline.run_market_benchmark_report</code>; until then there is
           nothing to show — and nothing is claimed.
         </p>
       ) : !data || data.status !== "ok" || !data.artifact ? (
-        <p data-testid="unavailable">
+        <p data-testid="unavailable" className="max-w-prose text-muted">
           This benchmark cannot be read right now. That is a fault on our side
           — <strong>not</strong> a statement that no data exists. Whatever was
           published last is still published; this page just could not reach or
@@ -115,13 +119,13 @@ export default async function MarketBenchmarkPage() {
         </p>
       ) : (
         <>
-          <p>
+          <Note>
             Generated {data.artifact.generated_at} · eligible observations:{" "}
             {data.artifact.coverage.eligible_observations ?? 0} · holdout
             matches: {data.artifact.benchmark.split?.holdout_matches ?? 0}
-          </p>
+          </Note>
           {Object.keys(data.artifact.exclusions).length > 0 ? (
-            <details>
+            <details className={DETAILS}>
               <summary>
                 Exclusions (
                 {Object.values(data.artifact.exclusions).reduce((a, b) => a + b, 0)}
@@ -137,7 +141,7 @@ export default async function MarketBenchmarkPage() {
             </details>
           ) : null}
           {data.artifact.benchmark.groups.length === 0 ? (
-            <p data-testid="no-groups">
+            <p data-testid="no-groups" className="max-w-prose text-muted">
               No eligible (venue, match) groups yet — capture and resolution
               have not produced scoreable data.
             </p>
@@ -147,7 +151,7 @@ export default async function MarketBenchmarkPage() {
             ))
           )}
           {data.artifact.health?.venues ? (
-            <details>
+            <details className={DETAILS}>
               <summary>Mapping & quote coverage</summary>
               {Object.entries(data.artifact.health.venues).map(([venue, health]) => (
                 <div key={venue} data-testid={`health-${venue}`}>
@@ -184,7 +188,7 @@ export default async function MarketBenchmarkPage() {
             </details>
           ) : null}
           {data.artifact.health?.heartbeat_freshness_by_venue_worker ? (
-            <details>
+            <details className={DETAILS}>
               <summary>Capture freshness</summary>
               <ul>
                 {Object.entries(
@@ -200,6 +204,7 @@ export default async function MarketBenchmarkPage() {
           ) : null}
         </>
       )}
-    </main>
+      </div>
+    </div>
   );
 }

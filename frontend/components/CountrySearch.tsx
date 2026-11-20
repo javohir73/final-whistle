@@ -5,6 +5,7 @@ import { Flag } from "@/components/Flag";
 import type { Team } from "@/lib/types";
 import { rankTeams } from "@/lib/teamSearch";
 import { cn } from "@/lib/utils";
+import { FIELD_INPUT, Tag } from "@/components/ui";
 
 /** Searchable grid of all nations. Results are ranked: prefix matches first,
  *  then substring, then alphabetical — so typing "ar" surfaces Argentina early. */
@@ -46,7 +47,8 @@ export function CountrySearch({
     <div>
       <div className="relative">
         <svg
-          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+          className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+          aria-hidden="true"
           viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
         >
           <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
@@ -60,14 +62,14 @@ export function CountrySearch({
           placeholder="Search 48 nations…"
           aria-label="Search for a country"
           autoComplete="off"
-          className="w-full rounded-xl border border-border bg-surface py-3 pl-10 pr-3 text-base transition placeholder:text-muted/60 focus:border-lime-deep/40"
+          className={cn(FIELD_INPUT, "pl-11")}
         />
       </div>
 
       <ul
         ref={listRef}
         onKeyDown={onListKeyDown}
-        className="mt-4 grid max-h-[44vh] grid-cols-2 gap-2 overflow-y-auto pr-1"
+        className="mt-4 grid max-h-[44vh] grid-cols-1 gap-2 overflow-y-auto pr-1 min-[480px]:grid-cols-2 min-[900px]:grid-cols-3"
         role="listbox"
         aria-label="Countries"
       >
@@ -81,25 +83,21 @@ export function CountrySearch({
                 aria-selected={active}
                 onClick={() => onSelect(t)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm transition",
-                  active
-                    ? "border-win/50 bg-win/10 text-foreground"
-                    : "border-border bg-surface text-foreground hover:bg-surface-2",
+                  "flex min-h-[48px] w-full items-center gap-3 rounded-input border px-3 py-2 text-left text-ink transition-colors",
+                  active ? "border-brand bg-brand-soft" : "border-line bg-ground hover:border-line-strong",
                 )}
               >
-                <Flag team={t.name} size={26} />
+                <Flag team={t.name} size={24} decorative />
                 <span className="min-w-0 flex-1 truncate font-medium">{t.name}</span>
                 {t.is_host && (
-                  <span className="shrink-0 rounded-md bg-gold/15 px-1.5 py-0.5 text-note font-bold uppercase tracking-wide text-amber-ink">
-                    Host
-                  </span>
+                  <Tag className="shrink-0">Host</Tag>
                 )}
               </button>
             </li>
           );
         })}
         {results.length === 0 && (
-          <li className="col-span-full py-6 text-center text-sm text-muted">
+          <li className="col-span-full py-6 text-center text-muted">
             No country matches “{query.trim()}”.
           </li>
         )}

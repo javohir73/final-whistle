@@ -15,8 +15,8 @@ export function TryTimeline({
   awayTeam: string | null;
 }) {
   return (
-    <div className="glass rounded-2xl p-6">
-      <h3 className="font-display text-sm font-semibold uppercase tracking-wider text-muted">
+    <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
+      <h3 className="text-sm font-semibold text-muted">
         Try timeline
       </h3>
       {events.length === 0 ? (
@@ -27,19 +27,19 @@ export function TryTimeline({
             const isHome = e.team === homeTeam;
             return (
               <li key={`${e.minute}-${e.player}-${i}`} className="flex items-center gap-3">
-                <span className="min-w-[40px] text-right text-sm font-extrabold tabular-nums text-muted">
+                <span className="min-w-[40px] text-right text-sm font-semibold tabular-nums text-muted">
                   {e.minute}&apos;
                 </span>
                 <span
                   className={cn(
                     "rounded-lg px-2 py-1 text-xs font-bold",
-                    isHome ? "bg-win/15 text-lime-deep" : "bg-loss/15 text-loss-wash-ink",
+                    isHome ? "bg-brand-soft text-brand" : "bg-miss-soft text-miss",
                   )}
                 >
                   {e.team}
                 </span>
-                <span className="flex-1 truncate text-sm text-foreground">{e.player}</span>
-                <span className="text-sm font-extrabold tabular-nums text-foreground">
+                <span className="flex-1 truncate text-sm text-ink">{e.player}</span>
+                <span className="text-sm font-semibold tabular-nums text-ink">
                   {e.score_home}–{e.score_away}
                 </span>
               </li>

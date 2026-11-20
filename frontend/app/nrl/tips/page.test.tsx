@@ -45,20 +45,20 @@ const fixtures: NrlTipsheet = {
 
 afterEach(() => jest.resetAllMocks());
 
-it("renders the round heading and the tipsheet block", async () => {
+it("in season: the My tips heading, the round, and the play section for that round", async () => {
   mockTipsheet.mockResolvedValue(fixtures);
   render(await NrlTipsPage());
 
-  expect(screen.getByRole("heading", { name: "NRL tips" })).toBeInTheDocument();
-  expect(screen.getByText("Round 2 · 2026")).toBeInTheDocument();
-  expect(screen.getByText("Storm")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "My tips" })).toBeInTheDocument();
+  expect(screen.getByText("NRL · 2026 season · Round 2")).toBeInTheDocument();
   expect(mockTipsheet).toHaveBeenCalledWith();
-  // Beat-the-AI section gets the same season/round as the tipsheet above it.
   expect(screen.getByTestId("play-section")).toHaveTextContent("2026-2");
-  // Slice 3 teaser links through to the finals-race predictor.
-  expect(
-    screen.getByRole("link", { name: /Predict your club's run home/i }),
-  ).toHaveAttribute("href", "/nrl/run-home");
+});
+
+it("never prints the model's call for an open match in the server HTML", async () => {
+  mockTipsheet.mockResolvedValue(fixtures);
+  const { container } = render(await NrlTipsPage());
+  expect(container.textContent).not.toMatch(/60%|Pick: Storm/);
 });
 
 it("calls notFound() when no NRL data is loaded yet", async () => {
@@ -66,24 +66,7 @@ it("calls notFound() when no NRL data is loaded yet", async () => {
   await expect(NrlTipsPage()).rejects.toThrow();
 });
 
-it("renders gracefully when nothing is graded and no match has a prediction yet", async () => {
-  mockTipsheet.mockResolvedValue({
-    ...fixtures,
-    matches: [{ ...fixtures.matches[0], prediction: null }],
-    record: {
-      evaluated_matches: 0, winner_accuracy: null, winner_accuracy_ci95: null,
-      avg_log_loss: null, avg_brier: null, best_streak: 0, last_updated: null,
-    },
-    worst_miss: null,
-  });
-  render(await NrlTipsPage());
-
-  expect(screen.getByText("Prediction arriving before kickoff.")).toBeInTheDocument();
-  expect(screen.getByText(/No graded matches yet this season/)).toBeInTheDocument();
-  expect(screen.queryByText(/worst miss/)).not.toBeInTheDocument();
-});
-
-it("swaps the finals-race teaser for a live competition once the season is over", async () => {
+it("off-season: one empty state, a link to the record, no play section and no reminder", async () => {
   mockTipsheet.mockResolvedValue({
     ...fixtures,
     round: 31,
@@ -94,15 +77,13 @@ it("swaps the finals-race teaser for a live competition once the season is over"
   });
   render(await NrlTipsPage());
 
-  expect(screen.queryByRole("link", { name: /run home/i })).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
-  expect(screen.getByText(/2026 season complete · back March 2027/)).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Tips reopen for Round 1 in March 2027" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See how the model went in 2026" })).toHaveAttribute("href", "/nrl/record");
+  expect(screen.queryByTestId("play-section")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /remind/i })).not.toBeInTheDocument();
 });
 
-it("points at a live competition in the pre-season too, with the season's start date", async () => {
+it("pre-season: says when Round 1 starts and opens the round for tips", async () => {
   const opener = new Date(Date.now() + 100 * 86_400_000).toISOString();
   mockTipsheet.mockResolvedValue({
     ...fixtures,
@@ -112,10 +93,6 @@ it("points at a live competition in the pre-season too, with the season's start 
   });
   render(await NrlTipsPage());
 
-  expect(screen.queryByRole("link", { name: /run home/i })).not.toBeInTheDocument();
-  expect(screen.getByText(`Season 2027 starts ${nrlStartLabel(opener)}`)).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Play the Premier League meanwhile/ })).toHaveAttribute(
-    "href",
-    "/play?competition=epl",
-  );
+  expect(screen.getByText(new RegExp(`Round 1 starts ${nrlStartLabel(opener)}`))).toBeInTheDocument();
+  expect(screen.getByTestId("play-section")).toHaveTextContent("2027-1");
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "@/lib/session";
+import { FIELD_INPUT, GhostButton } from "@/components/ui";
 
 /** Controls Tab may land on inside the dialog. Disabled buttons are skipped:
  *  the submit button is disabled until a password is typed, and wrapping onto
@@ -117,13 +118,11 @@ export function DeleteAccountModal({
     }
   };
 
-  const field =
-    "w-full rounded-lg border border-border bg-surface/60 px-3 py-2 text-sm outline-none focus:border-loss/50 focus:ring-2 focus:ring-loss/20";
 
   return (
     <div
       ref={overlay}
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-ink/45 px-4 pb-4 pt-16 min-[900px]:pt-24"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -131,20 +130,24 @@ export function DeleteAccountModal({
         if (!busy) onClose();
       }}
     >
-      <div ref={card} className="glass w-full max-w-sm rounded-2xl p-6" onClick={(e) => e.stopPropagation()}>
-        <h2 id={titleId} className="font-display text-lg font-extrabold tracking-tight text-loss-ink">
+      <div
+        ref={card}
+        className="w-full max-w-[480px] rounded-dialog bg-ground p-5 text-ink shadow-dialog min-[900px]:p-7"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id={titleId} className="text-2xl font-semibold tracking-[-0.01em] text-ink">
           Delete your account
         </h2>
-        <p className="mt-2 text-sm text-muted">
+        <p className="mt-2 text-muted">
           This permanently removes your email, name and per-match picks, and signs you out
           everywhere. It can&apos;t be undone. If your bracket is on the public leaderboard, the
-          entry stays under <span className="font-semibold text-foreground">&ldquo;Deleted user&rdquo;</span>.
+          entry stays under <span className="font-semibold text-ink">&ldquo;Deleted user&rdquo;</span>.
           Enter your password to confirm.
         </p>
 
-        <form onSubmit={submit} className="mt-4 space-y-3">
+        <form onSubmit={submit} className="mt-5 space-y-4">
           <div>
-            <label htmlFor={passwordId} className="mb-1 block text-xs font-semibold text-muted">
+            <label htmlFor={passwordId} className="mb-1.5 block font-medium text-ink">
               Password
             </label>
             <input
@@ -155,27 +158,23 @@ export function DeleteAccountModal({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              className={field}
+              className={FIELD_INPUT}
             />
           </div>
           {error && (
-            <p role="alert" className="text-sm font-medium text-loss-ink">
+            <p role="alert" className="text-notes font-medium text-miss">
               {error}
             </p>
           )}
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              className="flex-1 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-muted transition hover:bg-surface-2/60 hover:text-foreground disabled:opacity-60"
-            >
+          <div className="flex flex-wrap gap-3 pt-2">
+            {/* Cancel is the ghost; the destructive action is a miss-red pill. */}
+            <GhostButton onClick={onClose} disabled={busy} className="min-h-[48px]">
               Cancel
-            </button>
+            </GhostButton>
             <button
               type="submit"
               disabled={busy || !password}
-              className="flex-1 rounded-lg bg-loss/15 px-3 py-2 text-sm font-bold text-loss-wash-ink ring-1 ring-loss/30 transition hover:bg-loss/25 disabled:opacity-60"
+              className="inline-flex min-h-[48px] items-center justify-center rounded-full bg-miss px-6 font-semibold text-white transition-colors hover:bg-miss/90 disabled:cursor-not-allowed disabled:bg-disabled"
             >
               {busy ? "Deleting…" : "Delete account"}
             </button>

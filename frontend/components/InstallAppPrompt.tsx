@@ -29,7 +29,7 @@ export function InstallAppPrompt() {
       aria-label="Install FinalWhistle"
       // bottom-above-tabbar: clears the tab bar until lg. The old sm:bottom-6
       // dropped onto the bar at 640-1023px, where BottomNav is still shown.
-      className="glass safe-x bottom-above-tabbar fixed inset-x-3 z-40 mx-auto max-w-md rounded-2xl p-4 shadow-xl sm:inset-x-auto sm:right-6"
+      className="safe-x bottom-above-tabbar fixed inset-x-3 z-40 mx-auto max-w-md rounded-card border border-line bg-ground p-4 shadow-menu sm:inset-x-auto sm:right-6"
     >
       <div className="flex items-start gap-3">
         <Image
@@ -37,26 +37,26 @@ export function InstallAppPrompt() {
           alt=""
           width={40}
           height={40}
-          className="shrink-0 rounded-xl"
+          className="shrink-0 rounded-[10px]"
         />
         <div className="min-w-0 flex-1">
-          <p className="font-display text-sm font-bold">Install FinalWhistle</p>
+          <p className="font-semibold text-ink">Install FinalWhistle</p>
           {platform === "android" ? (
-            <p className="mt-0.5 text-xs leading-relaxed text-muted">
+            <p className="mt-1 text-notes text-muted">
               Full-screen launch from your home screen — your picks and live
               scores, one tap away.
             </p>
           ) : (
-            <p className="mt-0.5 text-xs leading-relaxed text-muted">
+            <p className="mt-1 text-notes text-muted">
               Tap{" "}
-              <span className="font-semibold text-foreground">
+              <span className="font-semibold text-ink">
                 Share{" "}
                 {/* Decorative: the word "Share" already names the button. */}
                 <svg viewBox="0 0 24 24" className="inline h-3.5 w-3.5 align-[-2px]" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path d="M12 3v12M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>{" "}
-              then <span className="font-semibold text-foreground">“Add to Home Screen”</span> to
+              then <span className="font-semibold text-ink">“Add to Home Screen”</span> to
               install the app.
             </p>
           )}
@@ -64,7 +64,7 @@ export function InstallAppPrompt() {
             <button
               type="button"
               onClick={() => void promptInstall()}
-              className="mt-2.5 rounded-lg bg-win px-3.5 py-1.5 text-xs font-bold text-pitch transition hover:brightness-110"
+              className="mt-3 inline-flex min-h-[44px] items-center rounded-full bg-brand px-5 font-semibold text-white transition hover:bg-brand-hover"
             >
               Install app
             </button>
@@ -74,7 +74,7 @@ export function InstallAppPrompt() {
           type="button"
           onClick={dismiss}
           aria-label="Dismiss install prompt"
-          className="shrink-0 rounded-md p-1 text-muted transition hover:text-foreground"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-muted transition hover:text-ink"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />

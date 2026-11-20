@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Tag } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 /** Every tips leaderboard row may now be the model itself: the backend ranks
@@ -28,11 +29,9 @@ export function isViewerRow(row: BoardRow, viewerHandle: string | null | undefin
 }
 
 export function rowClassName(row: BoardRow, viewerHandle: string | null | undefined): string {
-  return cn(
-    "border-t border-border",
-    row.is_model && "bg-surface-2/60",
-    isViewerRow(row, viewerHandle) && "bg-win/[0.06]",
-  );
+  // The viewer's own row is tinted brand-soft; the model's row carries only
+  // its "Model" tag (direction G: one accent, no zebra).
+  return cn(isViewerRow(row, viewerHandle) && "bg-brand-soft");
 }
 
 /** Handle cell: the model wears a "Model" badge, the viewer a "You" badge.
@@ -46,19 +45,11 @@ export function PlayerCell({
 }) {
   const viewer = isViewerRow(row, viewerHandle);
   return (
-    <td className={cn("px-2 py-2.5", viewer ? "font-bold" : "font-medium")}>
-      <span className="inline-flex flex-wrap items-center gap-1.5">
-        <span>{row.handle}</span>
-        {row.is_model ? (
-          <span className="rounded-md bg-surface px-1.5 py-0.5 text-note font-bold uppercase tracking-wide text-muted ring-1 ring-border">
-            Model
-          </span>
-        ) : null}
-        {viewer ? (
-          <span className="rounded-md bg-win/15 px-1.5 py-0.5 text-note font-bold uppercase tracking-wide text-lime-deep">
-            You
-          </span>
-        ) : null}
+    <td className="border-t border-line-soft px-2 py-3 text-left font-semibold text-ink">
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <span className="whitespace-nowrap">{row.handle}</span>
+        {row.is_model ? <Tag>Model</Tag> : null}
+        {viewer ? <Tag className="bg-brand text-white">You</Tag> : null}
       </span>
     </td>
   );
@@ -98,7 +89,7 @@ export function ViewerVsModel({
   const line = viewerVsModelLine(entries, viewerHandle, scope);
   if (!line) return null;
   return (
-    <p className={cn("mb-2 px-0.5 text-sm font-semibold", line.ahead ? "text-lime-deep" : "text-foreground")}>
+    <p className={cn("mb-3 text-notes font-semibold", line.ahead ? "text-brand" : "text-ink")}>
       {line.text}
     </p>
   );
@@ -106,7 +97,7 @@ export function ViewerVsModel({
 
 /** The quiet panel a board shows instead of a table. */
 export function BoardNote({ children }: { children: ReactNode }) {
-  return <p className="glass rounded-2xl p-4 text-center text-sm text-muted">{children}</p>;
+  return <p className="py-6 text-center text-notes text-muted">{children}</p>;
 }
 
 /** Nobody has played yet. Boards always show now (no 10-player gate), so this

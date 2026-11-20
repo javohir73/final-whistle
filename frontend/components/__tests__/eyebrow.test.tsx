@@ -1,34 +1,27 @@
 import { render, screen } from "@testing-library/react";
-// jsdom's CSSOM rejects `hsl(var(--x))` as an unparseable color (it silently
-// drops the whole style, live-DOM only) -- react-dom's static-markup renderer
-// serializes the style prop as a plain string instead, so it's the only way
-// to actually see the inline style this component sets. Used for the
-// accent-var assertion below only; the plain-text Eyebrow case renders fine
-// through the normal RTL path.
-import { renderToStaticMarkup } from "react-dom/server.node";
 import { Eyebrow, CompEyebrowChip } from "@/components/Eyebrow";
-import { COMPETITIONS, accentInkVar } from "@/lib/sports";
+import { COMPETITIONS } from "@/lib/sports";
 
 describe("Eyebrow", () => {
-  it("renders its text at the 11px a11y floor, uppercased by CSS", () => {
+  it("renders the direction G eyebrow: sentence case, 15px notes size, muted", () => {
     render(<Eyebrow>Tonight feature</Eyebrow>);
     const label = screen.getByText("Tonight feature");
-    expect(label).toHaveClass("uppercase");
-    expect(label).toHaveClass("text-label");
+    expect(label).not.toHaveClass("uppercase");
+    expect(label).toHaveClass("text-notes", "font-medium", "text-muted");
   });
 });
 
 describe("CompEyebrowChip", () => {
   it.each(Object.values(COMPETITIONS))(
-    "renders $id through its registry accent and semantic ink",
+    "renders $id as its logo plus short name on the neutral chip",
     (competition) => {
-      const html = renderToStaticMarkup(<CompEyebrowChip comp={competition.id} />);
-      expect(html).toContain(`>${competition.shortLabel}<`);
-      expect(html).toContain("text-label");
-      expect(html).toContain(
-        `background-color:hsl(var(${competition.accentVar}) / 0.12)`,
-      );
-      expect(html).toContain(`color:hsl(var(${accentInkVar(competition.id)}))`);
+      const { container } = render(<CompEyebrowChip comp={competition.id} />);
+      const chip = container.firstElementChild as HTMLElement;
+      expect(chip).toHaveTextContent(competition.shortLabel);
+      expect(chip).toHaveClass("text-label", "bg-chip", "text-ink");
+      // The short name is printed beside the logo, so the logo is decorative.
+      expect(container.querySelector(`[data-competition-logo="${competition.id}"]`)).toBeInTheDocument();
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
     },
   );
 });

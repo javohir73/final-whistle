@@ -1,13 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { MatchScoreboard } from "@/components/MatchScoreboard";
-import * as api from "@/lib/api";
+import { MatchHero } from "@/components/match/MatchHero";
 import type { MatchSummary } from "@/lib/types";
 
-// MatchScoreboard polls getMatchSummary on mount (useFetch fetches even when
-// seeded), so mock the api module — mirrors predictedVsActual.test.tsx.
-jest.mock("@/lib/api");
-const mockGetMatchSummary = api.getMatchSummary as jest.Mock;
-
+// Rewritten from the deleted MatchScoreboard onto its replacement, MatchHero.
 const summary: MatchSummary = {
   match_id: 1, stage: "group", group: "Group A", kickoff_utc: null,
   venue: null, venue_city: null, venue_country: null, is_neutral: true,
@@ -21,20 +16,21 @@ const summary: MatchSummary = {
   ],
 };
 
-beforeEach(() => {
-  mockGetMatchSummary.mockResolvedValue(summary);
-});
+const team = (name: string) => ({ name, href: null, standing: null });
 
 test("renders goalscorers under the score", () => {
   render(
-    <MatchScoreboard
-      matchId={1} home="Mexico" away="South Africa"
-      probabilities={{ home_win: 0.6, draw: 0.2, away_win: 0.2 }}
-      predicted={{ home: 2, away: 0, probability: 0.2 }}
-      initialSummary={summary}
-    />,
+    <MatchHero competitionLabel="World Cup 2026" home={team("Mexico")} away={team("South Africa")}
+      kickoffUtc={null} venue={null} summary={summary} phase="finished" />,
   );
-  expect(screen.getByText(/R\. Jimenez/)).toBeInTheDocument();
-  expect(screen.getByText(/P\. Kgatlana/)).toBeInTheDocument();
-  expect(screen.getByText(/\(pen\)/)).toBeInTheDocument();
+  expect(screen.getByText("R. Jimenez 30′")).toBeInTheDocument();
+  expect(screen.getByText("P. Kgatlana 70′ (pen)")).toBeInTheDocument();
+});
+
+test("lists no scorers before kick-off", () => {
+  render(
+    <MatchHero competitionLabel="World Cup 2026" home={team("Mexico")} away={team("South Africa")}
+      kickoffUtc={null} venue={null} summary={{ ...summary, status: "scheduled", score_home: null, score_away: null }} phase="upcoming" />,
+  );
+  expect(screen.queryByText(/R\. Jimenez/)).not.toBeInTheDocument();
 });

@@ -1,4 +1,4 @@
-/** /leaderboard ("My picks") opens on the visitor's current competition --
+/** /leaderboard opens on the visitor's current competition --
  *  ?competition= first, else fw_comp cookie -> geo -> EPL -- never the
  *  finished World Cup. ?competition=wc26 still reaches the bracket board. */
 import LeaderboardPage, { metadata } from "./page";
@@ -67,8 +67,8 @@ it("takes the first of repeated ?competition= values", async () => {
   expect(element.props.competition).toBe("ucl");
 });
 
-it("is titled for the user's picks, competition-neutral, not a bracket board", () => {
-  expect(metadata.title).toBe("My picks: your record against the model — FinalWhistle");
+it("is titled as the leaderboard, competition-neutral, not a bracket board", () => {
+  expect(metadata.title).toBe("Leaderboard: everyone against the model — FinalWhistle");
   for (const text of [String(metadata.title), String(metadata.description)]) {
     expect(text).not.toMatch(/bracket|world cup|wc26|premier league|nrl/i);
   }

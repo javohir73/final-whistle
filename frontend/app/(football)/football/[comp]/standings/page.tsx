@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { COMPETITIONS, isWiredFootballCompetition } from "@/lib/sports";
-import { getGroupsServer } from "@/lib/api";
+import { getGroupsServer, getUpcomingMatchesServer } from "@/lib/api";
+import { matchweeksPlayed, nextFixtureByClub } from "@/lib/standingsRows";
 import { getCompetitionTournament } from "@/lib/tournament";
 import { StandingsClient } from "@/components/StandingsClient";
 
@@ -44,11 +45,21 @@ export default async function CompStandingsPage({
   const { comp } = await params;
   if (!isWiredFootballCompetition(comp) || COMPETITIONS[comp].format !== "league") notFound();
 
-  const [initialGroups, tournament] = await Promise.all([
+  // One request for the competition's fixtures gives every club's next match
+  // (the "Next" column) and how many matchweeks are done. Only names, ids and
+  // kickoffs cross to the client — never the model's numbers.
+  const [initialGroups, tournament, fixtures] = await Promise.all([
     getGroupsServer(comp).catch(() => null),
     getCompetitionTournament(comp),
+    getUpcomingMatchesServer(comp).catch(() => null),
   ]);
   return (
-    <StandingsClient comp={comp} initialGroups={initialGroups ?? undefined} tournament={tournament} />
+    <StandingsClient
+      comp={comp}
+      initialGroups={initialGroups ?? undefined}
+      tournament={tournament}
+      nextByClub={fixtures ? nextFixtureByClub(fixtures) : undefined}
+      played={fixtures ? matchweeksPlayed(fixtures) : null}
+    />
   );
 }

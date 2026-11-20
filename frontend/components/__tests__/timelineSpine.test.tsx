@@ -46,7 +46,10 @@ const liveMatch = makeMatch(1, "Brazil", "Scotland", {
   period: "first_half",
   kickoff_utc: new Date(Date.now() - 30 * 60_000).toISOString(),
 });
-const upcomingMatch = makeMatch(2, "Spain", "Uruguay");
+// Keyed with an NRL-style call (a margin, no scoreline): MatchCard prints the
+// model's scoreline in preference to a margin, so the margin chip only shows
+// for a card whose call IS a margin.
+const upcomingMatch = makeMatch(2, "Spain", "Uruguay", { predicted_score: { home: null, away: null, probability: null } });
 
 const days = [
   { key: "d1", heading: "Matchday 1", matches: [liveMatch] },

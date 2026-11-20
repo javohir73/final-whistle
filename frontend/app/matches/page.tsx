@@ -1,13 +1,8 @@
-import type { Metadata } from "next";
-import { APP_NAME } from "@/lib/constants";
-import { renderMatchesPage } from "./MatchesPageContent";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: `Fixtures — ${APP_NAME}`,
-  description:
-    "Every WC26 fixture with live scores and the model's pre-kickoff win probabilities, filterable by upcoming, live, or finished.",
-};
-
-export default async function MatchesPage() {
-  return renderMatchesPage();
+// The old all-season fixtures list. next.config.mjs already 308s /matches to
+// the World Cup archive's fixtures; this keeps the route honest if that rule
+// is ever bypassed (the list itself is gone -- fixtures are per matchweek now).
+export default function MatchesPage() {
+  permanentRedirect("/football/wc26/fixtures");
 }

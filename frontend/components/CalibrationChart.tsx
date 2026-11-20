@@ -30,46 +30,48 @@ export function CalibrationChart({ bins }: { bins: ReliabilityBin[] }) {
   return (
     <div style={{ width: "100%", height }}>
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 24, left: 4 }}>
-          <CartesianGrid stroke="hsl(153 18% 18%)" strokeDasharray="3 3" />
+        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
+          <CartesianGrid stroke="var(--fw-line-soft)" vertical={false} />
           <XAxis
             dataKey="predicted"
             type="number"
             domain={[0, 100]}
             tickCount={6}
             unit="%"
-            tick={{ fontSize: 11, fill: "hsl(150 8% 60%)" }}
+            tick={{ fontSize: 13, fill: "var(--fw-muted)" }}
             tickLine={false}
             label={{
               value: "Predicted probability",
               position: "insideBottom",
               offset: -12,
-              style: { fill: "hsl(150 8% 60%)", fontSize: 12 },
+              style: { fill: "var(--fw-muted)", fontSize: 13 },
             }}
           />
           <YAxis
             domain={[0, 100]}
             tickCount={6}
             unit="%"
-            tick={{ fontSize: 11, fill: "hsl(150 8% 60%)" }}
+            tick={{ fontSize: 13, fill: "var(--fw-muted)" }}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
             contentStyle={{
-              background: "hsl(156 22% 9%)",
-              border: "1px solid hsl(153 18% 18%)",
+              background: "var(--fw-ground)",
+              border: "1px solid var(--fw-line)",
               borderRadius: 12,
-              fontSize: 12,
+              boxShadow: "none",
+              color: "var(--fw-ink)",
+              fontSize: 13,
             }}
-            labelStyle={{ color: "hsl(150 20% 96%)" }}
+            labelStyle={{ color: "var(--fw-ink)", fontWeight: 600 }}
             formatter={(v: number, name: string) => [`${v}%`, name === "observed" ? "Actually happened" : "Perfect"]}
             labelFormatter={(v) => `Predicted ~${v}%`}
           />
           <Line
             type="monotone"
             dataKey="perfect"
-            stroke="hsl(150 8% 45%)"
+            stroke="var(--fw-dash)"
             strokeDasharray="5 5"
             strokeWidth={1.5}
             dot={false}
@@ -78,9 +80,9 @@ export function CalibrationChart({ bins }: { bins: ReliabilityBin[] }) {
           <Line
             type="monotone"
             dataKey="observed"
-            stroke="hsl(84 78% 55%)"
+            stroke="var(--fw-brand)"
             strokeWidth={2.5}
-            dot={{ r: 3, fill: "hsl(84 78% 55%)" }}
+            dot={{ r: 3, fill: "var(--fw-brand)" }}
             isAnimationActive={false}
           />
         </LineChart>

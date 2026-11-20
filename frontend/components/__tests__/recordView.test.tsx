@@ -71,12 +71,12 @@ it("surfaces both best calls and biggest misses", () => {
 
 it("shows the knockout progression card when advancement data exists", () => {
   render(<RecordView record={base} />);
-  expect(screen.getByText("Knockout progression")).toBeInTheDocument();
+  expect(screen.getByText(/Knockout progression/)).toBeInTheDocument();
   expect(screen.getByText("79%")).toBeInTheDocument();
   expect(screen.getByText(/19 of 24 ties/)).toBeInTheDocument();
 });
 
 it("hides the knockout progression card before any knockouts are graded", () => {
   render(<RecordView record={{ ...base, advancement_matches: 0, advancement_correct: 0, advancement_accuracy: null, advancement_ci95: null }} />);
-  expect(screen.queryByText("Knockout progression")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Knockout progression/)).not.toBeInTheDocument();
 });

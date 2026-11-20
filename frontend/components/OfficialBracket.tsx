@@ -17,7 +17,7 @@ const ROUND_LABEL: Record<string, string> = {
 
 /** Split the bracket into its two halves from the winner-feeder map, so the tree
  *  converges from BOTH sides toward the Final in the centre — the classic printed
- *  layout that fits on one screen — instead of one tall left-to-right column. */
+ *  layout that fits on one desktop screen — instead of one tall column. */
 function half(sfNo: number) {
   const sf = [sfNo];
   const qf = KO_TREE[sfNo]; // [97,98] / [99,100]
@@ -41,6 +41,10 @@ const RIGHT_COLS: [string, number[]][] = [
   ["r32", R.r32],
 ];
 
+/** Nine columns of 124px plus the 12px connector gaps fill the 1,360px frame's
+ *  card exactly; narrower screens scroll the tree inside its card. */
+const TIE_W = "w-[124px]";
+
 function sideAria(s: SideView): string {
   const name = s.team ?? s.label;
   const score = s.score != null ? ` ${s.score}` : "";
@@ -55,69 +59,55 @@ function tieAria(v: TieView, roundLabel: string): string {
   return `${roundLabel}: ${a} vs ${b}, ${v.state}${winner}`;
 }
 
-function SideRow({ s, accent }: { s: SideView; accent?: boolean }) {
+function SideRow({ s }: { s: SideView }) {
   return (
     <div
       data-side
+      data-winner={s.isWinner ? "" : undefined}
       className={cn(
         "flex items-center justify-between gap-1.5 py-0.5",
-        s.isWinner
-          ? cn("font-bold", accent ? "text-pitch-accent-ink" : "text-lime-deep")
-          : s.team
-            ? accent ? "text-pitch-foreground-ink" : "text-foreground"
-            : accent ? "text-pitch-muted-ink" : "text-muted",
+        s.isWinner ? "font-semibold text-ink" : s.team ? "text-ink" : "text-muted",
       )}
     >
-      <span className="flex min-w-0 items-center gap-1">
-        {s.team ? <Flag team={s.team} size={15} /> : null}
+      <span className="flex min-w-0 items-center gap-1.5">
+        {s.team ? <Flag team={s.team} size={16} decorative /> : null}
         <span className="truncate text-label leading-tight">{s.team ?? s.label}</span>
       </span>
       {s.score != null ? (
-        <span className="font-display text-label font-extrabold tabular-nums">{s.score}</span>
+        <span className={cn("text-label tabular-nums", s.isWinner ? "font-bold" : "font-medium")}>{s.score}</span>
       ) : null}
     </div>
   );
 }
 
-function TieCard({ v, roundLabel, accent }: { v: TieView; roundLabel: string; accent?: boolean }) {
+function TieCard({ v, roundLabel, final }: { v: TieView; roundLabel: string; final?: boolean }) {
   const live = v.state === "in_play";
   const stopped = stoppedLabel(v.state);
+  const status = live ? null : v.state === "finished" ? "FT" : stopped;
   const body = (
     <div
       className={cn(
-        "rounded-xl px-2 py-1.5",
-        accent ? "panel-pitch" : "glass card-hover",
-        live ? "ring-1 ring-loss/40" : "",
+        "rounded-[12px] border bg-ground px-2.5 py-2 transition-colors",
+        final ? "border-ink" : "border-line hover:border-line-strong",
       )}
     >
-      <div className="flex items-center justify-between leading-none">
-        <span className={cn("text-micro font-bold uppercase tracking-wide", accent ? "text-pitch-muted-ink" : "text-muted")}>#{v.matchNo}</span>
+      <div className="mb-0.5 flex items-center justify-between text-label leading-none text-muted">
+        <span>#{v.matchNo}</span>
         {live ? (
           <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full bg-loss/15 px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide",
-              accent ? "text-pitch-loss-ink" : "text-loss-wash-ink",
-            )}
+            className="inline-flex items-center gap-1 font-semibold text-brand"
             aria-label={`Live, ${v.liveLabel}`}
           >
-            <span className="h-1 w-1 motion-safe:animate-pulse rounded-full bg-loss" aria-hidden />
+            <span className="h-1.5 w-1.5 rounded-full bg-brand motion-safe:animate-pulse" aria-hidden />
             {v.liveLabel}
           </span>
-        ) : v.state === "finished" ? (
-          <span className={cn("rounded-full px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide", accent ? "bg-pitch-chip text-pitch-muted-ink" : "bg-surface-2/70 text-muted")}>
-            FT
-          </span>
-        ) : stopped ? (
-          <span className={cn("rounded-full px-1.5 py-0.5 text-micro font-bold uppercase tracking-wide", accent ? "bg-pitch-chip text-pitch-muted-ink" : "bg-surface-2/70 text-muted")}>
-            {stopped}
-          </span>
+        ) : status ? (
+          <span>{status}</span>
         ) : null}
       </div>
-      <SideRow s={v.a} accent={accent} />
-      <SideRow s={v.b} accent={accent} />
-      {v.penaltyText ? (
-        <div className={cn("mt-0.5 text-mini font-semibold", accent ? "text-pitch-muted-ink" : "text-muted")}>{v.penaltyText}</div>
-      ) : null}
+      <SideRow s={v.a} />
+      <SideRow s={v.b} />
+      {v.penaltyText ? <div className="mt-0.5 text-label text-muted">{v.penaltyText}</div> : null}
     </div>
   );
 
@@ -125,15 +115,23 @@ function TieCard({ v, roundLabel, accent }: { v: TieView; roundLabel: string; ac
   const href =
     v.matchId != null && v.state !== "labels" ? footballMatchHref("wc26", v.matchId) : null;
   return (
-    <li className="ko-tie w-[108px]" aria-label={tieAria(v, roundLabel)}>
+    <li className={cn("ko-tie", TIE_W)} aria-label={tieAria(v, roundLabel)}>
       {href ? (
-        <Link href={href} className="block">
+        <Link href={href} className="block rounded-[12px] no-underline">
           {body}
         </Link>
       ) : (
         <div>{body}</div>
       )}
     </li>
+  );
+}
+
+function RoundLabel({ children }: { children: string }) {
+  return (
+    <div className="mb-2 text-center text-label font-medium text-muted" aria-hidden>
+      {children}
+    </div>
   );
 }
 
@@ -153,9 +151,7 @@ function Column({
   const label = ROUND_LABEL[round];
   return (
     <div className="flex shrink-0 flex-col">
-      <div className="mb-1 text-center text-note font-bold uppercase tracking-wide text-muted" aria-hidden>
-        {label}
-      </div>
+      <RoundLabel>{label}</RoundLabel>
       <ol
         aria-label={`${label}, ${side === "l" ? "left" : "right"} half`}
         className={cn("ko-round flex-1", side === "l" ? "ko-col-l" : "ko-col-r", outer && "ko-edge")}
@@ -170,45 +166,44 @@ export default function OfficialBracket({ ties }: { ties: Record<number, TieView
   const final = ties[FINAL_MATCH];
   const third = ties[THIRD_PLACE.no];
   return (
-    <div className="space-y-3">
-      <div className="overflow-x-auto pb-3 [scroll-snap-type:x_proximity] [-webkit-overflow-scrolling:touch]">
+    <div className="flex flex-col gap-6">
+      {/* The tree scrolls sideways INSIDE its card on narrow screens; the page never does. */}
       <div
-        className="ko-bracket mx-auto flex w-max items-stretch gap-3"
-        aria-label="Official knockout bracket"
+        className="-mx-4 overflow-x-auto px-4 pb-2 [-webkit-overflow-scrolling:touch] min-[900px]:-mx-7 min-[900px]:px-7"
+        tabIndex={0}
+        role="region"
+        aria-label="Knockout bracket, scrolls sideways"
       >
-        {LEFT_COLS.map(([round, nos], i) => (
-          <Column key={`l-${round}`} side="l" round={round} nos={nos} ties={ties} outer={i === 0} />
-        ))}
+        <div className="ko-bracket mx-auto flex w-max items-stretch gap-3" aria-label="Official knockout bracket">
+          {LEFT_COLS.map(([round, nos], i) => (
+            <Column key={`l-${round}`} side="l" round={round} nos={nos} ties={ties} outer={i === 0} />
+          ))}
 
-        {/* Centre: the Final, vertically centred so both semi-finals meet it. */}
-        <div className="flex shrink-0 flex-col">
-          <div className="mb-1 text-center text-note font-bold uppercase tracking-wide text-muted" aria-hidden>
-            Final
+          {/* Centre: the Final, vertically centred so both semi-finals meet it. */}
+          <div className="flex shrink-0 flex-col">
+            <RoundLabel>Final</RoundLabel>
+            <ol aria-label="Final" className="ko-round flex-1">
+              {final ? <TieCard v={final} roundLabel="Final" final /> : null}
+            </ol>
           </div>
-          <ol aria-label="Final" className="ko-round flex-1">
-            {final ? <TieCard v={final} roundLabel="Final" accent /> : null}
-          </ol>
-        </div>
 
-        {RIGHT_COLS.map(([round, nos], i) => (
-          <Column
-            key={`r-${round}`}
-            side="r"
-            round={round}
-            nos={nos}
-            ties={ties}
-            outer={i === RIGHT_COLS.length - 1}
-          />
-        ))}
-      </div>
+          {RIGHT_COLS.map(([round, nos], i) => (
+            <Column
+              key={`r-${round}`}
+              side="r"
+              round={round}
+              nos={nos}
+              ties={ties}
+              outer={i === RIGHT_COLS.length - 1}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Detached 3rd-place node — centred under the Final, not part of the tree. */}
       {third ? (
-        <div className="mx-auto w-[140px]">
-          <div className="mb-1 text-center text-note font-bold uppercase tracking-wide text-muted" aria-hidden>
-            Third place
-          </div>
+        <div className={cn("mx-auto", TIE_W)}>
+          <RoundLabel>Third place</RoundLabel>
           <ol aria-label="Third place">
             <TieCard v={third} roundLabel="Third place" />
           </ol>

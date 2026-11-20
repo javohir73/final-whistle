@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { verifyEmail, friendlyAuthError } from "@/lib/session";
 import { useAuth } from "@/components/AuthProvider";
+import { Button, PageHead } from "@/components/ui";
 
 type State = "verifying" | "done" | "error" | "notoken";
 
@@ -32,60 +32,48 @@ export function VerifyEmailClient() {
   }, [token, refresh]);
 
   return (
-    <div className="mx-auto max-w-sm px-4 py-16">
-      <div className="glass rounded-2xl p-6 text-center">
-        {state === "verifying" && (
-          <p role="status" className="text-sm text-muted">
+    <div>
+      {state === "verifying" && (
+        <>
+          <PageHead eyebrow="FinalWhistle" title="Verify your email" />
+          <p role="status" className="text-muted">
             Verifying your email…
           </p>
-        )}
-        {state === "done" && (
-          <>
-            <h1 className="mb-2 font-display text-xl font-extrabold tracking-tight">
-              Email verified ✓
-            </h1>
-            <p className="mb-4 text-sm text-muted">You&rsquo;re all set.</p>
-            <Home />
-          </>
-        )}
-        {state === "notoken" && (
-          <>
-            <h1 className="mb-2 font-display text-xl font-extrabold tracking-tight">
-              Verification link invalid
-            </h1>
-            <p className="mb-4 text-sm text-muted">
-              This link is missing its token. Open the most recent email, or resend
-              from the banner once you&rsquo;re signed in.
-            </p>
-            <Home />
-          </>
-        )}
-        {state === "error" && (
-          <>
-            <h1 className="mb-2 font-display text-xl font-extrabold tracking-tight">
-              Couldn&rsquo;t verify
-            </h1>
-            <p role="alert" className="mb-4 text-sm text-loss-ink">
-              {msg}
-            </p>
-            <p className="mb-4 text-sm text-muted">
-              The link may have expired. Sign in and resend a fresh one.
-            </p>
-            <Home />
-          </>
-        )}
-      </div>
+        </>
+      )}
+      {state === "done" && (
+        <>
+          <PageHead eyebrow="FinalWhistle" title="Email verified" sub="You’re all set." />
+          <Home />
+        </>
+      )}
+      {state === "notoken" && (
+        <>
+          <PageHead
+            eyebrow="FinalWhistle"
+            title="Verification link invalid"
+            sub="This link is missing its token. Open the most recent email, or resend from the banner once you’re signed in."
+          />
+          <Home />
+        </>
+      )}
+      {state === "error" && (
+        <>
+          <PageHead
+            eyebrow="FinalWhistle"
+            title="Couldn’t verify"
+            sub="The link may have expired. Sign in and resend a fresh one."
+          />
+          <p role="alert" className="-mt-2 mb-6 max-w-prose text-miss">
+            {msg}
+          </p>
+          <Home />
+        </>
+      )}
     </div>
   );
 }
 
 function Home() {
-  return (
-    <Link
-      href="/"
-      className="block text-center text-sm font-semibold text-lime-deep underline-offset-2 hover:underline"
-    >
-      Back to FinalWhistle
-    </Link>
-  );
+  return <Button href="/">Back to FinalWhistle</Button>;
 }

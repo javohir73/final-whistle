@@ -1,14 +1,19 @@
-/** MatchPick: the match page's pick sits under the model's call and, for club
- *  leagues, IS the scored game (/tips/submit), not a browser-only W/D/L. */
+/** MatchPick (direction G): the pick inside the match hero. Both boxes start
+ *  EMPTY, the first tap on a side sets it (+ → 1, − → 0) and an empty other
+ *  side to 0, the lock stays disabled until a score is set, a lock goes
+ *  through the SAME /tips/submit (5 exact / 2 result) and announces the pick
+ *  so every gated section reveals at once, and a locked pick is final. */
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { getMatchSummary } from "@/lib/api";
 import { getMyLeagueTips, submitLeagueTip } from "@/lib/leagueTips";
 import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session";
 import { trackEvent } from "@/lib/analytics";
+import { announceLockedPick, resetRevealStore } from "@/lib/useModelReveal";
 import type { LeagueTipsMineMatch, LeagueTipsMineResponse, MatchSummary } from "@/lib/types";
-import { MatchScoreboard } from "@/components/MatchScoreboard";
 import { MatchLiveProvider } from "./MatchLiveProvider";
+import { MatchHero } from "./MatchHero";
 import { MatchPick, pickLockLine } from "./MatchPick";
+import type { WeekFixture } from "./matchPageData";
 import { hydrateAcrossTime } from "./hydrate.testutil";
 import { announceTipsIdentityChanged } from "@/components/play/tipsIdentity";
 
@@ -19,6 +24,10 @@ jest.mock("@/lib/session", () => {
   const actual = jest.requireActual("@/lib/session");
   return { ...actual, getOrCreateDeviceId: jest.fn(), pingDailyActivity: jest.fn() };
 });
+jest.mock("@/lib/useModelReveal", () => {
+  const actual = jest.requireActual("@/lib/useModelReveal");
+  return { ...actual, announceLockedPick: jest.fn(actual.announceLockedPick) };
+});
 
 const mockMine = getMyLeagueTips as jest.MockedFunction<typeof getMyLeagueTips>;
 const mockSubmit = submitLeagueTip as jest.MockedFunction<typeof submitLeagueTip>;
@@ -26,8 +35,10 @@ const mockDevice = getOrCreateDeviceId as jest.MockedFunction<typeof getOrCreate
 const mockPing = pingDailyActivity as jest.MockedFunction<typeof pingDailyActivity>;
 const mockTrack = trackEvent as jest.MockedFunction<typeof trackEvent>;
 const mockSummary = getMatchSummary as jest.MockedFunction<typeof getMatchSummary>;
+const mockAnnounce = announceLockedPick as jest.MockedFunction<typeof announceLockedPick>;
 
 const at = (mins: number) => new Date(Date.now() + mins * 60_000).toISOString();
+const DEVICE = "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e";
 
 function summary(over: Partial<MatchSummary> = {}): MatchSummary {
   return {
@@ -36,8 +47,8 @@ function summary(over: Partial<MatchSummary> = {}): MatchSummary {
     status: "scheduled", score_home: null, score_away: null, minute: null,
     period: null, injury_time: null, penalty_home: null, penalty_away: null,
     goal_events: [], teams: { home: "Arsenal", away: "Chelsea" },
-    predicted_winner: "Arsenal", probabilities: { home_win: 0.5, draw: 0.27, away_win: 0.23 },
-    predicted_score: { home: 1, away: 0, probability: 0.11 }, confidence: "Medium",
+    predicted_winner: null, probabilities: null, predicted_score: null, confidence: null,
+    matchweek: 11,
     ...over,
   };
 }
@@ -50,282 +61,332 @@ function row(over: Partial<LeagueTipsMineMatch> = {}): LeagueTipsMineMatch {
   };
 }
 
-function mine(r: LeagueTipsMineMatch = row()): LeagueTipsMineResponse {
-  return { league: "epl", matchweek: 11, handle: "SwiftStriker42", matches: [r], disclaimer: "" };
+const OTHER: LeagueTipsMineMatch = {
+  id: 502, home: "Leeds", away: "Everton", kickoff_utc: at(25 * 60), status: "scheduled",
+  score_home: null, score_away: null, model: null, your_prediction: null,
+};
+
+function mine(...rows: LeagueTipsMineMatch[]): LeagueTipsMineResponse {
+  return { league: "epl", matchweek: 11, handle: "SwiftStriker42", matches: rows.length ? rows : [row()], disclaimer: "" };
 }
 
-const MODEL = { predicted_home: 1, predicted_away: 0, model_version: "poisson-elo-club-v0.6" };
+const WEEK: WeekFixture[] = [
+  { id: 501, home: "Arsenal", away: "Chelsea", kickoffUtc: at(24 * 60), status: "scheduled", matchweek: 11 },
+  { id: 502, home: "Leeds", away: "Everton", kickoffUtc: at(25 * 60), status: "scheduled", matchweek: 11 },
+];
 
-function renderPick(s: MatchSummary | null = summary(), competition: "epl" | "wc26" | "ucl" = "epl") {
+const MODEL = { predicted_home: 1, predicted_away: 0, model_version: "poisson-elo-club-v0.6" };
+const PICKED = { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null };
+
+function renderPick(
+  s: MatchSummary | null = summary(),
+  competition: "epl" | "wc26" | "ucl" = "epl",
+  extra: { week?: WeekFixture[]; onLocked?: () => void } = {},
+) {
   const kickoff = s?.kickoff_utc ?? at(24 * 60);
   // The page's live poll keeps reporting the same state unless a test says otherwise.
   if (s) mockSummary.mockResolvedValue(s);
   return render(
     <MatchLiveProvider matchId={501} competition={competition} kickoffUtc={kickoff} initialSummary={s}>
-      <MatchPick competition={competition} matchId={501} home="Arsenal" away="Chelsea" kickoffUtc={kickoff} />
+      <MatchPick
+        competition={competition}
+        matchId={501}
+        home="Arsenal"
+        away="Chelsea"
+        kickoffUtc={kickoff}
+        matchweek={s?.matchweek}
+        week={extra.week ?? WEEK}
+        onLocked={extra.onLocked}
+      />
     </MatchLiveProvider>,
   );
 }
 
+const lockButton = () => screen.getByRole("button", { name: /Lock in|Use \+ and − to set a score|Locking in/ });
+
 beforeEach(() => {
   localStorage.clear();
-  mockDevice.mockReturnValue("8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e");
+  resetRevealStore();
+  mockDevice.mockReturnValue(DEVICE);
   mockPing.mockResolvedValue(undefined);
 });
 afterEach(() => {
   jest.useRealTimers();
-  jest.resetAllMocks();
+  jest.clearAllMocks();
+  mockMine.mockReset();
+  mockSubmit.mockReset();
+  mockSummary.mockReset();
 });
 
-it("offers the scored scoreline stepper before kickoff and locks the pick in", async () => {
-  mockMine.mockResolvedValue(mine());
-  mockSubmit.mockResolvedValue({
-    ok: true, handle: "SwiftStriker42", model: MODEL,
-    prediction: { match_id: 501, predicted_home: 2, predicted_away: 1, updated_at: "2026-11-03T10:00:00+00:00" },
+describe("the empty start and the first-tap rule", () => {
+  it("starts with both boxes empty and the lock disabled", async () => {
+    mockMine.mockResolvedValue(mine());
+    renderPick();
+    const group = await screen.findByRole("group", { name: "Set your score" });
+    expect(within(group).getAllByText("not set")).toHaveLength(2);
+    expect(within(group).queryByText("0")).not.toBeInTheDocument();
+    const lock = lockButton();
+    expect(lock).toBeDisabled();
+    expect(lock).toHaveTextContent("Use + and − to set a score");
+    expect(screen.getByText("Exact score 5 points, right result 2. A locked pick is final.")).toBeInTheDocument();
+    // Both − buttons are live while empty: a first − sets that side to 0.
+    expect(screen.getByRole("button", { name: "Take a goal off Arsenal" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Take a goal off Chelsea" })).toBeEnabled();
   });
-  renderPick();
 
-  const pick = screen.getByRole("region", { name: "Your pick" });
-  expect(within(pick).getByText(/^Locks at kickoff · /)).toBeInTheDocument();
-  const homeGoals = await screen.findByRole("group", { name: "Arsenal goals" });
-  // The model's frozen scoreline stays hidden until the pick is in.
-  expect(screen.queryByText(/Model 1–0/)).not.toBeInTheDocument();
-  expect(screen.getByText(/Your first pick is final/)).toBeInTheDocument();
-
-  fireEvent.click(within(homeGoals).getByRole("button", { name: "More Arsenal goals" }));
-  fireEvent.click(within(homeGoals).getByRole("button", { name: "More Arsenal goals" }));
-  fireEvent.click(screen.getByRole("button", { name: "More Chelsea goals" }));
-  expect(mockSubmit).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Lock in 2–1" }));
-
-  expect(await screen.findByText("You 2–1 · Model 1–0")).toBeInTheDocument();
-  expect(mockSubmit).toHaveBeenCalledWith("epl", {
-    device_id: "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", match_id: 501, predicted_home: 2, predicted_away: 1,
+  it("first + sets that side to 1 and the empty other side to 0", async () => {
+    mockMine.mockResolvedValue(mine());
+    renderPick();
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    expect(lockButton()).toBeEnabled();
+    expect(lockButton()).toHaveTextContent("Lock in Arsenal 1–0 Chelsea");
   });
-  expect(mockTrack).toHaveBeenCalledWith("pick_submit", { competition: "epl", match_id: 501, source: "match_page" });
-  // A pick is engagement (gates the install prompt) and pings retention.
-  expect(JSON.parse(localStorage.getItem("finalwhistle:engagement:v1") ?? "{}").picks).toBe(1);
-  expect(mockPing).toHaveBeenCalled();
-  // /play's cache sees it at once.
-  expect(JSON.parse(localStorage.getItem("finalwhistle:league-tips:v1:epl:11") ?? "{}")[501]).toEqual({
-    predicted_home: 2, predicted_away: 1,
+
+  it("first − sets that side to 0 and the empty other side to 0", async () => {
+    mockMine.mockResolvedValue(mine());
+    renderPick();
+    fireEvent.click(await screen.findByRole("button", { name: "Take a goal off Chelsea" }));
+    expect(lockButton()).toHaveTextContent("Lock in Arsenal 0–0 Chelsea");
+    // At 0 the − is spent; the + still works.
+    expect(screen.getByRole("button", { name: "Take a goal off Chelsea" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add a goal for Chelsea" }));
+    expect(lockButton()).toHaveTextContent("Lock in Arsenal 0–1 Chelsea");
   });
-  expect(screen.queryByRole("group", { name: "Arsenal goals" })).not.toBeInTheDocument();
-});
 
-it("looks the pick up in the payload's matchweek with a single request", async () => {
-  mockMine.mockResolvedValue(mine(row({
-    model: MODEL,
-    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  renderPick(summary({ matchweek: 11 }));
-  expect(await screen.findByText("You 2–1 · Model 1–0")).toBeInTheDocument();
-  expect(mockMine).toHaveBeenCalledTimes(1);
-  expect(mockMine).toHaveBeenCalledWith("epl", "8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e", 11);
-});
-
-it("caps the stepper at 0–9 goals", async () => {
-  mockMine.mockResolvedValue(mine());
-  renderPick();
-  const homeGoals = await screen.findByRole("group", { name: "Arsenal goals" });
-  expect(within(homeGoals).getByRole("button", { name: "Fewer Arsenal goals" })).toBeDisabled();
-  for (let i = 0; i < 12; i += 1) {
-    fireEvent.click(within(homeGoals).getByRole("button", { name: "More Arsenal goals" }));
-  }
-  expect(within(homeGoals).getByText("9")).toBeInTheDocument();
-  expect(within(homeGoals).getByRole("button", { name: "More Arsenal goals" })).toBeDisabled();
-});
-
-it("shows an existing pick against the model instead of the stepper", async () => {
-  mockMine.mockResolvedValue(mine(row({
-    model: MODEL,
-    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  renderPick();
-  expect(await screen.findByText("You 2–1 · Model 1–0")).toBeInTheDocument();
-  expect(screen.getByText(/Locked in/)).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
-});
-
-it("is locked after kickoff with no pick, and reveals the model's frozen scoreline", async () => {
-  const kicked = summary({ kickoff_utc: at(-20), status: "in_play", minute: 20, period: "first_half", score_home: 0, score_away: 0 });
-  mockMine.mockResolvedValue(mine(row({ kickoff_utc: kicked.kickoff_utc, status: "in_play", model: MODEL })));
-  renderPick(kicked);
-  expect(screen.getByText("Locked at kickoff")).toBeInTheDocument();
-  expect(await screen.findByText("Picks closed at kickoff")).toBeInTheDocument();
-  expect(screen.getByText(/Model 1–0/)).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
-});
-
-it("grades the pick after full time with points and links to the game", async () => {
-  const done = summary({ kickoff_utc: at(-3 * 24 * 60), status: "finished", score_home: 3, score_away: 1 });
-  mockMine.mockResolvedValue(mine(row({
-    kickoff_utc: done.kickoff_utc, status: "finished", score_home: 3, score_away: 1, model: MODEL,
-    your_prediction: {
-      predicted_home: 2, predicted_away: 1, points: 2, exact: false,
-      graded_at: "2026-11-01T18:00:00+00:00", updated_at: null,
-    },
-  })));
-  renderPick(done);
-  expect(await screen.findByText("You +2 pts · right result")).toBeInTheDocument();
-  expect(screen.getByText("You 2–1 · Model 1–0 · Final 3–1")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Your picks →" })).toHaveAttribute("href", "/play?competition=epl");
-  expect(screen.getByRole("link", { name: "Leaderboard →" })).toHaveAttribute("href", "/leaderboard?competition=epl");
-});
-
-it("keeps the shell and offers a retry when the tips API fails", async () => {
-  mockMine.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValue(mine());
-  renderPick();
-  expect(await screen.findByText("Picks unavailable right now")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Your pick" })).toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-  expect(await screen.findByRole("group", { name: "Arsenal goals" })).toBeInTheDocument();
-});
-
-it("shows the pick that already exists when the server says it is final", async () => {
-  mockMine
-    .mockResolvedValueOnce(mine())
-    .mockResolvedValue(mine(row({
-      model: MODEL,
-      your_prediction: { predicted_home: 1, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-    })));
-  mockSubmit.mockRejectedValue(
-    new ApiError(409, "prediction_finalized", "Your prediction is final because the model score has been revealed."),
-  );
-  renderPick();
-  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
-
-  expect(await screen.findByText("You 1–1 · Model 1–0")).toBeInTheDocument();
-  expect(screen.getByRole("alert")).toHaveTextContent(/final because the model score has been revealed/);
-  expect(mockTrack).not.toHaveBeenCalled();
-});
-
-it("locks the stepper at kickoff on an open tab, without a reload", async () => {
-  jest.useFakeTimers();
-  const soon = summary({ kickoff_utc: at(0.25) }); // kicks off in 15 s
-  mockMine.mockResolvedValue(mine(row({ kickoff_utc: soon.kickoff_utc, model: MODEL })));
-  renderPick(soon);
-  await act(async () => {});
-  expect(screen.getByRole("button", { name: "Lock in 0–0" })).toBeInTheDocument();
-
-  await act(async () => { jest.advanceTimersByTime(30_000); });
-  await waitFor(() => expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument());
-  expect(screen.getByText("Picks closed at kickoff")).toBeInTheDocument();
-  expect(screen.getByText("Locked at kickoff")).toBeInTheDocument();
-});
-
-// --- Review fixes --------------------------------------------------------
-
-it("lets 'finished' from the tips row win over a stale page seed (H1)", async () => {
-  // A cached page still says in_play hours later and the refresh failed; the
-  // never-cached tips row already knows the match finished.
-  const strandedSeed = summary({
-    kickoff_utc: at(-8 * 60), status: "in_play", score_home: 1, score_away: 0, minute: 90, period: "second_half",
+  it("then steps by one, clamped at 15", async () => {
+    mockMine.mockResolvedValue(mine());
+    renderPick();
+    const plus = await screen.findByRole("button", { name: "Add a goal for Arsenal" });
+    for (let i = 0; i < 20; i += 1) fireEvent.click(plus);
+    expect(lockButton()).toHaveTextContent("Lock in Arsenal 15–0 Chelsea");
+    expect(plus).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Take a goal off Arsenal" }));
+    expect(lockButton()).toHaveTextContent("Lock in Arsenal 14–0 Chelsea");
   });
-  mockMine.mockResolvedValue(mine(row({
-    kickoff_utc: strandedSeed.kickoff_utc, status: "finished", score_home: 3, score_away: 1, model: MODEL,
-    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  renderPick(strandedSeed);
-  mockSummary.mockRejectedValue(new Error("cold start"));
-  expect(await screen.findByText("Full time 3–1 · points land when the result is graded")).toBeInTheDocument();
-  expect(screen.queryByText(/Result pending/)).not.toBeInTheDocument();
-});
 
-it("closes the stepper at once when the server says the match is locked (L3)", async () => {
-  mockMine.mockResolvedValue(mine());
-  mockSubmit.mockRejectedValue(new ApiError(422, "match_locked", "Match 501 has kicked off and is locked."));
-  renderPick();
-  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
-
-  // No waiting for the 30 s clock, and nothing left to tap into the rate limit.
-  expect(await screen.findByText("Picks closed at kickoff")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
-  expect(screen.getByRole("alert")).toHaveTextContent("This match has kicked off, so picks are closed.");
-  expect(mockSubmit).toHaveBeenCalledTimes(1);
-});
-
-it("stops offering the stepper when the server has a pick the lookup cannot find (L4)", async () => {
-  // The payload's week does not list the match: no row, so the stepper shows.
-  mockMine.mockResolvedValue({ ...mine(), matches: [] });
-  mockSubmit.mockRejectedValue(
-    new ApiError(409, "prediction_finalized", "Your prediction is final because the model score has been revealed."),
-  );
-  renderPick(summary({ matchweek: 11 }));
-  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
-
-  expect(await screen.findByText("Your pick for this match is already locked in")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /See it in Play/ })).toHaveAttribute("href", "/play?competition=epl");
-  // It re-fetched once to look for the pick, then stopped -- no loop.
-  await waitFor(() => expect(mockMine).toHaveBeenCalledTimes(2));
-});
-
-it.each([
-  ["postponed", "Postponed · your pick carries over to the new date"],
-  ["cancelled", "Cancelled · this pick won't be scored"],
-  ["suspended", "Suspended · points wait on the outcome"],
-] as const)("tells a %s match's existing pick what happens to it (L5)", async (status, copy) => {
-  mockMine.mockResolvedValue(mine(row({
-    status, model: MODEL,
-    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  renderPick(summary({ status }));
-  expect(await screen.findByText(copy)).toBeInTheDocument();
-  expect(screen.queryByText(/Locked in · 5 pts/)).not.toBeInTheDocument();
-});
-
-it("re-reads the pick once when a sign-in claim changes whose tips this device shows", async () => {
-  mockMine.mockResolvedValue(mine(row({
-    model: MODEL,
-    your_prediction: { predicted_home: 2, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  renderPick(summary({ matchweek: 11 }));
-  expect(await screen.findByText("You 2–1 · Model 1–0")).toBeInTheDocument();
-  expect(mockMine).toHaveBeenCalledTimes(1);
-
-  // After the claim the account's pick (made on another device) is the one that counts.
-  mockMine.mockResolvedValue(mine(row({
-    model: MODEL,
-    your_prediction: { predicted_home: 1, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  act(() => announceTipsIdentityChanged());
-  expect(await screen.findByText("You 1–1 · Model 1–0")).toBeInTheDocument();
-  expect(mockMine).toHaveBeenCalledTimes(2);
-});
-
-it("forgets a pick it only knew locally when the identity changes", async () => {
-  mockMine.mockResolvedValue(mine());
-  mockSubmit.mockResolvedValue({
-    ok: true, handle: "SwiftStriker42", model: MODEL,
-    prediction: { match_id: 501, predicted_home: 3, predicted_away: 1, updated_at: "2026-11-03T10:00:00+00:00" },
+  it("announces the boxes politely", async () => {
+    mockMine.mockResolvedValue(mine());
+    const { container } = renderPick();
+    await screen.findByRole("group", { name: "Set your score" });
+    expect(container.querySelectorAll('#pick [aria-live="polite"]')).toHaveLength(2);
   });
-  renderPick(summary({ matchweek: 11 }));
-  fireEvent.click(await screen.findByRole("button", { name: "Lock in 0–0" }));
-  expect(await screen.findByText("You 3–1 · Model 1–0")).toBeInTheDocument();
-
-  // The claim merged this device away and the server kept another pick.
-  mockMine.mockResolvedValue(mine(row({
-    model: MODEL,
-    your_prediction: { predicted_home: 1, predicted_away: 1, points: null, exact: null, graded_at: null, updated_at: null },
-  })));
-  act(() => announceTipsIdentityChanged());
-  expect(await screen.findByText("You 1–1 · Model 1–0")).toBeInTheDocument();
-  expect(screen.queryByText("You 3–1 · Model 1–0")).not.toBeInTheDocument();
 });
 
-it("keeps the World Cup's W/D/L pick as its knockout adapter", () => {
-  renderPick(summary(), "wc26");
-  const group = screen.getByRole("group", { name: /Your prediction for Arsenal vs Chelsea/ });
-  expect(within(group).getByRole("button", { name: "Draw" })).toBeInTheDocument();
-  expect(mockMine).not.toHaveBeenCalled();
+describe("locking", () => {
+  it("submits through the existing endpoint, announces the pick, and shows it as final", async () => {
+    mockMine.mockResolvedValue(mine(row(), OTHER));
+    mockSubmit.mockResolvedValue({
+      ok: true, handle: "SwiftStriker42", model: MODEL,
+      prediction: { match_id: 501, predicted_home: 2, predicted_away: 1, updated_at: "2026-11-03T10:00:00+00:00" },
+    });
+    const onLocked = jest.fn();
+    renderPick(summary(), "epl", { onLocked });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a goal for Arsenal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a goal for Chelsea" }));
+    expect(mockSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Arsenal 2–1 Chelsea" }));
+
+    expect(await screen.findByText(/Locked\. You and the model agree on the result and differ on the score\./)).toBeInTheDocument();
+    expect(mockSubmit).toHaveBeenCalledWith("epl", {
+      device_id: DEVICE, match_id: 501, predicted_home: 2, predicted_away: 1,
+    });
+    expect(mockAnnounce).toHaveBeenCalledWith({
+      competition: "epl", matchId: 501, matchweek: 11,
+      pick: { kind: "score", home: 2, away: 1, points: null, exact: null, gradedAt: null },
+    });
+    expect(onLocked).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith("pick_submit", { competition: "epl", match_id: 501, source: "match_page" });
+    expect(JSON.parse(localStorage.getItem("finalwhistle:engagement:v1") ?? "{}").picks).toBe(1);
+    expect(mockPing).toHaveBeenCalled();
+    // /play's cache sees it at once (written by announceLockedPick).
+    expect(JSON.parse(localStorage.getItem("finalwhistle:league-tips:v1:epl:11") ?? "{}")[501]).toEqual({
+      predicted_home: 2, predicted_away: 1,
+    });
+    // Final: no steppers, no lock, no edit.
+    expect(screen.queryByRole("group", { name: "Set your score" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lock in|Add a goal|Take a goal|Edit|Change/ })).not.toBeInTheDocument();
+    // On to the next unpicked match of the matchweek.
+    expect(await screen.findByRole("link", { name: "Next: Leeds v Everton" })).toHaveAttribute(
+      "href",
+      "/football/epl/match/502",
+    );
+  });
+
+  it("says All picked when nothing else in the matchweek is open and unpicked", async () => {
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: PICKED }), { ...OTHER, your_prediction: PICKED }));
+    renderPick();
+    expect(await screen.findByRole("link", { name: "All picked. See my picks" })).toHaveAttribute(
+      "href",
+      "/play?competition=epl",
+    );
+  });
+
+  it("shows an existing pick as locked, never the stepper", async () => {
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: PICKED })));
+    renderPick();
+    expect(await screen.findByText(/Locked\. You and the model agree on the result/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lock in|Add a goal/ })).not.toBeInTheDocument();
+  });
+
+  it("looks the pick up in the payload's matchweek", async () => {
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: PICKED })));
+    renderPick(summary({ matchweek: 11 }));
+    await screen.findByText(/Locked\./);
+    expect(mockMine).toHaveBeenCalledWith("epl", DEVICE, 11);
+    expect(mockMine.mock.calls.every((c) => c[2] === 11)).toBe(true);
+  });
+
+  it("shows the pick that already exists when the server says it is final", async () => {
+    mockMine
+      .mockResolvedValueOnce(mine())
+      .mockResolvedValue(mine(row({ model: MODEL, your_prediction: { ...PICKED, predicted_home: 1, predicted_away: 1 } })));
+    mockSubmit.mockRejectedValue(
+      new ApiError(409, "prediction_finalized", "Your prediction is final because the model score has been revealed."),
+    );
+    renderPick(summary(), "epl", { week: [] });
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Arsenal 1–0 Chelsea" }));
+
+    expect(await screen.findByText(/Locked\. You are against the model on this one\./)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/final because the model score has been revealed/);
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(mockAnnounce).not.toHaveBeenCalled();
+  });
+
+  it("closes the stepper at once when the server says the match is locked", async () => {
+    mockMine.mockResolvedValue(mine());
+    mockSubmit.mockRejectedValue(new ApiError(422, "match_locked", "Match 501 has kicked off and is locked."));
+    renderPick(summary(), "epl", { week: [] });
+    fireEvent.click(await screen.findByRole("button", { name: "Take a goal off Arsenal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Arsenal 0–0 Chelsea" }));
+
+    expect(await screen.findByText(/Picks closed at kick-off/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("This match has kicked off, so picks are closed.");
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the draft and says so calmly when the network fails", async () => {
+    mockMine.mockResolvedValue(mine());
+    mockSubmit.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderPick();
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Arsenal 1–0 Chelsea" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Couldn’t save your pick/);
+    expect(lockButton()).toHaveTextContent("Lock in Arsenal 1–0 Chelsea");
+    expect(mockAnnounce).not.toHaveBeenCalled();
+  });
+
+  it("stops offering the stepper when the server has a pick the lookup cannot find", async () => {
+    mockMine.mockResolvedValue({ ...mine(), matches: [] });
+    mockSubmit.mockRejectedValue(
+      new ApiError(409, "prediction_finalized", "Your prediction is final because the model score has been revealed."),
+    );
+    renderPick(summary({ matchweek: 11 }), "epl", { week: [] });
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Arsenal 1–0 Chelsea" }));
+
+    expect(await screen.findByText("Your pick for this match is already locked in.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lock in/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "See it in My picks" })).toHaveAttribute("href", "/play?competition=epl");
+  });
 });
 
-it("says plainly when a competition's score picks are not open", () => {
-  renderPick(summary(), "ucl");
-  expect(screen.getByText(/Score picks for UEFA Champions League aren.t open yet/)).toBeInTheDocument();
-  expect(mockMine).not.toHaveBeenCalled();
+describe("other states", () => {
+  it("after kickoff with no pick: closed, no model numbers, no stepper", async () => {
+    const kicked = summary({ kickoff_utc: at(-20), status: "in_play", minute: 20, period: "first_half", score_home: 0, score_away: 0 });
+    mockMine.mockResolvedValue(mine(row({ kickoff_utc: kicked.kickoff_utc, status: "in_play", model: MODEL })));
+    renderPick(kicked, "epl", { week: [] });
+    expect(await screen.findByText("Picks closed at kick-off. You didn’t pick this one.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lock in|Add a goal/ })).not.toBeInTheDocument();
+  });
+
+  it("renders nothing for a finished match (the call card shows the pick and its points)", async () => {
+    const done = summary({ kickoff_utc: at(-3 * 24 * 60), status: "finished", score_home: 3, score_away: 1 });
+    mockMine.mockResolvedValue(mine(row({ status: "finished", score_home: 3, score_away: 1, model: MODEL, your_prediction: PICKED })));
+    const { container } = renderPick(done);
+    await waitFor(() => expect(container.querySelector("#pick")).toBeNull());
+  });
+
+  it("keeps the shell and offers a retry when the tips API fails", async () => {
+    mockMine.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValue(mine());
+    renderPick();
+    expect(await screen.findByText("Picks are unavailable right now.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your pick" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("group", { name: "Set your score" })).toBeInTheDocument();
+  });
+
+  it("locks the stepper at kickoff on an open tab, without a reload", async () => {
+    jest.useFakeTimers();
+    const soon = summary({ kickoff_utc: at(0.25) }); // kicks off in 15 s
+    mockMine.mockResolvedValue(mine(row({ kickoff_utc: soon.kickoff_utc })));
+    renderPick(soon, "epl", { week: [] });
+    await act(async () => {});
+    expect(screen.getByRole("group", { name: "Set your score" })).toBeInTheDocument();
+
+    await act(async () => { jest.advanceTimersByTime(30_000); });
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Set your score" })).not.toBeInTheDocument());
+    expect(screen.getByText(/Picks closed at kick-off/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["postponed", "Postponed. Your pick carries over to the new date."],
+    ["cancelled", "Cancelled. This pick won’t be scored."],
+    ["suspended", "Suspended. Points wait on the outcome."],
+  ] as const)("tells a %s match's existing pick what happens to it", async (status, copy) => {
+    mockMine.mockResolvedValue(mine(row({ status, model: MODEL, your_prediction: PICKED })));
+    renderPick(summary({ status }), "epl", { week: [] });
+    expect(await screen.findByText(`Locked. ${copy}`)).toBeInTheDocument();
+  });
+
+  it("re-reads the pick when a sign-in claim changes whose tips this device shows", async () => {
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: PICKED })));
+    renderPick(summary(), "epl", { week: [] });
+    expect(await screen.findByText(/agree on the result/)).toBeInTheDocument();
+
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: { ...PICKED, predicted_home: 1, predicted_away: 0 } })));
+    act(() => announceTipsIdentityChanged());
+    expect(await screen.findByText(/picked the same score/)).toBeInTheDocument();
+  });
+
+  it("forgets a pick it only knew locally when the identity changes", async () => {
+    mockMine.mockResolvedValue(mine());
+    mockSubmit.mockResolvedValue({
+      ok: true, handle: "SwiftStriker42", model: MODEL,
+      prediction: { match_id: 501, predicted_home: 3, predicted_away: 1, updated_at: "2026-11-03T10:00:00+00:00" },
+    });
+    renderPick(summary(), "epl", { week: [] });
+    const plus = await screen.findByRole("button", { name: "Add a goal for Arsenal" });
+    fireEvent.click(plus);
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Arsenal 1–0 Chelsea" }));
+    expect(await screen.findByText(/agree on the result/)).toBeInTheDocument();
+
+    localStorage.clear(); // the claim clears local caches
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: { ...PICKED, predicted_home: 0, predicted_away: 2 } })));
+    act(() => announceTipsIdentityChanged());
+    expect(await screen.findByText(/against the model/)).toBeInTheDocument();
+  });
+
+  it("keeps the World Cup's W/D/L pick for an open archive fixture", () => {
+    renderPick(summary(), "wc26");
+    const group = screen.getByRole("group", { name: /Your prediction for Arsenal vs Chelsea/ });
+    expect(within(group).getByRole("button", { name: "Draw" })).toBeInTheDocument();
+    expect(mockMine).not.toHaveBeenCalled();
+  });
+
+  it("shows no pick for a finished World Cup archive match", () => {
+    const { container } = renderPick(summary({ status: "finished", score_home: 1, score_away: 0, kickoff_utc: at(-500) }), "wc26");
+    expect(container.querySelector("#pick")).toBeNull();
+  });
+
+  it("says plainly when a competition has no pick game", () => {
+    renderPick(summary(), "ucl");
+    expect(screen.getByText(/Score picks for the UEFA Champions League aren.t open yet/)).toBeInTheDocument();
+    expect(mockMine).not.toHaveBeenCalled();
+  });
 });
 
 describe("pickLockLine", () => {
@@ -342,33 +403,29 @@ describe("pickLockLine", () => {
   });
 });
 
-// --- H2: cached HTML hydrates against a later clock ----------------------
-// The page is ISR: HTML rendered before kickoff (or the evening before) is
-// hydrated after it. With the server's render instant passed in, the first
-// client pass matches the HTML exactly; the browser clock takes over after.
-
-describe("hydrating cached HTML (H2)", () => {
+// The page is ISR: HTML rendered before kickoff is hydrated after it. With
+// the server's render instant passed in, the first client pass matches the
+// HTML exactly; the browser clock takes over after.
+describe("hydrating cached HTML", () => {
   const KO = "2026-11-08T15:00:00+00:00";
   const seedAt = summary({ kickoff_utc: KO, matchweek: 11 });
-  function HeroAndPick({ serverNow }: { serverNow: string }) {
-    return (
-      <MatchLiveProvider matchId={501} competition="epl" kickoffUtc={KO} initialSummary={seedAt} serverNow={serverNow}>
-        <MatchScoreboard
-          matchId={501}
-          home="Arsenal"
-          away="Chelsea"
-          kickoffUtc={KO}
-          probabilities={{ home_win: 0.5, draw: 0.27, away_win: 0.23 }}
-          predicted={{ home: 1, away: 0, probability: 0.11 }}
-          competition="epl"
-        />
-        <MatchPick competition="epl" matchId={501} home="Arsenal" away="Chelsea" kickoffUtc={KO} matchweek={11} />
-      </MatchLiveProvider>
-    );
-  }
   function tree(serverNow: string) {
     return function HeroAndPickAt() {
-      return <HeroAndPick serverNow={serverNow} />;
+      return (
+        <MatchLiveProvider matchId={501} competition="epl" kickoffUtc={KO} initialSummary={seedAt} serverNow={serverNow}>
+          <MatchHero
+            competitionLabel="Premier League"
+            home={{ name: "Arsenal", href: null, standing: null }}
+            away={{ name: "Chelsea", href: null, standing: null }}
+            kickoffUtc={KO}
+            venue={null}
+            summary={seedAt}
+            phase="upcoming"
+          >
+            <MatchPick competition="epl" matchId={501} home="Arsenal" away="Chelsea" kickoffUtc={KO} matchweek={11} week={[]} />
+          </MatchHero>
+        </MatchLiveProvider>
+      );
     };
   }
 
@@ -378,7 +435,7 @@ describe("hydrating cached HTML (H2)", () => {
     mockMine.mockResolvedValue(mine(row({ kickoff_utc: KO })));
   });
 
-  it("rendered a minute before kickoff, hydrated a minute after: no mismatch, then locked", async () => {
+  it("rendered a minute before kickoff, hydrated a minute after: no mismatch, then closed", async () => {
     const serverNow = "2026-11-08T14:59:00.000Z";
     jest.useFakeTimers({ now: new Date(serverNow) });
     const { html, container, errors } = await hydrateAcrossTime(
@@ -386,21 +443,10 @@ describe("hydrating cached HTML (H2)", () => {
       new Date(serverNow),
       new Date("2026-11-08T15:01:00Z"),
     );
-    expect(html).toContain("Locks at kickoff · 3:00 PM UTC");
+    expect(html).toContain("3:00 PM");
+    expect(html).toContain("Loading your pick");
     expect(errors).toEqual([]);
-    expect(container).toHaveTextContent("Locked at kickoff");
-  });
-
-  it("rendered the evening before, hydrated the next morning: no Tomorrow/Today mismatch", async () => {
-    const serverNow = "2026-11-07T22:00:00.000Z";
-    jest.useFakeTimers({ now: new Date(serverNow) });
-    const { html, container, errors } = await hydrateAcrossTime(
-      tree(serverNow),
-      new Date(serverNow),
-      new Date("2026-11-08T08:00:00Z"),
-    );
-    expect(html).toContain("Locks at kickoff · Tomorrow, 3:00 PM UTC");
-    expect(errors).toEqual([]);
-    expect(container).toHaveTextContent("Locks at kickoff · 3:00 PM UTC");
+    await act(async () => {});
+    expect(container).toHaveTextContent("Picks closed at kick-off");
   });
 });

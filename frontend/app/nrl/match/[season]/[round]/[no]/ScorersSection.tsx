@@ -44,7 +44,7 @@ export default function ScorersSection({ detail }: IntelSectionProps) {
   // MatchupSection / LiveSection) when the fetch fails outright.
   if (state.status === "error") {
     return (
-      <div className="glass rounded-2xl p-6 text-sm text-muted">
+      <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6 text-sm text-muted">
         Try-scorer chances are unavailable right now.
       </div>
     );
@@ -55,8 +55,8 @@ export default function ScorersSection({ detail }: IntelSectionProps) {
   const awayScorers = state.data.filter((s) => s.team === "away");
 
   return (
-    <section className="glass rounded-2xl p-6">
-      <h2 className="mb-4 font-display text-lg font-bold text-foreground">Try-scorer chances</h2>
+    <section className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
+      <h2 className="mb-4 text-h2 font-semibold text-ink">Try-scorer chances</h2>
       <div className="grid gap-5 sm:grid-cols-2">
         <TeamScorers name={home} players={homeScorers} />
         <TeamScorers name={away} players={awayScorers} />
@@ -69,7 +69,7 @@ function TeamScorers({ name, players }: { name: string; players: NrlScorer[] }) 
   const top = [...players].sort((a, b) => b.p_anytime - a.p_anytime).slice(0, TOP_N);
   return (
     <div>
-      <div className="text-sm font-bold text-foreground">{name}</div>
+      <div className="text-sm font-bold text-ink">{name}</div>
       {top.length === 0 ? (
         <p className="mt-2 text-sm text-muted">No team list yet.</p>
       ) : (
@@ -81,9 +81,9 @@ function TeamScorers({ name, players }: { name: string; players: NrlScorer[] }) 
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="shrink-0 text-label font-semibold text-muted">{p.position}</span>
-                <span className="truncate text-foreground">{p.player}</span>
+                <span className="truncate text-ink">{p.player}</span>
               </span>
-              <span className="shrink-0 font-display font-bold tabular-nums text-lime-deep">
+              <span className="shrink-0 font-bold tabular-nums text-brand">
                 {pct(p.p_anytime)}
               </span>
             </li>

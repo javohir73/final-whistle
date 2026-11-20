@@ -5,7 +5,7 @@ export function ChanceChip({
   prob,
   deltaText,
   tone,
-  surface = "default",
+  surface: _surface = "default",
 }: {
   prob: number;
   deltaText: string | null;
@@ -15,14 +15,14 @@ export function ChanceChip({
   return (
     <span
       className={cn(
-        "min-w-[58px] rounded-lg px-2 py-1 text-right text-sm font-extrabold tabular-nums",
-        tone === "up" && cn("bg-win/10 ring-1 ring-win/20", surface === "pitch" ? "text-pitch-accent-ink" : "text-lime-deep"),
-        tone === "down" && cn("bg-loss/10 ring-1 ring-loss/20", surface === "pitch" ? "text-pitch-loss-ink" : "text-loss"),
-        tone === "muted" && (surface === "pitch" ? "bg-pitch-chip text-pitch-muted-ink" : "bg-surface-2 text-muted"),
+        "min-w-[58px] rounded-[10px] px-2 py-1 text-right text-notes font-semibold tabular-nums",
+        tone === "up" && "bg-brand-soft text-brand",
+        tone === "down" && "bg-miss-soft text-miss",
+        tone === "muted" && "bg-chip text-muted",
       )}
     >
       {Math.round(prob * 100)}%
-      {deltaText ? <small className="block text-mini font-bold">{deltaText}</small> : null}
+      {deltaText ? <small className="block text-label font-semibold">{deltaText}</small> : null}
     </span>
   );
 }

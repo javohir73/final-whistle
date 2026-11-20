@@ -43,7 +43,7 @@ it.each(["postponed", "cancelled", "suspended"] as const)(
   },
 );
 
-it("TeamFixtures never calls a cancelled fixture Next", () => {
+it("TeamFixtures never lists a cancelled fixture as a next match", () => {
   render(
     <TeamFixtures
       teamName="Arsenal"
@@ -57,11 +57,11 @@ it("TeamFixtures never calls a cancelled fixture Next", () => {
     />,
   );
 
-  expect(screen.getByText("Cancelled")).toBeInTheDocument();
-  expect(screen.getByText("Next").closest("a")).toHaveAttribute("href", "/match/2");
+  const spines = screen.getAllByRole("link", { name: /^Arsenal v / });
+  expect(spines.map((a) => a.getAttribute("href"))).toEqual(["/match/2"]);
 });
 
-it("TeamFixtures never calls an old postponed fixture Next", () => {
+it("TeamFixtures never lists an old postponed fixture as a next match", () => {
   render(
     <TeamFixtures
       teamName="Arsenal"
@@ -78,6 +78,6 @@ it("TeamFixtures never calls an old postponed fixture Next", () => {
     />,
   );
 
-  expect(screen.getByText("Postponed")).toBeInTheDocument();
-  expect(screen.getByText("Next").closest("a")).toHaveAttribute("href", "/match/2");
+  const spines = screen.getAllByRole("link", { name: /^Arsenal v / });
+  expect(spines.map((a) => a.getAttribute("href"))).toEqual(["/match/2"]);
 });

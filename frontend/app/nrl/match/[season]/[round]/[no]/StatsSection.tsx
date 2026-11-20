@@ -49,12 +49,12 @@ export default function StatsSection({ detail }: IntelSectionProps) {
 
   if (stats === undefined) {
     return (
-      <div className="glass rounded-2xl p-6 text-sm text-muted">Loading match stats…</div>
+      <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6 text-sm text-muted">Loading match stats…</div>
     );
   }
   if (stats === null) {
     return (
-      <div className="glass rounded-2xl p-6 text-sm text-muted">
+      <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6 text-sm text-muted">
         Team stats are published after full time.
       </div>
     );

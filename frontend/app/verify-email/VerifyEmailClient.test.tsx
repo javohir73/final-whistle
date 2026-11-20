@@ -53,6 +53,6 @@ it("announces progress as a status and a failure as an alert", async () => {
   reject(new ApiError(400, "invalid_token", "This verification link is invalid or has expired."));
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent(/invalid or has expired/i);
-  // Daylight-safe ink (text-loss measured 3.5:1 on white).
-  expect(alert).toHaveClass("text-loss-ink");
+  // Direction G miss ink (#8a3324, AA on white).
+  expect(alert).toHaveClass("text-miss");
 });

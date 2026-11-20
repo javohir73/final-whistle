@@ -68,7 +68,9 @@ it.each(REGISTERED_COMPETITIONS)("keeps the $id chip label AA-safe on its own wa
   }
 });
 
-it("still routes the eyebrow chip through its registry competition's ink", () => {
+it("paints the eyebrow chip in ink on the neutral chip fill (one accent; the logo identifies the competition)", () => {
   const source = fs.readFileSync(path.join(root, "components/Eyebrow.tsx"), "utf8");
-  expect(source).toContain("accentInkVar(comp)");
+  expect(source).toMatch(/bg-chip[^"]*text-ink/);
+  // ink on chip clears AA by a wide margin.
+  expect(ratio(color("fw-ink"), color("fw-chip"))).toBeGreaterThanOrEqual(4.5);
 });

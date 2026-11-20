@@ -1,6 +1,7 @@
 import { SkeletonCardGrid, SkeletonScreen } from "@/components/Skeleton";
+import { Button, Card, EmptyState } from "@/components/ui";
 
-/** Shared loading / error / empty UI states with premium skeletons. */
+/** Shared loading / error / empty UI states (direction G: the ui EmptyState card). */
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
     <SkeletonScreen label={label}>
@@ -21,22 +22,14 @@ export function ErrorState({
   hint?: string | null;
 }) {
   return (
-    <div
-      role="alert"
-      className="glass rounded-2xl border-loss/30 p-6 text-center"
-    >
-      <p className="font-display text-lg font-bold text-loss-ink">Something went wrong</p>
-      <p className="mt-1 text-sm text-muted">{message}</p>
-      {hint && <p className="mt-3 text-sm text-hint-ink">{hint}</p>}
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-4 rounded-lg bg-win px-4 py-2 text-sm font-bold text-pitch transition hover:brightness-110"
-        >
-          Try again
-        </button>
-      )}
+    <div role="alert">
+      <EmptyState
+        title="Something went wrong"
+        actions={onRetry ? <Button onClick={onRetry}>Try again</Button> : undefined}
+      >
+        <p className="text-ink">{message}</p>
+        {hint && <p className="mt-2">{hint}</p>}
+      </EmptyState>
     </div>
   );
 }
@@ -49,9 +42,9 @@ export function Empty({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="glass rounded-2xl p-12 text-center text-muted">
-      {label}
-      {action && <div className="mt-4 flex justify-center">{action}</div>}
-    </div>
+    <Card className="flex flex-col items-center gap-4 px-4 py-12 text-center text-muted min-[900px]:px-7">
+      <p>{label}</p>
+      {action && <div className="flex justify-center">{action}</div>}
+    </Card>
   );
 }

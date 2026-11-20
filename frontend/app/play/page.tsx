@@ -1,22 +1,23 @@
 import type { Metadata } from "next";
-import { getKnockoutOddsServer, getNrlTipsheetServer } from "@/lib/api";
+import { redirect } from "next/navigation";
+import { getKnockoutOddsServer, getUpcomingMatchesServer } from "@/lib/api";
 import { parseCompetition } from "@/lib/competitionPrefs";
 import { readServerCompetition } from "@/lib/competitionServer";
-import { nrlSeasonStart, nrlSeasonState } from "@/lib/nrlTips";
 import { getCompetitionTournament } from "@/lib/tournament";
+import { pickGameFor } from "@/lib/reveal";
 import type { TournamentOdds } from "@/lib/types";
-import type { BracketChampion } from "@/components/play/PlayBracketCard";
-import { PlayHub } from "./PlayHub";
-import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { PlayBracketCard, type BracketChampion } from "@/components/play/PlayBracketCard";
+import { MyPicks } from "@/components/play/MyPicks";
+import { EmptyState, GhostButton, Main, PageHead, TextLink } from "@/components/ui";
+import { COMPETITIONS, competitionLinks, type CompetitionId } from "@/lib/sports";
 
 // The page is request-dependent (?competition=, else the visitor's current
-// competition), so it renders per request; the backend fetches below keep
-// their own Data Cache revalidate, and picks and leaderboards still resolve
-// inside the client sections.
+// competition), so it renders per request; the picks themselves resolve
+// client-side (device-scoped, never in server HTML).
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "Beat the model — Premier League, La Liga, Bundesliga and NRL picks",
+  title: "My picks — Premier League, La Liga and Bundesliga score picks",
   description:
     "Pick the scores against FinalWhistle's model, matchweek by matchweek: 5 points for an exact score, 2 for the right result, every pick graded on a public leaderboard.",
   alternates: { canonical: "/play" },
@@ -25,8 +26,7 @@ export const metadata: Metadata = {
 /** The model's predicted champion for the bracket card: the top-`win_title`
  *  team. Filters out null win_title first so a pre-simulation payload (every
  *  win_title null) yields null -- PlayBracketCard then degrades to a plain link
- *  rather than printing a "—%" champion. Mirrors AIBracket's champion pick in
- *  app/brackets/BracketsClient.tsx (sort by win_title desc), minus the topology. */
+ *  rather than printing a "—%" champion. */
 function topChampion(odds: TournamentOdds[]): BracketChampion | null {
   const top = odds
     .filter((o) => o.win_title != null)
@@ -34,51 +34,76 @@ function topChampion(odds: TournamentOdds[]): BracketChampion | null {
   return top ? { team: top.team, winTitle: top.win_title as number } : null;
 }
 
-/** The Play hub ("Beat the model"): every competition you can play against
- *  the model, current competition first. Server-fetches, in parallel: the
- *  current NRL round (always -- it's ISR-cached, and the NRL section can now
- *  be opened client-side alongside others), plus the World Cup tournament and
- *  knockout odds only when the World Cup is the requested competition (its
- *  bracket card degrades to a plain link otherwise). Each degrades honestly
- *  to null/false so the hub always renders. League tips carry no public seed
- *  (they resolve client-side). */
 type PlayPageProps = {
-  searchParams?: Promise<{ competition?: string | string[] }>;
+  searchParams?: Promise<{ competition?: string | string[]; mw?: string | string[] }>;
 };
 
+function first(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/** "My picks" for one competition (the prototype's pagePicks). `?competition=`
+ *  when it names a real competition, else the visitor's current competition
+ *  (the same scope the nav shows). `?mw=` opens an earlier or later matchweek.
+ *  Club leagues with a score-pick game get the matchweek list; the NRL keeps
+ *  its own tips page; the finished World Cup is an archive; anything else
+ *  (the Champions League today) says picks are not open. */
 export default async function PlayPage({ searchParams }: PlayPageProps) {
-  // `?competition=` when it names a real competition (parseCompetition is an
-  // own-property check: "toString" is not a competition), else the visitor's
-  // current competition -- the same scope the nav shows (middleware's
-  // x-fw-comp / the fw_comp cookie, then geo, then EPL). An NRL or La Liga
-  // visitor's Play tab therefore opens on their own competition.
-  const raw = (await searchParams)?.competition;
-  const selectedCompetition: CompetitionId =
-    parseCompetition(Array.isArray(raw) ? raw[0] : raw) ?? (await readServerCompetition());
+  const params = (await searchParams) ?? {};
+  const competition: CompetitionId =
+    parseCompetition(first(params.competition)) ?? (await readServerCompetition());
+  const mwRaw = Number(first(params.mw));
+  const matchweek = Number.isInteger(mwRaw) && mwRaw >= 1 ? mwRaw : null;
+  const config = COMPETITIONS[competition];
+  const links = competitionLinks(competition);
 
-  const [nrlTipsheet, tournament, odds] = await Promise.all([
-    getNrlTipsheetServer().catch(() => null),
-    selectedCompetition === "wc26" ? getCompetitionTournament("wc26") : null,
-    selectedCompetition === "wc26" ? getKnockoutOddsServer().catch(() => null) : null,
-  ]);
+  if (competition === "nrl") redirect(links.picks);
 
-  // The World Cup is a past tournament with a bracket by definition; the
-  // tournament lookup only refines that when it actually ran.
-  const hasBrackets = tournament?.has_brackets ?? COMPETITIONS.wc26.hasBracket;
-  const champion = hasBrackets && odds ? topChampion(odds) : null;
+  if (competition === "wc26") {
+    const [tournament, odds] = await Promise.all([
+      getCompetitionTournament("wc26"),
+      getKnockoutOddsServer().catch(() => null),
+    ]);
+    const hasBrackets = tournament?.has_brackets ?? config.hasBracket;
+    const champion = hasBrackets && odds ? topChampion(odds) : null;
+    return (
+      <>
+        <PageHead
+          eyebrow={`${config.label} · Past tournament`}
+          title="My picks"
+          sub="The World Cup is over and its picks are closed. The bracket and the bracket leaderboard stay here."
+        />
+        <Main className="max-w-[900px]">
+          {hasBrackets ? <PlayBracketCard champion={champion} /> : null}
+          <p>
+            <TextLink href={links.leaderboard}>Bracket leaderboard</TextLink>
+          </p>
+        </Main>
+      </>
+    );
+  }
 
-  // The tipsheet is the current round; the shared rule reads it as a draw of one.
-  const nrlRounds = nrlTipsheet ? [{ matches: nrlTipsheet.matches }] : null;
-  const nrlState = nrlRounds ? nrlSeasonState(nrlRounds) : null;
+  if (pickGameFor(competition) !== "league_tips") {
+    return (
+      <>
+        <PageHead eyebrow={config.label} title="My picks" />
+        <Main className="max-w-[900px]">
+          <EmptyState
+            title="Picks are not open for this competition"
+            actions={<GhostButton href={links.home}>See its matches</GhostButton>}
+          >
+            {config.label} score picks are not open yet. The model’s call on every match is on its match pages.
+          </EmptyState>
+        </Main>
+      </>
+    );
+  }
 
-  return (
-    <PlayHub
-      selectedCompetition={selectedCompetition}
-      nrlTipsheet={nrlTipsheet}
-      nrlState={nrlState}
-      nrlOpensAt={nrlState === "pre-season" && nrlRounds ? nrlSeasonStart(nrlRounds) : null}
-      hasBrackets={hasBrackets}
-      champion={champion}
-    />
-  );
+  // Venues only (the picks themselves are device-scoped and load client-side;
+  // nothing of the model's call leaves the server here).
+  const schedule = await getUpcomingMatchesServer(competition).catch(() => null);
+  const venues: Record<number, string> = {};
+  for (const m of schedule ?? []) if (m.venue) venues[m.match_id] = m.venue;
+
+  return <MyPicks competition={competition} matchweek={matchweek} venues={venues} />;
 }

@@ -11,19 +11,20 @@
  *  raw `H S% L%` string lets callers build `hsl(var-like)` values and derive
  *  soft tints with `hsl(<triple> / <alpha>)`. */
 const ACCENT_PRESETS: Record<string, string> = {
-  lime: "84 66% 52%", // --win (brand default fill)
+  brand: "162 67% 18%", // --fw-brand (the default)
+  lime: "84 66% 52%", // legacy preset, kept so existing partner URLs still resolve
   green: "151 51% 14%", // --pitch (deep green)
-  amber: "41 78% 51%", // --draw
-  rose: "350 84% 62%", // --loss
-  gold: "42 62% 48%", // --gold
+  amber: "41 78% 51%", // legacy preset
+  rose: "350 84% 62%", // legacy preset
+  gold: "42 62% 48%", // legacy preset
   blue: "212 78% 52%",
   violet: "265 68% 60%",
   slate: "215 16% 47%",
 };
 
-/** The brand default accent (deep, AA-on-light lime — same as `--lime-deep`).
- *  Used for text/links/rings where the bright lime would fail contrast. */
-export const DEFAULT_ACCENT = "108 56% 27%";
+/** The brand default accent: direction G's deep green (#0f4d3a, `--fw-brand`),
+ *  AA on white for text and as a fill behind white text. */
+export const DEFAULT_ACCENT = "162 67% 18%";
 
 /** #RGB or #RRGGBB, case-insensitive. */
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -89,6 +90,8 @@ export function accentTint(accent: string, alpha: number): string {
 
 /** Parse the full query string into a validated {@link EmbedConfig}. */
 export function parseEmbedConfig(searchParams: EmbedSearchParams): EmbedConfig {
+  // One theme (direction G): `?mode=dark` from older partner snippets is
+  // parsed and kept on the config, but the card always renders light.
   const modeRaw = first(searchParams.mode)?.toLowerCase();
   const mode: EmbedMode = modeRaw === "dark" ? "dark" : "light";
 

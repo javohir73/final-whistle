@@ -1,4 +1,4 @@
-// Floodlight P1 slice p1-s3: colocates the OG image convention file for this
+// Colocates the OG image convention file for this
 // segment. Next resolves opengraph-image by walking the *matched route's own*
 // segment tree, so re-exporting generateMetadata in page.tsx isn't enough --
 // without this file, /football/wc26/groups/:id fell back to the site-wide

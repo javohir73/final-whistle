@@ -6,12 +6,14 @@ import { TeamBadge } from "@/components/TeamBadge";
 import { rankTeams } from "@/lib/teamSearch";
 import type { Team } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { FIELD_INPUT, SearchIcon, Tag } from "@/components/ui";
 
 const MAX_RESULTS = 8;
 const LIST_ID = "team-search-results";
 const optId = (id: number) => `team-search-opt-${id}`;
 
-/** Home-dashboard search: type a nation, pick a result, land on its
+/** Competition-page search (direction G: the shared 52px field, a quiet
+ *  dropdown with crests). Type a club or nation, pick a result, land on its
  *  /team/[id] profile. A keyboard-accessible combobox over the already-loaded
  *  teams list — display-only, no extra fetch. */
 export function TeamSearch({
@@ -63,12 +65,7 @@ export function TeamSearch({
 
   return (
     <div className="relative">
-      <svg
-        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-        viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-      >
-        <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
-      </svg>
+      <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
       <input
         id="team-search"
         name="team-search"
@@ -91,7 +88,7 @@ export function TeamSearch({
           highlight >= 0 && results[highlight] ? optId(results[highlight].id) : undefined
         }
         autoComplete="off"
-        className="w-full rounded-xl border border-border bg-surface py-3 pl-10 pr-3 text-base transition placeholder:text-muted/60 focus:border-lime-deep/40"
+        className={cn(FIELD_INPUT, "pl-11")}
       />
 
       {showList && (
@@ -99,7 +96,7 @@ export function TeamSearch({
           id={LIST_ID}
           role="listbox"
           aria-label="Team results"
-          className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+          className="absolute z-20 mt-2 max-h-80 w-full overflow-y-auto rounded-input border border-line bg-ground p-1.5 shadow-menu"
         >
           {results.map((t, i) => (
             <li key={t.id}>
@@ -111,22 +108,20 @@ export function TeamSearch({
                 onMouseEnter={() => setHighlight(i)}
                 onClick={() => go(t)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition",
-                  i === highlight ? "bg-surface-2 text-foreground" : "text-foreground hover:bg-surface-2",
+                  "flex min-h-[44px] w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left text-ink transition",
+                  i === highlight ? "bg-soft" : "hover:bg-soft",
                 )}
               >
-                <TeamBadge team={t.name} size={24} />
+                <TeamBadge team={t.name} size={26} decorative />
                 <span className="min-w-0 flex-1 truncate font-medium">{t.name}</span>
                 {t.is_host && (
-                  <span className="shrink-0 rounded-md bg-gold/15 px-1.5 py-0.5 text-note font-bold uppercase tracking-wide text-amber-ink">
-                    Host
-                  </span>
+                  <Tag className="shrink-0">Host</Tag>
                 )}
               </button>
             </li>
           ))}
           {results.length === 0 && (
-            <li className="px-3 py-4 text-center text-sm text-muted">
+            <li className="px-3 py-4 text-center text-notes text-muted">
               No team matches “{trimmed}”.
             </li>
           )}

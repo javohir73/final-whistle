@@ -1,4 +1,4 @@
-/** StandingsTable: the zone-aware Floodlight table that generalises GroupTable.
+/** StandingsTable: the zone-aware table (direction G) that generalises GroupTable.
  *  Two shapes exercised here — a league table with CL/Europa/relegation zone
  *  stripes + legend, and the WC26 group shape (no zones, Top-2 QualificationBar
  *  column, no legend). */
@@ -23,28 +23,32 @@ const leagueTable: StandingRow[] = Array.from({ length: 20 }, (_, i) => ({
   qualification_prob: null,
 }));
 
-/** The `role="row"` element wrapping a team's cells, reached from its name
- *  span (a plain `.closest("div")` now lands on the rowheader wrapper). */
-const rowFor = (name: string) => screen.getByText(name).closest('[role="row"]');
+/** The table row holding a team, reached from its name. */
+const rowFor = (name: string) => screen.getByText(name).closest("tr");
+/** The 3px zone marker sits on the position cell (first cell of the row). */
+const markerOf = (name: string) => rowFor(name)?.querySelector("td");
 
 describe("league table with zones", () => {
   beforeEach(() => {
     render(<StandingsTable standings={leagueTable} zones={EUROPEAN_LEAGUE_ZONES} />);
   });
 
-  it("stripes the rank-1 row with the Champions League (lime) tone", () => {
-    expect(rowFor("Team 1")).toHaveClass("border-l-win");
+  it("marks the rank-1 row with the Champions League (brand) zone", () => {
+    expect(markerOf("Team 1")).toHaveClass("fw-zone-a");
   });
 
-  it("stripes a relegation row (rank 19) with the loss (rose) tone", () => {
-    expect(rowFor("Team 19")).toHaveClass("border-l-loss");
+  it("marks a relegation row (rank 19) with the miss zone", () => {
+    expect(markerOf("Team 19")).toHaveClass("fw-zone-c");
   });
 
-  it("uses actual-surface-safe semantic inks for every zone rank tone", () => {
-    expect(rowFor("Team 1")?.querySelector(".text-rank")).toHaveClass("text-lime-deep");
-    expect(rowFor("Team 5")?.querySelector(".text-rank")).toHaveClass("text-gold-ink");
-    expect(rowFor("Team 10")?.querySelector(".text-rank")).toHaveClass("text-muted");
-    expect(rowFor("Team 19")?.querySelector(".text-rank")).toHaveClass("text-loss-ink");
+  it("gives each band its own marker and leaves mid-table unmarked", () => {
+    expect(markerOf("Team 5")).toHaveClass("fw-zone-b");
+    const mid = markerOf("Team 10");
+    expect(mid).not.toHaveClass("fw-zone-a");
+    expect(mid).not.toHaveClass("fw-zone-b");
+    expect(mid).not.toHaveClass("fw-zone-c");
+    // The position numeral stays muted whatever the zone (the marker carries it).
+    expect(markerOf("Team 1")).toHaveClass("text-muted");
   });
 
   it("renders a legend labelling every zone", () => {
@@ -83,6 +87,7 @@ describe("group shape (no zones, Top-2 qualification column)", () => {
     // header row + one row per team.
     expect(screen.getAllByRole("row")).toHaveLength(3);
     expect(screen.getAllByRole("columnheader").map((c) => c.textContent)).toEqual([
+      "Position",
       "Team",
       "GD",
       "Pts",
@@ -122,6 +127,7 @@ describe("NRL ladder shape (club crests, W–L / Diff / Pts / Top-8% columns)", 
 
   it("swaps in the NRL column headers between the club and the numerals", () => {
     expect(screen.getAllByRole("columnheader").map((c) => c.textContent)).toEqual([
+      "Position",
       "Club",
       "W–L",
       "Diff",
@@ -134,14 +140,17 @@ describe("NRL ladder shape (club crests, W–L / Diff / Pts / Top-8% columns)", 
     expect(screen.getByText("Storm").closest("a")).toHaveAttribute("href", "/nrl/team/1");
   });
 
-  it("normalizes club crests inside one consistent standings tile", () => {
+  it("puts club crests straight on white at 22px, decorative beside the name", () => {
     const crest = document.querySelector('[data-club-logo="Storm"]');
-    expect(crest).toHaveClass("rounded-lg", "border", "bg-surface-2/70");
-    expect(crest).toHaveStyle({ width: "30px", height: "30px" });
+    // No plate behind the crest (logos rule): no border, background or radius.
+    expect(crest).not.toHaveClass("border");
+    expect(crest?.className ?? "").not.toMatch(/\bbg-/);
+    expect(crest).toHaveStyle({ width: "22px", height: "22px" });
+    expect(crest?.querySelector("img")).toHaveAttribute("alt", "");
   });
 
-  it("stripes the rank-1 club with the finals (lime) tone", () => {
-    expect(rowFor("Storm")).toHaveClass("border-l-win");
+  it("marks the rank-1 club with the finals (brand) zone", () => {
+    expect(markerOf("Storm")).toHaveClass("fw-zone-a");
   });
 
   it("renders the W–L, Diff and Pts values", () => {
@@ -188,14 +197,14 @@ describe("NRL ladder finals split (Top 4 vs Finals 5–8)", () => {
     );
   });
 
-  it("keeps the top-4 cutoff visible: rank 4 stays lime, rank 5 turns gold", () => {
-    expect(rowFor("Club 4")).toHaveClass("border-l-win");
-    expect(rowFor("Club 5")).toHaveClass("border-l-gold");
+  it("keeps the top-4 cutoff visible: rank 4 keeps the first marker, rank 5 the second", () => {
+    expect(markerOf("Club 4")).toHaveClass("fw-zone-a");
+    expect(markerOf("Club 5")).toHaveClass("fw-zone-b");
   });
 
   it("stops the finals band at rank 8 (rank 9 misses out entirely)", () => {
-    expect(rowFor("Club 8")).toHaveClass("border-l-gold");
-    expect(rowFor("Club 9")).toHaveClass("border-l-transparent");
+    expect(markerOf("Club 8")).toHaveClass("fw-zone-b");
+    expect(rowFor("Club 9")).not.toHaveAttribute("data-zone");
   });
 
   it("labels both finals bands in the legend", () => {
@@ -236,9 +245,7 @@ describe("empty table honesty", () => {
   // A zone legend above zero rows reads as a broken table (the live pre-draw
   // UCL league phase) — it must wait for rows it can point at.
   it("suppresses the zone legend when there are no rows", () => {
-    const zones = [
-      { label: "Round of 16", tone: "win", fromRank: 1, toRank: 8 },
-    ] as never;
+    const zones = [{ from: 1, to: 8, label: "Round of 16", tone: "cl" as const }];
     const { rerender } = render(<StandingsTable standings={[]} zones={zones} />);
     expect(screen.queryByText("Round of 16")).toBeNull();
 

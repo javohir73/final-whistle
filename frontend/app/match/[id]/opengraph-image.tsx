@@ -1,12 +1,14 @@
 import { ImageResponse } from "next/og";
 import { Shell, OgFlag, OG_SIZE, OG_CONTENT_TYPE, ogFooter, C } from "@/lib/og";
-import { getMatchServer } from "@/lib/api";
+import { getMatchServer, getMatchSummaryServer } from "@/lib/api";
 import { getTournamentForRoute } from "@/lib/tournament";
 import { flagUrl } from "@/lib/flags";
+import { canRevealModelPublicly } from "@/lib/reveal";
+import { asFootballCompetition } from "@/lib/sports";
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "Match prediction — FinalWhistle";
+export const alt = "Match — FinalWhistle";
 
 const pc = (n: number) => `${Math.round(n * 100)}%`;
 
@@ -24,10 +26,17 @@ export default async function Image({
   params,
 }: { params: Promise<{ id: string; comp?: string }> }) {
   const { id, comp } = await params;
-  const [p, tournament] = await Promise.all([
-    getMatchServer(id).catch(() => null),
+  const scoped = asFootballCompetition(comp);
+  const [p, summary, tournament] = await Promise.all([
+    getMatchServer(id, scoped ?? undefined).catch(() => null),
+    getMatchSummaryServer(id, scoped ?? undefined).catch(() => null),
     getTournamentForRoute(comp),
   ]);
+  // A share card is read by people who are not the picker: an OPEN fixture
+  // never shows the model's numbers (lib/reveal). Unknown competition = treat
+  // as one with a pick game (hidden until kickoff).
+  const competition = scoped ?? asFootballCompetition(summary?.competition) ?? "epl";
+  const reveal = !!p && canRevealModelPublicly(competition, summary?.status ?? "scheduled", summary?.kickoff_utc ?? p.kickoff_utc);
 
   if (!p) {
     return new ImageResponse(
@@ -42,6 +51,33 @@ export default async function Image({
 
   const { home, away } = p.teams;
   const { home_win, draw, away_win } = p.probabilities;
+
+  if (!reveal) {
+    // Fixture only: crests/flags, names, and the invitation to pick first.
+    const Side = ({ name }: { name: string }) => (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 400, gap: 18 }}>
+        <OgFlag url={flagUrl(name)} size={104} />
+        <div style={{ display: "flex", fontSize: 48, fontWeight: 700, textAlign: "center", letterSpacing: -1 }}>{name}</div>
+      </div>
+    );
+    return new ImageResponse(
+      (
+        <Shell eyebrow={tournament.name} footer={ogFooter(tournament.name)}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 44 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+              <Side name={home} />
+              <div style={{ display: "flex", fontSize: 40, color: C.muted }}>v</div>
+              <Side name={away} />
+            </div>
+            <div style={{ display: "flex", fontSize: 32, fontWeight: 700, color: C.brand }}>
+              Call the score, then see the model’s
+            </div>
+          </div>
+        </Shell>
+      ),
+      { ...size },
+    );
+  }
 
   const Team = ({ name, prob }: { name: string; prob: number }) => (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 360, gap: 14 }}>

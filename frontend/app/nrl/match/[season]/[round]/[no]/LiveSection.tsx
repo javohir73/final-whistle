@@ -9,7 +9,7 @@ export default function LiveSection({ detail }: IntelSectionProps) {
   const state = useLiveMatch();
   if (state.status === "error") {
     return (
-      <div className="glass rounded-2xl p-6 text-sm text-muted">
+      <div className="rounded-card border border-line bg-ground px-4 py-5 min-[900px]:px-7 min-[900px]:py-6 text-sm text-muted">
         Live updates are unavailable right now.
       </div>
     );

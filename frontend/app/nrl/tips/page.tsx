@@ -1,78 +1,58 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getNrlTipsheetServer } from "@/lib/api";
+import { EmptyState, PageHead, TextLink } from "@/components/ui";
 import { nrlSeasonStart, nrlSeasonState, nrlStartLabel } from "@/lib/nrlTips";
-import { TipsheetBlock } from "@/components/nrl/TipsheetBlock";
 import { NrlTipsPlaySection } from "@/components/nrl/NrlTipsPlaySection";
 
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "NRL tips this week — the model's picks, with a public record",
+  title: "NRL tips — beat the model | FinalWhistle",
   description:
-    "The model's pick for every fixture in this week's NRL round — win probability, expected margin, and a season record graded after full time, misses published too.",
+    "Tip the winner of every NRL match, one point each, and see how you go against the FinalWhistle model. Its call on a match shows once you have tipped it.",
   alternates: { canonical: "/nrl/tips" },
 };
 
-/** Evergreen current-round tipsheet (design doc: NRL Round Tips, Slice 1).
- *  No round param -- the endpoint resolves the current round itself, so this
- *  page's content rolls week to week under one stable URL. Permalinks for a
- *  specific round live at /nrl/round/[n], which carries the same block. */
+/** /nrl/tips -- "My tips" (prototype `pageNrlPicks`). Off-season: a single
+ *  empty state. Otherwise the round to tip (PlayRound: the model's call on a
+ *  match only after you tip it, or after kick-off), you v the model, and the
+ *  round's leaderboard. The read-only round view lives at /nrl/round/[n]. */
 export default async function NrlTipsPage() {
   const tipsheet = await getNrlTipsheetServer().catch(() => null);
   if (!tipsheet) notFound();
   const rounds = [{ matches: tipsheet.matches }];
   const seasonState = nrlSeasonState(rounds);
+  const season = tipsheet.season;
+
+  if (seasonState === "complete") {
+    return (
+      <>
+        <PageHead eyebrow={`NRL · ${season} season`} title="My tips" sub="Tips are closed for the off-season." />
+        <EmptyState
+          className="max-w-[900px]"
+          title={`Tips reopen for Round 1 in March ${season + 1}`}
+          actions={<TextLink href="/nrl/record">See how the model went in {season}</TextLink>}
+        >
+          Pick a winner for every match, then see how you went against the model.
+        </EmptyState>
+      </>
+    );
+  }
+
   const opensAt = seasonState === "pre-season" ? nrlSeasonStart(rounds) : null;
-
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-extrabold">NRL tips</h1>
-        <span className="text-sm text-muted">Round {tipsheet.round} · {tipsheet.season}</span>
-      </div>
-      <div className="mt-6">
-        <TipsheetBlock tipsheet={tipsheet} />
-      </div>
-
-      {/* Slice 3 teaser: same card idiom as the NRL home page's Origin
-       *  entry point (glass, full-card Link, small-caps label + "→" line).
-       *  Once the season is over there is no run home left to predict, so the
-       *  card points at a competition that is being played instead. */}
-      {seasonState === "complete" || seasonState === "pre-season" ? (
-        <Link href="/play?competition=epl" className="glass mt-6 block rounded-2xl p-4 transition hover:bg-white/5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-                {seasonState === "complete"
-                  ? `${tipsheet.season} season complete · back March ${tipsheet.season + 1}`
-                  : opensAt
-                    ? `Season ${tipsheet.season} starts ${nrlStartLabel(opensAt)}`
-                    : `Season ${tipsheet.season} starts soon`}
-              </p>
-              <p className="mt-1 font-display text-lg font-extrabold">Play the Premier League meanwhile</p>
-            </div>
-            <span className="shrink-0 text-xs font-semibold text-lime-deep">Beat the model →</span>
-          </div>
-        </Link>
-      ) : (
-        <Link href="/nrl/run-home" className="glass mt-6 block rounded-2xl p-4 transition hover:bg-white/5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-display text-label font-semibold uppercase tracking-wider text-muted">
-                Finals race
-              </p>
-              <p className="mt-1 font-display text-lg font-extrabold">Predict your club&apos;s run home</p>
-            </div>
-            <span className="shrink-0 text-xs font-semibold text-lime-deep">Play it out →</span>
-          </div>
-        </Link>
-      )}
-
-      {/* Beat-the-model loop (Slice 2): play, "you vs the model", leaderboard --
-       *  design doc scopes all of it to /nrl/tips, not the round permalinks. */}
-      <NrlTipsPlaySection season={tipsheet.season} round={tipsheet.round} />
-    </div>
+    <>
+      <PageHead
+        eyebrow={`NRL · ${season} season · Round ${tipsheet.round}`}
+        title="My tips"
+        sub={
+          opensAt
+            ? `Round 1 starts ${nrlStartLabel(opensAt)}. Tip the winner of every match, one point each.`
+            : "Tip the winner of every match, one point each. You can change a tip until kick-off."
+        }
+      />
+      <NrlTipsPlaySection season={season} round={tipsheet.round} />
+    </>
   );
 }

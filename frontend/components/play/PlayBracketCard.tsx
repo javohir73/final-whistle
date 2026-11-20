@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { CompetitionLogo } from "@/components/CompetitionLogo";
-import { Eyebrow } from "@/components/Eyebrow";
+import { Card, Note, TextLink } from "@/components/ui";
 import { pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -14,16 +13,10 @@ export interface BracketChampion {
   winTitle: number;
 }
 
-/** The Football group's entry into the shipped bracket route (Floodlight P5,
- *  p5-s2). A full-card Floodlight glass link -- eyebrow, title, lime arrow --
- *  that surfaces the predicted champion + title probability when the server page
- *  resolved the knockout odds, and degrades to a plain link when it didn't
- *  (`champion` null). It deliberately does NOT re-implement the bracket: no
- *  AIBracket/OfficialBracket import, no topology -- the tab links into
- *  /football/wc26/bracket, where the real projection lives (the served route --
- *  legacy /brackets only 301s there, so we link the canonical path directly to
- *  drop a redirect hop). `card-hover` (gated on prefers-reduced-motion in
- *  globals.css) carries the only motion; the arrow is a static affordance. */
+/** The World Cup archive's way into the knockout bracket. It does not
+ *  re-implement the bracket: it links to /football/wc26/bracket, where the
+ *  real projection lives. Surfaces the model's champion when the server page
+ *  resolved the knockout odds, else just the link. */
 export function PlayBracketCard({
   champion,
   className,
@@ -32,31 +25,26 @@ export function PlayBracketCard({
   className?: string;
 }) {
   return (
-    <Link
-      href="/football/wc26/bracket"
-      className={cn("glass card-hover flex items-center gap-3 rounded-2xl p-4", className)}
-    >
-      <CompetitionLogo competition="wc26" size={42} />
+    <Card pad className={cn("flex items-center gap-4", className)}>
+      <CompetitionLogo competition="wc26" size={44} decorative />
       <div className="min-w-0 flex-1">
-        <Eyebrow>World Cup 2026</Eyebrow>
-        <p className="mt-1 font-display text-lg font-extrabold tracking-tight">
-          Projected knockout bracket
-        </p>
-        {champion ? (
-          <p className="mt-1 text-body text-muted">
-            Predicted champion:{" "}
-            <span className="font-bold text-foreground">{champion.team}</span> ·{" "}
-            <span className="tabular-nums">{pct(champion.winTitle)}</span> to lift the trophy
-          </p>
+        <h2 className="text-h2 font-semibold text-ink">Knockout bracket</h2>
+        {champion && champion.winTitle >= 0.999 ? (
+          <Note className="mt-1">
+            Champions: <span className="font-semibold text-ink">{champion.team}</span>.
+          </Note>
+        ) : champion ? (
+          <Note className="mt-1">
+            The model’s champion: <span className="font-semibold text-ink">{champion.team}</span>,{" "}
+            <span className="tabular-nums">{pct(champion.winTitle)}</span> to lift the trophy.
+          </Note>
         ) : (
-          <p className="mt-1 text-body text-muted">
-            The model&apos;s most-likely path through the knockouts, updated as it refreshes.
-          </p>
+          <Note className="mt-1">The model’s path through the knockouts.</Note>
         )}
+        <p className="mt-3">
+          <TextLink href="/football/wc26/bracket">See the bracket</TextLink>
+        </p>
       </div>
-      <span aria-hidden className="shrink-0 font-display text-xl font-extrabold text-lime-deep">
-        →
-      </span>
-    </Link>
+    </Card>
   );
 }

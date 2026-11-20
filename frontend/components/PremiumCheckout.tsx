@@ -7,6 +7,7 @@ import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
 import { useAuth } from "@/components/AuthProvider";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
 import { ApiError, createSetupIntent, friendlyAuthError, subscribe } from "@/lib/session";
+import { Button } from "@/components/ui";
 
 type Plan = "monthly" | "annual";
 
@@ -18,7 +19,7 @@ function getStripe(): Promise<Stripe | null> {
   return stripePromise;
 }
 
-/** The design tokens are bare HSL triples (`--win: 84 78% 55%`), which the
+/** The legacy tokens are bare HSL triples (`--win` = the G brand green), which the
  *  Appearance API cannot take. Read the computed value and wrap it. */
 function tokenColor(styles: CSSStyleDeclaration, name: string): string {
   return `hsl(${styles.getPropertyValue(name).trim()})`;
@@ -38,7 +39,7 @@ function buildAppearance(): Appearance {
       colorTextSecondary: tokenColor(s, "--muted"),
       colorDanger: tokenColor(s, "--loss"),
       borderRadius: "12px",
-      fontSizeBase: "14px",
+      fontSizeBase: "16px",
     },
     rules: {
       ".Input": { border: `1px solid ${tokenColor(s, "--border")}`, boxShadow: "none" },
@@ -162,21 +163,21 @@ function InPageCheckout({ plan, checkoutContext, onActivated }: CheckoutProps) {
 
   if (stage === "done")
     return (
-      <div role="status" className="glass rounded-2xl bg-win/[0.06] p-4 text-sm ring-1 ring-win/25">
+      <div role="status" className="rounded-card border border-brand bg-brand-soft px-5 py-4 text-ink">
         Premium is active — enjoy the full markets.
       </div>
     );
 
   if (stage === "activating")
     return (
-      <div role="status" className="glass rounded-2xl p-4 text-sm text-muted">
+      <div role="status" className="rounded-card border border-line bg-ground px-5 py-4 text-muted">
         Activating your membership…
       </div>
     );
 
   if (stage === "pending")
     return (
-      <div role="status" className="glass rounded-2xl p-4 text-sm">
+      <div role="status" className="rounded-card border border-line bg-ground px-5 py-4">
         <p>
           Your subscription <span className="font-semibold">hasn&rsquo;t activated</span> yet —
           the first payment didn&rsquo;t go through.
@@ -184,7 +185,7 @@ function InPageCheckout({ plan, checkoutContext, onActivated }: CheckoutProps) {
         {/* Deliberately no retry: this SetupIntent is now the backend's
             idempotency key, so a second attempt replays the very same
             subscription and could only report the same failed invoice. */}
-        <p className="mt-1 text-muted">
+        <p className="mt-1 text-notes text-muted">
           Check with your bank, then reload this page — or use a different card.
         </p>
       </div>
@@ -192,39 +193,38 @@ function InPageCheckout({ plan, checkoutContext, onActivated }: CheckoutProps) {
 
   if (stage === "recover")
     return (
-      <div className="glass rounded-2xl p-4 text-sm">
+      <div className="rounded-card border border-line bg-ground px-5 py-4">
         <p>
           <span className="font-semibold">Your card was saved</span>, but we couldn&rsquo;t
           finish setting up the subscription — you won&rsquo;t be charged twice for
           trying again.
         </p>
-        {error && <p className="mt-1 text-muted">{error}</p>}
-        <button
-          type="button"
+        {error && <p className="mt-1 text-notes text-muted">{error}</p>}
+        <Button
           onClick={() => confirmedIntentId && void activate(confirmedIntentId)}
-          className="mt-3 min-h-[44px] w-full rounded-xl bg-win px-4 py-3 text-sm font-bold text-pitch transition hover:brightness-110 sm:w-auto"
+          className="mt-4 w-full sm:w-auto"
         >
           Finish activation
-        </button>
+        </Button>
       </div>
     );
 
   if (stage === "unavailable")
     return (
-      <div className="glass rounded-2xl p-4 text-sm">
-        <p className="text-loss">{error}</p>
+      <div className="rounded-card border border-line bg-ground px-5 py-4">
+        <p className="text-miss">{error}</p>
       </div>
     );
 
   if (stage === "loading" || !clientSecret)
     return (
-      <div role="status" className="glass rounded-2xl p-4 text-sm text-muted">
+      <div role="status" className="rounded-card border border-line bg-ground px-5 py-4 text-muted">
         Loading the secure payment form…
       </div>
     );
 
   return (
-    <div className="glass rounded-2xl p-4 sm:p-5">
+    <div className="rounded-card border border-line bg-ground p-4 min-[900px]:p-6">
       <Elements stripe={getStripe()} options={{ clientSecret, appearance }}>
         <CardForm plan={plan} checkoutContext={checkoutContext} onConfirmed={activate} />
       </Elements>
@@ -282,17 +282,13 @@ function CardForm({
     <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
       <PaymentElement />
       {error && (
-        <p role="alert" className="text-sm text-loss">
+        <p role="alert" className="text-notes text-miss">
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={!stripe || busy}
-        className="min-h-[44px] w-full rounded-xl bg-win px-4 py-3 text-sm font-bold text-pitch transition hover:brightness-110 disabled:opacity-50"
-      >
+      <Button type="submit" disabled={!stripe || busy} className="w-full">
         {busy ? "Confirming…" : "Start free trial"}
-      </button>
+      </Button>
     </form>
   );
 }

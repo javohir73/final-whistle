@@ -3,39 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0a1410" />
+    <meta name="theme-color" content="#ffffff" />
     <title>FinalWhistle — You're offline</title>
-    <script>
-      // Same theme boot as app/layout.tsx (key fw_theme, class theme-daylight):
-      // Floodlight unless the reader chose Daylight. Runs before first paint.
-      try {
-        if (localStorage.getItem("fw_theme") === "light") {
-          document.documentElement.classList.add("theme-daylight");
-          document.querySelector('meta[name="theme-color"]').setAttribute("content", "#f6f8f3");
-        }
-      } catch (e) {}
-    </script>
     <style>
       /* Self-contained on purpose: this page must render with zero network and
-         zero cached build assets. Defaults to the Floodlight palette (the app's
-         default theme, the manifest colour and the native shell's background),
-         so going offline never flashes a light page; Daylight readers get the
-         Daylight palette via the boot script above. */
+         zero cached build assets, so it carries the direction G palette inline
+         (white ground, ink text, the one brand green). One theme, no boot script. */
       :root {
-        --bg: #0a1410;
-        --fg: #f3f6f3;
-        --muted: #94a897;
-        --win: #9ee633;
-        --on-win: #0a1410;
-        --border: rgba(243, 246, 243, 0.12);
-      }
-      .theme-daylight {
-        --bg: #f6f8f3;
-        --fg: #11271b;
-        --muted: #5e6f63;
-        --win: #8fd633;
-        --on-win: #123723;
-        --border: rgba(17, 39, 27, 0.1);
+        --bg: #ffffff;
+        --fg: #14181f;
+        --muted: #5b6470;
+        --line: #e4e7e3;
+        --brand: #0f4d3a;
+        --brand-hover: #0b3d2e;
+        color-scheme: light;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body { height: 100%; }
@@ -44,60 +25,49 @@
         place-items: center;
         background: var(--bg);
         color: var(--fg);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        padding: 24px;
+        font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 16px;
         padding-bottom: calc(24px + env(safe-area-inset-bottom));
-        text-align: center;
       }
-      main { max-width: 26rem; }
-      .badge {
-        display: inline-grid;
-        place-items: center;
-        width: 72px;
-        height: 72px;
-        border-radius: 20px;
-        background: rgba(143, 214, 51, 0.14);
-        border: 1px solid rgba(143, 214, 51, 0.4);
-        margin-bottom: 20px;
-      }
-      .badge img { width: 44px; height: 44px; border-radius: 10px; }
+      main { max-width: 30rem; }
+      img { display: block; width: 48px; height: 48px; border-radius: 12px; margin-bottom: 24px; }
       h1 {
-        font-size: 1.5rem;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        margin-bottom: 10px;
+        font-size: 36px;
+        font-weight: 600;
+        line-height: 1.1;
+        letter-spacing: -0.025em;
+        margin-bottom: 12px;
       }
-      p { font-size: 0.9rem; line-height: 1.55; color: var(--muted); }
+      p { color: var(--muted); }
       p + p { margin-top: 8px; }
       button {
-        margin-top: 22px;
-        padding: 10px 22px;
-        font-size: 0.9rem;
+        margin-top: 28px;
+        min-height: 48px;
+        padding: 0 24px;
+        font: inherit;
         font-weight: 600;
-        color: var(--on-win);
-        background: var(--win);
+        color: #ffffff;
+        background: var(--brand);
         border: none;
-        border-radius: 10px;
+        border-radius: 999px;
         cursor: pointer;
       }
-      button:active { opacity: 0.85; }
-      .wordmark {
-        margin-top: 28px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: var(--muted);
-        letter-spacing: 0.02em;
-      }
+      button:hover { background: var(--brand-hover); }
+      button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+      footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
     </style>
   </head>
   <body>
     <main>
-      <span class="badge"><img src="/icon-192.png" alt="" width="44" height="44" /></span>
+      <img src="/icon-192.png" alt="" width="48" height="48" />
       <h1>You're offline</h1>
-      <p>FinalWhistle needs a connection for live scores, standings and forecasts — none of that is shown stale.</p>
-      <p>Picks you've already made are saved and will be right where you left them.</p>
+      <p>FinalWhistle needs a connection for live scores, tables and the model's calls, so none of that is shown out of date.</p>
+      <p>Picks you have already locked are saved.</p>
       <button type="button" onclick="location.reload()">Try again</button>
-      <div class="wordmark">FinalWhistle</div>
+      <footer>FinalWhistle. For analytics and entertainment only. Not betting advice.</footer>
     </main>
   </body>
 </html>

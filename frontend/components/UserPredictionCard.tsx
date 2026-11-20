@@ -133,7 +133,7 @@ export function UserPredictionCard({
       {/* Matchup header — live/final score shown in the middle when available */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <TeamBadge team={match.teams.home} size={24} />
+          <TeamBadge team={match.teams.home} size={24} decorative />
           <span className="truncate text-sm font-semibold">{match.teams.home}</span>
         </div>
         {(live || finished || stale) && hasScore ? (
@@ -164,7 +164,7 @@ export function UserPredictionCard({
         )}
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           <span className="truncate text-sm font-semibold">{match.teams.away}</span>
-          <TeamBadge team={match.teams.away} size={24} />
+          <TeamBadge team={match.teams.away} size={24} decorative />
         </div>
       </div>
 

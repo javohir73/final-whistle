@@ -4,7 +4,6 @@ import { OverviewSection } from "./OverviewSection";
 import { FormSection } from "./FormSection";
 import { ModelSection } from "./ModelSection";
 import StatsSection from "./StatsSection";
-import MatchupSection from "./MatchupSection";
 import LiveSection from "./LiveSection";
 import ScorersSection from "./ScorersSection";
 
@@ -24,7 +23,10 @@ export const sections: IntelSection[] = [
   { id: "form", label: "Form & H2H", render: FormSection },
   { id: "model", label: "Model", render: ModelSection },
   { id: "stats", label: "Stats", render: StatsSection },
-  { id: "matchup", label: "Matchup", render: MatchupSection },
   { id: "live", label: "Live", render: LiveSection },
   { id: "scorers", label: "Scorers", render: ScorersSection },
 ];
+
+/** Sections that carry the model's call: left out on an open match (the
+ *  reveal rule; the page strips the prediction server-side too). */
+export const MODEL_SECTION_IDS: readonly string[] = ["overview", "model", "scorers"];

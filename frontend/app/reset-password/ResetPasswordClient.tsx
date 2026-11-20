@@ -2,8 +2,8 @@
 
 import { useId, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { resetPassword, friendlyAuthError } from "@/lib/session";
+import { Button, Card, FIELD_INPUT, PageHead } from "@/components/ui";
 
 /** Consumes the ?token= from a reset email and sets a new password. Display-only
  *  states: missing token, the form, success, and a friendly error (e.g. an
@@ -21,17 +21,15 @@ export function ResetPasswordClient() {
   const passwordHintId = `${uid}-password-hint`;
   const confirmId = `${uid}-confirm`;
 
-  const field =
-    "w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-win";
-  const labelCls = "mb-1 block text-xs font-semibold text-muted";
+  const field = FIELD_INPUT;
+  const labelCls = "mb-1.5 block font-medium text-ink";
 
   if (!token) {
     return (
-      <Shell title="Reset link invalid">
-        <p className="text-sm text-muted">
-          This reset link is missing or incomplete. Open the most recent email, or
-          request a new link from the sign-in screen.
-        </p>
+      <Shell
+        title="Reset link invalid"
+        sub="This reset link is missing or incomplete. Open the most recent email, or request a new link from the sign-in screen."
+      >
         <Home />
       </Shell>
     );
@@ -39,10 +37,7 @@ export function ResetPasswordClient() {
 
   if (done) {
     return (
-      <Shell title="Password updated">
-        <p className="text-sm text-foreground">
-          Your password has been updated. You can sign in with it now.
-        </p>
+      <Shell title="Password updated" sub="Your password has been updated. You can sign in with it now.">
         <Home label="Back to FinalWhistle" />
       </Shell>
     );
@@ -67,8 +62,9 @@ export function ResetPasswordClient() {
   };
 
   return (
-    <Shell title="Choose a new password">
-      <form onSubmit={submit} className="space-y-3">
+    <Shell title="Choose a new password" sub="Pick something you have not used here before.">
+      <Card pad as="div" className="max-w-[480px]">
+      <form onSubmit={submit} className="space-y-5">
         {/* Visible labels: a placeholder-only field loses its name on the
             first keystroke. */}
         <div>
@@ -76,7 +72,7 @@ export function ResetPasswordClient() {
             <label htmlFor={passwordId} className={labelCls}>
               New password
             </label>
-            <span id={passwordHintId} className="text-xs text-muted">
+            <span id={passwordHintId} className="text-label text-muted">
               8+ characters
             </span>
           </div>
@@ -90,14 +86,14 @@ export function ResetPasswordClient() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               aria-describedby={passwordHintId}
-              className={`${field} pr-11`}
+              className={`${field} pr-12`}
             />
             <button
               type="button"
               onClick={() => setShow((v) => !v)}
               aria-label={show ? "Hide password" : "Show password"}
               aria-pressed={show}
-              className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-lg text-muted transition hover:text-foreground"
+              className="absolute inset-y-0 right-1 my-auto grid h-11 w-11 place-items-center rounded-full text-muted transition-colors hover:text-ink"
             >
               {show ? (
               <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -130,40 +126,28 @@ export function ResetPasswordClient() {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-loss-ink">
+          <p role="alert" className="text-notes text-miss">
             {error}
           </p>
         )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-xl bg-win px-4 py-3 text-sm font-bold text-pitch transition hover:brightness-110 disabled:opacity-50"
-        >
+        <Button type="submit" disabled={busy} className="w-full">
           {busy ? "Please wait…" : "Update password"}
-        </button>
+        </Button>
       </form>
+      </Card>
     </Shell>
   );
 }
 
-function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+function Shell({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-sm px-4 py-16">
-      <div className="glass rounded-2xl p-6">
-        <h1 className="mb-4 font-display text-xl font-extrabold tracking-tight">{title}</h1>
-        <div className="space-y-4">{children}</div>
-      </div>
+    <div>
+      <PageHead eyebrow="FinalWhistle" title={title} sub={sub} />
+      {children}
     </div>
   );
 }
 
 function Home({ label = "Back to home" }: { label?: string }) {
-  return (
-    <Link
-      href="/"
-      className="block text-center text-sm font-semibold text-lime-deep underline-offset-2 hover:underline"
-    >
-      {label}
-    </Link>
-  );
+  return <Button href="/">{label}</Button>;
 }

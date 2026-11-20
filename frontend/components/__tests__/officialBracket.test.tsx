@@ -44,9 +44,9 @@ it("renders a finished tie with score, pens text, winner highlight, and a link",
   const link = document.querySelector('a[href="/football/wc26/match/312"]');
   expect(link).not.toBeNull();
   // Argentina won #89, so they also advance into their QF slot — scope the
-  // winner-highlight assertion to the lime-deep (winner) instance.
+  // winner-highlight assertion to the winner instance (data-winner, drawn semibold).
   const sides = screen.getAllByText("Argentina").map((e) => e.closest("[data-side]"));
-  const winner = sides.find((s) => s?.className.includes("text-lime-deep"));
+  const winner = sides.find((s) => s?.hasAttribute("data-winner") && s.className.includes("font-semibold"));
   expect(winner).toBeTruthy();
 });
 

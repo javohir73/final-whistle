@@ -31,7 +31,7 @@ export function NrlTipsPlaySection({
   showConfidence?: boolean;
 }) {
   return (
-    <div className="mt-8 space-y-6">
+    <div className="flex flex-col gap-6">
       <PlayRound season={season} round={round} showConfidence={showConfidence} />
       <YouVsAi />
       {showLeaderboard && <NrlTipsLeaderboard season={season} round={round} />}

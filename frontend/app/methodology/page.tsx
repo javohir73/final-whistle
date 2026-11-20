@@ -7,6 +7,8 @@ import data from "@/lib/methodology-data.json";
 import { getMarketRecordServer, getModelRecordServer } from "@/lib/api";
 import { MarketComparison } from "@/components/MarketComparison";
 import type { MarketBenchmark, ModelRecord } from "@/lib/types";
+import { CARD_X, Card, CardHead, Note, PageHead, Prose, Table, TableScroll, Tag, Td, Th } from "@/components/ui";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: `Methodology & accuracy — ${APP_NAME}`,
@@ -66,58 +68,38 @@ export default async function MethodologyPage() {
   }
 
   return (
-    <article className="fade-up max-w-prose space-y-10">
-      <header>
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">
-          Methodology &amp; <span className="text-lime-deep">accuracy</span>
-        </h1>
-        <p className="mt-3 text-muted">
-          In plain terms: how the forecasts are made, and how well they&apos;ve actually
-          held up when tested against past World Cups. The deeper metrics are below for
-          anyone who wants them. For the live WC26 record so far, see the{" "}
-          <Link href="/record" className="text-lime-deep underline-offset-2 hover:underline">Track record</Link>.
+    <article>
+      <PageHead
+        eyebrow="FinalWhistle"
+        title="Methodology"
+        sub="How the forecasts are made, and how well they held up against past World Cups."
+      />
+      <Prose>
+        <p>
+          The model learned from {data.training_matches.toLocaleString()} real matches (internationals back to
+          1872) and was back-tested on the {listYears(data.backtest_years).replace(/&/, "and")} World Cups. For
+          the live record, see the <Link href="/record">football record</Link>.
         </p>
-      </header>
 
-      {/* Plain-language summary */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Stat big={`${data.training_matches.toLocaleString()}`} label="Real matches learned from (since 1872)" />
-        <Stat big={listYears(data.backtest_years)} label="World Cups it was back-tested on" />
-        <Stat big="Well-calibrated" label={`A stated 60% happens ~60% of the time`} />
-      </section>
-
-      {/* Calibration */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">Is a “60%” really 60%?</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          This is the most important question for any prediction. The chart bins every
-          forecast by its stated probability and checks how often those things actually
-          happened. If the model is honest, the green line hugs the dashed{" "}
-          <span className="text-foreground/80">perfect-calibration</span> line.
+        <h2>Is a &ldquo;60%&rdquo; really 60%?</h2>
+        <p>
+          The chart bins every forecast by its stated probability and checks how often those things happened.
+          An honest forecast follows the dashed line.
         </p>
-        <div className="mt-5">
+        <Card pad>
           <CalibrationChartLazy bins={data.reliability} />
-        </div>
-        <p className="mt-3 text-xs text-muted">
-          Based on {data.reliability_n.toLocaleString()} probability–outcome pairs across the{" "}
-          {listYears(data.backtest_years)} World Cups (all win/draw/loss calls).
-        </p>
-      </section>
+          <Note className="mt-3">
+            Based on {data.reliability_n.toLocaleString()} probability–outcome pairs across the{" "}
+            {listYears(data.backtest_years).replace(/&/, "and")} World Cups (all win, draw and loss calls).
+          </Note>
+        </Card>
 
-      {/* Vs baselines */}
-      <section>
-        <h2 className="font-display text-lg font-bold">Does it beat the obvious guesses?</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          A model is only useful if it beats simple rules. We compare it to{" "}
-          <strong className="text-foreground/80">“always back the favourite”</strong> and{" "}
-          <strong className="text-foreground/80">“just use historical base rates.”</strong>{" "}
-          Lower is better for log-loss and Brier (they punish confident-but-wrong calls);
-          higher is better for accuracy.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          The model wins on log-loss in {beatsBaselines} of {data.years.length} back-tested
-          tournaments. 2022 was unusually upset-heavy — a useful reminder that no model
-          foresees shocks reliably, and we&apos;d rather show that than hide it.
+        <h2>Does it beat the obvious guesses?</h2>
+        <p>
+          A model is only useful if it beats simple rules: &ldquo;always back the favourite&rdquo; and
+          &ldquo;use historical base rates&rdquo;. Lower is better for log-loss and Brier; higher is better for
+          accuracy. The model wins on log-loss in {beatsBaselines} of {data.years.length} back-tested
+          tournaments. 2022 was unusually upset-heavy, and no model foresees shocks reliably.
         </p>
         {/* Provenance, stated rather than implied: these historical numbers come
             from the v0.1 baseline engine (pipeline/build_methodology.py), NOT the
@@ -126,34 +108,26 @@ export default async function MethodologyPage() {
             tournaments, so the result would flatter the model on its own training
             data. The honest floor is the untuned engine; the live record is the
             forward-looking evidence. */}
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          One caveat we&apos;d rather state than bury: these historical numbers come
-          from the original v0.1 engine, not the version serving today. Re-scoring
-          them with the current tuned settings would look better and mean less —
-          those settings were chosen <em>using</em> these tournaments, so the model
-          would be marking its own homework. Treat this as the honest floor, and
-          the{" "}
-          <Link href="/record" className="text-lime-deep underline-offset-2 hover:underline">live track record</Link>{" "}
-          as the real test.
+        <p>
+          These numbers come from the original v0.1 engine, not today&apos;s. Re-scoring them with the current
+          settings would look better and mean less, because those settings were chosen using these
+          tournaments. Treat them as the floor, and the <Link href="/record">live record</Link> as the real
+          test.
         </p>
-
-        <div className="mt-5 space-y-5">
-          {data.years.map((y) => {
+        <Card flush>
+          {data.years.map((y, i) => {
             const best = bestLogLoss(y);
             return (
-              <div key={y.year} className="glass rounded-2xl p-4 sm:p-5">
-                <div className="mb-3 flex items-baseline justify-between">
-                  <h3 className="font-display font-bold">World Cup {y.year}</h3>
-                  <span className="text-xs text-muted">{y.n_matches} matches</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+              <div key={y.year} className={cn(CARD_X, "py-5", i > 0 && "border-t border-line-soft")}>
+                <CardHead as="h3" title={`World Cup ${y.year}`} action={`${y.n_matches} matches`} />
+                <TableScroll className="mt-2">
+                  <Table>
                     <thead>
-                      <tr className="text-label uppercase tracking-wider text-muted">
-                        <th className="px-2 pb-2 text-left font-medium">Approach</th>
-                        <th className="px-2 pb-2 text-right font-medium" title="Lower is better">Log-loss</th>
-                        <th className="px-2 pb-2 text-right font-medium" title="Lower is better">Brier</th>
-                        <th className="px-2 pb-2 text-right font-medium" title="Higher is better">Accuracy</th>
+                      <tr>
+                        <Th align="left">Approach</Th>
+                        <Th title="Lower is better">Log-loss</Th>
+                        <Th title="Lower is better">Brier</Th>
+                        <Th title="Higher is better">Accuracy</Th>
                       </tr>
                     </thead>
                     <tbody>
@@ -161,276 +135,164 @@ export default async function MethodologyPage() {
                       <Row label="Always the favourite" m={y.favorite} highlight={best === "favorite"} />
                       <Row label="Historical base rate" m={y.base_rate} highlight={best === "base_rate"} />
                     </tbody>
-                  </table>
-                </div>
+                  </Table>
+                </TableScroll>
               </div>
             );
           })}
-        </div>
-      </section>
+        </Card>
 
-      {/* Vs the market — the real benchmark (ROADMAP-ENGINE Phase 0), live from /api/model/market-record */}
-      <section>
-        <h2 className="font-display text-lg font-bold">How does it compare to the market?</h2>
+        {/* Vs the market — the real benchmark (ROADMAP-ENGINE Phase 0), live from /api/model/market-record */}
+        <h2>How does it compare to the market?</h2>
         <MarketComparison bench={bench} />
-      </section>
 
-      {/* Vs other public predictors — external snapshot vs our live ledger */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">How does it compare to other predictors?</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          The Athletic ran this World Cup as a public picking contest — their
-          prediction algorithm, their writers, their readers, a six-year-old and a
-          dog. Their numbers below are a snapshot of what they published on July 8,
-          2026 (picks graded through the round of 16); our row is computed live from
-          the same graded ledger as the{" "}
-          <Link href="/record" className="text-lime-deep underline-offset-2 hover:underline">Track record</Link>{" "}
-          and keeps updating as matches finish.
+        {/* Vs other public predictors — external snapshot vs our live ledger */}
+        <h2>How does it compare to other predictors?</h2>
+        <p>
+          The Athletic ran the World Cup as a public picking contest. Their numbers are a snapshot of what they
+          published on 8 July 2026 (picks graded through the round of 16); the FinalWhistle row is live from
+          the same graded ledger as the record.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-label uppercase tracking-wider text-muted">
-                <th className="px-2 pb-2 text-left font-medium">Predictor</th>
-                <th className="px-2 pb-2 text-right font-medium">Overall accuracy</th>
-                <th className="px-2 pb-2 text-right font-medium">Correct picks</th>
-                <th className="px-2 pb-2 text-right font-medium">Best streak</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="rounded-lg bg-lime-deep/10 font-medium text-foreground">
-                <td className="px-2 py-1.5">FinalWhistle model (live)</td>
-                <td className="px-2 py-1.5 text-right">
-                  {record?.winner_accuracy != null
-                    ? `${(record.winner_accuracy * 100).toFixed(1)}%`
-                    : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right">
-                  {record ? `${record.winners_correct}/${record.evaluated_matches}` : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right">{record?.best_streak ?? "—"}</td>
-              </tr>
-              {EXTERNAL_PICKERS.map((p) => (
-                <tr key={p.name} className="text-muted">
-                  <td className="px-2 py-1.5">{p.name}</td>
-                  <td className="px-2 py-1.5 text-right">{p.accuracy}</td>
-                  <td className="px-2 py-1.5 text-right">{p.correct}</td>
-                  <td className="px-2 py-1.5 text-right">{p.streak}</td>
+        <Card pad>
+          <TableScroll>
+            <Table>
+              <thead>
+                <tr>
+                  <Th align="left">Predictor</Th>
+                  <Th>Accuracy</Th>
+                  <Th>Correct</Th>
+                  <Th>Best streak</Th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-3 text-xs leading-relaxed text-muted">
-          Apples-to-oranges caveats, stated plainly: the contests grade slightly
-          different match sets (their table implies ~94 picks; we grade every
-          finished match with a frozen pre-kickoff prediction), and picking rules
-          differ — our headline number grades the 90-minute result, draws
-          included, which is a stricter test than knockout-winner-only picks. On
-          the advancement basis those contests use for knockouts, our record is{" "}
-          {record && record.advancement_matches > 0
-            ? `${record.advancement_correct} of ${record.advancement_matches} (${((record.advancement_accuracy ?? 0) * 100).toFixed(1)}%)`
-            : "still building as the knockouts finish"}
-          . We publish the comparison anyway because pretending benchmarks
-          don&apos;t exist is worse than imperfect ones. Source: The Athletic,
-          July 2026.
-        </p>
-      </section>
+              </thead>
+              <tbody>
+                <tr>
+                  <Td align="left" className="font-semibold text-brand">FinalWhistle model (live)</Td>
+                  <Td className="font-semibold">
+                    {record?.winner_accuracy != null ? `${(record.winner_accuracy * 100).toFixed(1)}%` : "—"}
+                  </Td>
+                  <Td>{record ? `${record.winners_correct}/${record.evaluated_matches}` : "—"}</Td>
+                  <Td>{record?.best_streak ?? "—"}</Td>
+                </tr>
+                {EXTERNAL_PICKERS.map((p) => (
+                  <tr key={p.name}>
+                    <Td align="left">{p.name}</Td>
+                    <Td>{p.accuracy}</Td>
+                    <Td>{p.correct}</Td>
+                    <Td>{p.streak}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
+          <Note className="mt-4">
+            The contests grade slightly different match sets (theirs about 94 picks; ours every finished match
+            with a frozen pre-kick-off prediction), and our number grades the 90-minute result, draws included.
+            On the advancement basis those contests use for knockouts, our record is{" "}
+            {record && record.advancement_matches > 0
+              ? `${record.advancement_correct} of ${record.advancement_matches} (${((record.advancement_accuracy ?? 0) * 100).toFixed(1)}%)`
+              : "still building as the knockouts finish"}
+            . Source: The Athletic, July 2026.
+          </Note>
+        </Card>
 
-      {/* What we tested — restraint as a feature */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">Why it isn&apos;t more complicated</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          We tested the obvious upgrades the honest way — fitting each only on data
-          available <em>before</em> a tournament, then scoring it on that tournament
-          (walk-forward, no hindsight):
+        <h2>Why it isn&apos;t more complicated</h2>
+        <p>
+          Each obvious upgrade was tested the honest way: fitted only on data available before a tournament,
+          then scored on that tournament.
         </p>
-        <ul className="mt-3 list-inside list-disc space-y-1.5 text-sm text-muted">
-          <li><span className="text-foreground/80">Probability calibration</span> — plain temperature scaling fitted to ≈1.0 (already calibrated overall), but a <em>segmented</em> calibrator — one correction per rating-gap bracket — did clear the walk-forward gate and shipped in v0.4 (July 2026).</li>
-          <li><span className="text-foreground/80">Dixon–Coles draw correction</span> and <span className="text-foreground/80">re-tuned goal parameters</span> — landed back on essentially today&apos;s values; out-of-sample gains were within noise.</li>
-          <li><span className="text-foreground/80">Time-decayed (recency-weighted) Elo</span> — helped one World Cup, hurt the others; no net improvement.</li>
+        <ul>
+          <li>
+            Probability calibration: plain temperature scaling came out at about 1.0 (already calibrated), but a
+            segmented calibrator, one correction per rating-gap bracket, cleared the test and shipped in v0.4.
+          </li>
+          <li>Dixon–Coles draw correction and re-tuned goal settings: gains were within noise.</li>
+          <li>Recency-weighted Elo: helped one World Cup, hurt the others.</li>
         </ul>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          So we kept the simpler, explainable model rather than adding complexity that
-          didn&apos;t earn its keep. We said at the time the next real gain would come
-          from new <em>signal</em> rather than re-tuning what was here — and that is
-          what happened: injuries and market priors cleared the same gate and shipped
-          in v0.6.
+        <p>
+          The next real gain came from new signal rather than re-tuning: injuries and market priors cleared the
+          same test and shipped in v0.6.
         </p>
-      </section>
 
-      {/* Model changelog (FR-6.1): one line per shipped model change, newest
-          first. The "current" badge must name the version actually loaded from
-          ml/models/model_params.json and served by generate_predictions — check
-          that file before editing this list, and remember the club
-          competitions carry their OWN version strings (pipeline/leagues.py). */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">Model changelog</h2>
-        <ul className="mt-3 space-y-1.5 text-sm text-muted">
+        {/* Model changelog (FR-6.1): one line per shipped model change, newest
+            first. The "current" tag must name the version actually loaded from
+            ml/models/model_params.json and served by generate_predictions — check
+            that file before editing this list, and remember the club
+            competitions carry their OWN version strings (pipeline/leagues.py). */}
+        <h2>Model changelog</h2>
+        <ul>
           <li>
-            <span className="text-foreground/80">poisson-elo-v0.6</span>{" "}
-            <span className="rounded-full bg-win/15 px-2 py-0.5 text-note font-bold uppercase tracking-wide text-lime-deep ring-1 ring-win/30">current</span>{" "}
-            — served engine since August 4, 2026. Three signals that had been
-            running shadow-only were promoted into the published number:
-            bookmaker odds (the market total nudges expected goals, capped so
-            the model always stays the primary voice), player availability
-            (announced XIs and injury lists), and suspensions. Two others were
-            measured and <em>refused</em>: rest days showed no gain in any of
-            the three leagues we tested it on, and a redesigned recent-form
-            signal was actively worse on two of three past World Cups. Both
-            stay dark.
+            <strong>poisson-elo-v0.6</strong> <Tag>Current</Tag> since 4 August 2026. Bookmaker odds (capped, so
+            the model stays the main voice), player availability and suspensions now move the published number.
+            Rest days and a redesigned recent-form signal were measured and refused.
           </li>
           <li>
-            <span className="text-foreground/80">poisson-elo-v0.5</span> — served
-            engine from July 8 to August 4, 2026: adds extra-time and
-            penalty-shootout resolution for knockout ties (30-minute Dixon&ndash;Coles
-            extra time, then a capped Elo-logistic penalty model), needed once
-            the bracket reached the knockout rounds. The suspension /
-            rest-days / keeper-availability signal pack shipped alongside it
-            shadow-only; v0.6 above promoted the parts that earned it.
+            <strong>poisson-elo-v0.5</strong>, 8 July to 4 August 2026: extra time and penalty shootouts for
+            knockout ties.
           </li>
           <li>
-            <span className="text-foreground/80">poisson-elo-v0.4</span> — served
-            engine from July 8, 2026 until superseded by v0.5 the same day:
-            v0.2 plus a segmented probability calibrator (one correction per
-            rating-gap bracket, fitted only on matches before this World Cup).
-            The one candidate from the July audit that improved held-out log
-            loss on every test; a redesigned recent-form signal from the same
-            audit failed its gate and ships dark until the evidence is
-            consistent.
+            <strong>poisson-elo-v0.4</strong>, 8 July 2026: v0.2 plus the segmented calibrator, fitted only on
+            matches before this World Cup.
           </li>
           <li>
-            <span className="text-foreground/80">poisson-elo-v0.2</span> — served
-            engine until July 2026 (tuned goal parameters + Dixon&ndash;Coles draw
-            correction, shipped mid-group-stage). July 2026: exact-score hits now
-            judged on the 90-minute score for knockout matches (the basis the model
-            actually predicts). Every proposed upgrade is validated walk-forward
-            and ships only if it beats the served model with statistical
-            confidence.
+            <strong>poisson-elo-v0.2</strong>, until July 2026: tuned goal settings and a Dixon–Coles draw
+            correction. Exact scores in knockouts are judged on the 90-minute score.
           </li>
           <li>
-            <span className="text-foreground/80">v0.2 study (June 2026, not
-            shipped as-is)</span> — walk-forward tested temperature
-            calibration, a Dixon&ndash;Coles draw correction, re-tuned goal
-            parameters, and time-decayed Elo. Plain temperature fitted &asymp;
-            1.0 (already calibrated) and most re-tuning landed back on v0.1
-            values; the parts that later earned their keep shipped as v0.2.
-          </li>
-          <li>
-            <span className="text-foreground/80">poisson-elo-v0.1</span> —
-            May 2026: original hand-set Elo &rarr; Poisson baseline
-            (uncalibrated): the fallback engine and the starting point every
-            later tune was measured against.
+            <strong>poisson-elo-v0.1</strong>, May 2026: the original hand-set Elo and Poisson baseline.
           </li>
         </ul>
-      </section>
 
-      {/* Per-competition engines. The versions above are the INTERNATIONAL
-          ledger; each club competition keeps its own version string and its
-          own track record (pipeline/leagues.py, and the ledger separation in
-          backend/app/api/model_record.py). Naming them here stops this page
-          reading as if one number covers every competition. */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">Club competitions</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          The versions above are the international (World Cup) engine. The club
-          competitions run the same Elo &rarr; Poisson machinery but keep
-          separate track records, because a goal rate fitted on one competition
-          does not transfer to another — mixing them would flatter both.
+        {/* Per-competition engines. The versions above are the INTERNATIONAL
+            ledger; each club competition keeps its own version string and its
+            own track record (pipeline/leagues.py, and the ledger separation in
+            backend/app/api/model_record.py). */}
+        <h2>Club competitions</h2>
+        <p>
+          The clubs run the same Elo and Poisson machinery but keep separate records, because a goal rate
+          fitted on one competition does not transfer to another.
         </p>
-        <ul className="mt-3 space-y-1.5 text-sm text-muted">
+        <ul>
           <li>
-            <span className="text-foreground/80">Premier League, La Liga, Bundesliga</span>{" "}
-            (poisson-elo-club-v0.3) — each goal rate fitted on that league&apos;s
-            own ten seasons. La Liga&apos;s refit came back <em>worse</em> than the
-            value it already had, so it kept the original: a fit that changes
-            nothing is still a result. v0.3 is those same fits on the current
-            engine, which reads betting odds, injuries and suspensions; v0.2 was
-            the same fits before those were switched on.
+            <strong>Premier League, La Liga, Bundesliga</strong> (poisson-elo-club-v0.3): each goal rate fitted
+            on that league&apos;s own ten seasons, on the engine that reads odds, injuries and suspensions.
           </li>
           <li>
-            <span className="text-foreground/80">Champions League</span>{" "}
-            (poisson-elo-ucl-v0.2) — fitted August 2026 on four completed
-            editions. It had been running on borrowed defaults that assumed 2.4
-            goals a match against an actual 2.97, which made its forecasts too
-            flat; the corrected rate was confirmed on a held-out edition. Its
-            home-advantage refit was <em>not</em> credible and was left alone.
+            <strong>Champions League</strong> (poisson-elo-ucl-v0.2): fitted in August 2026 on four completed
+            editions, correcting a goal rate that made its forecasts too flat.
           </li>
         </ul>
-        <p className="mt-3 text-xs leading-relaxed text-foreground/70">
-          Cross-border clubs keep one shared strength rating, so a club&apos;s
-          domestic history and its European results describe the same team.
-        </p>
-      </section>
+        <p>Clubs that play in Europe keep one strength rating across domestic and European matches.</p>
 
-      {/* Glossary */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">What these numbers mean</h2>
-        <dl className="mt-3 space-y-3 text-sm">
-          <Term term="Calibration">
-            Whether stated probabilities match reality. “60% means 60%.” The single most
-            important property of a forecaster.
-          </Term>
-          <Term term="Log-loss">
-            Rewards being confident <em>and</em> right; heavily punishes being confident and
-            wrong. The model&apos;s primary score. Lower is better.
-          </Term>
-          <Term term="Brier score">
-            The average squared error of the probabilities. Another “lower is better” gauge
-            of overall sharpness and calibration.
-          </Term>
-          <Term term="Baselines">
-            Dumb-but-honest reference points. Beating them is the bar any real model must clear.
-          </Term>
-        </dl>
-      </section>
-
-      {/* How it works (recap + link) */}
-      <section className="glass rounded-2xl p-6">
-        <h2 className="font-display text-lg font-bold">How the forecast is built</h2>
-        <ol className="mt-3 space-y-2 text-sm text-foreground/90">
-          <li><strong className="text-lime-deep">1. Elo ratings</strong> — a strength score per team, updated after every match played (internationals back to 1872; clubs across ten seasons). Hosts and home sides get a bump.</li>
-          <li><strong className="text-lime-deep">2. Poisson goals</strong> — the Elo gap becomes expected goals, then the probability of every scoreline, giving win/draw/loss odds and a likely result.</li>
-          <li><strong className="text-lime-deep">3. Adjustments</strong> — where we have the data, the market total, announced XIs or injuries, and suspensions nudge those expected goals before the scorelines are worked out.</li>
-          <li><strong className="text-lime-deep">4. Monte-Carlo</strong> — groups and the full knockout bracket are simulated thousands of times for qualification and title odds.</li>
-        </ol>
-        <p className="mt-3 text-sm text-muted">
-          More on the step-by-step approach on the{" "}
-          <Link href="/about" className="text-lime-deep underline-offset-2 hover:underline">How it works</Link> page.
-        </p>
-      </section>
-
-      {/* Limitations */}
-      <section className="glass rounded-2xl border-gold/20 bg-gold/[0.04] p-6">
-        <h2 className="font-display text-lg font-bold text-gold-ink">Limitations</h2>
-        <ul className="mt-2 list-inside list-disc space-y-1.5 text-sm text-muted">
-          <li>{listYears(data.backtest_years).replace(/&/, "and")} ({data.reliability_n} matches) is still a small sample — treat single-tournament numbers with caution.</li>
-          <li>
-            The published number is team-level. Since v0.6 an announced XI or injury list
-            does move it, but only when we have that data — and coverage is patchy, so two
-            fixtures on the same page may not have had the same information behind them.
-          </li>
-          <li>Upset-heavy tournaments (like 2022) are inherently hard; the model can trail simple baselines there.</li>
-          <li>
-            Mostly free, open data: historical results, FIFA rankings, the official WC2026
-            draw and club fixture feeds. Since v0.6 the forecast also uses bookmaker odds
-            and provider injury reports, which are licensed feeds rather than open data.
-          </li>
+        <h2>What the numbers mean</h2>
+        <ul>
+          <li><strong>Calibration</strong>: whether stated chances match what happens. 60% should mean 60%.</li>
+          <li><strong>Log-loss</strong>: rewards being confident and right, punishes being confident and wrong. Lower is better.</li>
+          <li><strong>Brier score</strong>: the average squared error of the chances. Lower is better.</li>
+          <li><strong>Baselines</strong>: simple reference rules any real model must beat.</li>
         </ul>
-        <p className="mt-3 text-xs leading-relaxed text-foreground/70">
-          For analytics, research, and entertainment only — not betting advice.
+
+        <h2>Limitations</h2>
+        <ul>
+          <li>
+            {listYears(data.backtest_years).replace(/&/, "and")} ({data.reliability_n} matches) is a small
+            sample. Treat single-tournament numbers with caution.
+          </li>
+          <li>
+            The published number is team-level. An announced XI or injury list moves it only when that data
+            exists, and coverage is patchy.
+          </li>
+          <li>Upset-heavy tournaments, like 2022, are hard; the model can trail simple baselines there.</li>
+          <li>
+            Mostly free, open data (results, rankings, official draws and fixtures). Since v0.6 it also uses
+            licensed bookmaker odds and injury reports.
+          </li>
+          <li>For analytics, research and entertainment only. Not betting advice.</li>
+        </ul>
+        <p>
+          <Link href="/about">How the model works</Link>
         </p>
-      </section>
+      </Prose>
     </article>
-  );
-}
-
-function Stat({ big, label }: { big: string; label: string }) {
-  return (
-    <div className="glass rounded-2xl bg-win/[0.06] p-5 text-center">
-      <div className="font-display text-2xl font-extrabold tracking-tight text-lime-deep">{big}</div>
-      <div className="mt-1.5 text-xs text-muted">{label}</div>
-    </div>
   );
 }
 
@@ -444,20 +306,11 @@ function Row({
   highlight: boolean;
 }) {
   return (
-    <tr className={`border-t border-border/50 ${highlight ? "bg-win/[0.06]" : ""}`}>
-      <td className={`px-2 py-2.5 font-medium ${highlight ? "text-lime-deep" : ""}`}>{label}</td>
-      <td className="px-2 text-right tabular-nums">{fmt(m.log_loss)}</td>
-      <td className="px-2 text-right tabular-nums text-muted">{fmt(m.brier)}</td>
-      <td className="px-2 text-right tabular-nums text-muted">{Math.round(m.accuracy * 100)}%</td>
+    <tr>
+      <Td align="left" className={highlight ? "font-semibold text-brand" : "font-medium"}>{label}</Td>
+      <Td className={highlight ? "font-semibold" : undefined}>{fmt(m.log_loss)}</Td>
+      <Td className="text-muted">{fmt(m.brier)}</Td>
+      <Td className="text-muted">{Math.round(m.accuracy * 100)}%</Td>
     </tr>
-  );
-}
-
-function Term({ term, children }: { term: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="font-display font-semibold text-foreground/90">{term}</dt>
-      <dd className="text-muted">{children}</dd>
-    </div>
   );
 }

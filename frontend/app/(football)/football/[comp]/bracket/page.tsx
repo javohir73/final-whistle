@@ -4,7 +4,7 @@ import LegacyBracketsPage from "@/app/brackets/page";
 
 export { generateMetadata } from "@/app/brackets/page";
 
-// Floodlight P1 slice p1-s3: wraps app/brackets/page.tsx, which is the World
+// Wraps app/brackets/page.tsx, which is the World
 // Cup's bracket and takes no params. Only a competition the registry marks
 // hasBracket (WC26) may serve it: /football/epl/bracket used to 200 with the
 // World Cup bracket. isWiredFootballCompetition also 404s /football/nrl/...

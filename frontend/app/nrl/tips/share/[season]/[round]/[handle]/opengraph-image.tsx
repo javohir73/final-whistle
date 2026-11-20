@@ -31,7 +31,7 @@ export default async function Image({
     return new ImageResponse(
       (
         <Shell eyebrow="NRL tips" footer={FOOTER}>
-          <div style={{ display: "flex", fontSize: 64, fontWeight: 800 }}>NRL tips result</div>
+          <div style={{ display: "flex", fontSize: 64, fontWeight: 600 }}>NRL tips result</div>
         </Shell>
       ),
       { ...size },
@@ -46,15 +46,15 @@ export default async function Image({
     (
       <Shell eyebrow={`NRL Round ${share.round} · ${share.season}`} footer={FOOTER}>
         <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          <div style={{ display: "flex", fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>
+          <div style={{ display: "flex", fontSize: 56, fontWeight: 600, letterSpacing: -1 }}>
             {share.handle_display}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 24 }}>
-            <div style={{ display: "flex", fontSize: 64, fontWeight: 800, color: verdictColor }}>
+            <div style={{ display: "flex", fontSize: 64, fontWeight: 600, color: verdictColor }}>
               {share.player_points}/{share.player_of}
             </div>
             <div style={{ display: "flex", fontSize: 32, fontWeight: 400, color: C.muted }}>vs the model</div>
-            <div style={{ display: "flex", fontSize: 64, fontWeight: 800, color: C.muted }}>
+            <div style={{ display: "flex", fontSize: 64, fontWeight: 600, color: C.muted }}>
               {share.model_points}/{share.model_of}
             </div>
           </div>

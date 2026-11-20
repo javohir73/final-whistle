@@ -24,8 +24,9 @@ it("app/error.tsx reports the error once and keeps its recovery actions", () => 
   expect(mockCapture).toHaveBeenCalledTimes(1);
   expect(mockCapture).toHaveBeenCalledWith(error);
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-  // The warning glyph is decorative; the heading says what happened.
-  expect(document.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  // The heading says what happened, and there is a way back home.
+  expect(screen.getByRole("heading", { level: 1, name: "Something went wrong" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /this week’s matches/ })).toHaveAttribute("href", "/");
 });
 
 it("app/global-error.tsx reports the error even though the layout is gone", () => {

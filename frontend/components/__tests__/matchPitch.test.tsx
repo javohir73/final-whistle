@@ -58,8 +58,8 @@ it("colours the two teams' shirts differently so they're identifiable", () => {
   render(<MatchPitch home={home} away={away} />);
   const homeShirt = screen.getByRole("button", { name: /Alisson/ });
   const awayShirt = screen.getByRole("button", { name: /Livakovic/ });
-  expect(homeShirt.className).toContain("bg-white"); // home = white
-  expect(awayShirt.className).toContain("bg-win"); // away = lime
+  expect(homeShirt.className).toContain("bg-ground"); // home = white (G ground)
+  expect(awayShirt.className).toContain("bg-brand"); // away = brand green
 });
 
 it("toggles a player's detail on tap", () => {

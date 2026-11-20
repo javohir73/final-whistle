@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import {
   getKnockoutOddsServer,
@@ -8,6 +7,7 @@ import {
 } from "@/lib/api";
 import { getCompetitionTournament } from "@/lib/tournament";
 import { Empty } from "@/components/States";
+import { Button } from "@/components/ui";
 import { BracketsClient } from "./BracketsClient";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -20,7 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
   }
   return {
     title: `Bracket — ${APP_NAME}`,
-    description: `The projected ${tournament.name} knockout bracket and title odds, updated as the model refreshes.`,
+    description: `The ${tournament.name} knockout bracket: every result from the Round of 32 to the final, beside the model's projected path.`,
   };
 }
 
@@ -35,12 +35,7 @@ export default async function BracketsPage() {
       <Empty
         label={`${tournament.name} doesn't have a knockout bracket — it's decided on the table.`}
         action={
-          <Link
-            href="/football/wc26/fixtures"
-            className="rounded-lg bg-win px-4 py-2 text-sm font-bold text-pitch transition hover:brightness-110"
-          >
-            See fixtures
-          </Link>
+          <Button href="/football/wc26/fixtures">See fixtures</Button>
         }
       />
     );

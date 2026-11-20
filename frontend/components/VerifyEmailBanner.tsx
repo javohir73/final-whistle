@@ -28,19 +28,19 @@ export function VerifyEmailBanner({ user }: { user: SessionUser | null }) {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-draw/30 bg-draw/10 px-4 py-2 text-center text-xs text-amber-ink"
+      className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-line bg-soft px-4 py-2 text-center text-notes text-ink"
     >
-      <span className="font-semibold">Verify your email to secure your account.</span>
+      <span className="font-medium">Verify your email to secure your account.</span>
       {state === "sent" ? (
-        <span className="font-medium text-lime-deep">Sent — check your inbox.</span>
+        <span className="font-semibold text-brand">Sent — check your inbox.</span>
       ) : state === "error" ? (
-        <span className="font-medium text-loss">{msg}</span>
+        <span className="font-medium text-miss">{msg}</span>
       ) : (
         <button
           type="button"
           onClick={resend}
           disabled={state === "sending"}
-          className="font-bold text-lime-deep underline-offset-2 hover:underline disabled:opacity-50"
+          className="min-h-[44px] font-semibold text-brand underline-offset-[3px] hover:underline disabled:text-muted"
         >
           {state === "sending" ? "Sending…" : "Resend email"}
         </button>
