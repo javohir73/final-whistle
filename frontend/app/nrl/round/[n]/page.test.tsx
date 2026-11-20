@@ -62,7 +62,6 @@ it("renders the round heading and its fixtures on the shared spine", async () =>
   render(await NrlRoundPage({ params: params() }));
 
   expect(screen.getByRole("heading", { name: "Round 19" })).toBeInTheDocument();
-  // The compact MatchCard collapses both sides onto one name line.
   expect(screen.getByText(/Wests Tigers/)).toBeInTheDocument();
   // ...and the fixture links to its (season, round, match_no) detail page.
   const links = screen.getAllByRole("link").map((a) => a.getAttribute("href"));

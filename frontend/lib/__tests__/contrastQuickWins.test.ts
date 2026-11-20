@@ -47,7 +47,6 @@ describe("call sites", () => {
   const FILES = [
     "components/AuthModal.tsx",
     "components/DeleteAccountModal.tsx",
-    "components/ConfidenceBadge.tsx",
     "app/reset-password/ResetPasswordClient.tsx",
     "app/verify-email/VerifyEmailClient.tsx",
     "app/error.tsx",

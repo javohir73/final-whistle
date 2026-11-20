@@ -1,5 +1,5 @@
 /** Pure mappers from the /api/nrl/* shapes onto the shared Floodlight component
- *  props (MatchCard's MatchSummary, StandingsTable's row). No React, SSR-safe,
+ *  props (the fixture rows' MatchSummary, StandingsTable's row). No React, SSR-safe,
  *  so server and client NRL surfaces share one translation. NRL semantics stay
  *  intact: a 3-way probability bar with a naturally-small draw (never zeroed),
  *  margin chips, and the (season, round, match_no) match href. */
@@ -30,7 +30,7 @@ function favouredSide(m: NrlMatch): string | null {
   return null;
 }
 
-/** NrlMatch -> MatchSummary for the shared MatchCard. The live poller's
+/** NrlMatch -> MatchSummary for the shared fixture rows. The live poller's
  *  in_play status and minute pass through so shared cards show the current
  *  score instead of the frozen pre-match percentage.
  *  probabilities keep all three outcomes so the W/D/L bar renders the small

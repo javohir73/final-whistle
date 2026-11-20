@@ -4,12 +4,9 @@
  *  value stayed byte-identical. There is one theme now, so the same inks are
  *  checked once, on every surface they sit on in G (ground, soft, the chip
  *  neutral and their own washes). The file name is kept for history. */
-import fs from "fs";
-import path from "path";
 import { COMPETITIONS, accentInkVar } from "@/lib/sports";
 import { color, composite, parseColor, ratio, token, wash, type Rgba } from "./gTokens.test.helpers";
 
-const root = path.resolve(__dirname, "../..");
 const surfaces: Rgba[] = [color("background"), color("surface"), color("surface-2"), parseColor("#f2f4f1")];
 
 it("gives action, outcome and Origin copy semantic inks above 4.5:1", () => {
@@ -68,9 +65,6 @@ it.each(REGISTERED_COMPETITIONS)("keeps the $id chip label AA-safe on its own wa
   }
 });
 
-it("paints the eyebrow chip in ink on the neutral chip fill (one accent; the logo identifies the competition)", () => {
-  const source = fs.readFileSync(path.join(root, "components/Eyebrow.tsx"), "utf8");
-  expect(source).toMatch(/bg-chip[^"]*text-ink/);
-  // ink on chip clears AA by a wide margin.
+it("keeps ink on the neutral chip fill AA-safe (one accent; the logo identifies the competition)", () => {
   expect(ratio(color("fw-ink"), color("fw-chip"))).toBeGreaterThanOrEqual(4.5);
 });

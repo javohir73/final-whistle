@@ -1,9 +1,7 @@
-/** Predicted vs actual: the board card labels the model's score and shows a
- *  verdict at full time; the match hero keeps the real-score slot for real
- *  scores ("vs" before kickoff), moves the model's most likely scoreline into a
- *  labelled chip, and grades the call only on a feed-confirmed result. */
+/** Predicted vs actual on the match page: the hero keeps the real-score slot
+ *  for real scores (the kick-off time before kick-off), and the model's call is
+ *  graded only on a feed-confirmed result. */
 import { render, screen } from "@testing-library/react";
-import { MatchCard } from "@/components/MatchCard";
 import { MatchHero } from "@/components/match/MatchHero";
 import { ModelCallCard } from "@/components/match/ModelCallCard";
 import type { ModelData } from "@/components/match/matchPageData";
@@ -74,36 +72,6 @@ beforeEach(() => {
 afterEach(() => {
   jest.resetAllMocks();
   window.localStorage.clear();
-});
-
-describe("MatchCard", () => {
-  it("keeps the model's call hidden before kickoff (reveal rule)", () => {
-    render(<MatchCard match={base} href={HREF} />);
-    expect(screen.queryByText("1–0")).not.toBeInTheDocument();
-    expect(screen.getByText(/appears once you lock yours/)).toBeInTheDocument();
-  });
-
-  it("at full time shows actual score, the model-labelled prediction, and a verdict", () => {
-    render(<MatchCard match={finished} href={HREF} />);
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("0")).toBeInTheDocument();
-    expect(screen.getByText("Full time")).toBeInTheDocument();
-    expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Model")).toBeInTheDocument();
-    expect(screen.getByText("1–0")).toBeInTheDocument();
-    expect(screen.getByText("Right result")).toBeInTheDocument();
-  });
-
-  it("shows the kickoff time (not a confidence badge) before kickoff", () => {
-    render(<MatchCard match={{ ...base, kickoff_utc: "2099-06-11T19:00:00+00:00" }} tz="UTC" href={HREF} />);
-    expect(screen.getByText("7:00 PM")).toBeInTheDocument();
-    expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
-  });
-
-  it("calls out a miss when the favoured side lost", () => {
-    render(<MatchCard match={{ ...finished, score_home: 0, score_away: 2 }} href={HREF} />);
-    expect(screen.getByText("Missed")).toBeInTheDocument();
-  });
 });
 
 // The match hero and the model's call, rewritten from the deleted

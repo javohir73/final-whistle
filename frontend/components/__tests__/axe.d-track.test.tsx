@@ -1,5 +1,5 @@
 /** axe-core sweep of the surfaces the D track touched (auth forms, the delete
- *  dialog, the toast, confidence badge, standings table). jest-axe turns the
+ *  dialog, the toast, standings table). jest-axe turns the
  *  color-contrast rule off under jsdom (no layout); contrast is covered by
  *  lib/__tests__/contrastQuickWins.test.ts from the token values instead. */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -7,7 +7,6 @@ import { axe, toHaveNoViolations } from "jest-axe";
 import { AuthModal } from "@/components/AuthModal";
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
 import { AuthToast } from "@/components/AuthToast";
-import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { FULL_LEAGUE_COLUMNS, StandingsTable } from "@/components/StandingsTable";
 import { ResetPasswordClient } from "@/app/reset-password/ResetPasswordClient";
 import { COMPETITIONS } from "@/lib/sports";
@@ -43,11 +42,10 @@ it("reset-password form has no axe violations", async () => {
   expect(await axe(container)).toHaveNoViolations();
 });
 
-it("AuthToast and ConfidenceBadge have no axe violations", async () => {
+it("AuthToast has no axe violations", async () => {
   const { container } = render(
     <main>
       <AuthToast message="Account created" onDone={() => {}} />
-      <ConfidenceBadge level="Low" />
     </main>,
   );
   expect(await axe(container)).toHaveNoViolations();
