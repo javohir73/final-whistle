@@ -7,7 +7,7 @@ import data from "@/lib/methodology-data.json";
 import { getMarketRecordServer, getModelRecordServer } from "@/lib/api";
 import { MarketComparison } from "@/components/MarketComparison";
 import type { MarketBenchmark, ModelRecord } from "@/lib/types";
-import { CARD_X, Card, CardHead, Note, PageHead, Prose, Table, TableScroll, Tag, Td, Th } from "@/components/ui";
+import { CARD_X, Card, CardHead, Note, PageHead, Prose, Table, TableScroll, Td, Th } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -221,7 +221,11 @@ export default async function MethodologyPage() {
         <h2>Model changelog</h2>
         <ul>
           <li>
-            <strong>poisson-elo-v0.6</strong> <Tag>Current</Tag> since 4 August 2026. Bookmaker odds (capped, so
+            {/* This exact markup is checked by pipeline/build_methodology_test.py:
+                the version in a span, then the one "current" pill. */}
+            <span className="font-semibold text-ink">poisson-elo-v0.6</span>{" "}
+            <span className="inline-block whitespace-nowrap rounded-full bg-chip px-2 py-px align-middle text-label font-semibold capitalize leading-[18px] text-muted">current</span>{" "}
+            since 4 August 2026. Bookmaker odds (capped, so
             the model stays the main voice), player availability and suspensions now move the published number.
             Rest days and a redesigned recent-form signal were measured and refused.
           </li>
