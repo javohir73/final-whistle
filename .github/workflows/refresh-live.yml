@@ -12,9 +12,10 @@
 # went dark for every competition after the 2026 World Cup ended.
 #
 # GitHub's minimum schedule interval is 5 minutes, so each run loops internally
-# (~1-minute cadence) to cover the gap to the next tick. This repo is private
-# (2,000 free Actions minutes a month), so the loop only continues while the
-# server reports a match in a live window; an idle response ends the run.
+# (~1-minute cadence) to cover the gap to the next tick. The loop only continues
+# while the server reports a match in a live window; an idle response ends the
+# run. That keeps the job cheap if the repo is ever private again (a private
+# repo gets 2,000 free Actions minutes a month; a public one is not billed).
 #
 # SETUP (one time) — GitHub → repo → Settings → Secrets and variables → Actions:
 #   - API_URL          the deployed API base, e.g. https://pitchprophet-api.onrender.com
@@ -26,9 +27,11 @@
 # point an external uptime cron (e.g. cron-job.org) at the same endpoint instead.
 name: refresh-live
 
-# Every 2 hours, not every 5 minutes: each run bills at least one Actions
-# minute on this private repo (a 5-minute cron asks for 8,640 a month before it
-# polls anything), and GitHub was only delivering a few runs a day anyway.
+# Every 2 hours, not every 5 minutes. GitHub was only delivering a few runs a
+# day of the 5-minute cron anyway, and on a private repo each run bills at least
+# one Actions minute (a 5-minute cron asks for 8,640 a month before it polls
+# anything). The repo was private for a period up to 2026-11-20 and ran out of
+# minutes three months running, which stopped every workflow.
 # Visitors on the matches board drive live refreshes; this is the backstop that
 # also retries an owed learning chain. Real-time polling needs an external
 # trigger on the same endpoint, not this workflow.

@@ -38,7 +38,7 @@ on:
     # kickoff in 2021-2026 fell between 00:00 and 10:59 UTC in those months
     # (the early ones are the Las Vegas openers), so this window runs through
     # full time. Outside it no NRL match is played, and every idle tick still
-    # bills one Actions minute on this private repo.
+    # bills one Actions minute whenever this repo is private.
     - cron: "*/15 0-12 * 3-10 0,1,4,5,6"
   workflow_dispatch: {}
 
@@ -70,7 +70,7 @@ jobs:
             echo "[$i/16] HTTP ${code} $(cat /tmp/nrl_live.json 2>/dev/null || true)"
             if [ "${code}" -ge 200 ] && [ "${code}" -lt 300 ]; then ok=1; fi
             # Idle exit: sleeping out an idle window only burns Action-minutes
-            # (this repo is private -- 2,000 free minutes a month). But the
+            # (a private repo gets 2,000 free minutes a month). But the
             # server's live window looks just 5 minutes ahead, so "no
             # candidates" alone would skip a kickoff landing before the next
             # tick, and its first tries would never become NrlLiveEvents
