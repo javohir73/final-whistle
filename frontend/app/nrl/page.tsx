@@ -125,9 +125,8 @@ function SeasonComplete({
   const season = fixtures.season;
   const gf = nrlGrandFinal(fixtures.rounds);
   const premier = gf ? nrlWinner(gf.match) : null;
-  // The API carries no date for next season until its draw is loaded (that
-  // flips the page to pre-season), so we do not promise a month.
-  const sub = `${premier ? `The ${premier} are premiers. ` : ""}Tips reopen when the ${season + 1} draw is released.`;
+  // Same words as the /nrl/tips empty state (the NRL always starts in March).
+  const sub = `${premier ? `The ${premier} are premiers. ` : ""}Tips reopen for Round 1 in March ${season + 1}.`;
 
   return (
     <>

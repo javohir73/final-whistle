@@ -59,7 +59,7 @@ function renderHero(match: NrlMatch = scheduledMatch) {
 
 afterEach(() => jest.resetAllMocks());
 
-it("shows the kick-off time and the model's pre-match pick (when the page passes one)", async () => {
+it("shows the kick-off and never the model's numbers, even when given a prediction", async () => {
   mockLive.mockResolvedValue({
     ...livePayload(),
     status: "pre",
@@ -70,8 +70,8 @@ it("shows the kick-off time and the model's pre-match pick (when the page passes
   renderHero();
   await act(async () => {});
   expect(screen.queryByText(/LIVE/)).not.toBeInTheDocument();
-  expect(screen.getByText("Picked Warriors at 67%")).toBeInTheDocument();
-  expect(screen.getByText(/Expected margin: Warriors by 5.5/)).toBeInTheDocument();
+  // The model's call is its own card on the page, behind the reveal rule.
+  expect(screen.queryByText(/Picked|%|Warriors by/)).not.toBeInTheDocument();
 });
 
 it("shows no model call at all when the page withholds the prediction (open match)", () => {
@@ -80,7 +80,7 @@ it("shows no model call at all when the page withholds the prediction (open matc
   expect(screen.queryByText(/Picked|%/)).not.toBeInTheDocument();
 });
 
-it("shows the updating result and labels the prediction as pre-match while live", async () => {
+it("shows the updating result while live", async () => {
   mockLive.mockResolvedValue(livePayload({ minute: 42, score_home: 12, score_away: 6 }));
   renderHero();
   // The live region carries the SCORE as content (content changes announce;
@@ -90,9 +90,6 @@ it("shows the updating result and labels the prediction as pre-match while live"
   );
   expect(screen.getByText("LIVE · 42′")).toBeInTheDocument();
   expect(screen.getByText("12–6")).toBeInTheDocument();
-  expect(screen.getByText("The model’s pre-match pick")).toBeInTheDocument();
-  expect(screen.getByText("Picked Warriors at 67%")).toBeInTheDocument();
-  expect(screen.queryByText(/Expected margin/)).not.toBeInTheDocument();
 });
 
 it("formats a partial live score without adding punctuation for a missing minute", async () => {
@@ -107,12 +104,47 @@ it("formats a partial live score without adding punctuation for a missing minute
   expect(screen.getByText("12––")).toBeInTheDocument();
 });
 
-it("preserves the full-time score and model verdict", () => {
+it("preserves the full-time score", () => {
   mockLive.mockReturnValue(new Promise(() => {}));
   renderHero(finishedMatch);
   expect(screen.getByText("Full time")).toBeInTheDocument();
   expect(screen.getByText("12–26")).toBeInTheDocument();
-  expect(screen.getByText(/Called it/)).toBeInTheDocument();
+});
+
+it("lists the try scorers under each side of a finished match", async () => {
+  mockLive.mockReturnValue(new Promise(() => {}));
+  const fetchMock = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () =>
+      Promise.resolve({
+        try_timeline: [
+          { minute: 15, team: "Warriors", player: "A. Winger", score_home: 0, score_away: 4 },
+          { minute: 35, team: "Wests Tigers", player: "B. Centre", score_home: 6, score_away: 4 },
+          { minute: 59, team: "Warriors", player: "A. Winger", score_home: 6, score_away: 10 },
+        ],
+      }),
+  });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  try {
+    renderHero(finishedMatch);
+    expect(await screen.findByRole("list", { name: "Warriors tries" })).toHaveTextContent("A. Winger 15′, 59′");
+    expect(screen.getByRole("list", { name: "Wests Tigers tries" })).toHaveTextContent("B. Centre 35′");
+    expect(fetchMock).toHaveBeenCalledWith("/backend-api/api/nrl/matches/42/stats", { cache: "no-store" });
+  } finally {
+    Reflect.deleteProperty(global, "fetch");
+  }
+});
+
+it("does not fetch try scorers before full time", () => {
+  mockLive.mockReturnValue(new Promise(() => {}));
+  const fetchMock = jest.fn();
+  global.fetch = fetchMock as unknown as typeof fetch;
+  try {
+    renderHero({ ...scheduledMatch, kickoff_utc: new Date(Date.now() + 86_400_000).toISOString() });
+    expect(fetchMock).not.toHaveBeenCalled();
+  } finally {
+    Reflect.deleteProperty(global, "fetch");
+  }
 });
 
 // --- stale/contradictory live states must not produce a LIVE pill ----------

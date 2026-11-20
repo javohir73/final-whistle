@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { TeamBadge } from "@/components/TeamBadge";
 import { Card } from "@/components/ui";
 import { useTimezone } from "@/lib/useTimezone";
-import { kickoffTime } from "@/lib/datetime";
+import { kickoffTimeLower } from "@/components/match/matchPageData";
 import { liveLabel, liveLabelSpoken, penaltyTally } from "@/lib/liveLabel";
 import { RESULT_PENDING, stoppedLabel, type MatchPhase } from "@/lib/matchStatus";
 import { ordinal } from "@/lib/standingsRows";
@@ -190,7 +190,7 @@ function Centre({
   }
   return (
     <div className="whitespace-nowrap text-[20px] font-semibold leading-[1.1] tracking-[-0.02em] text-ink min-[900px]:text-[28px]">
-      {kickoffUtc ? kickoffTime(kickoffUtc, tz) : "TBC"}
+      {kickoffUtc ? kickoffTimeLower(kickoffUtc, tz) : "TBC"}
       <small className="mt-1 block text-notes font-normal tracking-normal text-muted">
         {summary?.status === "postponed" ? "Postponed" : "kick-off"}
       </small>

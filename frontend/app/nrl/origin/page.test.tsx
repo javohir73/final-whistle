@@ -71,9 +71,9 @@ it("lists every game with both Origin crests and the winner", async () => {
   expect(screen.getByText("Model Blues")).toBeInTheDocument();
 });
 
-it("keeps the Origin disclaimer line", async () => {
+it("does not repeat the site disclaimer inside the page (the banner and footer carry it)", async () => {
   render(await OriginPage({ searchParams: Promise.resolve({}) }));
-  expect(screen.getByText(series.disclaimer)).toHaveClass("text-origin-disclaimer");
+  expect(screen.queryByText(series.disclaimer)).not.toBeInTheDocument();
 });
 
 it("passes the season searchParam through to the fetcher", async () => {

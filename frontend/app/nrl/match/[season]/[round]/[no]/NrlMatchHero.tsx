@@ -1,22 +1,69 @@
 "use client";
 
-import { Card, CheckIcon, Chip } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { Card, Chip } from "@/components/ui";
 import { HeroTeam } from "@/components/nrl/GrandFinalCard";
+import { CLIENT_BASE } from "@/lib/api";
 import { isNrlLiveNow } from "@/lib/nrlLive";
-import { expectedMarginLabel } from "@/lib/format";
-import { nrlDayLabel, nrlTimeLabel, wholePct } from "@/lib/nrlDisplay";
-import { cn } from "@/lib/utils";
-import type { NrlMatch } from "@/lib/types";
+import { nrlDayLabel, nrlTimeLabel } from "@/lib/nrlDisplay";
+import type { NrlMatch, NrlMatchStatsResponse, NrlTryEventOut } from "@/lib/types";
 import { useLiveMatch } from "./LiveMatchProvider";
 
+export interface TryLine {
+  player: string;
+  /** "35′, 59′" */
+  minutes: string;
+}
+
+/** One line per try scorer of a side ("Mark Nawaqanitawase" · "35′, 59′"),
+ *  in the order the tries came. */
+export function tryLines(events: NrlTryEventOut[], team: string): TryLine[] {
+  const byPlayer = new Map<string, number[]>();
+  for (const e of events) {
+    if (e.team !== team) continue;
+    byPlayer.set(e.player, [...(byPlayer.get(e.player) ?? []), e.minute]);
+  }
+  return Array.from(byPlayer, ([player, mins]) => ({ player, minutes: mins.map((m) => `${m}′`).join(", ") }));
+}
+
+/** The try scorers of a finished match, from /api/nrl/matches/{id}/stats
+ *  (only finished, ingested matches have stats). Null until known or when
+ *  there are none -- the hero then simply shows no list. */
+function useTryScorers(
+  matchId: number,
+  finished: boolean,
+  home: string,
+  away: string,
+): { home: TryLine[]; away: TryLine[] } | null {
+  const [events, setEvents] = useState<NrlTryEventOut[] | null>(null);
+  useEffect(() => {
+    if (!finished) return;
+    let cancelled = false;
+    try {
+      fetch(`${CLIENT_BASE}/api/nrl/matches/${matchId}/stats`, { cache: "no-store" })
+        .then((res) => (res.ok ? (res.json() as Promise<NrlMatchStatsResponse>) : null))
+        .then((body) => {
+          if (!cancelled) setEvents(body?.try_timeline ?? null);
+        })
+        .catch(() => {});
+    } catch {
+      // No fetch (tests, very old browsers): no list.
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [matchId, finished]);
+  if (!events || events.length === 0) return null;
+  const lines = { home: tryLines(events, home), away: tryLines(events, away) };
+  return lines.home.length + lines.away.length > 0 ? lines : null;
+}
+
 /** The NRL match header (the football match page's hero pattern): status
- *  chip + round/venue/date line, both clubs with their crests, and the score
- *  (live from the shared feed, or final) or the kick-off in the centre.
- *
- *  The model's call shows here only when the page passes a prediction, and
- *  the page only does that once the match is past the point of tipping (the
- *  reveal rule, decided server-side) -- an open match reaches this component
- *  with `prediction: null`. */
+ *  chip + round/venue/date line, both clubs with their crests, the score
+ *  (live from the shared feed, or final) or the kick-off in the centre, and
+ *  on a finished match the try scorers under each side (like the football
+ *  hero's goal scorers). It never shows the model's numbers -- the model's
+ *  call is its own card below, behind the reveal rule. */
 export function NrlMatchHero({
   match,
   home,
@@ -39,15 +86,7 @@ export function NrlMatchHero({
   const scoreHome = isLive || liveState?.status === "final" ? liveState.score_home : match.score_home;
   const scoreAway = isLive || liveState?.status === "final" ? liveState.score_away : match.score_away;
   const score = `${scoreHome ?? "–"}–${scoreAway ?? "–"}`;
-  const p = match.prediction;
-  const favoured = p && p.p_home !== p.p_away ? (p.p_home > p.p_away ? home : away) : null;
-  const favouredProb = p ? Math.max(p.p_home, p.p_away) : null;
-  // Post-match verdict: did the model's favoured side win? (A drawn game with
-  // no draw lean counts as a miss, same as the football cards.)
-  const called =
-    isFinal && p && scoreHome != null && scoreAway != null
-      ? (p.p_home > p.p_away && scoreHome > scoreAway) || (p.p_away > p.p_home && scoreAway > scoreHome)
-      : null;
+  const tries = useTryScorers(match.id, match.status === "finished", home, away);
   const meta = [roundLabel, match.venue, match.kickoff_utc ? nrlDayLabel(match.kickoff_utc) : null]
     .filter(Boolean)
     .join(" · ");
@@ -92,27 +131,22 @@ export function NrlMatchHero({
         </div>
       </div>
 
-      {p && favoured && favouredProb != null ? (
-        <div className="border-t border-line px-4 py-5 min-[900px]:px-7 min-[900px]:py-6">
-          <div className="text-notes text-muted">{isFinal ? "The model" : "The model’s pre-match pick"}</div>
-          <div className="text-h2 font-semibold text-ink">
-            Picked {favoured} at {wholePct(favouredProb)}
-          </div>
-          {called != null ? (
-            <div
-              className={cn(
-                "mt-2 inline-flex items-center gap-1.5 text-notes font-semibold",
-                called ? "text-brand" : "text-miss",
-              )}
-            >
-              {called ? <CheckIcon /> : null}
-              {called ? "Called it" : "Missed — an upset"}
-            </div>
-          ) : p.expected_margin != null && !isLive ? (
-            <div className="mt-2 text-notes text-muted">
-              Expected margin: {expectedMarginLabel(p.expected_margin, home, away)}
-            </div>
-          ) : null}
+      {tries ? (
+        <div className="-mt-3 grid grid-cols-2 gap-x-4 px-4 pb-7 text-label text-muted min-[900px]:gap-x-6 min-[900px]:text-notes min-[900px]:-mt-5 min-[900px]:px-10 min-[900px]:pb-9">
+          <ul aria-label={`${home} tries`} className="text-right">
+            {tries.home.map((t) => (
+              <li key={t.player} className="tabular-nums">
+                {t.player} <span className="whitespace-nowrap">{t.minutes}</span>
+              </li>
+            ))}
+          </ul>
+          <ul aria-label={`${away} tries`} className="text-left">
+            {tries.away.map((t) => (
+              <li key={t.player} className="tabular-nums">
+                {t.player} <span className="whitespace-nowrap">{t.minutes}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </Card>

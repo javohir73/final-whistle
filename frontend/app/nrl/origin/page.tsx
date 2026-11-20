@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getOriginSeriesServer } from "@/lib/api";
 import { ClubBadge } from "@/components/ClubBadge";
-import { Card, CardHead, Chip, FixturePair, FixtureRow, Note, PageHead, Stat, StatGrid, TextLink } from "@/components/ui";
+import { Card, CardHead, Chip, FixturePair, FixtureRow, PageHead, Stat, StatGrid, TextLink } from "@/components/ui";
 import { nrlDayMonth, nrlTimeLabel, wholePct } from "@/lib/nrlDisplay";
 import type { OriginGame, OriginSeriesResponse } from "@/lib/types";
 
@@ -127,7 +127,15 @@ export default async function OriginPage({
       <PageHead
         back={{ href: "/nrl", label: "NRL" }}
         eyebrow={`State of Origin · ${series.season}`}
-        title={`NSW Blues ${s.blues_wins}–${s.maroons_wins} QLD Maroons`}
+        title={
+          <>
+            NSW Blues{" "}
+            <span className="whitespace-nowrap">
+              {s.blues_wins}–{s.maroons_wins}
+            </span>{" "}
+            QLD Maroons
+          </>
+        }
         sub={seriesSub(series)}
       />
       <div className="flex max-w-[980px] flex-col gap-6">
@@ -149,18 +157,19 @@ export default async function OriginPage({
         ) : null}
 
         {earlier.length > 0 ? (
-          <Note>
-            Earlier series:{" "}
+          <nav aria-label="Earlier series" className="flex flex-wrap items-center text-notes text-muted">
+            <span className="mr-1">Earlier series:</span>
             {earlier.map((y, i) => (
-              <span key={y}>
-                {i > 0 ? " · " : ""}
-                <TextLink href={y === latest ? "/nrl/origin" : `/nrl/origin?season=${y}`}>{y}</TextLink>
+              <span key={y} className="inline-flex items-center">
+                {i > 0 ? <span aria-hidden="true">·</span> : null}
+                {/* 44 px tall tap target (padding), same brand text link look. */}
+                <TextLink className="min-h-11 px-2" href={y === latest ? "/nrl/origin" : `/nrl/origin?season=${y}`}>
+                  {y}
+                </TextLink>
               </span>
             ))}
-          </Note>
+          </nav>
         ) : null}
-
-        <p className="text-label text-origin-disclaimer">{series.disclaimer}</p>
       </div>
     </>
   );

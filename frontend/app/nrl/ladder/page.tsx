@@ -75,7 +75,7 @@ export default async function NrlLadderPage() {
                   <Td align="left" className="whitespace-normal">
                     <ClubCell
                       href={`/nrl/team/${r.team_id}`}
-                      crest={<ClubBadge name={r.name} size={22} decorative />}
+                      crest={<ClubBadge name={r.name} size={28} decorative />}
                       name={r.name}
                     />
                   </Td>

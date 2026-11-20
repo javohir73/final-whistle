@@ -214,6 +214,45 @@ describe("locking", () => {
     );
   });
 
+  it("moves keyboard focus to the announced Locked status after a server-accepted lock", async () => {
+    mockMine.mockResolvedValue(mine(row(), OTHER));
+    mockSubmit.mockResolvedValue({
+      ok: true, handle: "SwiftStriker42", model: MODEL,
+      prediction: { match_id: 501, predicted_home: 2, predicted_away: 1, updated_at: "2026-11-03T10:00:00+00:00" },
+    });
+    renderPick(summary(), "epl");
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    const lock = lockButton();
+    lock.focus();
+    expect(lock).toHaveFocus();
+    fireEvent.click(lock);
+
+    const status = (await screen.findByText(/Locked\./)).closest('[role="status"]') as HTMLElement;
+    expect(status).toHaveTextContent(/^Locked\./);
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveAttribute("tabindex", "-1");
+    await waitFor(() => expect(status).toHaveFocus());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("does not move focus when the pick was already locked on load", async () => {
+    mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: PICKED })));
+    renderPick();
+    const status = (await screen.findByText(/Locked\./)).closest('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status).not.toHaveFocus();
+  });
+
+  it("keeps focus where it was when the server refuses the lock", async () => {
+    mockMine.mockResolvedValue(mine(row(), OTHER));
+    mockSubmit.mockRejectedValue(new ApiError(500, "server_error", "Something went wrong."));
+    renderPick(summary(), "epl");
+    fireEvent.click(await screen.findByRole("button", { name: "Add a goal for Arsenal" }));
+    fireEvent.click(lockButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong.");
+    expect(screen.queryByText(/^Locked\./)).not.toBeInTheDocument();
+  });
+
   it("says All picked when nothing else in the matchweek is open and unpicked", async () => {
     mockMine.mockResolvedValue(mine(row({ model: MODEL, your_prediction: PICKED }), { ...OTHER, your_prediction: PICKED }));
     renderPick();
@@ -392,8 +431,8 @@ describe("other states", () => {
 describe("pickLockLine", () => {
   const now = new Date("2026-11-08T10:00:00Z");
   it("names the kickoff time and zone while open", () => {
-    expect(pickLockLine("scheduled", "2026-11-08T15:00:00Z", now, "UTC")).toBe("Locks at kickoff · 3:00 PM UTC");
-    expect(pickLockLine("scheduled", "2026-11-12T15:00:00Z", now, "UTC")).toBe("Locks at kickoff · Thu 12 Nov, 3:00 PM UTC");
+    expect(pickLockLine("scheduled", "2026-11-08T15:00:00Z", now, "UTC")).toBe("Locks at kickoff · 3:00 pm UTC");
+    expect(pickLockLine("scheduled", "2026-11-12T15:00:00Z", now, "UTC")).toBe("Locks at kickoff · Thu 12 Nov, 3:00 pm UTC");
   });
   it("says locked after kickoff, and handles deliberate stops", () => {
     expect(pickLockLine("scheduled", "2026-11-08T09:00:00Z", now, "UTC")).toBe("Locked at kickoff");
@@ -443,7 +482,7 @@ describe("hydrating cached HTML", () => {
       new Date(serverNow),
       new Date("2026-11-08T15:01:00Z"),
     );
-    expect(html).toContain("3:00 PM");
+    expect(html).toContain("3:00 pm");
     expect(html).toContain("Loading your pick");
     expect(errors).toEqual([]);
     await act(async () => {});

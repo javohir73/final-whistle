@@ -141,12 +141,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                       FinalWhistle. Predictions with their uncertainty, for analytics and
                       entertainment only. Not betting advice.
                     </span>
-                    <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">
+                    {/* Phone: each link is a 44px-tall target (rows touch, no
+                        extra gap); from lg the links sit on one calm line. */}
+                    <nav aria-label="Footer" className="-my-2.5 flex flex-wrap gap-x-6 lg:my-0 lg:gap-y-2">
                       {FOOTER_LINKS.map((l) => (
                         <Link
                           key={l.href}
                           href={l.href}
-                          className="no-underline underline-offset-[3px] hover:text-ink hover:underline"
+                          className="inline-flex min-h-[44px] items-center no-underline underline-offset-[3px] hover:text-ink hover:underline lg:min-h-0"
                         >
                           {l.label}
                         </Link>

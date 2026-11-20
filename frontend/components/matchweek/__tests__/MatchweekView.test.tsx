@@ -86,6 +86,18 @@ describe("open matchweek", () => {
     expect(screen.getByText("Mini table card")).toBeInTheDocument();
   });
 
+  it("labels the venue like the match hero: stadium, else city, else to be confirmed", () => {
+    const rows = [
+      m(1, { venue: "St James' Park", venue_city: "Newcastle" }),
+      m(2, { venue: null, venue_city: "Newcastle" }),
+      m(3, { venue: null, venue_city: null }),
+    ].map(withoutModel);
+    render(<MatchweekView {...props(rows)} />);
+    expect(screen.getByText("St James' Park")).toBeInTheDocument();
+    expect(screen.getByText("Newcastle")).toBeInTheDocument();
+    expect(screen.getByText("Venue to be confirmed")).toBeInTheDocument();
+  });
+
   it("disables an arrow at the end of the season", () => {
     render(<MatchweekView {...props(open, { next: null })} />);
     expect(screen.queryByRole("link", { name: /Matchweek 12/ })).toBeNull();

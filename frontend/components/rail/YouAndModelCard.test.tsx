@@ -92,6 +92,8 @@ it("shows the viewer's real season points beside the model's once picks are grad
   render(<YouAndModelCard competition="epl" />);
   expect(await screen.findByText("14")).toBeInTheDocument();
   expect(screen.getByText("123")).toBeInTheDocument();
+  // Both numbers are real, so the two bars compare them.
+  expect(screen.getByTestId("you-and-model-bars").children).toHaveLength(2);
   expect(screen.getByText("Points after 10 matchweeks. Exact score 5, right result 2.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "See the leaderboard" })).toHaveAttribute(
     "href",
@@ -105,6 +107,7 @@ it("shows a dash and 'points appear after full time' when picks exist but none a
   mockMine.mockResolvedValue(mine(true));
   render(<YouAndModelCard competition="epl" />);
   expect(await screen.findByText("–")).toBeInTheDocument();
+  expect(screen.queryByTestId("you-and-model-bars")).not.toBeInTheDocument();
   expect(screen.getByText(/Your points appear after full time/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Matchweek 11" })).toHaveAttribute("href", "/football/epl?mw=11");
 });
@@ -125,6 +128,8 @@ it("signed out with no device picks: only the model's number and a sign-in promp
   expect(await screen.findByText("123")).toBeInTheDocument();
   expect(screen.queryByText("You")).not.toBeInTheDocument();
   expect(screen.queryByText("–")).not.toBeInTheDocument();
+  // No "You" figure: no bar (a lone full-width model bar compares nothing).
+  expect(screen.queryByTestId("you-and-model-bars")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Sign in to keep your picks across devices" }));
   expect(openSignIn).toHaveBeenCalled();
 });

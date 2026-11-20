@@ -3,7 +3,14 @@
  *  list). Results are links, grouped; the dialog traps focus and Escape
  *  closes it and hands focus back to the magnifier. */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { SiteSearch, searchGroups, pageItems } from "@/components/SiteSearch";
+import {
+  SiteSearch,
+  searchGroups,
+  pageItems,
+  nearestMatches,
+  contextFor,
+  type SearchItem,
+} from "@/components/SiteSearch";
 import * as api from "@/lib/api";
 
 jest.mock("@/lib/api");
@@ -21,7 +28,8 @@ beforeEach(() => {
       : ([] as never),
   );
   mockApi.getUpcomingMatches.mockResolvedValue([
-    { match_id: 205, kickoff_utc: "2026-11-21T17:30:00Z", matchweek: 11, teams: { home: "Newcastle", away: "Arsenal" } },
+    // The list now carries status (it holds results as well as fixtures).
+    { match_id: 205, kickoff_utc: "2099-11-21T17:30:00Z", status: "scheduled", matchweek: 11, teams: { home: "Newcastle", away: "Arsenal" } },
   ] as never);
   mockApi.getNrlMatches.mockResolvedValue({
     season: 2026,
@@ -83,4 +91,90 @@ it("keeps the page list honest: every competition tab and the about pages", () =
   const hrefs = pageItems("nrl").map((p) => p.href);
   expect(hrefs).toEqual(expect.arrayContaining(["/nrl", "/nrl/ladder", "/nrl/tips", "/nrl/leaderboard", "/about", "/privacy", "/terms"]));
   expect(searchGroups("", "nrl", { clubs: [], matches: {} })[0].heading).toBe("Go to");
+});
+
+it("has a clear button inside the field that empties it and keeps focus in the field", () => {
+  open();
+  const box = screen.getByRole("searchbox");
+  expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
+  fireEvent.change(box, { target: { value: "ars" } });
+  fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  expect(box).toHaveValue("");
+  expect(box).toHaveFocus();
+  expect(screen.getByRole("region", { name: "Go to" })).toBeInTheDocument();
+});
+
+describe("matches around now", () => {
+  const NOW = Date.parse("2026-11-20T12:00:00Z");
+  const m = (id: number, label: string, iso: string, final: SearchItem["final"] = null, mw = 1): SearchItem => ({
+    kind: "match",
+    label,
+    context: `Matchweek ${mw}`,
+    href: `/football/epl/match/${id}`,
+    kickoff: Date.parse(iso),
+    final,
+  });
+  const season = [
+    m(1, "Arsenal v Brighton", "2027-05-23T15:00:00Z", null, 38),
+    m(2, "Arsenal v Aston Villa", "2027-04-18T15:00:00Z", null, 32),
+    m(3, "Newcastle v Arsenal", "2026-11-22T16:30:00Z", null, 11),
+    m(4, "Arsenal v Man City", "2026-11-30T20:00:00Z", null, 12),
+    m(5, "Arsenal v Hull City", "2026-11-08T14:00:00Z", { home: 2, away: 1 }, 10),
+    m(6, "Arsenal v Coventry", "2026-08-21T19:00:00Z", { home: 3, away: 0 }, 1),
+    m(7, "Chelsea v Arsenal", "2026-12-05T17:30:00Z", null, 13),
+  ];
+
+  it("lists upcoming fixtures by kick-off, then the latest result, capped at four", () => {
+    expect(nearestMatches(season, NOW).map((x) => x.href.split("/").pop())).toEqual(["3", "4", "7", "5"]);
+  });
+
+  it("fills with results when few fixtures are left, newest first", () => {
+    const late = Date.parse("2027-05-01T00:00:00Z");
+    expect(nearestMatches(season, late).map((x) => x.href.split("/").pop())).toEqual(["1", "5", "6"]);
+  });
+
+  it("drops an open fixture whose kick-off is long gone", () => {
+    const stale = m(8, "Arsenal v Fulham", "2026-11-01T15:00:00Z");
+    expect(nearestMatches([stale], NOW)).toEqual([]);
+  });
+
+  it("orders the 'Matches' group around now rather than alphabetically", () => {
+    const groups = searchGroups("ars", "epl", { clubs: [], matches: { epl: season } }, NOW);
+    const matches = groups.find((g) => g.heading === "Matches")!;
+    expect(matches.items.map((x) => x.label)).toEqual([
+      "Newcastle v Arsenal",
+      "Arsenal v Man City",
+      "Chelsea v Arsenal",
+      "Arsenal v Hull City",
+    ]);
+  });
+
+  it("shows kick-off for an open fixture and the real final score for a finished one, never a model figure", () => {
+    expect(contextFor(season[2], "Europe/London")).toBe("Matchweek 11 · Sunday 22 November · 4:30 pm");
+    expect(contextFor(season[4], "Europe/London")).toBe("Matchweek 10 · Full time 2–1");
+    expect(contextFor({ ...season[2], live: true }, "UTC")).toBe("Matchweek 11 · Live");
+  });
+
+  it("reads status, scores and kick-off from the season list, and nothing from the model", async () => {
+    mockApi.getUpcomingMatches.mockResolvedValue([
+      {
+        match_id: 197, kickoff_utc: "2026-11-08T14:00:00Z", status: "finished", matchweek: 10,
+        score_home: 2, score_away: 1, teams: { home: "Arsenal", away: "Hull City" },
+        predicted_score: { home: 3, away: 0 }, probabilities: { home_win: 0.61, draw: 0.2, away_win: 0.19 },
+      },
+      {
+        match_id: 999, kickoff_utc: "2099-01-01T15:00:00Z", status: "scheduled", matchweek: 30,
+        score_home: null, score_away: null, teams: { home: "Arsenal", away: "Leeds" },
+        predicted_score: { home: 4, away: 0 }, probabilities: { home_win: 0.77, draw: 0.13, away_win: 0.1 },
+      },
+    ] as never);
+    render(<SiteSearch competition="laliga" />);
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "arsenal v" } });
+    const matches = await screen.findByRole("region", { name: "Matches" });
+    const links = within(matches).getAllByRole("link");
+    expect(links[0]).toHaveTextContent("Arsenal v Leeds");
+    expect(links[1]).toHaveTextContent("Full time 2–1");
+    expect(matches.textContent).not.toMatch(/%|3–0|4–0|61|77/);
+  });
 });

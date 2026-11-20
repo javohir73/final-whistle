@@ -97,7 +97,6 @@ export default async function NrlRunHomePage() {
               hint="The prediction service may be waking up — try refreshing in a moment."
             />
           )}
-          <p className="text-label text-muted">{fixtures.disclaimer}</p>
         </div>
       )}
     </>

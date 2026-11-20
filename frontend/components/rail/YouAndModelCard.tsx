@@ -112,12 +112,16 @@ export function YouAndModelCard({ competition }: { competition: string }) {
           </div>
         </div>
       </div>
-      <div className="my-3.5 grid gap-1.5" aria-hidden="true">
-        {yourPoints != null ? (
+      {/* The bars compare two real numbers; with no "You" figure yet there is
+          nothing to compare, so the card shows the model's number alone. */}
+      {yourPoints != null ? (
+        <div className="my-3.5 grid gap-1.5" aria-hidden="true" data-testid="you-and-model-bars">
           <span className="block h-1.5 rounded-[3px] bg-brand" style={{ width: `${(yourPoints / scale) * 100}%` }} />
-        ) : null}
-        <span className="block h-1.5 rounded-[3px] bg-ink" style={{ width: `${(modelPoints / scale) * 100}%` }} />
-      </div>
+          <span className="block h-1.5 rounded-[3px] bg-ink" style={{ width: `${(modelPoints / scale) * 100}%` }} />
+        </div>
+      ) : (
+        <div className="h-3.5" aria-hidden="true" />
+      )}
       <Note>
         {matchweeks != null && matchweeks > 0
           ? `Points after ${matchweeks} matchweek${matchweeks === 1 ? "" : "s"}. ${SCORING_SHORT}`

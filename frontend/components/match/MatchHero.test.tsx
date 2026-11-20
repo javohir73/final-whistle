@@ -33,7 +33,7 @@ test("before kick-off: eyebrow, real crests, kick-off time -- never the model's 
   );
   expect(screen.getByRole("heading", { level: 1, name: "Manchester City v Arsenal" })).toBeInTheDocument();
   expect(screen.getByText("Premier League · Saturday 21 November · Etihad Stadium")).toBeInTheDocument();
-  expect(screen.getByText("3:00 PM")).toBeInTheDocument();
+  expect(screen.getByText("3:00 pm")).toBeInTheDocument();
   expect(screen.getByText("kick-off")).toBeInTheDocument();
   expect(screen.getByText("3rd · 21 points")).toBeInTheDocument();
   expect(container.textContent).not.toMatch(/3–1|3 – 1|50%|High/);

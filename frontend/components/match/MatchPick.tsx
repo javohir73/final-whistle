@@ -13,6 +13,7 @@ import { isLeagueTipsCompetition } from "@/components/match/picks";
 import {
   agreementLine,
   draftReady,
+  kickoffTimeLower,
   EMPTY_DRAFT,
   MAX_GOALS,
   MIN_GOALS,
@@ -27,7 +28,7 @@ import { ApiError, getOrCreateDeviceId, pingDailyActivity } from "@/lib/session"
 import { recordEngagement } from "@/lib/engagement";
 import { trackEvent } from "@/lib/analytics";
 import { announceLockedPick, useModelRevealMap } from "@/lib/useModelReveal";
-import { kickoffDate, kickoffTime, relativeDayLabel, tzAbbrev } from "@/lib/datetime";
+import { kickoffDate, relativeDayLabel, tzAbbrev } from "@/lib/datetime";
 import { isPickable, matchPhase, stoppedLabel, type MatchPhase } from "@/lib/matchStatus";
 import { COMPETITIONS, footballMatchHref, type CompetitionId } from "@/lib/sports";
 import { cn } from "@/lib/utils";
@@ -44,7 +45,7 @@ export function pickWindowOpen(status: string, kickoffUtc: string | null | undef
   return now.getTime() < Date.parse(kickoffUtc);
 }
 
-/** "Locks at kickoff · 3:00 PM AEDT" (today) / "· Sat 8 Nov, 3:00 PM AEDT". */
+/** "Locks at kickoff · 3:00 pm AEDT" (today) / "· Sat 8 Nov, 3:00 pm AEDT". */
 export function pickLockLine(
   status: string,
   kickoffUtc: string | null | undefined,
@@ -56,7 +57,7 @@ export function pickLockLine(
   if (stopped) return `${stopped} · picks closed`;
   if (!pickWindowOpen(status, kickoffUtc, now)) return "Locked at kickoff";
   if (!kickoffUtc) return "Locks at kickoff";
-  const time = `${kickoffTime(kickoffUtc, tz)} ${tzAbbrev(kickoffUtc, tz)}`.trim();
+  const time = `${kickoffTimeLower(kickoffUtc, tz)} ${tzAbbrev(kickoffUtc, tz)}`.trim();
   const day = relativeDayLabel(kickoffUtc, tz, now);
   if (day === "Today") return `Locks at kickoff · ${time}`;
   return `Locks at kickoff · ${day ?? kickoffDate(kickoffUtc, tz)}, ${time}`;
@@ -233,6 +234,10 @@ function LeagueScorePick({
   // The server said a pick already exists. If the re-fetch still cannot find
   // it (the week does not list the match), never offer the stepper again.
   const [finalized, setFinalized] = useState(false);
+  // Keyboard focus after a server-accepted lock: the lock button unmounts, so
+  // focus moves to the "Locked." status instead of dropping to <body>.
+  const lockedRef = useRef<HTMLParagraphElement>(null);
+  const focusLocked = useRef(false);
   // Bumps after a sign-in claim, which can move this device's picks to an
   // account (and drop the device's own player row): re-read the server, and
   // forget what this card only knew locally.
@@ -287,6 +292,12 @@ function LeagueScorePick({
   const effectivePhase: MatchPhase = status === "finished" ? "finished" : phase;
   const open = !serverLocked && !finalized && pickWindowOpen(status, kickoffUtc, now);
 
+  useEffect(() => {
+    if (!focusLocked.current || !your || !lockedRef.current) return;
+    focusLocked.current = false;
+    lockedRef.current.focus({ preventScroll: true });
+  });
+
   const retry = useCallback(() => {
     setMessage(null);
     setAttempt((a) => a + 1);
@@ -315,6 +326,7 @@ function LeagueScorePick({
         },
         model: res.model,
       });
+      focusLocked.current = true;
       // Every gated section on the page reveals at once (and the confirmed-
       // pick cache /play reads is written, as writePickerCache did).
       announceLockedPick({
@@ -425,7 +437,13 @@ function LeagueScorePick({
           <Dash />
           <ScoreBox value={mine.away} team={away} />
         </div>
-        <p className="inline-flex items-center justify-center gap-2 font-semibold text-brand">
+        <p
+          ref={lockedRef}
+          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          className="inline-flex items-center justify-center gap-2 rounded-input font-semibold text-brand"
+        >
           <CheckIcon size={16} />
           <span>
             Locked.{line ? ` ${line}` : ""}

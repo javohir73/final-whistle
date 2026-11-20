@@ -53,7 +53,8 @@ export default async function Image({
   const { home_win, draw, away_win } = p.probabilities;
 
   if (!reveal) {
-    // Fixture only: crests/flags, names, and the invitation to pick first.
+    // Fixture only: flags (national teams; club crests are not drawn here yet),
+    // names, and the invitation to pick first.
     const Side = ({ name }: { name: string }) => (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 400, gap: 18 }}>
         <OgFlag url={flagUrl(name)} size={104} />
@@ -91,7 +92,7 @@ export default async function Image({
     (
       <Shell eyebrow={tournament.name} glow footer={ogFooter(tournament.name)}>
         <div style={{ display: "flex", flexDirection: "column", gap: 36 }}>
-          {/* scorebug crest row: home crest — MOST LIKELY score — away crest */}
+          {/* flag row: home — MOST LIKELY score — away */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <Team name={home} prob={home_win} />
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
@@ -137,7 +138,7 @@ export default async function Image({
             <div style={{ display: "flex", width: `${draw * 100}%`, background: C.draw }} />
             <div style={{ display: "flex", width: `${away_win * 100}%`, background: C.loss }} />
           </div>
-          {/* printed labels — win/draw/loss coloured, bold so amber clears the a11y floor */}
+          {/* printed labels — win/draw/loss in brand / muted / miss, bold, never colour alone */}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 26, fontWeight: 700 }}>
             <div style={{ display: "flex", color: C.win }}>{home} {pc(home_win)}</div>
             <div style={{ display: "flex", color: C.draw }}>Draw {pc(draw)}</div>

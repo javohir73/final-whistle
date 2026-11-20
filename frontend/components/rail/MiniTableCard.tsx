@@ -21,9 +21,9 @@ function leagueRows(groups: { standings: StandingRow[] }[]): StandingRow[] {
 }
 
 /** Header cell with a short visible label and a full spoken one. */
-function AbbrTh({ short, full }: { short: string; full: string }) {
+function AbbrTh({ short, full, className }: { short: string; full: string; className?: string }) {
   return (
-    <Th title={full} className="w-12">
+    <Th title={full} className={className}>
       <span aria-hidden="true">{short}</span>
       <span className="sr-only">{full}</span>
     </Th>
@@ -63,16 +63,18 @@ export function MiniTableCard({ competition, limit = 6 }: { competition: string;
   return (
     <Card pad aria-labelledby={`mini-table-${comp}`} data-mini-table={comp}>
       <CardHead id={`mini-table-${comp}`} title="Table" action={<TextLink href={links.table}>Full table</TextLink>} />
-      <Table className="mt-2">
+      {/* Fixed layout: the number columns get just what they need and the
+          club column takes the rest, so each row stays on one line. */}
+      <Table className="mt-2 table-fixed">
         <thead>
           <tr>
-            <Th align="left">
+            <Th align="left" className="w-6 pr-1">
               <span className="sr-only">Position</span>
             </Th>
-            <Th align="left">Club</Th>
-            <AbbrTh short="P" full="Played" />
-            <AbbrTh short="GD" full="Goal difference" />
-            <AbbrTh short="Pts" full="Points" />
+            <Th align="left" className="pl-1">Club</Th>
+            <AbbrTh short="P" full="Played" className="w-[30px] px-1" />
+            <AbbrTh short="GD" full="Goal difference" className="w-10 px-1" />
+            <AbbrTh short="Pts" full="Points" className="w-9 pl-1" />
           </tr>
         </thead>
         <tbody aria-busy={state.status === "loading" || undefined}>
@@ -82,7 +84,7 @@ export function MiniTableCard({ competition, limit = 6 }: { competition: string;
                   <Td pos>
                     <span className="inline-block h-[18px] w-3 rounded-sm bg-line-soft align-middle" />
                   </Td>
-                  <Td align="left">
+                  <Td align="left" className="pl-1">
                     <span className="inline-flex items-center gap-3 align-middle">
                       <span className="inline-block h-[18px] w-[18px] rounded-sm bg-line-soft" />
                       <span className="inline-block h-3.5 w-20 rounded-sm bg-line-soft" />
@@ -101,17 +103,25 @@ export function MiniTableCard({ competition, limit = 6 }: { competition: string;
               ))
             : state.rows.slice(0, limit).map((row, i) => (
                 <tr key={row.team_id}>
-                  <Td pos>{i + 1}</Td>
-                  <Td align="left" className="whitespace-normal">
+                  <Td pos className="w-6 pr-1">{i + 1}</Td>
+                  <Td align="left" className="pl-1">
+                    {/* Short name where the helper has one; otherwise the
+                        full name, cut with an ellipsis only if it cannot fit
+                        (the full name stays in the tooltip). */}
                     <ClubCell
                       href={footballTeamHref(comp, row.team_id)}
                       crest={<ClubBadge name={row.team} size={18} decorative className="shrink-0" />}
-                      name={clubShortName(row.team)}
+                      name={
+                        <span className="block truncate" title={row.team}>
+                          {clubShortName(row.team)}
+                        </span>
+                      }
+                      className="flex max-w-full gap-2 [&>span]:min-w-0"
                     />
                   </Td>
-                  <Td className="tabular-nums">{row.played ?? ""}</Td>
-                  <Td className="tabular-nums">{signedNumber(row.projected_goal_diff)}</Td>
-                  <Td pts className="tabular-nums">
+                  <Td className="px-1 tabular-nums">{row.played ?? ""}</Td>
+                  <Td className="px-1 tabular-nums">{signedNumber(row.projected_goal_diff)}</Td>
+                  <Td pts className="pl-1 tabular-nums">
                     {row.projected_points}
                   </Td>
                 </tr>

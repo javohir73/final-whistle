@@ -136,7 +136,7 @@ describe("MatchHero + ModelCallCard (the match page)", () => {
   it("carries the date and the venue in the eyebrow", () => {
     renderHero({ ...base, kickoff_utc: "2099-06-20T19:00:00Z" }, "upcoming");
     expect(screen.getByText("World Cup 2026 · Saturday 20 June · Estadio Azteca")).toBeInTheDocument();
-    expect(screen.getByText("7:00 PM")).toBeInTheDocument();
+    expect(screen.getByText("7:00 pm")).toBeInTheDocument();
   });
 
   it("promotes the live score with an estimated minute", () => {

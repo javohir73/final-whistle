@@ -33,6 +33,17 @@ describe("MiniTableCard", () => {
     expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain("/api/groups?competition=epl");
   });
 
+  it("keeps a long name on one line: full name in the tooltip, cut only if it cannot fit", async () => {
+    const t = [{ id: 1, name: "La Liga", standings: [row(541, "Real Sociedad", 20, 5)] }];
+    mockFetch(async () => ({ ok: true, json: async () => t }));
+    render(<MiniTableCard competition="laliga" />);
+    const link = await screen.findByRole("link", { name: "Real Sociedad" });
+    const name = screen.getByTitle("Real Sociedad");
+    expect(name).toHaveClass("truncate");
+    expect(link).toContainElement(name);
+    expect(link.closest("table")).toHaveClass("table-fixed");
+  });
+
   it("uses a real minus sign for negative goal difference", async () => {
     mockFetch(async () => ({ ok: true, json: async () => TABLE }));
     render(<MiniTableCard competition="epl" limit={7} />);

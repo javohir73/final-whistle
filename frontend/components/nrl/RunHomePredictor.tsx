@@ -207,7 +207,7 @@ export function RunHomePredictor({
                 return (
                   <tr key={row.team} className="border-t border-line-soft">
                     <td className="flex items-center gap-2 py-2 pr-2">
-                      <ClubBadge name={row.team} size={18} decorative />
+                      <ClubBadge name={row.team} size={26} decorative />
                       <span className="font-medium">{row.team}</span>
                     </td>
                     <td className="py-2 text-right">

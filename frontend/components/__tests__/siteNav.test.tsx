@@ -130,3 +130,12 @@ it("renders no chrome on the partner embed", () => {
   const { container } = renderNav("/embed/198");
   expect(container.querySelector("header")).toBeNull();
 });
+
+it("gives the logo link a 44×44 touch target without moving the mark", () => {
+  renderNav("/football/epl");
+  const home = screen.getByRole("link", { name: "FinalWhistle home" });
+  expect(home).toHaveClass("min-h-[44px]", "min-w-[44px]");
+  // Padding grows the hit area; the equal negative margin keeps the layout.
+  expect(home).toHaveClass("px-[7px]", "-mx-[7px]");
+  expect(home.querySelector("svg")).toHaveClass("h-[27px]", "w-[30px]");
+});

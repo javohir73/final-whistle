@@ -112,3 +112,24 @@ it("exposes both bracket halves as round lists with accessible names", () => {
   expect(screen.getByRole("list", { name: "Round of 32, right half" })).toBeInTheDocument();
   expect(screen.getByRole("list", { name: "Final" })).toBeInTheDocument();
 });
+
+it("never cuts a nation's name: it may wrap, and carries the full name as a title", () => {
+  const ties = buildTree({
+    ties: [
+      tie({
+        match_no: 89,
+        match_id: 313,
+        status: "finished",
+        home: { team_id: 60, team: "Bosnia and Herzegovina", score: 0, penalty: null },
+        away: { team_id: 61, team: "Switzerland", score: 2, penalty: null },
+      }),
+    ],
+  });
+  render(<OfficialBracket ties={ties} />);
+  for (const name of ["Bosnia and Herzegovina", "Switzerland"]) {
+    for (const el of screen.getAllByText(name)) {
+      expect(el).toHaveAttribute("title", name);
+      expect(el.className).not.toMatch(/\btruncate\b|text-ellipsis/);
+    }
+  }
+});

@@ -122,7 +122,7 @@ describe("season complete", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Season complete" })).toBeInTheDocument();
     expect(screen.getByText("NRL · 2026 season")).toBeInTheDocument();
     expect(
-      screen.getByText("The Roosters are premiers. Tips reopen when the 2027 draw is released."),
+      screen.getByText("The Roosters are premiers. Tips reopen for Round 1 in March 2027."),
     ).toBeInTheDocument();
   });
 

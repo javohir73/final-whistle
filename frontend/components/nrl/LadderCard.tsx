@@ -51,7 +51,7 @@ export function LadderCard({
               <Td align="left" className="whitespace-normal">
                 <ClubCell
                   href={`/nrl/team/${r.team_id}`}
-                  crest={<ClubBadge name={r.name} size={18} decorative />}
+                  crest={<ClubBadge name={r.name} size={26} decorative />}
                   name={r.name}
                 />
               </Td>

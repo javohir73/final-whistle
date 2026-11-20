@@ -65,16 +65,20 @@ function SideRow({ s }: { s: SideView }) {
       data-side
       data-winner={s.isWinner ? "" : undefined}
       className={cn(
-        "flex items-center justify-between gap-1.5 py-0.5",
+        "flex items-center justify-between gap-1 py-0.5",
         s.isWinner ? "font-semibold text-ink" : s.team ? "text-ink" : "text-muted",
       )}
     >
-      <span className="flex min-w-0 items-center gap-1.5">
+      <span className="flex min-w-0 items-center gap-1">
         {s.team ? <Flag team={s.team} size={16} decorative /> : null}
-        <span className="truncate text-label leading-tight">{s.team ?? s.label}</span>
+        {/* Full names, never cut: a long one wraps onto a second line inside the
+            card ("Bosnia and / Herzegovina"); the title is a fallback. */}
+        <span className="min-w-0 text-label leading-tight [overflow-wrap:anywhere]" title={s.team ?? s.label}>
+          {s.team ?? s.label}
+        </span>
       </span>
       {s.score != null ? (
-        <span className={cn("text-label tabular-nums", s.isWinner ? "font-bold" : "font-medium")}>{s.score}</span>
+        <span className={cn("shrink-0 text-label tabular-nums", s.isWinner ? "font-bold" : "font-medium")}>{s.score}</span>
       ) : null}
     </div>
   );
@@ -87,7 +91,7 @@ function TieCard({ v, roundLabel, final }: { v: TieView; roundLabel: string; fin
   const body = (
     <div
       className={cn(
-        "rounded-[12px] border bg-ground px-2.5 py-2 transition-colors",
+        "rounded-[12px] border bg-ground px-1.5 py-2 transition-colors",
         final ? "border-ink" : "border-line hover:border-line-strong",
       )}
     >

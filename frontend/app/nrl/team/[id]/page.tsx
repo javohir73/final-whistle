@@ -83,7 +83,7 @@ export default async function NrlTeamPage({
     getNrlLadderServer().catch(() => null),
   ]);
   if (!data) notFound();
-  const { team, season, results, upcoming, model, disclaimer } = data;
+  const { team, season, results, upcoming, model } = data;
   const row = data.ladder;
 
   const complete = fixtures ? nrlSeasonState(fixtures.rounds) === "complete" : false;
@@ -161,7 +161,6 @@ export default async function NrlTeamPage({
             </Card>
           ) : null}
 
-          <p className="text-label text-muted">{disclaimer}</p>
         </Main>
         <Rail aria-label="Ladder">
           {ladder ? (

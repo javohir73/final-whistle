@@ -104,7 +104,9 @@ function SiteNavContent({ queryCompetition }: { queryCompetition: string | null 
         <Link
           href="/"
           aria-label="FinalWhistle home"
-          className="flex shrink-0 items-center gap-2.5 text-ink no-underline"
+          // 44×44 hit area round the 30×27 mark; the negative margin cancels the
+          // padding so the mark and the bar's layout do not move.
+          className="-mx-[7px] flex min-h-[44px] min-w-[44px] shrink-0 items-center gap-2.5 rounded-lg px-[7px] text-ink no-underline"
         >
           <BrandMark className="h-[27px] w-[30px] shrink-0 text-brand" />
           {/* Below sm the mark stands alone: the bar also has to fit the

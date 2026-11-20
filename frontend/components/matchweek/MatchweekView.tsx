@@ -89,6 +89,12 @@ function dayLabel(iso: string, tz: string): string {
   );
 }
 
+/** The row's venue, as the match hero prints it: the stadium, else the city
+ *  (the API often has only the city), else "Venue to be confirmed". */
+export function venueLabel(m: Pick<MatchSummary, "venue" | "venue_city">): string {
+  return m.venue?.trim() || m.venue_city?.trim() || "Venue to be confirmed";
+}
+
 /** "11:30 pm", in the viewer's timezone. */
 function timeLabel(iso: string, tz: string): string {
   return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true })
@@ -408,7 +414,7 @@ export function MatchweekView({
                       key={m.match_id}
                       href={href}
                       className={PHONE_ROW}
-                      left={m.stage === "third_place" ? `Third place · ${m.venue ?? "Venue to be confirmed"}` : m.venue ?? "Venue to be confirmed"}
+                      left={m.stage === "third_place" ? `Third place · ${venueLabel(m)}` : venueLabel(m)}
                       home={{ name: m.teams.home, crest: badge(m.teams.home) }}
                       away={{ name: m.teams.away, crest: badge(m.teams.away) }}
                       score={showScore ? { home: m.score_home!, away: m.score_away! } : undefined}

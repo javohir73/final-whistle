@@ -1,6 +1,7 @@
 /** Pure helpers for the direction-G match page (no React, server-safe):
  *  the pick control's first-tap rule, the model's verdict, the "you and the
  *  model" line, and the small shapes the server hands the client. */
+import { kickoffTime } from "@/lib/datetime";
 import type { GoalMarkets, Prediction, PredictedScore, Probabilities } from "@/lib/types";
 
 export const MIN_GOALS = 0;
@@ -13,6 +14,15 @@ export interface Draft {
 }
 
 export const EMPTY_DRAFT: Draft = { home: null, away: null };
+
+/** "4:30 am": the shared `kickoffTime` ("4:30 AM") with the site's lower-case
+ *  am/pm, as the matchweek rows and /play print it. The shared helper keeps
+ *  its upper-case form for its other callers. */
+export function kickoffTimeLower(iso: string, tz: string): string {
+  return kickoffTime(iso, tz)
+    .replace(/[\u202f\u00a0]/g, " ")
+    .replace(/\b(AM|PM)\b/, (m) => m.toLowerCase());
+}
 
 /** One tap on a stepper. The first tap on an empty side sets it to 1 (+) or
  *  0 (−) and an empty other side to 0; after that ±1, clamped 0..15. */
