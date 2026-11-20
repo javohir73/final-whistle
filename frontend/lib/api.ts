@@ -132,7 +132,7 @@ export const getMatchSummaryServer = (id: number | string, competition?: Competi
     30,
   );
 /** Pre-match forecast trajectory (dated model snapshots leading up to kickoff)
- *  for the match page's WinProbTimeline SSR — NOT minute-by-minute in-match win
+ *  for server rendering on the match page — NOT minute-by-minute in-match win
  *  probability. Server-rendered twin of the client `getProbHistory` above (same
  *  300s ISR default as the rest of the match-detail family). */
 export const getProbHistoryServer = (id: number | string) =>

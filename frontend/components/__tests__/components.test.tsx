@@ -1,137 +1,13 @@
 /** Component unit tests (task 6.9). */
 import { render, screen } from "@testing-library/react";
-import { ProbabilityBar } from "@/components/ProbabilityBar";
-import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
-import { MatchCard } from "@/components/MatchCard";
 import { GroupTable } from "@/components/GroupTable";
-import { ReasonsList } from "@/components/ReasonsList";
 import type { MatchSummary, StandingRow } from "@/lib/types";
-
-describe("ProbabilityBar", () => {
-  it("renders an accessible W/D/L summary", () => {
-    render(
-      <ProbabilityBar probabilities={{ home_win: 0.6, draw: 0.25, away_win: 0.15 }} />,
-    );
-    const bar = screen.getByRole("img");
-    expect(bar).toHaveAttribute("aria-label", expect.stringContaining("60%"));
-    expect(bar.getAttribute("aria-label")).toContain("25%");
-    expect(bar.getAttribute("aria-label")).toContain("15%");
-  });
-
-  it("labels its legend by outcome and never prints a 101% split", () => {
-    // Independently rounded, 0.519 / 0.266 / 0.215 prints 52 · 27 · 22 = 101.
-    render(
-      <ProbabilityBar
-        probabilities={{ home_win: 0.519, draw: 0.266, away_win: 0.215 }}
-        homeLabel="Bournemouth"
-        awayLabel="Brentford"
-      />,
-    );
-    expect(screen.getByRole("img")).toHaveAttribute(
-      "aria-label",
-      "Bournemouth win 52%, draw 27%, Brentford win 21%",
-    );
-    expect(screen.getByText("Bournemouth").parentElement).toHaveTextContent("Bournemouth52%");
-    expect(screen.getByText("Draw 27%")).toBeInTheDocument();
-    expect(screen.getByText("Brentford").parentElement).toHaveTextContent("Brentford21%");
-  });
-
-  it("prints '—' for a partial triple instead of normalising it to 100%", () => {
-    render(
-      <ProbabilityBar
-        probabilities={{ home_win: NaN, draw: undefined as unknown as number, away_win: 0.3 }}
-        homeLabel="Bournemouth"
-        awayLabel="Brentford"
-      />,
-    );
-    expect(screen.getByRole("img")).toHaveAttribute(
-      "aria-label",
-      "Bournemouth v Brentford: win probabilities unavailable",
-    );
-    expect(screen.getByText("Draw —")).toBeInTheDocument();
-    expect(screen.queryByText(/100%/)).not.toBeInTheDocument();
-  });
-});
-
-describe("ConfidenceBadge", () => {
-  it("shows the level", () => {
-    render(<ConfidenceBadge level="High" />);
-    expect(screen.getByText(/High confidence/)).toBeInTheDocument();
-  });
-  it("renders nothing when null", () => {
-    const { container } = render(<ConfidenceBadge level={null} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-});
 
 describe("DisclaimerBanner", () => {
   it("states it is not betting advice", () => {
     render(<DisclaimerBanner />);
     expect(screen.getByRole("note")).toHaveTextContent(/not betting advice/i);
-  });
-});
-
-describe("ReasonsList", () => {
-  it("renders all reasons", () => {
-    render(<ReasonsList reasons={["A", "B", "C"]} />);
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
-  });
-});
-
-describe("MatchCard", () => {
-  const match: MatchSummary = {
-    match_id: 7,
-    stage: "group",
-    group: "Group A",
-    kickoff_utc: "2099-06-11T19:00:00+00:00",
-    venue: "Estadio Azteca",
-    venue_city: "Mexico City",
-    venue_country: "Mexico",
-    is_neutral: false,
-    status: "scheduled",
-    score_home: null,
-    score_away: null,
-    minute: null,
-    period: null,
-    injury_time: null,
-    penalty_home: null,
-    penalty_away: null,
-    teams: { home: "Mexico", away: "South Africa" },
-    predicted_winner: "Mexico",
-    probabilities: { home_win: 0.78, draw: 0.14, away_win: 0.08 },
-    predicted_score: { home: 2, away: 0, probability: 0.12 },
-    confidence: "High",
-    goal_events: [],
-  };
-
-  it("renders the matchup and links to detail, keeping the model's call hidden before kickoff", () => {
-    render(<MatchCard match={match} href="/football/wc26/match/7" />);
-    expect(screen.getByText("Mexico")).toBeInTheDocument();
-    expect(screen.getByText("South Africa")).toBeInTheDocument();
-    // Reveal rule: an open fixture shows no model scoreline until a pick is locked.
-    expect(screen.queryByText("2–0")).not.toBeInTheDocument();
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/football/wc26/match/7");
-    expect(screen.queryByText(/confidence/i)).not.toBeInTheDocument();
-  });
-
-  it("shows a LIVE badge, minute and the running score when in play", () => {
-    const liveMatch = {
-      ...match,
-      // Recent kickoff so isLiveNow() treats it as actually live (not stale).
-      kickoff_utc: new Date(Date.now() - 60 * 60_000).toISOString(),
-      status: "in_play" as const,
-      score_home: 1,
-      score_away: 0,
-      minute: 67,
-      period: "second_half" as const,
-    };
-    render(<MatchCard match={liveMatch} href="/football/wc26/match/7" />);
-    // The free feed's minute is an estimate, and says so.
-    expect(screen.getByText("67' est.")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument(); // home live score
-    // Kicked off: the model's call is public now.
-    expect(screen.getByText("2–0")).toBeInTheDocument();
   });
 });
 

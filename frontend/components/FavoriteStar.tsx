@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  *  Never place it inside a link or another control: a <button> nested in an
  *  <a> is invalid HTML, and keyboard and screen-reader users cannot reach one
  *  without the other. Cards that sit inside a link show a static star for a
- *  favourited team instead (MatchCard's FavouriteMark). */
+ *  favourited team instead. */
 export function FavoriteStar({
   team,
   size = 16,

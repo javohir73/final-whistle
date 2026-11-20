@@ -418,7 +418,7 @@ export function competitionsForSport(sport: SportId): Competition[] {
  *  (`--accent-{id}-ink`). In direction G every competition accent and ink is
  *  the brand green (globals.css), so chips read the same everywhere and the
  *  competition's identity comes from its real logo. Kept as one function so
- *  the chip renderers (Eyebrow's CompEyebrowChip and others) cannot drift. */
+ *  the chip renderers cannot drift. */
 export function accentInkVar(comp: CompetitionId): string {
   return `${COMPETITIONS[comp].accentVar}-ink`;
 }
