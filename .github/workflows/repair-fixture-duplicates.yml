@@ -3,22 +3,29 @@
 #
 # 1. Dispatch with apply=false (dry run). It never commits; unless trial is
 #    off it executes the plan once inside a savepoint and rolls it back, which
-#    briefly takes the same row locks apply would. Read the summary and the
-#    evidence artifact. Choose a conflict policy / acknowledgements if asked
-#    and dispatch the dry run again until it prints "ready_to_apply: true".
+#    takes the same row locks apply would for a few seconds. The log shows the
+#    plain summary, every blocking item and every warning. It exits non-zero
+#    (job shown red) until the plan is ready; adjust on_conflict/acknowledge
+#    and dispatch again until it prints "ready_to_apply: true" and a digest.
 # 2. Dispatch with apply=true on the SAME commit with the SAME on_conflict and
 #    acknowledge values, and expected_digest copied from that dry run's
 #    "digest:" line. The tool replans and refuses if the digest differs.
+#
+# This repository is public: logs and artifacts are readable by anyone. The
+# log therefore carries only the summary (clubs, counts, fixture ids). The
+# full evidence file (deleted rows including user picks, needed to reverse
+# the repair) is uploaded only encrypted to the owner's certificate in the
+# repository variable REPAIR_EVIDENCE_CERT; apply refuses to run without it.
 #
 # Neither job migrates: both require the schema to already be at Alembic head
 # (migrations go through refresh.yml, the guarded path in CLAUDE.md), so a
 # dry run can never change the schema.
 #
-# Approval gate: the apply job runs in the "production-database" environment
-# (GitHub creates it on first use). The owner must then add required
-# reviewers and a deployment-branch rule allowing only main under
-# repo Settings -> Environments -> production-database. The dry-run job has no
-# environment, so it can run without an approval.
+# Approval gate: the apply job runs in the "production-database" environment,
+# which must exist with a required reviewer and a main-only branch rule BEFORE
+# the first apply (runbook, "Before you start"). Its first step checks both
+# through the API and fails closed if either is missing. The dry-run job has
+# no environment, so it can run without an approval.
 name: repair-fixture-duplicates
 
 on:
@@ -40,7 +47,7 @@ on:
         type: string
         default: ""
       acknowledge:
-        description: Per-fixture confirmations, e.g. "kickoff-gap:123 score-mismatch:456 unpaired:789"
+        description: Per-fixture decisions, e.g. "kickoff-gap:123 regrade:456 exclude:789"
         required: false
         type: string
         default: ""
@@ -53,6 +60,9 @@ on:
 concurrency:
   group: production-database
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   dry-run:
@@ -78,12 +88,22 @@ jobs:
           python -m pipeline.repair_fixture_duplicates --require-schema-head
           --evidence-file repair-evidence.json --on-conflict "$ON_CONFLICT"
           --acknowledge "$ACKNOWLEDGE" $NO_TRIAL
-      - name: Upload evidence
+      - name: Encrypt evidence
+        if: ${{ always() }}
+        env:
+          CERT: ${{ vars.REPAIR_EVIDENCE_CERT }}
+        run: >-
+          if [ -z "$CERT" ]; then echo "REPAIR_EVIDENCE_CERT not set: evidence not uploaded" >&2; exit 0; fi;
+          test -f repair-evidence.json || exit 0;
+          printf '%s\n' "$CERT" > evidence-cert.pem &&
+          openssl smime -encrypt -binary -aes256 -outform DER -in repair-evidence.json
+          -out repair-evidence.json.p7m evidence-cert.pem && rm repair-evidence.json
+      - name: Upload encrypted evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: repair-evidence-dry-run-${{ github.run_id }}
-          path: repair-evidence.json
+          path: repair-evidence.json.p7m
           if-no-files-found: warn
           retention-days: 90
 
@@ -92,6 +112,18 @@ jobs:
     runs-on: ubuntu-latest
     environment: production-database
     steps:
+      - name: Require the approval gate and the evidence certificate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          CERT: ${{ vars.REPAIR_EVIDENCE_CERT }}
+        run: >-
+          test "$REF" = "refs/heads/main" || { echo "apply runs only from main" >&2; exit 1; };
+          test -n "$CERT" || { echo "REPAIR_EVIDENCE_CERT not set" >&2; exit 1; };
+          gh api "repos/$REPO/environments/production-database" > environment.json &&
+          jq -e '[.protection_rules[]?.type] | index("required_reviewers") != null' environment.json &&
+          jq -e '.deployment_branch_policy != null' environment.json
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
@@ -113,11 +145,20 @@ jobs:
           --evidence-file repair-evidence.json --on-conflict "$ON_CONFLICT"
           --acknowledge "$ACKNOWLEDGE"
           --apply --expected-digest "$EXPECTED_DIGEST"
-      - name: Upload evidence
+      - name: Encrypt evidence
+        if: ${{ always() }}
+        env:
+          CERT: ${{ vars.REPAIR_EVIDENCE_CERT }}
+        run: >-
+          test -f repair-evidence.json || exit 0;
+          printf '%s\n' "$CERT" > evidence-cert.pem &&
+          openssl smime -encrypt -binary -aes256 -outform DER -in repair-evidence.json
+          -out repair-evidence.json.p7m evidence-cert.pem && rm repair-evidence.json
+      - name: Upload encrypted evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: repair-evidence-apply-${{ github.run_id }}
-          path: repair-evidence.json
+          path: repair-evidence.json.p7m
           if-no-files-found: warn
           retention-days: 90

@@ -367,17 +367,26 @@ def test_matchweek_breaks_a_tie_and_ambiguity_fails_closed_naming_rows(db_sessio
     db_session.add(other_leg)
     db_session.commit()
 
+    # The stray legacy row has no twin: blocked until a person decides.
     report = repair_fixture_duplicates(db_session)
+    assert report.match_mappings == ()
+    assert any("no football-data twin" in b and f"id={other_leg.id} " in b
+               and f"exclude:{other_leg.id}" in b for b in report.blocking)
+    # Excluding exactly that row lets the rest pair.
+    report = repair_fixture_duplicates(db_session, acknowledge=[f"exclude:{other_leg.id}"])
     (pair,) = report.match_mappings
-    assert (pair.survivor_match_id, pair.paired_by) == (legacy.id, "identity+matchweek")
+    assert (pair.survivor_match_id, pair.donor_match_id) == (legacy.id, provider.id)
+    assert report.left_for_manual_handling[0]["match_ids"] == [other_leg.id]
 
     other_leg.matchweek = 2
     db_session.commit()
     before = _fingerprint(db_session)
-    with pytest.raises(DuplicateRepairError, match="ambiguous") as raised:
-        repair_fixture_duplicates(db_session)
+    report = repair_fixture_duplicates(db_session)
+    (block,) = report.blocking
+    assert "ambiguous" in block
     for match_id in (legacy.id, provider.id, other_leg.id):
-        assert f"id={match_id} " in str(raised.value)
+        assert f"id={match_id} " in block
+    assert report.ready_to_apply is False
     assert _fingerprint(db_session) == before
 
 
@@ -563,8 +572,8 @@ def test_frozen_prediction_equals_graded_after_merge(db_session):
     assert dropped == {
         ids["legacy_outranks"]: "outranks_graded_prediction",
         ids["legacy_shadow_outranks"]: "outranks_graded_prediction",
-        ids["after_1"]: "stale_copy_prediction_after_kickoff",
-        ids["after_2"]: "stale_copy_prediction_after_kickoff",
+        ids["after_1"]: "prediction_after_merged_kickoff",
+        ids["after_2"]: "prediction_after_merged_kickoff",
     }
     merged = db_session.get(Match, legacy_id)
     assert _frozen_prediction(db_session, merged).id == ids["donor_graded"]
@@ -1026,19 +1035,54 @@ def test_h1_club_is_not_merged_while_one_of_its_fixtures_is_unpaired(db_session)
 
     report = repair_fixture_duplicates(db_session)
 
-    assert (report.matches_merged, report.teams_merged) == (0, 1)
+    assert report.matches_merged == 0
     assert report.ready_to_apply is False
-    assert any(f"fixture {provider.id} " in b and "unpaired" in b for b in report.blocking)
-    assert any(f"id={legacy.id} " in w and "legacy" in w for w in report.warnings)
-    assert any(f"id={provider.id} " in w and "football-data" in w for w in report.warnings)
+    assert any(f"id={provider.id} " in b and "no twin" in b for b in report.blocking)
+    # The legacy twin is named in the same block, with both ways forward.
+    assert any(f"id={legacy.id} " in b and "another tournament" in b
+               and f"exclude:{provider.id}" in b for b in report.blocking)
     with pytest.raises(RepairRefused, match="blocked"):
         repair_fixture_duplicates(db_session, apply=True, expected_digest=report.digest)
     assert _fingerprint(db_session) == before
 
-    acked = repair_fixture_duplicates(
-        db_session, acknowledge=parse_acknowledgements([f"unpaired:{provider.id}"]))
-    assert acked.ready_to_apply is True
-    assert acked.acknowledged == [f"unpaired:{provider.id}"]
+    # Excluding both leaves them, and the duplicate club, exactly as they are.
+    acks = parse_acknowledgements([f"exclude:{provider.id} exclude:{legacy.id}"])
+    acked = repair_fixture_duplicates(db_session, acknowledge=acks)
+    assert acked.summary["status"] == "nothing to repair"
+    assert acked.summary["clubs_kept_for_manual_handling"] == [duplicate.id]
+    assert sorted(i for g in acked.left_for_manual_handling for i in g["match_ids"]) == sorted(
+        [legacy.id, provider.id])
+    repair_fixture_duplicates(db_session, apply=True, expected_digest=acked.digest,
+                              acknowledge=acks)
+    assert _fingerprint(db_session) == before
+    # Nothing is hidden: a later dry run without the exclusions blocks again.
+    assert repair_fixture_duplicates(db_session).ready_to_apply is False
+
+
+def test_m1_stray_twin_is_still_blocked_after_an_alias_aware_refresh(db_session):
+    # Reviewer case (C): the twin sits in another tournament and the refresh
+    # has already re-pointed the football-data row at the original club.
+    _, _, canonical, duplicate, legacy, provider = _seed_duplicate(db_session)
+    stale = Tournament(name="La Liga 2026-27 (stale)", year=2026)
+    db_session.add(stale)
+    db_session.flush()
+    legacy.tournament_id, legacy.group_id = stale.id, None
+    provider.team_away_id = canonical.id
+    db_session.commit()
+
+    report = repair_fixture_duplicates(db_session)
+
+    assert report.ready_to_apply is False
+    assert any(f"id={provider.id} " in b and "another tournament" in b
+               and f"id={legacy.id} " in b for b in report.blocking)
+    acked = repair_fixture_duplicates(db_session, acknowledge=[f"exclude:{provider.id}"])
+    # The club is kept so later dry runs keep seeing the excluded fixture.
+    assert acked.summary["clubs_kept_for_manual_handling"] == [duplicate.id]
+    duplicate_id = duplicate.id
+    repair_fixture_duplicates(db_session, apply=True, expected_digest=acked.digest,
+                              acknowledge=[f"exclude:{provider.id}"])
+    assert db_session.get(Team, duplicate_id) is not None
+    assert repair_fixture_duplicates(db_session).ready_to_apply is False
 
 
 def test_h2_identity_pair_with_different_matchweeks_is_blocked(db_session):
@@ -1178,6 +1222,7 @@ def test_h4_trial_can_be_skipped_and_postgres_runs_get_timeouts(db_session):
         ("connection", {"isolation_level": "REPEATABLE READ"}),
         "SET LOCAL lock_timeout = '5s'",
         "SET LOCAL statement_timeout = '60s'",
+        "SET LOCAL idle_in_transaction_session_timeout = '30s'",
     ]
     calls_on_sqlite = []
     db_session.execute = lambda *a, **k: calls_on_sqlite.append(a)  # noqa: E731
@@ -1264,7 +1309,8 @@ def test_m3_summary_states_the_user_visible_consequences(db_session):
     assert summary["user_picks_deleted"] == 0
     assert summary["history_rows_dropped"] == 1
     assert summary["public_record"]["grades_removed"] == 0
-    assert summary["ready_to_apply"] is True
+    assert summary["status"] == "ready"
+    assert summary["match_ids_that_stop_existing"] == [provider.id]
     assert list(json.loads(report_json(report))) == ["summary", "report"]
 
 
@@ -1323,9 +1369,271 @@ def test_only_the_expected_club_merges_are_made(db_session, monkeypatch):
 
 
 def test_acknowledgement_parsing():
-    assert parse_acknowledgements(["kickoff-gap:7, score-mismatch:9", "unpaired:12"]) == [
-        "kickoff-gap:7", "score-mismatch:9", "unpaired:12",
+    assert parse_acknowledgements(["kickoff-gap:7, score-mismatch:9", "exclude:12"]) == [
+        "exclude:12", "kickoff-gap:7", "score-mismatch:9",
     ]
-    for bad in ("kickoff-gap", "gap:7", "unpaired:x"):
+    for bad in ("kickoff-gap", "gap:7", "exclude:x", "unpaired:12"):
         with pytest.raises(DuplicateRepairError):
             parse_acknowledgements([bad])
+
+
+# --------------------------------------------------------------------------
+# Third review (Postgres rehearsal): each test reproduces a reviewer finding.
+
+
+def _undo_from_evidence(db_session, evidence: dict) -> None:
+    """Reverse an applied repair using nothing but its evidence file."""
+    from sqlalchemy import JSON, Date, DateTime, null, insert as sa_insert
+    from sqlalchemy import update as sa_update
+
+    report = evidence["report"]
+    tables = Base.metadata.tables
+
+    def typed(table, row):
+        out = {}
+        for name, value in row.items():
+            column_type = table.c[name].type
+            if value is None and isinstance(column_type, JSON):
+                value = null()
+            elif value is not None and isinstance(column_type, DateTime):
+                value = datetime.fromisoformat(value)
+            elif value is not None and isinstance(column_type, Date):
+                value = date.fromisoformat(value)
+            out[name] = value
+        return out
+
+    def insert_deleted(table):
+        for entry in report["deleted_rows"].get(table.name, []):
+            db_session.execute(sa_insert(table).values(typed(table, entry["row"])))
+
+    # 1. Merged clubs come back, survivors get their pre-merge row back
+    # (freeing the football-data fixture id) and the merged-away fixtures
+    # are re-inserted.
+    insert_deleted(tables["teams"])
+    matches = tables["matches"]
+    for row in report["survivors_before"]:
+        db_session.execute(sa_update(matches).where(matches.c.id == row["id"])
+                           .values(typed(matches, row)))
+    insert_deleted(matches)
+    # 2. Re-pointed rows point back (updated_at untouched by the guard).
+    for key, rows in report["moved_rows"].items():
+        table_name, column = key.split(".")
+        table = tables[table_name]
+        guard = {c.name: table.c[c.name] for c in table.columns
+                 if c.onupdate is not None and c.name != column}
+        for row in rows:
+            db_session.execute(sa_update(table).where(table.c.id == row["id"])
+                               .values({column: row["old"], **guard}))
+    # 3. Every other deleted row, parents first.
+    for table in Base.metadata.sorted_tables:
+        if table.name not in {"teams", "matches"}:
+            insert_deleted(table)
+    # 4. Rows corrected in place get their old values.
+    for table_name, rows in report["changed_rows"].items():
+        table = tables[table_name]
+        for row in rows:
+            db_session.execute(sa_update(table).where(table.c.id == row["id"])
+                               .values(typed(table, row["old"])))
+    # 5. The chain watermark.
+    if report["covered_finished_before"] is not None:
+        status = tables["learning_chain_status"]
+        db_session.execute(sa_update(status).where(status.c.id == 1)
+                           .values(covered_finished=report["covered_finished_before"]))
+    db_session.commit()
+
+
+def test_h1_evidence_alone_is_enough_to_undo_the_repair(db_session, monkeypatch):
+    tournament, ids, rows, _ = _production_shaped(db_session)
+    rows["both_legacy"].kickoff_utc += timedelta(hours=8)  # history row on another day
+    db_session.add(LearningChainStatus(id=1, covered_finished=3))
+    db_session.commit()
+    before = _fingerprint(db_session)
+    policy = parse_on_conflict(["match_picks=keep-donor"])
+    dry = repair_fixture_duplicates(db_session, on_conflict=policy)
+    assert dry.ready_to_apply, dry.blocking
+    applied = repair_fixture_duplicates(db_session, apply=True, expected_digest=dry.digest,
+                                        on_conflict=policy)
+    assert _fingerprint(db_session) != before
+    evidence = json.loads(report_json(applied))
+    assert evidence["report"]["moved_rows"]["predictions.match_id"][0].keys() == {
+        "id", "old", "new"}
+    assert evidence["report"]["covered_finished_before"] == 3
+
+    _undo_from_evidence(db_session, evidence)
+
+    assert _fingerprint(db_session) == before
+
+
+def test_m2_any_database_error_refuses_cleanly(db_session, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    _seed_duplicate(db_session)
+    db_session.commit()
+    dry = repair_fixture_duplicates(db_session)
+    before = _fingerprint(db_session)
+
+    class Orig(Exception):
+        pgcode = "23503"
+
+    def concurrent_insert(db, plan):
+        db.execute(text("DELETE FROM standings"))
+        raise IntegrityError("DELETE FROM matches", {}, Orig("violates foreign key"))
+
+    monkeypatch.setattr(repair_mod, "_execute", concurrent_insert)
+    with pytest.raises(RepairRefused, match="nothing was written; rollback confirmed"):
+        repair_fixture_duplicates(db_session, apply=True, expected_digest=dry.digest)
+    assert _fingerprint(db_session) == before
+
+
+def test_m3_kept_history_row_is_the_one_the_next_sync_looks_up(db_session):
+    # Both copies finished; the legacy kickoff (and its history row) is on
+    # another UTC day than the football-data kickoff the merged row keeps.
+    tournament, _, canonical, duplicate, legacy, provider = _seed_duplicate(db_session)
+    legacy.status = "finished"
+    legacy.score_home = legacy.score_away = 1
+    legacy.kickoff_utc = KICKOFF - timedelta(hours=20)
+    db_session.add_all([
+        HistoricalMatch(date=legacy.kickoff_utc, team_a_id=legacy.team_home_id,
+                        team_b_id=canonical.id, score_a=1, score_b=1, competition=COMPETITION),
+        HistoricalMatch(date=KICKOFF, team_a_id=legacy.team_home_id,
+                        team_b_id=duplicate.id, score_a=1, score_b=1, competition=COMPETITION),
+    ])
+    db_session.commit()
+    legacy_id = legacy.id
+
+    report = _apply(db_session)
+
+    assert report.summary["history_rows_dropped"] == 1
+    (row,) = db_session.query(HistoricalMatch).all()
+    assert row.date.replace(tzinfo=timezone.utc).date() == KICKOFF.date()
+    assert (row.team_a_id, row.team_b_id) == (
+        db_session.get(Match, legacy_id).team_home_id, canonical.id)
+    # The refresh's sync finds it and adds nothing.
+    tournament = db_session.get(Tournament, tournament.id)
+    assert sync_finished_matches_to_history(
+        db_session, tournament, competition=COMPETITION)["matches_inserted"] == 0
+    assert db_session.query(HistoricalMatch).count() == 1
+
+
+def test_m3_a_single_history_row_off_the_sync_key_is_corrected(db_session):
+    _, _, canonical, _, legacy, _ = _seed_duplicate(db_session)
+    row = HistoricalMatch(date=KICKOFF - timedelta(hours=20), team_a_id=legacy.team_home_id,
+                          team_b_id=canonical.id, score_a=1, score_b=1, competition="old")
+    db_session.add(row)
+    db_session.commit()
+
+    report = repair_fixture_duplicates(db_session)
+
+    (fix,) = report.changed_rows["historical_matches"]
+    assert fix["id"] == row.id
+    assert (fix["old"]["competition"], fix["new"]["competition"]) == ("old", COMPETITION)
+    assert fix["new"]["date"].startswith(KICKOFF.date().isoformat())
+
+
+def test_m5_every_pair_block_has_a_way_forward(db_session):
+    legacy, provider, legacy_pred, donor_pred, legacy_grade, donor_grade = (
+        _both_finished_and_graded(db_session, survivor_score=(2, 0), donor_score=(1, 1)))
+    provider.matchweek = 3
+    db_session.delete(donor_grade)
+    db_session.commit()
+    sid = legacy.id
+
+    blocked = repair_fixture_duplicates(db_session)
+    assert any(f"matchweek-mismatch:{sid}" in b for b in blocked.blocking)
+    assert any(f"score-mismatch:{sid}" in b for b in blocked.blocking)
+
+    # Only the legacy copy is graded, on the legacy score: no policy can keep
+    # it, but regrade can.
+    acks = [f"matchweek-mismatch:{sid}", f"score-mismatch:{sid}"]
+    still = repair_fixture_duplicates(db_session, acknowledge=acks)
+    assert any(f"regrade:{sid}" in b for b in still.blocking)
+    cleared = repair_fixture_duplicates(db_session, acknowledge=acks + [f"regrade:{sid}"])
+    assert cleared.ready_to_apply is True, cleared.blocking
+    assert [e["row"]["id"] for e in cleared.deleted_rows["prediction_results"]] == [
+        legacy_grade.id]
+    assert cleared.summary["matches_gradeable_at_next_refresh"] == [sid]
+
+    # Or leave the pair alone entirely.
+    excluded = repair_fixture_duplicates(
+        db_session, acknowledge=[f"exclude:{sid}", f"exclude:{provider.id}"])
+    assert excluded.blocking == []
+    assert excluded.matches_merged == 0
+
+
+def test_l1_kept_copy_post_kickoff_predictions_are_dropped_too(db_session):
+    _, _, _, _, legacy, provider = _seed_duplicate(db_session)
+    late = _prediction(provider.id, created_at=KICKOFF + timedelta(hours=3))
+    db_session.add(late)
+    db_session.commit()
+
+    report = repair_fixture_duplicates(db_session)
+
+    assert {e["row"]["id"]: e["reason"] for e in report.deleted_rows["predictions"]} == {
+        late.id: "prediction_after_merged_kickoff"}
+
+
+def test_l2_moving_a_pick_keeps_its_updated_at(db_session):
+    _, _, _, _, legacy, provider = _seed_duplicate(db_session)
+    user = AppUser(email="l2@example.com", password_hash="hash")
+    db_session.add(user)
+    db_session.flush()
+    stamp = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
+    pick = MatchPick(user_id=user.id, match_id=provider.id, pick="draw", updated_at=stamp)
+    db_session.add(pick)
+    db_session.commit()
+    pick_id, legacy_id = pick.id, legacy.id
+
+    _apply(db_session)
+
+    moved = db_session.get(MatchPick, pick_id)
+    assert moved.match_id == legacy_id
+    assert moved.updated_at.replace(tzinfo=timezone.utc) == stamp
+
+
+def test_l3_l6_cli_exit_codes_and_status(db_session, monkeypatch, capsys):
+    _seed_duplicate(db_session)
+    db_session.commit()
+    monkeypatch.setattr(repair_mod, "SessionLocal", lambda: _NoClose(db_session))
+
+    real_execute = repair_mod._execute
+
+    def broken(db, plan):
+        raise DuplicateRepairError("simulated postcondition failure")
+
+    monkeypatch.setattr(repair_mod, "_execute", broken)
+    assert main([]) == 3
+    out = capsys.readouterr().out
+    assert "trial: failed: simulated postcondition failure" in out
+    assert not any(l.startswith("digest") for l in out.splitlines())
+    assert "status: not ready" in out
+
+    monkeypatch.setattr(repair_mod, "_execute", real_execute)
+    assert main([]) == 0
+    digest = next(l.split()[1] for l in capsys.readouterr().out.splitlines()
+                  if l.startswith("digest:"))
+    assert main(["--apply", "--expected-digest", digest]) == 0
+    capsys.readouterr()
+    assert main([]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "status: nothing to repair" in lines
+    assert not any(l.startswith(("ready_to_apply", "digest")) for l in lines)
+
+
+def test_set_based_read_paths_match_the_real_functions(db_session):
+    _, _, rows, _ = _production_shaped(db_session)
+    ids = [row.id for row in rows.values()]
+
+    bulk = repair_mod._read_paths_bulk(db_session, ids)
+
+    for match_id in ids:
+        match = db_session.get(Match, match_id)
+        frozen = _frozen_prediction(db_session, match)
+        shadow = frozen and _frozen_prediction(
+            db_session, match, shadow=True,
+            shadow_version=shadow_model_version_for(frozen.model_version))
+        latest = latest_prediction(db_session, match_id)
+        assert bulk[match_id] == {
+            "frozen": frozen.id if frozen else None,
+            "latest": latest.id if latest else None,
+            "frozen_shadow": shadow.id if shadow else None,
+        }, match_id
