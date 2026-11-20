@@ -1,0 +1,39 @@
+name: repair-fixture-duplicates
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the repair (false performs a rollback-only dry run)
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: production-database
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Dry run
+        if: ${{ !inputs.apply }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+        run: python -m pipeline.repair_fixture_duplicates
+      - name: Apply repair
+        if: ${{ inputs.apply }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+        run: python -m pipeline.repair_fixture_duplicates --apply

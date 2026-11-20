@@ -117,12 +117,16 @@ _ALIASES: dict[str, str] = {
     "rcd mallorca": "Mallorca",
     "deportivo alavés": "Alaves",
     "levante ud": "Levante",
+    "real racing club de santander": "Racing Santander",
+    "rc deportivo la coruña": "Deportivo La Coruna",
+    "málaga cf": "Malaga",
     "fc bayern münchen": "Bayern München",
     "bayer 04 leverkusen": "Bayer Leverkusen",
     "1. fsv mainz 05": "FSV Mainz 05",
     "tsg 1899 hoffenheim": "1899 Hoffenheim",
     "sv werder bremen": "Werder Bremen",
     "1. fc union berlin": "Union Berlin",
+    "sv 07 elversberg": "SV Elversberg",
 
     # football-data.org Champions League spellings whose semantic short names
     # cannot be recovered by the loader's conservative designator key alone.
