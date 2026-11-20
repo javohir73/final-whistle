@@ -26,7 +26,26 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-export type FixtureSide = { name: string; crest?: ReactNode };
+export type FixtureSide = {
+  name: string;
+  crest?: ReactNode;
+  /** A shorter name printed below 900px in place of `name`, for a club whose
+   *  full name holds a word too long for the phone column. The link's
+   *  accessible name always uses `name`. */
+  phoneName?: string;
+};
+
+function SideName({ side, className }: { side: FixtureSide; className?: string }) {
+  if (!side.phoneName || side.phoneName === side.name) {
+    return <span className={className}>{side.name}</span>;
+  }
+  return (
+    <span className={className}>
+      <span className="min-[900px]:hidden">{side.phoneName}</span>
+      <span className="max-[899px]:hidden">{side.name}</span>
+    </span>
+  );
+}
 
 export type FixtureRowProps = {
   home: FixtureSide;
@@ -111,11 +130,11 @@ export function FixtureRow({
 
   const spineContent = (
     <>
-      <span className={cn(NAME, "text-right")}>{home.name}</span>
+      <SideName side={home} className={cn(NAME, "text-right")} />
       <span className="flex items-center justify-center">{home.crest}</span>
       {middle}
       <span className="flex items-center justify-center">{away.crest}</span>
-      <span className={NAME}>{away.name}</span>
+      <SideName side={away} className={NAME} />
     </>
   );
 

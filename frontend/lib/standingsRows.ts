@@ -49,6 +49,20 @@ export function clubShortName(name: string): string {
   return SHORT_NAMES[name] ?? name;
 }
 
+/** The longest single word a phone fixture row can print on one line (about
+ *  112px of name column at 390px, 14px semibold). */
+const PHONE_WORD_LIMIT = 13;
+
+/** The name a phone fixture row should print: the known short name when the
+ *  full one holds a word too long for the column ("Mönchengladbach"), so the
+ *  browser never breaks inside a word. Undefined when the full name fits or no
+ *  short name is known. */
+export function clubPhoneName(name: string): string | undefined {
+  const short = SHORT_NAMES[name];
+  if (!short || short === name) return undefined;
+  return name.split(/\s+/).some((word) => word.length > PHONE_WORD_LIMIT) ? short : undefined;
+}
+
 interface DedupeRow {
   team: string;
   played?: number;

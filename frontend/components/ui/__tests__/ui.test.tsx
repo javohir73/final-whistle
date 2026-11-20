@@ -143,6 +143,16 @@ describe("FixtureRow", () => {
     expect(screen.getByText("Exact score")).toBeInTheDocument();
   });
 
+  it("prints a short name on phones only, and keeps the full name on the link", () => {
+    const gladbach = { name: "Borussia Mönchengladbach", phoneName: "Gladbach" };
+    render(<FixtureRow href="/football/bundesliga/match/9" home={gladbach} away={away} kickoff="1:30 am" />);
+    expect(screen.getByRole("link", { name: "Borussia Mönchengladbach v Arsenal, 1:30 am" })).toBeInTheDocument();
+    expect(screen.getByText("Gladbach")).toHaveClass("min-[900px]:hidden");
+    expect(screen.getByText("Borussia Mönchengladbach")).toHaveClass("max-[899px]:hidden");
+    // A side without a phone name prints once.
+    expect(screen.getAllByText("Arsenal")).toHaveLength(1);
+  });
+
   it("shows the You/Model pair with the user's score in brand", () => {
     render(<FixturePair rows={[{ label: "You", value: "2–1", you: true }, { label: "Model", value: "2–0" }]} />);
     expect(screen.getByText("2–1")).toHaveClass("text-brand");

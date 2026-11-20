@@ -5,6 +5,7 @@ import { getMatchSummary } from "@/lib/api";
 import { kickoffDate, kickoffTime } from "@/lib/datetime";
 import { stoppedLabel } from "@/lib/matchStatus";
 import { pickGameFor } from "@/lib/reveal";
+import { clubPhoneName } from "@/lib/standingsRows";
 import { asFootballCompetition, footballMatchHrefOrLookup, type CompetitionId } from "@/lib/sports";
 import { useModelRevealMap, type ModelReveal, type RevealFixture } from "@/lib/useModelReveal";
 import { useTimezone } from "@/lib/useTimezone";
@@ -142,8 +143,8 @@ export function TeamFixtures({
                 {date && <span className="block">{date}</span>}
               </>
             }
-            home={{ name: m.teams.home, crest: crest(m.teams.home) }}
-            away={{ name: m.teams.away, crest: crest(m.teams.away) }}
+            home={{ name: m.teams.home, crest: crest(m.teams.home), phoneName: clubPhoneName(m.teams.home) }}
+            away={{ name: m.teams.away, crest: crest(m.teams.away), phoneName: clubPhoneName(m.teams.away) }}
             kickoff={time}
             score={scored ? { home: m.score_home as number, away: m.score_away as number } : undefined}
             right={rightSide(m, reveal, model, c, href)}
