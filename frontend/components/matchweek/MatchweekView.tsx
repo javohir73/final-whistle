@@ -51,6 +51,7 @@ import {
 import { matchPhase, stoppedLabel, type MatchPhase } from "@/lib/matchStatus";
 import { MODEL_HIDDEN_NOTE, pickGameFor } from "@/lib/reveal";
 import { COMPETITIONS, competitionLinks, footballMatchHref, type CompetitionId } from "@/lib/sports";
+import { clubPhoneName } from "@/lib/standingsRows";
 import type { MatchSummary, PredictedScore } from "@/lib/types";
 import { useModelRevealMap, type ModelReveal } from "@/lib/useModelReveal";
 import { useTimezone } from "@/lib/useTimezone";
@@ -415,8 +416,8 @@ export function MatchweekView({
                       href={href}
                       className={PHONE_ROW}
                       left={m.stage === "third_place" ? `Third place · ${venueLabel(m)}` : venueLabel(m)}
-                      home={{ name: m.teams.home, crest: badge(m.teams.home) }}
-                      away={{ name: m.teams.away, crest: badge(m.teams.away) }}
+                      home={{ name: m.teams.home, crest: badge(m.teams.home), phoneName: clubPhoneName(m.teams.home) }}
+                      away={{ name: m.teams.away, crest: badge(m.teams.away), phoneName: clubPhoneName(m.teams.away) }}
                       score={showScore ? { home: m.score_home!, away: m.score_away! } : undefined}
                       kickoff={phase === "postponed" || phase === "cancelled" ? "TBC" : time}
                       right={
