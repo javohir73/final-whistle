@@ -1406,7 +1406,7 @@ def test_h1_evidence_alone_is_enough_to_undo_the_repair(db_session, monkeypatch)
     assert _fingerprint(db_session) != before
     evidence = json.loads(report_json(applied))
     assert evidence["report"]["moved_rows"]["predictions.match_id"][0].keys() == {
-        "id", "old", "new"}
+        "id", "old", "new", "after_hash"}
     assert evidence["report"]["covered_finished_before"] == 3
 
     _undo_from_evidence(db_session, evidence)
@@ -1786,3 +1786,105 @@ def test_failing_runs_print_no_row_values_hosts_or_users(db_session, monkeypatch
         assert rc == 2 and "SQLSTATE 23505" in err and "nothing was written" in err
     else:
         assert rc == 4 and err.strip() == "ERROR: KeyError"
+
+
+# --------------------------------------------------------------------------
+# Fifth review: the undo verifies before it writes.
+
+
+def _applied_with_dependents(db_session):
+    _, _, _, _, legacy, provider = _seed_duplicate(db_session)
+    user = AppUser(email="undo@example.com", password_hash="hash")
+    other = AppUser(email="undo2@example.com", password_hash="hash")
+    db_session.add_all([user, other])
+    db_session.flush()
+    pick = MatchPick(user_id=user.id, match_id=provider.id, pick="draw")
+    moved_pred = _prediction(provider.id)
+    db_session.add_all([pick, moved_pred])
+    db_session.commit()
+    ids = {"legacy": legacy.id, "pick": pick.id, "pred": moved_pred.id, "other": other.id}
+    report = _apply(db_session)
+    return ids, json.loads(report_json(report))
+
+
+@pytest.mark.parametrize("drift", [
+    "survivor_finished", "new_pick_on_survivor", "moved_pick_edited", "moved_prediction_deleted",
+    "new_history_on_club",
+])
+def test_undo_refuses_when_anything_changed_since_the_repair(db_session, drift):
+    from pipeline.repair_fixture_duplicates_undo import UndoRefused
+
+    ids, evidence = _applied_with_dependents(db_session)
+    sql = {
+        "survivor_finished": f"update matches set status='postponed' where id={ids['legacy']}",
+        "new_pick_on_survivor": f"insert into match_picks (user_id, match_id, pick, updated_at) "
+                                f"values ({ids['other']}, {ids['legacy']}, 'home', '2026-11-21')",
+        "moved_pick_edited": f"update match_picks set pick='home' where id={ids['pick']}",
+        "moved_prediction_deleted": f"delete from predictions where id={ids['pred']}",
+        "new_history_on_club": "insert into historical_matches (date, team_a_id, team_b_id, "
+                               "score_a, score_b, is_neutral) select kickoff_utc, team_home_id, "
+                               f"team_away_id, 1, 0, 0 from matches where id={ids['legacy']}",
+    }[drift]
+    db_session.execute(text(sql))
+    db_session.commit()
+    before = _fingerprint(db_session)
+
+    with pytest.raises(UndoRefused, match="differ from the state the repair left") as raised:
+        undo_from_evidence(db_session, evidence)
+    db_session.rollback()
+
+    assert _fingerprint(db_session) == before
+    message = str(raised.value)
+    assert {"survivor_finished": "status changed since the repair",
+            "new_pick_on_survivor": "written after the repair onto a survivor fixture",
+            "moved_pick_edited": f"match_picks id {ids['pick']}: changed since the repair",
+            "moved_prediction_deleted": f"predictions id {ids['pred']}: deleted since the repair",
+            "new_history_on_club": "written after the repair onto an original club",
+            }[drift] in message
+    # Never values: the edited pick and the scores do not appear.
+    assert "'home'" not in message and "score_home changed" not in message.replace(
+        "score_home changed since the repair", "")
+
+
+def test_undo_rolls_back_when_a_statement_touches_the_wrong_number_of_rows(db_session,
+                                                                           monkeypatch):
+    from pipeline import repair_fixture_duplicates_undo as undo_mod
+
+    _, evidence = _applied_with_dependents(db_session)
+    after = _fingerprint(db_session)
+    real = undo_mod._insert_rows
+    # One leaf table (nothing references standings) loses a row: the count
+    # check, not a constraint, must catch it.
+    monkeypatch.setattr(undo_mod, "_insert_rows", lambda db, table, rows: real(
+        db, table, rows[:-1] if table.name == "standings" else rows))
+
+    with pytest.raises(undo_mod.UndoRefused, match="row counts differ from the plan"):
+        undo_mod.undo_from_evidence(db_session, evidence)
+    db_session.rollback()
+    assert _fingerprint(db_session) == after
+
+
+def test_undo_refuses_evidence_of_an_apply_that_never_committed(db_session, tmp_path):
+    from pipeline.repair_fixture_duplicates_undo import UndoRefused
+
+    _seed_duplicate(db_session)
+    db_session.commit()
+    dry = repair_fixture_duplicates(db_session)
+    path = tmp_path / "e.json"
+
+    def boom(db, plan):
+        raise DuplicateRepairError("simulated crash after the evidence was written")
+
+    import pipeline.repair_fixture_duplicates as mod
+    real = mod._execute
+    mod._execute = boom
+    try:
+        with pytest.raises(DuplicateRepairError):
+            repair_fixture_duplicates(db_session, apply=True, expected_digest=dry.digest,
+                                      evidence_path=path)
+    finally:
+        mod._execute = real
+    evidence = json.loads(path.read_text())
+    assert evidence["report"]["trial"].startswith("applying")
+    with pytest.raises(UndoRefused, match="not applied to this database"):
+        undo_from_evidence(db_session, evidence)

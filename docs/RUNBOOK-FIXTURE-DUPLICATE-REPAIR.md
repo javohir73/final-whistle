@@ -42,8 +42,17 @@ every history row it corrected, and the old learning-chain counter. JSON columns
 kept as stored, so a JSON `null` and an empty (SQL NULL) value stay distinct. The undo
 tool uses only that file. On the rehearsal's production-shaped Postgres copies,
 including one where the JSON columns hold JSON `null` as production does, apply
-followed by undo gave back every row with identical content (compared with Postgres'
-own `md5(row::text)`; only the internal row versions differ, as they must).
+followed **immediately** by undo gave back every row with identical content (compared
+with Postgres' own `md5(row::text)`; only the internal row versions differ, as they
+must). The undo is only for that situation; see "Undo only the repair".
+
+**What `trial: applying…` in an evidence file means.** Apply writes the full evidence
+to disk before its first change, with `trial` set to `applying: written before the
+first write`, and rewrites it with `trial: applied` after the commit. If you see
+`applying` (for example after the runner died), the evidence is still complete; it
+just cannot tell whether the commit happened. Run a dry run: `nothing to repair` means
+it did; otherwise nothing was written. The undo never trusts that field: it checks the
+database itself.
 
 **Links that stop working.** The new copies' match ids (the ones users have opened
 since 2 Sep) no longer exist after the repair, so their match pages show "not found".
@@ -65,23 +74,47 @@ use. Each answer goes in the workflow's `acknowledge` box as `<kind>:<match id>`
 | matchweek A vs B | the two copies say different rounds | `matchweek-mismatch:<id>` if it is the same match, else exclude both |
 | kickoffs N days apart (limit 14) | a big reschedule, or a wrong pair | `kickoff-gap:<id>` if it is the same match, else exclude both |
 | different final scores and one is graded | the two copies disagree on the result | check the real result; `score-mismatch:<id>` keeps the new copy's result; else exclude both |
-| kept grade records X but the match is Y / graded prediction would have to be dropped / grade points outside the pair | a published grade cannot survive the merge as it is | the conflict policy that keeps the grade on the copy whose state is kept, or `regrade:<id>` (deletes that match's grades, listed in full; the next refresh grades the frozen prediction against the real result), or exclude both |
+| kept grade records X but the match is Y / graded prediction would have to be dropped / grade points outside the pair | a published grade cannot survive the merge as it is | **Recommended: `regrade:<id>`**: it deletes that match's grades (listed in full in the evidence) and the next refresh grades the frozen prediction against the real result. Exclude both only if you are not sure the two copies are the same match |
 | conflicts (`CONFLICTS: match_picks: N …`) | the same user has something on both copies | a policy, below |
 | session timezone is not UTC | history keys would not match the refresh | stop and ask |
 | alias table / not exactly one club to one club | a code problem, not a data one | stop; it needs a code fix |
 
 `exclude` leaves the fixture exactly as it is: its row, its picks and predictions, its
-grades, its history rows, and the duplicate club it belongs to. Every later dry run
-shows it again ("not ready") until it is dealt with by hand; pass the same `exclude:`
-items to see whether anything else is left. An acknowledgement that matches nothing is
-listed under `WARNING:` (for pair decisions, use the id of the kept, older copy that the
-blocking line names).
+grades, its history rows, and the duplicate club it belongs to (the club is kept so the
+excluded fixtures still have their clubs). After an apply with exclusions you are left
+with those fixtures still as two rows each, and the duplicate club still present. A
+later dry run **with the same `exclude:` items** says `status: nothing to repair`;
+**without them** it offers to merge exactly those fixtures (`status: ready`, or the
+same blocking line as before if the reason has not gone away). To finish them later:
+check each one by hand, fix the cause or decide it is the same match (and give the
+acknowledgement the blocking line asks for), then dry-run without the `exclude:` items
+and apply as usual. An acknowledgement that matches nothing is listed under `WARNING:`
+(for pair decisions, use the id of the kept, older copy that the blocking line names).
 
-**Conflict policy** (`on_conflict`): `keep-donor` keeps the row on the new copy,
-which is what users have been looking at since 2 Sep; `keep-survivor` keeps the row on
-the old copy. You can choose per table, e.g. `match_picks=keep-donor`. For grades,
-keep the grade on the copy whose match state is kept (`state_source` in the evidence;
-usually the new copy, i.e. `prediction_results=keep-donor`).
+**Conflict policy** (`on_conflict`). Use this, exactly, unless the dry run tells you
+otherwise:
+
+```
+match_picks=keep-donor league_score_predictions=keep-donor match_lineups=keep-survivor prediction_results=keep-survivor
+```
+
+Every rehearsal ran with it, and on production-shaped data it gives `status: ready`
+without further decisions. What each part means for users:
+
+- `match_picks=keep-donor`: when someone picked both copies of a match, the pick they
+  made on the copy they have been looking at since 2 Sep stays; the older one goes.
+- `league_score_predictions=keep-donor`: the same for score predictions in the league
+  game, so their game score follows what they saw.
+- `match_lineups=keep-survivor`: the lineup recorded by API-Football stays (football-data
+  provides no lineups, so the old copy's is the real one).
+- `prediction_results=keep-survivor`: where both copies were graded, the grade made on
+  the old copy stays, because it is the one made from a prediction written before
+  kickoff. With `keep-donor` instead, the rehearsal produced four `BLOCKING: graded
+  prediction … would have to be dropped` lines: the new copies' grades used predictions
+  that sit after the merged kickoff.
+
+Deviate only when a `BLOCKING:` line about a grade remains with this policy: answer it
+with `regrade:<id>` (table above), not by changing the policy.
 
 ## Before you start (once)
 
@@ -136,13 +169,41 @@ usually the new copy, i.e. `prediction_results=keep-donor`).
    Keep the decrypted file and the key out of the repository.
 
 3. **Pre-flight checks.**
-   - Production's timezone, server version and counts (prints, changes nothing; fails
-     if the session timezone is not UTC, because the repair computes history keys in
-     UTC and the refresh's sync uses the session timezone):
+   - Production's identity, size, timezone, server version, counts, and the roles other
+     than the owner that hold privileges (prints, changes nothing; fails if the server's
+     timezone is not UTC, because the repair computes history keys in UTC and the
+     refresh's sync uses the session timezone):
 
      ```sh
      scripts/fixture_repair_backup.sh --info
      ```
+
+     It needs the local `pg_dump`, `pg_restore` and `psql` to be exactly the server's
+     major version, and says which `brew install postgresql@<n>` and `PATH` line to use
+     if not. Note the size it prints: a restore needs about twice that free on the
+     database's disk (the old and the new copy exist until the restore commits). Check
+     used and available storage on the database's page in the Render dashboard
+     (`pitchprophet-db`); if less than twice the size is free, stop and ask before
+     applying. Note the "other roles holding privileges" line too: the restore
+     re-applies those grants, and the backup records them.
+
+   - A scratch database for proving the backup restores (the backup refuses to call
+     itself verified without one). On the MacBook, with the same major version as the
+     server (16 here; use the number `--info` printed):
+
+     ```sh
+     brew install postgresql@16
+     "$(brew --prefix postgresql@16)/bin/initdb" -D ~/fw-scratch-pg -U scratch --auth=trust
+     "$(brew --prefix postgresql@16)/bin/pg_ctl" -D ~/fw-scratch-pg -o "-p 55499 -k /tmp" -l ~/fw-scratch-pg/log start
+     "$(brew --prefix postgresql@16)/bin/createdb" -h 127.0.0.1 -p 55499 -U scratch fw_restore_check
+     ```
+
+     Its address is then `postgresql://scratch@127.0.0.1:55499/fw_restore_check` (no
+     password). Any other Postgres of the same version works if its database name starts
+     with `fw_restore_check`; if its URL needs a password, put `DATABASE_URL=<url>` in a
+     file and use `--verify-into-env <file>` instead, so the password stays off the
+     command line. Stop it afterwards with
+     `"$(brew --prefix postgresql@16)/bin/pg_ctl" -D ~/fw-scratch-pg stop`.
 
    - Málaga. The PR also adds a `Málaga CF` → `Malaga` alias, with no matching merge.
      That is intended: production has only "Malaga" (id 377) and no "Málaga CF" club
@@ -166,7 +227,7 @@ about two hours free.
 
    ```sh
    scripts/fixture_repair_writers.sh refresh   # dispatches refresh.yml, waits, fails if it fails
-   scripts/fixture_repair_writers.sh pause     # disables all eight writers and verifies
+   scripts/fixture_repair_writers.sh pause     # records the states, disables the active writers, verifies
    ```
 
    `keep-warm` and `smoke` only read and stay on. If an external cron service (for
@@ -195,8 +256,8 @@ about two hours free.
    connection changes a row first, the repair stops and writes nothing. Untick `trial`
    to plan only.
 
-   The job is red ("not ready") until every blocking item is answered; that is expected
-   on the first run. The log shows the plain summary, then `BLOCKING:`, `WARNING:` and
+   Use the conflict policy above in the `on_conflict` box from the first run. The job is
+   red ("not ready") until every blocking item is answered. The log shows the plain summary, then `BLOCKING:`, `WARNING:` and
    `CONFLICTS:` lines. Check:
 
    - `clubs_merged`: exactly the three clubs above, each into its original.
@@ -216,24 +277,27 @@ about two hours free.
    and key first.
 
 4. **Back up, immediately before applying** (after the last dry run, nothing in
-   between). Assume Render's free Postgres has no point-in-time recovery: this file is
+   between), with the scratch database running. Assume Render's free Postgres has no point-in-time recovery: this file is
    the only way back.
 
    ```sh
-   scripts/fixture_repair_backup.sh
+   scripts/fixture_repair_backup.sh --verify-into postgresql://scratch@127.0.0.1:55499/fw_restore_check
    ```
 
-   It reads the URL from `.env` without showing it, insists on Render's external host,
-   checks the local `pg_dump` is at least the server's version, dumps to
-   `~/fw-backups/finalwhistle-<db>-<UTC time>.dump`, converts the whole dump back to
-   SQL to prove it is readable, and compares its table count and `matches` count with
-   the live database. It also writes a sidecar `….dump.meta.json` (host, database,
-   versions, timezone, counts, sha256), which the restore script requires. It ends with
-   `backup ok`; anything else is a failure. If it says the local `pg_dump` is too old,
-   install the server's major version (the message names it; 16 in this example) and put
-   it first in `PATH` in the same terminal:
-   `brew install postgresql@16 && export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"`. Never put the dump in the repository
-   or upload it anywhere.
+   It ignores every `PG…` variable in your shell, `~/.pgpass` and `~/.pg_service.conf`;
+   reads the URL from `.env` without showing it; refuses a URL it cannot parse cleanly,
+   any scheme but `postgresql`/`postgresql+psycopg2`, and any query parameter but
+   `sslmode`; insists on Render's external host; checks on the server that it reached
+   the database and user named in `.env`; requires the local tools to be exactly the
+   server's major version; dumps to `~/fw-backups/finalwhistle-<db>-<UTC time>.dump`;
+   converts the whole dump to SQL and compares its tables and `matches` rows with the
+   live database; and then **loads that SQL into the scratch database** and counts again.
+   It writes a sidecar `….dump.meta.json` (identity, versions, timezone, size, counts,
+   other roles' grants, sha256, `restore_rehearsed`), which the restore script requires.
+   Only `backup ok` (exit 0) is a usable backup. Without a scratch database it exits 3
+   with `BACKUP WRITTEN BUT NOT VERIFIED` and records `"restore_rehearsed": false`; do
+   not apply on such a backup (the restore script refuses it too). Never put the dump
+   in the repository or upload it anywhere.
 
 5. **Apply within the hour.** Run the workflow with `apply` ticked, the same
    `on_conflict` and `acknowledge` values, and `expected_digest` set to the last dry
@@ -250,7 +314,7 @@ about two hours free.
    - Resume the writers and run a refresh:
 
      ```sh
-     scripts/fixture_repair_writers.sh resume
+     scripts/fixture_repair_writers.sh resume    # back to exactly the states recorded at pause
      scripts/fixture_repair_writers.sh refresh
      ```
 
@@ -262,55 +326,86 @@ about two hours free.
    - Open one merged fixture's match page and check the result and the shown
      prediction.
 
-## Undo only the repair (keeps everything written since)
+## Undo only the repair (same window only)
 
-From the decrypted apply evidence. It refuses unless that repair is applied to the
-database it connects to, and it reports first and writes nothing without
-`--confirm-database`:
+Only while the window is still open: writers still paused, nothing has run against the
+database since the apply (no refresh, no resume). Run it from the project folder with
+the repository's interpreter (`.venv/bin/python`), from the decrypted apply evidence:
 
 ```sh
-PYTHONPATH=backend:. python -m pipeline.repair_fixture_duplicates_undo \
+PYTHONPATH=backend:. .venv/bin/python -m pipeline.repair_fixture_duplicates_undo \
   --evidence-file "repair-evidence-$RUN_ID.json"
-DB_NAME=the_name_it_printed   # replace with the database name the first command printed
-PYTHONPATH=backend:. python -m pipeline.repair_fixture_duplicates_undo \
+```
+
+That only checks and reports. It refuses (exit 2, nothing written) unless the database
+is exactly in the state the repair left it in: every row it would re-create is absent,
+every fixture, pick, prediction and history row the repair changed still has exactly
+the content the repair gave it, the learning-chain counter is unchanged, and nothing
+was written after the repair onto a merged fixture or an original club (a new pick,
+prediction, grade or history row). Each difference is listed as table and id (never
+values). There is no override. If it says the database is consistent, it prints the
+database name; run it again with that name:
+
+```sh
+DB_NAME=the_name_it_printed   # replace with the name the first command printed
+PYTHONPATH=backend:. .venv/bin/python -m pipeline.repair_fixture_duplicates_undo \
   --evidence-file "repair-evidence-$RUN_ID.json" --confirm-database "$DB_NAME"
 ```
 
-Everything runs in one transaction. A row written after the repair that collides with
-one being restored (for example a new pick on a restored fixture) makes it refuse with
-nothing changed. Pause the writers first (step 1).
+It runs in one transaction with the repair's timeouts, a few statements per table, and
+checks each statement touched exactly the planned number of rows; any difference rolls
+everything back. It ends with `undo committed; every statement touched exactly the
+planned rows`.
+
+**After the writers have resumed or any refresh has run, the undo will refuse.** Then
+the choices are: restore the backup (below; loses everything written since the dump,
+including users' picks), or fix forward (a follow-up change, asked for separately).
 
 ## Restore from the backup (replaces the whole database)
 
 Only if the repair has to be undone wholesale and the undo above cannot be used.
 **Everything written after the backup is lost** (picks, predictions, live scores,
 grades made since). The next refresh re-ingests fixtures and results; lost user picks
-cannot be recovered.
+cannot be recovered. Free disk: about twice the database size (`--info` prints it).
 
-1. Pause the writers (`scripts/fixture_repair_writers.sh pause`), any external cron,
-   and preferably suspend the API (Render dashboard → pitchprophet-api → Suspend).
+1. Stop everything that writes:
+   - `scripts/fixture_repair_writers.sh pause`, and any external cron;
+   - **suspend the API (required)**: Render dashboard → `pitchprophet-api` → Settings →
+     "Suspend Web Service" (near the bottom of the page). Confirm with
+     `curl -s -o /dev/null -w '%{http_code}\n' https://pitchprophet-api.onrender.com/api/health`
+     no longer returning 200. The restore takes exclusive locks on every table; it waits
+     at most 5 seconds for them and otherwise stops with nothing changed and the message
+     "suspend the API and retry".
 2. Restore:
 
    ```sh
    scripts/fixture_repair_restore.sh "$(cat ~/fw-backups/LATEST)"
    ```
 
-   It changes nothing unless the dump matches its sidecar's sha256, the local
-   `pg_restore` converts the whole dump with every table and every `matches` row, the
-   target in `.env` is the recorded host and database (checked on the server too), and
-   you type the database name. Then it replaces the schema and loads the dump in one
-   transaction (any error: nothing changes), and compares the table count, `matches`
-   count and schema revision with the sidecar. Only `restore committed and verified`
-   means success. (`pg_restore --clean` cannot be used: it fails on the partitioned
-   price-tick table's inherited constraints.) If the database user may not drop the
-   `public` schema, it fails with nothing changed; then restore into a new Render
-   database instead.
-3. Resume: un-suspend the API, `scripts/fixture_repair_writers.sh resume`,
-   `scripts/fixture_repair_writers.sh refresh`, check `/api/health`.
+   It changes nothing unless: the dump matches its sidecar's sha256 and the sidecar
+   says the restore was rehearsed; the local `pg_restore` and `psql` are the dump's
+   server version and convert the whole dump with every table and every `matches` row;
+   the target in `.env` is the recorded host, port, database and user (checked on the
+   server too; every `PG…` variable in your shell is ignored); every role that held
+   grants still exists; and you type the database name. Then, in one transaction, it
+   replaces the `public` schema, loads the dump, puts back the schema's owner and the
+   grants other roles held, and afterwards compares the table count, `matches` count,
+   schema revision and schema owner with the sidecar. Only `restore committed and
+   verified` means success. If it fails, it prints the last lines of the database's
+   error (with any connection details removed) and nothing has changed.
+   (`pg_restore --clean` is not used: it fails on the partitioned price-tick table's
+   inherited constraints.)
+3. Resume: un-suspend the API (same Settings page, "Resume Web Service"),
+   `scripts/fixture_repair_writers.sh resume` (it restores exactly the states recorded
+   at pause), `scripts/fixture_repair_writers.sh refresh`, check `/api/health`.
 
-The backup and restore scripts were rehearsed against a local Postgres 16 copy,
-including an unreadable dump, a truncated dump, a forged sidecar, the wrong host, the
-wrong database and a wrong confirmation: each refused and left the target untouched.
+The backup and restore scripts were rehearsed on two local Postgres 16 clusters, one
+with password (SCRAM) authentication and a non-superuser owner like Render: a full
+round trip came back identical in content and in catalogs (schema owner and grants;
+a read-only role could still read `matches`), and an unreadable dump, a truncated dump,
+a forged sidecar, an unrehearsed backup, the wrong host, the wrong database, a wrong
+confirmation, a live connection holding a lock, decoy `PG…` variables and malformed
+URLs each refused and left the target untouched.
 
 ## Not handled
 

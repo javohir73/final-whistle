@@ -77,6 +77,11 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
+if __name__ == "__main__":  # before app.* is imported (it connects on import)
+    from pipeline.repair_cli_guard import install
+
+    install()
+
 from sqlalchemy import (
     JSON,
     Column,
@@ -86,6 +91,7 @@ from sqlalchemy import (
     UniqueConstraint,
     case,
     cast,
+    func,
     type_coerce,
     delete,
     insert,
@@ -279,6 +285,11 @@ class RepairReport:
     covered_finished_before: int | None
     trial: str = "not run"
     trial_error_detail: str | None = None
+    # For the undo only (not in the digest): each survivor's full row after
+    # the merge, and the highest id per affected table when the plan was made,
+    # so rows written after the repair can be detected.
+    survivors_after: list[dict] = field(default_factory=list)
+    max_ids_at_plan: dict[str, int | None] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------- helpers
@@ -455,6 +466,7 @@ class _Plan:
     grades: list[dict] = field(default_factory=list)
     finished_count_delta: int = 0
     covered_finished_before: int | None = None
+    max_ids: dict[str, int | None] = field(default_factory=dict)
     facts: dict = field(default_factory=dict)
     _cache: dict = field(default_factory=dict)
 
@@ -468,8 +480,14 @@ class _Plan:
 
     def move(self, key: str, rows: list[dict], old: int, new: int) -> None:
         moved = self.moves.setdefault(key, {})
+        column = key.split(".", 1)[1]
         for row in rows:
-            moved[row["id"]] = {"old": old, "new": new, "hash": _content_hash(row)}
+            moved[row["id"]] = {
+                "old": old, "new": new, "hash": _content_hash(row),
+                # what the row must look like after the repair; the undo
+                # refuses to touch a row that has changed since (review r5 #3)
+                "after_hash": _content_hash({**row, column: new}),
+            }
 
     def acked(self, kind: str, match_id: int) -> bool:
         return f"{kind}:{match_id}" in self.acknowledged
@@ -1180,7 +1198,8 @@ def _history_plan(plan: _Plan, db: Session) -> None:
         }
         old = {name: keep[name] for name in new}
         if old != new:
-            plan.history_fixes[keep["id"]] = {"old": old, "new": new}
+            plan.history_fixes[keep["id"]] = {
+                "old": old, "new": new, "after_hash": _content_hash({**keep, **new})}
 
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
@@ -1318,6 +1337,13 @@ def _build_plan(db: Session, policy: dict[str, str], acknowledged: list[str]) ->
         select(status.c.covered_finished).where(status.c.id == 1)).scalar_one_or_none()
     tournament_names = dict(db.execute(select(tournaments.c.id, tournaments.c.name)).all())
     _match_pairs(plan, db, tournament_names)
+    if plan.team_map:
+        affected = {"matches", "teams"} | {
+            table.name for target in ("matches.id", "teams.id")
+            for table, _ in list(_foreign_key_columns(target)) + list(_soft_columns(target))}
+        for name in sorted(affected):
+            table = _table(name)
+            plan.max_ids[name] = db.execute(select(func.max(table.c.id))).scalar()
 
     match_ids = [p.survivor["id"] for p in plan.pairs] + [p.donor["id"] for p in plan.pairs]
     for table, column in _foreign_key_columns("matches.id"):
@@ -1425,11 +1451,11 @@ def _repoint(db: Session, target: str, mapping: dict[int, int],
         db.execute(query)
 
 
-def _bulk_update(db: Session, table: Table, rows: list[dict], name: str) -> None:
+def _bulk_update(db: Session, table: Table, rows: list[dict], name: str) -> int:
     """Per-row values in three statements: fill a temporary table, UPDATE ...
     FROM it, drop it."""
     if not rows:
-        return
+        return 0
     names = sorted(rows[0])
     # JSON values arrive as raw stored text (full_select): carry them as text
     # and cast on the way back, so a JSON null stays a JSON null.
@@ -1448,7 +1474,7 @@ def _bulk_update(db: Session, table: Table, rows: list[dict], name: str) -> None
             return cast(temp.c[n], table.c[n].type)
         return temp.c[n]
 
-    db.execute(
+    result = db.execute(
         update(table).where(table.c.id == temp.c.id).values(
             {n: value(n) for n in names if n != "id"} | {
                 c.name: table.c[c.name] for c in table.columns
@@ -1456,6 +1482,7 @@ def _bulk_update(db: Session, table: Table, rows: list[dict], name: str) -> None
             })
     )
     temp.drop(db.connection())
+    return result.rowcount
 
 
 def _execute(db: Session, plan: _Plan) -> None:
@@ -1710,17 +1737,19 @@ def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
         for table, rows in sorted(plan.deletions.items())
     }
     moved_rows = {
-        key: [{"id": row_id, "old": m["old"], "new": m["new"]}
+        key: [{"id": row_id, "old": m["old"], "new": m["new"], "after_hash": m["after_hash"]}
               for row_id, m in sorted(moved.items())]
         for key, moved in sorted(plan.moves.items())
     }
     changed_rows = {
         "historical_matches": [
-            {"id": row_id, "old": _evidence(fix["old"]), "new": _evidence(fix["new"])}
+            {"id": row_id, "old": _evidence(fix["old"]), "new": _evidence(fix["new"]),
+             "after_hash": fix["after_hash"]}
             for row_id, fix in sorted(plan.history_fixes.items())
         ]
     } if plan.history_fixes else {}
     survivors_before = [_evidence(pair.survivor) for pair in plan.pairs]
+    survivors_after = [_evidence({**pair.survivor, **pair.merged}) for pair in plan.pairs]
     conflicts = sorted(
         plan.conflicts,
         key=lambda c: (c["scope"], c["table"], c["survivor_row"]["id"], c["donor_row"]["id"]),
@@ -1782,6 +1811,8 @@ def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
         changed_rows=changed_rows,
         survivors_before=survivors_before,
         covered_finished_before=plan.covered_finished_before,
+        survivors_after=survivors_after,
+        max_ids_at_plan=dict(sorted(plan.max_ids.items())),
     )
 
 
@@ -1827,6 +1858,31 @@ def _db_error(exc: BaseException) -> DBAPIError | None:
     return None
 
 
+_CONNECTION_REASONS = (
+    (("password authentication failed", "no password supplied", "role \""),
+     "the server rejected the user name or password"),
+    (("database \"",), "the database named in the URL does not exist"),
+    (("could not translate host name", "nodename nor servname", "name or service not known"),
+     "cannot resolve the host name"),
+    (("invalid value for parameter", "unrecognized configuration parameter"),
+     "the server rejected a connection setting (check PG* variables such as PGTZ or "
+     "PGOPTIONS in your shell)"),
+    (("connection refused", "timeout expired", "could not connect", "network is unreachable",
+      "no route to host", "server closed the connection"),
+     "cannot reach the host, or the connection dropped"),
+)
+
+
+def _connection_reason(message: str) -> str:
+    """A fixed reason for a connection failure; the driver's message (which
+    names the host, port, user and database) is only matched, never shown."""
+    lowered = message.lower()
+    for needles, reason in _CONNECTION_REASONS:
+        if any(needle in lowered for needle in needles):
+            return reason
+    return "the connection failed or dropped"
+
+
 def public_error(exc: BaseException) -> str:
     """The only form in which an exception may reach stdout, stderr or the
     summary (review M3): workflow logs are public, and database messages
@@ -1840,8 +1896,7 @@ def public_error(exc: BaseException) -> str:
         code = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
         if code:
             return f"database error {type(orig).__name__} (SQLSTATE {code})"
-        return (f"database connection failed or dropped ({type(orig).__name__}, "
-                "no SQLSTATE)")
+        return f"could not connect: {_connection_reason(str(orig))} ({type(orig).__name__})"
     if isinstance(exc, DuplicateRepairError):
         return str(exc)
     return type(exc).__name__
@@ -1879,8 +1934,9 @@ def _refused_after_rollback(db: Session, plan: _Plan | None, exc: DBAPIError) ->
         except Exception:  # noqa: BLE001
             confirmed = "; rollback could not be confirmed (connection lost)"
     code = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
+    if not code:
+        return RepairRefused(f"{public_error(exc)}; nothing was written{confirmed}")
     reason = ("the data changed or is busy" if code in _BUSY_CODES
-              else "could not reach the database" if not code
               else "unexpected database error")
     return RepairRefused(
         f"{public_error(exc)}: {reason}; nothing was written{confirmed}; "
@@ -2037,6 +2093,8 @@ EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_NOT_READY = 3
 EXIT_ERROR = 4
+EXIT_COMMITTED_EVIDENCE_NOT_FINAL = 5
+EXIT_INTERRUPTED = 130
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2087,11 +2145,28 @@ def main(argv: list[str] | None = None) -> int:
     except RepairRefused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_REFUSED
+    except KeyboardInterrupt:
+        print("INTERRUPTED: if this was a dry run, nothing was written. If it was --apply, "
+              "run a dry run now: 'nothing to repair' means the repair was committed (the "
+              "evidence file written before the first change is its record); anything else "
+              "means nothing was written.", file=sys.stderr)
+        return EXIT_INTERRUPTED
     except Exception as exc:  # noqa: BLE001 - sanitised; no traceback in public logs
         print(f"ERROR: {public_error(exc)}", file=sys.stderr)
         return EXIT_ERROR
     if args.evidence_file:
-        write_evidence(args.evidence_file, report)
+        try:
+            write_evidence(args.evidence_file, report)
+        except (OSError, KeyboardInterrupt) as exc:
+            if not report.dry_run:
+                print("APPLY COMMITTED. The final evidence could not be written "
+                      f"({type(exc).__name__}); the evidence written to the same path before "
+                      "the first change is the record of this repair (its trial field says "
+                      "'applying'). Keep it.", file=sys.stderr)
+                return EXIT_COMMITTED_EVIDENCE_NOT_FINAL
+            print(f"ERROR: could not write the evidence file ({type(exc).__name__})",
+                  file=sys.stderr)
+            return EXIT_ERROR
     print(json.dumps(report.summary, indent=2, sort_keys=True))
     for item in report.blocking:
         print(f"BLOCKING: {item}")

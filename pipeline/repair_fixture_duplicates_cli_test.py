@@ -127,7 +127,7 @@ def test_connection_failure_leaks_no_host_user_or_password(workdir):
 
     output = result.stdout + result.stderr
     assert result.returncode == 2, output
-    assert "connection failed" in output and "nothing was written" in output
+    assert "cannot resolve the host name" in output and "nothing was written" in output
     for secret in ("leakyuser", "s3cretpw", "leaky-host", "leakydb", "Traceback"):
         assert secret not in output
 
@@ -143,3 +143,18 @@ def test_workflow_flags_are_the_cli_flags():
         args = parser.parse_args(argv[3:])
         assert args.require_schema_head and args.evidence_file == "repair-evidence.json"
         assert args.apply is (name == "apply")
+
+
+@pytest.mark.parametrize("url", [
+    "postgresql+psycopg2://leakyuser:s3cretpw@leaky-host.invalid:5x432/leakydb",
+    "postgresql+asyncpg://leakyuser:s3cretpw@leaky-host.invalid:5432/leakydb",
+])
+def test_a_malformed_url_fails_at_start_up_without_a_traceback(workdir, url):
+    # app.db builds the engine at import, before main()'s error handling.
+    result = _run_step(workdir, _workflow_runs()["dry-run"], url)
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 4, output
+    assert output.startswith("ERROR: could not start")
+    for secret in ("leakyuser", "s3cretpw", "leaky-host", "leakydb", "5x432", "Traceback"):
+        assert secret not in output
