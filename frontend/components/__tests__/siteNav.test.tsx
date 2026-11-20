@@ -1,6 +1,6 @@
-/** Top bar: the desktop link row is the same five-tab template as BottomNav
- *  (lib/sports.ts navTabsFor), and the competition chip shows on EVERY route
- *  -- including /, /play and /leaderboard, where it used to be missing. */
+/** Top bar (direction G): the lg tab row is the same template as BottomNav
+ *  (lib/sports.ts navTabsFor), and the competition pill shows on EVERY route
+ *  -- including /, /play and /leaderboard. */
 import { render, screen, within } from "@testing-library/react";
 import { SiteNav } from "@/components/SiteNav";
 import { BottomNav } from "@/components/BottomNav";
@@ -39,64 +39,75 @@ const renderNav = (path: string, query = "") => {
   );
 };
 
-/** The lg link row (the header's only div of nav links). */
-const row = () => within(document.querySelector("header nav > div") as HTMLElement);
+/** The lg link row (the header's "Main" navigation). */
+const row = () => within(screen.getByRole("navigation", { name: "Main" }));
 const rowLabels = () => row().getAllByRole("link").map((a) => a.textContent);
-const chip = () => screen.getByRole("button", { expanded: false, name: /^[A-Z0-9]+$/ });
+const pill = (label: string) => screen.getByRole("button", { name: `Competition: ${label}` });
 
 it.each(["/", "/play", "/leaderboard", "/premium", "/methodology", "/football/epl", "/nrl"])(
-  "shows the five tabs and the competition chip on %s",
+  "shows the competition tabs and the competition pill on %s",
   (path) => {
     renderNav(path);
-    expect(rowLabels()).toHaveLength(5);
-    expect(rowLabels()[0]).toBe("Home");
-    expect(rowLabels()[4]).toBe("My picks");
-    expect(screen.getByRole("button", { name: path === "/nrl" ? "NRL" : "EPL" })).toHaveAttribute(
-      "aria-haspopup",
-      "dialog",
+    expect(rowLabels()).toEqual(
+      path === "/nrl"
+        ? ["Matches", "Ladder", "My tips", "Leaderboard"]
+        : ["Matches", "Table", "My picks", "Leaderboard"],
     );
+    expect(pill(path === "/nrl" ? "NRL" : "Premier League")).toHaveAttribute("aria-haspopup", "menu");
   },
 );
+
+it("offers search and sign in beside the pill", async () => {
+  renderNav("/football/epl");
+  expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+});
 
 it("treats the root's /index ISR alias as the platform home (EPL scope, not WC26)", () => {
   // On Vercel, ISR revalidation of "/" renders with usePathname() === "/index".
   // The server must produce what the client renders for "/" or hydration
   // fails site-wide (React #418).
   renderNav("/index");
-  expect(chip()).toHaveTextContent("EPL");
-  expect(screen.queryByRole("button", { name: "WC26" })).not.toBeInTheDocument();
-  expect(row().getByRole("link", { name: "Home" })).toHaveAttribute("href", "/football/epl");
+  expect(pill("Premier League")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /World Cup/ })).not.toBeInTheDocument();
+  expect(row().getByRole("link", { name: "Matches" })).toHaveAttribute("href", "/football/epl");
 });
 
-it("scopes the chip and tabs to the URL on competition routes", () => {
+it("scopes the pill and tabs to the URL on competition routes, underlining the current tab", () => {
   renderNav("/football/ucl/standings");
-  expect(screen.getByRole("button", { name: "UCL" })).toBeInTheDocument();
-  expect(row().getByRole("link", { name: "Table" })).toHaveAttribute(
-    "href",
-    "/football/ucl/standings",
-  );
+  expect(pill("UEFA Champions League")).toBeInTheDocument();
+  expect(row().getByRole("link", { name: "Table" })).toHaveAttribute("href", "/football/ucl/standings");
   expect(row().getByRole("link", { name: "Table" })).toHaveAttribute("aria-current", "page");
+  expect(row().getByRole("link", { name: "Table" })).toHaveClass("border-brand");
+  expect(row().getByRole("link", { name: "Matches" })).not.toHaveAttribute("aria-current");
   // No bracket is advertised for a league.
   expect(screen.queryByRole("link", { name: "Bracket" })).not.toBeInTheDocument();
 });
 
-it("scopes /play to ?competition= and lights Play", () => {
+it("keeps the World Cup's bracket reachable from its tabs", () => {
+  renderNav("/football/wc26/bracket");
+  expect(row().getByRole("link", { name: "Bracket" })).toHaveAttribute("aria-current", "page");
+  expect(row().getByRole("link", { name: "Groups" })).toHaveAttribute("href", "/football/wc26/groups");
+});
+
+it("scopes /play to ?competition= and lights My tips for the NRL", () => {
   renderNav("/play", "competition=nrl");
-  expect(screen.getByRole("button", { name: "NRL" })).toBeInTheDocument();
-  expect(row().getByRole("link", { name: "Play" })).toHaveAttribute("href", "/nrl/tips");
-  expect(row().getByRole("link", { name: "Play" })).toHaveAttribute("aria-current", "page");
-  expect(row().getByRole("link", { name: "My picks" })).toHaveAttribute(
-    "href",
-    "/leaderboard?competition=nrl",
-  );
+  expect(pill("NRL")).toBeInTheDocument();
+  expect(row().getByRole("link", { name: "My tips" })).toHaveAttribute("href", "/nrl/tips");
+  expect(row().getByRole("link", { name: "Leaderboard" })).toHaveAttribute("href", "/nrl/leaderboard");
+});
+
+it("lights My picks on /play for football", () => {
+  renderNav("/play", "competition=epl");
+  expect(row().getByRole("link", { name: "My picks" })).toHaveAttribute("aria-current", "page");
 });
 
 it("scopes unscoped routes to the remembered competition (fw_comp)", () => {
   writeCompetitionCookie("laliga");
   renderNav("/leaderboard");
-  expect(screen.getByRole("button", { name: "LaLiga" })).toBeInTheDocument();
-  expect(row().getByRole("link", { name: "My picks" })).toHaveAttribute("aria-current", "page");
-  expect(row().getByRole("link", { name: "Home" })).toHaveAttribute("href", "/football/laliga");
+  expect(pill("La Liga")).toBeInTheDocument();
+  expect(row().getByRole("link", { name: "Leaderboard" })).toHaveAttribute("aria-current", "page");
+  expect(row().getByRole("link", { name: "Matches" })).toHaveAttribute("href", "/football/laliga");
 });
 
 it("renders the same tab set as BottomNav for the same route", () => {

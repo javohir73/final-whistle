@@ -65,7 +65,7 @@ describe("primary navigation swaps at one breakpoint", () => {
     // shows both navigations or none.
     mockPath = "/football/epl";
     const { container: headerEl } = render(<SiteNav />);
-    const row = headerEl.querySelector("header nav > div");
+    const row = headerEl.querySelector('header nav[aria-label="Main"]');
     const rowBreakpoint = breakpointOf(row?.className ?? "", "flex");
 
     const { container: bottomEl } = render(<BottomNav />);
@@ -79,7 +79,7 @@ describe("primary navigation swaps at one breakpoint", () => {
     // sm (640px) was the old value and is what produced the 903px nav at 768.
     mockPath = "/football/epl";
     const { container } = render(<SiteNav />);
-    const row = container.querySelector("header nav > div");
+    const row = container.querySelector('header nav[aria-label="Main"]');
     expect(row).toHaveClass("hidden", "lg:flex");
     expect(row).not.toHaveClass("sm:flex");
   });

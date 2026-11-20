@@ -66,7 +66,7 @@ export default async function MethodologyPage() {
   }
 
   return (
-    <article className="fade-up mx-auto max-w-2xl space-y-10">
+    <article className="fade-up max-w-prose space-y-10">
       <header>
         <h1 className="font-display text-4xl font-extrabold tracking-tight">
           Methodology &amp; <span className="text-lime-deep">accuracy</span>

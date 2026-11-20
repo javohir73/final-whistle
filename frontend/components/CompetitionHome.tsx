@@ -131,7 +131,7 @@ export function CompetitionHome({
 
   if (teams.length === 0 && groups.length === 0 && matches.length === 0) {
     return (
-      <div className="mx-auto max-w-2xl py-8 sm:py-10">
+      <div className="py-8 sm:py-10">
         <header className="flex items-center gap-3">
           <CompetitionLogo competition={competition} size={48} />
           <div>
@@ -159,7 +159,7 @@ export function CompetitionHome({
   }
 
   return (
-    <div className="mx-auto max-w-2xl py-8 sm:py-10">
+    <div className="py-8 sm:py-10">
       <header className="flex items-center gap-3">
         <CompetitionLogo competition={competition} size={48} />
         <div>

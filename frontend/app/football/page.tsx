@@ -5,7 +5,7 @@ import { CompetitionLogo } from "@/components/CompetitionLogo";
 import {
   COMPETITIONS,
   competitionsForSport,
-  navTabsFor,
+  competitionLinks,
   type Competition,
 } from "@/lib/sports";
 import { getCompetitionTournament } from "@/lib/tournament";
@@ -39,7 +39,10 @@ function CompetitionCard({
   competition: Competition;
   tournament: ActiveTournament;
 }) {
-  const [home, fixtures, table] = navTabsFor(competition.id);
+  const links = competitionLinks(competition.id);
+  const home = { href: links.home };
+  const fixtures = { href: links.fixtures, label: "Fixtures" };
+  const table = { href: links.table, label: links.tableLabel };
   return (
     <li className="glass flex flex-col gap-4 rounded-2xl p-5">
       <Link href={home.href} className="group flex items-center gap-4">

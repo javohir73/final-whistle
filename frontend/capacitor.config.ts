@@ -16,16 +16,15 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: "automatic",
-    // Floodlight canvas (#0a1410): the web app's default --background, the
-    // manifest and the browser theme-color. The WebView shows this before the
-    // page paints (launch) and behind overscroll and the safe areas, so any
-    // other value is a visible seam. Daylight is opt-in per browser and can't
-    // be known before the page loads, so the shell always paints Floodlight.
-    // (It was #0d1118, a leftover blue-black from the pre-Floodlight palette.)
-    backgroundColor: "#0a1410",
+    // Direction G canvas (#ffffff): the web app's --background, the manifest
+    // and the browser theme-color. The WebView shows this before the page
+    // paints (launch) and behind overscroll and the safe areas, so any other
+    // value is a visible seam. The site has one light theme, so the shell
+    // always paints white.
+    backgroundColor: "#ffffff",
   },
   android: {
-    backgroundColor: "#0a1410",
+    backgroundColor: "#ffffff",
   },
 };
 

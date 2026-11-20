@@ -7,7 +7,6 @@ import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
 import { useAuth } from "@/components/AuthProvider";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/constants";
 import { ApiError, createSetupIntent, friendlyAuthError, subscribe } from "@/lib/session";
-import { LIGHT_CLASS } from "@/lib/theme";
 
 type Plan = "monthly" | "annual";
 
@@ -29,9 +28,9 @@ function buildAppearance(): Appearance {
   const root = document.documentElement;
   const s = getComputedStyle(root);
   return {
-    // Stripe's base, picked to match the canvas the form sits on; the variables
-    // below do the actual matching.
-    theme: root.classList.contains(LIGHT_CLASS) ? "stripe" : "night",
+    // Stripe's light base, matching the site's one (light) theme; the
+    // variables below do the actual matching.
+    theme: "stripe",
     variables: {
       colorPrimary: tokenColor(s, "--win"),
       colorBackground: tokenColor(s, "--surface"),
@@ -50,20 +49,12 @@ function buildAppearance(): Appearance {
   };
 }
 
-/** The appearance object, rebuilt whenever the Daylight/Floodlight toggle swaps
- *  the class on <html> (lib/theme.ts). Every token above resolves differently
- *  per theme, so a stale object leaves the embedded form clashing with the page
- *  it is supposed to be part of. */
+/** The appearance object, built from the live tokens once the document
+ *  exists (the site has one theme, so it never needs rebuilding). */
 function useAppearance(): Appearance | undefined {
-  const [appearance, setAppearance] = useState<Appearance | undefined>(() =>
+  const [appearance] = useState<Appearance | undefined>(() =>
     typeof document === "undefined" ? undefined : buildAppearance(),
   );
-  useEffect(() => {
-    const root = document.documentElement;
-    const observer = new MutationObserver(() => setAppearance(buildAppearance()));
-    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
   return appearance;
 }
 

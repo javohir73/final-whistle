@@ -22,7 +22,7 @@ export default async function RetentionPage() {
   }
 
   return (
-    <article className="fade-up mx-auto max-w-2xl space-y-8">
+    <article className="fade-up space-y-8">
       <header>
         <h1 className="font-display text-4xl font-extrabold tracking-tight">
           Retention <span className="text-lime-deep">stats</span>

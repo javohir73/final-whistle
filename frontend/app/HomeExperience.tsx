@@ -70,7 +70,7 @@ export function HomeExperience({
   // has been read (matches the server render, which can't know the selection).
   if (!hydrated) {
     return (
-      <div className="mx-auto max-w-2xl py-10 sm:py-12" aria-hidden>
+      <div className="py-10 sm:py-12" aria-hidden>
         <div className="h-5 w-40 rounded-full skeleton" />
         <div className="mt-3 h-9 w-3/5 rounded-xl skeleton" />
         <div className="mt-7 h-32 rounded-2xl skeleton" />
@@ -192,7 +192,7 @@ function HomeDashboard({
   );
 
   return (
-    <div className="mx-auto max-w-2xl py-8 sm:py-10">
+    <div className="py-8 sm:py-10">
       {/* ===== Greeting ===== */}
       <p className="text-sm font-semibold text-muted">{greeting()}</p>
       <h1 className="mt-1 font-display text-2xl font-extrabold tracking-tight sm:text-3xl">

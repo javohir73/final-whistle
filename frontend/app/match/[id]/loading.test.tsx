@@ -1,5 +1,5 @@
 /** Match-centre route skeleton: the highest cold-start route. One status
- *  announcement; mirrors the max-w-2xl column, the hero and the pick card so
+ *  announcement; mirrors the page column, the hero and the pick card so
  *  the match centre swaps in without shifting -- and no Overview/Lineups tab
  *  strip, which the page no longer has. */
 import { render, screen } from "@testing-library/react";
@@ -10,9 +10,12 @@ it("announces a single 'Loading match…' status", () => {
   expect(screen.getByRole("status")).toHaveAttribute("aria-label", "Loading match…");
 });
 
-it("keeps the page's max-w-2xl column so there is no layout shift", () => {
+it("uses the same full-width site column as the page (no narrow max-w-2xl wrapper) so there is no layout shift", () => {
+  // Direction G: the root layout's .fw-wrap container sets width for every
+  // page; the per-page max-w-2xl wrapper is gone from both the page and this
+  // skeleton.
   const { container } = render(<MatchLoading />);
-  expect(container.querySelector(".max-w-2xl")).toBeInTheDocument();
+  expect(container.querySelector(".max-w-2xl")).toBeNull();
   expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
 });
 

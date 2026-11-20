@@ -81,7 +81,7 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
 
 export default function PrivacyPage() {
   return (
-    <article className="fade-up mx-auto max-w-2xl space-y-8">
+    <article className="fade-up max-w-prose space-y-8">
       <header>
         <h1 className="font-display text-4xl font-extrabold tracking-tight">Privacy policy</h1>
         <p className="mt-3 text-muted">

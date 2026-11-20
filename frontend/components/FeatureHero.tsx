@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { MatchSummary } from "@/lib/types";
-import { COMPETITIONS, footballMatchHref, navTabsFor, type CompetitionId } from "@/lib/sports";
+import { COMPETITIONS, competitionLinks, footballMatchHref, type CompetitionId } from "@/lib/sports";
 import { Eyebrow, CompEyebrowChip } from "@/components/Eyebrow";
 import { ProbabilityBar } from "@/components/ProbabilityBar";
 import { ClubBadge } from "@/components/ClubBadge";
@@ -33,7 +33,7 @@ function primaryCta(
   if (phase === "live") return { label: "Live now", href: target };
   if (phase === "upcoming" || phase === "postponed") {
     if (COMPETITIONS[comp].sport === "nrl") {
-      const play = navTabsFor(comp).find((tab) => tab.id === "play")?.href ?? null;
+      const play = competitionLinks(comp).picks;
       return { label: "Make your pick", href: target !== null ? play : null };
     }
     if (hasMatchPagePick(comp)) {

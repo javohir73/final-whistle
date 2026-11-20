@@ -75,7 +75,7 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
 
 export default function TermsPage() {
   return (
-    <article className="fade-up mx-auto max-w-2xl space-y-8">
+    <article className="fade-up max-w-prose space-y-8">
       <header>
         <h1 className="font-display text-4xl font-extrabold tracking-tight">
           Terms &amp; support

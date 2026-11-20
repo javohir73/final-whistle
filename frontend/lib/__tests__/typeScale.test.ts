@@ -47,14 +47,21 @@ describe("scale definitions stay in sync", () => {
   });
 });
 
-describe("no new arbitrary sizes creep back in", () => {
-  it("the scale covers the sub-14px range so text-[Npx] is unnecessary", () => {
-    // Not a blanket ban — a genuinely one-off size can still be arbitrary — but
-    // the common steps must come from the scale. This is the check that would
-    // have flagged the 225 scattered literals this scale replaced.
+describe("direction G type floor", () => {
+  it("defines no named size below 13px (nothing real is smaller than the 13px label)", () => {
+    // Direction G: the smallest real text is the 13px label. The old scale had
+    // 8-12px steps; they are raised to the floor, so every named size must be
+    // 13px or larger.
     const config = readFileSync(join(process.cwd(), "tailwind.config.ts"), "utf8");
-    for (const px of ["8px", "9px", "10px", "11px", "12px", "13px", "15px", "17px"]) {
-      expect(config).toContain(`"${px}"`);
+    const fontSize = config.slice(config.indexOf("fontSize:"), config.indexOf("borderRadius:"));
+    const sizes = Array.from(fontSize.matchAll(/"(\d+)px"/g), (m) => Number(m[1]));
+    expect(sizes.length).toBeGreaterThan(10);
+    for (const px of sizes) expect(px).toBeGreaterThanOrEqual(13);
+  });
+
+  it("declares the direction G steps to tailwind-merge so they are kept as sizes", () => {
+    for (const step of ["h1", "h1-sm", "h2", "notes", "table", "stat"]) {
+      expect(cn(`text-${step}`, "text-ink")).toBe(`text-${step} text-ink`);
     }
   });
 });

@@ -4,6 +4,7 @@ import {
   asFootballCompetition,
   competitionFromPathname,
   competitionInPathname,
+  competitionLinks,
   competitionsForSport,
   footballMatchHrefOrLookup,
   isCompetitionId,
@@ -151,18 +152,18 @@ describe("competition registry", () => {
   });
 });
 
-describe("the five-tab shell template (navTabsFor)", () => {
-  it("gives every competition the same five ids in the same order", () => {
-    for (const id of ALL) {
-      expect(navTabsFor(id).map((t) => t.id)).toEqual(["home", "fixtures", "table", "play", "mypicks"]);
-      expect(navTabsFor(id).map((t) => t.label)).toEqual([
-        "Home",
-        "Fixtures",
-        tableTabLabel(id),
-        "Play",
-        "My picks",
-      ]);
+describe("the shell tab template (navTabsFor), direction G", () => {
+  it("gives football Matches, Table, My picks, Leaderboard and NRL Matches, Ladder, My tips, Leaderboard", () => {
+    for (const id of ["epl", "laliga", "bundesliga", "ucl"] as const) {
+      expect(navTabsFor(id).map((t) => t.id)).toEqual(["matches", "table", "mypicks", "leaderboard"]);
+      expect(navTabsFor(id).map((t) => t.label)).toEqual(["Matches", "Table", "My picks", "Leaderboard"]);
     }
+    expect(navTabsFor("nrl").map((t) => t.label)).toEqual(["Matches", "Ladder", "My tips", "Leaderboard"]);
+  });
+
+  it("keeps the World Cup's groups and bracket reachable", () => {
+    expect(navTabsFor("wc26").map((t) => t.id)).toEqual(["matches", "table", "bracket", "mypicks", "leaderboard"]);
+    expect(navTabsFor("wc26").map((t) => t.label)).toEqual(["Matches", "Groups", "Bracket", "My picks", "Leaderboard"]);
   });
 
   it("words the Table slot per competition: Ladder (NRL), Groups (WC26), Table (rest)", () => {
@@ -174,10 +175,10 @@ describe("the five-tab shell template (navTabsFor)", () => {
   });
 
   it.each([
-    ["epl", ["/football/epl", "/football/epl/fixtures", "/football/epl/standings", "/play?competition=epl", "/leaderboard?competition=epl"]],
-    ["ucl", ["/football/ucl", "/football/ucl/fixtures", "/football/ucl/standings", "/play?competition=ucl", "/leaderboard?competition=ucl"]],
-    ["wc26", ["/football/wc26", "/football/wc26/fixtures", "/football/wc26/groups", "/play?competition=wc26", "/leaderboard?competition=wc26"]],
-    ["nrl", ["/nrl", "/nrl/matches", "/nrl/ladder", "/nrl/tips", "/leaderboard?competition=nrl"]],
+    ["epl", ["/football/epl", "/football/epl/standings", "/play?competition=epl", "/leaderboard?competition=epl"]],
+    ["ucl", ["/football/ucl", "/football/ucl/standings", "/play?competition=ucl", "/leaderboard?competition=ucl"]],
+    ["wc26", ["/football/wc26", "/football/wc26/groups", "/football/wc26/bracket", "/play?competition=wc26", "/leaderboard?competition=wc26"]],
+    ["nrl", ["/nrl", "/nrl/ladder", "/nrl/tips", "/nrl/leaderboard"]],
   ] as const)("routes %s's tabs to its own destinations", (id, hrefs) => {
     expect(navTabsFor(id).map((t) => t.href)).toEqual(hrefs);
   });
@@ -185,19 +186,43 @@ describe("the five-tab shell template (navTabsFor)", () => {
   it("links every table tab to a route that exists for that competition", () => {
     // The groups route 404s without hasGroups; standings 404s with it.
     for (const id of ALL) {
-      const table = navTabsFor(id)[2].href;
+      const table = navTabsFor(id).find((t) => t.id === "table")!.href;
       const c = COMPETITIONS[id];
       if (c.sport === "nrl") expect(table).toBe("/nrl/ladder");
       else expect(table.endsWith(c.hasGroups ? "/groups" : "/standings")).toBe(true);
+      expect(competitionLinks(id).table).toBe(table);
     }
   });
 
-  it("keeps Home exact-match and everything else segment-aware", () => {
-    const [home, fixtures] = navTabsFor("epl");
-    expect(isNavTabActive(home, "/football/epl")).toBe(true);
-    expect(isNavTabActive(home, "/football/epl/fixtures")).toBe(false);
-    expect(isNavTabActive(fixtures, "/football/epl/match/1")).toBe(true);
-    expect(isNavTabActive(fixtures, "/football/epl/matchday")).toBe(false);
+  it("lights Matches on the competition home, fixtures and match pages, segment-aware", () => {
+    const [matches, table] = navTabsFor("epl");
+    expect(isNavTabActive(matches, "/football/epl")).toBe(true);
+    expect(isNavTabActive(matches, "/football/epl/fixtures")).toBe(true);
+    expect(isNavTabActive(matches, "/football/epl/match/1")).toBe(true);
+    expect(isNavTabActive(matches, "/football/epl/matchday")).toBe(false);
+    expect(isNavTabActive(matches, "/football/epl/standings")).toBe(false);
+    expect(isNavTabActive(table, "/football/epl/standings")).toBe(true);
+    expect(isNavTabActive(table, "/football/epl/team/42")).toBe(true);
+  });
+
+  it("lights the NRL tabs on their own pages", () => {
+    const [matches, ladder, tips, board] = navTabsFor("nrl");
+    for (const p of ["/nrl", "/nrl/matches", "/nrl/round/3", "/nrl/record", "/nrl/origin"]) {
+      expect(isNavTabActive(matches, p)).toBe(true);
+    }
+    expect(isNavTabActive(ladder, "/nrl/team/7")).toBe(true);
+    expect(isNavTabActive(tips, "/nrl/tips")).toBe(true);
+    expect(isNavTabActive(board, "/nrl/leaderboard")).toBe(true);
+    expect(isNavTabActive(board, "/nrl/tips")).toBe(false);
+  });
+
+  it("lights My picks on /play and Leaderboard on /leaderboard, and nothing on reading pages", () => {
+    const tabs = navTabsFor("epl");
+    const lit = (p: string) => tabs.filter((t) => isNavTabActive(t, p)).map((t) => t.id);
+    expect(lit("/play")).toEqual(["mypicks"]);
+    expect(lit("/leaderboard")).toEqual(["leaderboard"]);
+    expect(lit("/about")).toEqual([]);
+    expect(lit("/")).toEqual([]);
   });
 
   it("returns stable tab arrays (no per-render allocation)", () => {

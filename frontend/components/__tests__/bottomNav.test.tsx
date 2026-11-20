@@ -1,8 +1,8 @@
-/** Bottom nav (UX rebuild plan 2026-11 §3.1): ONE five-tab shell on every
- *  route except /embed -- Home, Fixtures, Table, Play, My picks -- scoped to
- *  the current competition. The set and order never change; only the
- *  destinations (and the Table slot's word) follow the scope, which resolves
- *  URL -> ?competition= -> fw_comp cookie -> EPL. */
+/** Bottom tab bar (direction G): the same competition tabs as the header row
+ *  on every route except /embed -- Matches, Table, My picks, Leaderboard
+ *  (NRL: Matches, Ladder, My tips, Leaderboard; WC26 adds Bracket) -- scoped
+ *  to the current competition, which resolves URL -> ?competition= ->
+ *  fw_comp cookie -> EPL. */
 import { act, render, screen } from "@testing-library/react";
 import { BottomNav } from "@/components/BottomNav";
 import { COMPETITION_COOKIE, writeCompetitionCookie } from "@/lib/competitionPrefs";
@@ -34,9 +34,9 @@ afterEach(() => {
   document.cookie = `${COMPETITION_COOKIE}=; Max-Age=0; Path=/`;
 });
 
-const FIVE = ["Home", "Fixtures", "Table", "Play", "My picks"];
+const FOOTBALL = ["Matches", "Table", "My picks", "Leaderboard"];
 
-describe("one shell, same five tabs everywhere", () => {
+describe("one shell, same tabs everywhere", () => {
   it.each([
     "/",
     "/play",
@@ -51,26 +51,25 @@ describe("one shell, same five tabs everywhere", () => {
     "/football/ucl/standings",
     "/reset-password",
     "/tips/share/epl/9/pete",
-  ])("renders Home · Fixtures · Table · Play · My picks on %s", (path) => {
+  ])("renders Matches · Table · My picks · Leaderboard on %s", (path) => {
     renderAt(path);
-    expect(labels()).toEqual(FIVE);
+    expect(labels()).toEqual(FOOTBALL);
   });
 
-  it("keeps the order and ids for NRL and WC26; only the Table word changes", () => {
+  it("words the NRL tabs Matches, Ladder, My tips, Leaderboard", () => {
     renderAt("/nrl");
-    expect(labels()).toEqual(["Home", "Fixtures", "Ladder", "Play", "My picks"]);
-    const nrlIds = tabs().map((a) => a.getAttribute("data-tab"));
-    expect(nrlIds).toEqual(["home", "fixtures", "table", "play", "mypicks"]);
+    expect(labels()).toEqual(["Matches", "Ladder", "My tips", "Leaderboard"]);
+    expect(tabs().map((a) => a.getAttribute("data-tab"))).toEqual(["matches", "table", "mypicks", "leaderboard"]);
   });
 
-  it("labels WC26's table Groups", () => {
+  it("gives WC26 its Groups and Bracket", () => {
     renderAt("/football/wc26");
-    expect(labels()).toEqual(["Home", "Fixtures", "Groups", "Play", "My picks"]);
+    expect(labels()).toEqual(["Matches", "Groups", "Bracket", "My picks", "Leaderboard"]);
   });
 
   it("calls UCL's table slot Table (League phase is a page heading)", () => {
     renderAt("/football/ucl");
-    expect(labels()).toEqual(FIVE);
+    expect(labels()).toEqual(FOOTBALL);
     expect(screen.queryByRole("link", { name: /League phase/ })).not.toBeInTheDocument();
   });
 
@@ -85,30 +84,20 @@ describe("destinations follow the competition scope", () => {
     renderAt("/football/laliga/fixtures");
     expect(hrefs()).toEqual([
       "/football/laliga",
-      "/football/laliga/fixtures",
       "/football/laliga/standings",
       "/play?competition=laliga",
       "/leaderboard?competition=laliga",
     ]);
   });
 
-  it("routes NRL to its own slugs and its own Play surface", () => {
+  it("routes NRL to its own slugs, tips and leaderboard", () => {
     renderAt("/nrl/ladder");
-    expect(hrefs()).toEqual([
-      "/nrl",
-      "/nrl/matches",
-      "/nrl/ladder",
-      "/nrl/tips",
-      "/leaderboard?competition=nrl",
-    ]);
+    expect(hrefs()).toEqual(["/nrl", "/nrl/ladder", "/nrl/tips", "/nrl/leaderboard"]);
   });
 
   it("routes WC26's table to its group tables", () => {
     renderAt("/football/wc26/fixtures");
-    expect(screen.getByRole("link", { name: /Groups/ })).toHaveAttribute(
-      "href",
-      "/football/wc26/groups",
-    );
+    expect(screen.getByRole("link", { name: /Groups/ })).toHaveAttribute("href", "/football/wc26/groups");
   });
 
   it("defaults unscoped routes to the Premier League, never WC26", () => {
@@ -117,15 +106,9 @@ describe("destinations follow the competition scope", () => {
     expect(hrefs().join(" ")).not.toContain("wc26");
   });
 
-  it("keeps a ?competition= scope on Play and My picks", () => {
+  it("keeps a ?competition= scope", () => {
     renderAt("/play", "competition=nrl");
-    expect(hrefs()).toEqual([
-      "/nrl",
-      "/nrl/matches",
-      "/nrl/ladder",
-      "/nrl/tips",
-      "/leaderboard?competition=nrl",
-    ]);
+    expect(hrefs()).toEqual(["/nrl", "/nrl/ladder", "/nrl/tips", "/nrl/leaderboard"]);
   });
 
   it("ignores a bogus ?competition= value (including prototype keys)", () => {
@@ -137,7 +120,7 @@ describe("destinations follow the competition scope", () => {
     writeCompetitionCookie("nrl");
     renderAt("/methodology");
     expect(hrefs()[0]).toBe("/nrl");
-    expect(labels()[2]).toBe("Ladder");
+    expect(labels()[1]).toBe("Ladder");
   });
 
   it("lets the URL beat the cookie", () => {
@@ -146,7 +129,7 @@ describe("destinations follow the competition scope", () => {
     expect(hrefs()[0]).toBe("/football/bundesliga");
   });
 
-  it("re-scopes live when the cookie changes (switcher / Set as default)", () => {
+  it("re-scopes live when the cookie changes (the switcher)", () => {
     renderAt("/");
     expect(hrefs()[0]).toBe("/football/epl");
     act(() => writeCompetitionCookie("ucl"));
@@ -156,48 +139,41 @@ describe("destinations follow the competition scope", () => {
 
 describe("active state", () => {
   it.each([
-    ["/football/epl", "Home"], // exact match only
-    ["/football/epl/fixtures", "Fixtures"],
-    ["/football/epl/match/198", "Fixtures"], // match pages light Fixtures
+    ["/football/epl", "Matches"],
+    ["/football/epl/fixtures", "Matches"],
+    ["/football/epl/match/198", "Matches"],
     ["/football/epl/standings", "Table"],
+    ["/football/epl/team/3", "Table"],
     ["/football/ucl/standings", "Table"],
     ["/football/wc26/groups", "Groups"],
     ["/football/wc26/groups/2", "Groups"],
-    ["/football/wc26/bracket", "Play"],
-    ["/play", "Play"],
-    ["/tips", "Play"],
-    ["/nrl", "Home"],
-    ["/nrl/matches", "Fixtures"],
-    ["/nrl/match/2026/27/1", "Fixtures"],
-    ["/nrl/round/27", "Fixtures"],
+    ["/football/wc26/bracket", "Bracket"],
+    ["/play", "My picks"],
+    ["/tips", "My picks"],
+    ["/leaderboard", "Leaderboard"],
+    ["/nrl", "Matches"],
+    ["/nrl/matches", "Matches"],
+    ["/nrl/match/2026/27/1", "Matches"],
+    ["/nrl/round/27", "Matches"],
+    ["/nrl/record", "Matches"],
+    ["/nrl/origin", "Matches"],
     ["/nrl/ladder", "Ladder"],
     ["/nrl/run-home", "Ladder"],
-    ["/nrl/tips", "Play"],
-    ["/nrl/leaderboard", "My picks"],
-    ["/nrl/record", "My picks"],
-    ["/leaderboard", "My picks"],
-    ["/record", "My picks"],
-    ["/about", "My picks"],
-    ["/methodology", "My picks"],
-    ["/privacy", "My picks"],
-    ["/terms", "My picks"],
+    ["/nrl/team/4", "Ladder"],
+    ["/nrl/tips", "My tips"],
+    ["/nrl/leaderboard", "Leaderboard"],
   ])("lights exactly one tab on %s (%s)", (path, label) => {
     renderAt(path);
     expect(current()).toEqual([label]);
   });
 
-  it.each(["/", "/index", "/premium", "/football", "/football/epl/team/3", "/nrl/origin"])(
+  it.each(["/", "/index", "/premium", "/football", "/record", "/about", "/methodology", "/privacy", "/terms"])(
     "lights no tab on %s",
     (path) => {
       renderAt(path);
       expect(current()).toEqual([]);
     },
   );
-
-  it("does not light Home on a competition's sub-pages", () => {
-    renderAt("/football/epl/fixtures");
-    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
-  });
 
   it("matches whole segments only", () => {
     renderAt("/playoffs");
@@ -221,10 +197,17 @@ it("gives every tab an icon (looked up by id, not label)", () => {
   }
 });
 
-it("keeps 44px targets and the deep lime for the active tab", () => {
+it("keeps 44px+ targets and paints the current tab in brand", () => {
   renderAt("/football/epl");
-  for (const link of tabs()) expect(link.className).toContain("min-h-[44px]");
-  expect(screen.getByRole("link", { name: "Home" }).className).toContain("text-lime-deep");
+  for (const link of tabs()) expect(link.className).toContain("min-h-[56px]");
+  expect(screen.getByRole("link", { name: "Matches" }).className).toContain("text-brand");
+  expect(screen.getByRole("link", { name: "Table" }).className).toContain("text-muted");
+});
+
+it("sits on a white ground with a line on top", () => {
+  renderAt("/");
+  const nav = screen.getByRole("navigation", { name: "Primary" });
+  expect(nav).toHaveClass("bg-ground", "border-t", "border-line", "lg:hidden");
 });
 
 it("keeps the safe-area inset on the fixed bar", () => {

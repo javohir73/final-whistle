@@ -102,7 +102,7 @@ export function CountryOnboarding({
 
   // ---- No selection: the chooser ----
   return (
-    <section className="mx-auto max-w-2xl py-12 sm:py-16">
+    <section className="py-12 sm:py-16">
       <div className="text-center">
         <div className="mb-5 inline-flex items-center gap-2 rounded-full chip px-3 py-1 text-xs font-medium text-muted">
           <span className="h-1.5 w-1.5 rounded-full bg-win" />

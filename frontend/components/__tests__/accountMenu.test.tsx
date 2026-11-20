@@ -1,5 +1,5 @@
 /** AccountMenu navigation entries, scoped like the rest of the shell: "My
- *  picks" for the current competition, and "Model record" where that
+ *  picks" (NRL: "My tips") goes to the current competition's picks page, and "Model record" where that
  *  competition has a record page (NRL's ledger, /record for the World Cup;
  *  club leagues get theirs in Phase 2, so none is offered yet). */
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -36,7 +36,7 @@ it("links My picks to the current competition (EPL by default)", () => {
   openAt("/");
   expect(screen.getByRole("menuitem", { name: "My picks" })).toHaveAttribute(
     "href",
-    "/leaderboard?competition=epl",
+    "/play?competition=epl",
   );
 });
 
@@ -44,8 +44,13 @@ it("follows the URL's competition", () => {
   openAt("/football/bundesliga/fixtures");
   expect(screen.getByRole("menuitem", { name: "My picks" })).toHaveAttribute(
     "href",
-    "/leaderboard?competition=bundesliga",
+    "/play?competition=bundesliga",
   );
+});
+
+it("says My tips and links the tipping page for the NRL", () => {
+  openAt("/nrl/ladder");
+  expect(screen.getByRole("menuitem", { name: "My tips" })).toHaveAttribute("href", "/nrl/tips");
 });
 
 it("follows the remembered competition on unscoped routes", () => {
@@ -53,7 +58,7 @@ it("follows the remembered competition on unscoped routes", () => {
   openAt("/methodology");
   expect(screen.getByRole("menuitem", { name: "My picks" })).toHaveAttribute(
     "href",
-    "/leaderboard?competition=ucl",
+    "/play?competition=ucl",
   );
 });
 
@@ -75,14 +80,14 @@ it.each(["/football/epl", "/football/laliga", "/football/ucl"])(
 
 it("closes the menu when an entry is chosen", () => {
   openAt("/nrl");
-  fireEvent.click(screen.getByRole("menuitem", { name: "My picks" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "My tips" }));
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });
 
 it("keeps the account actions after the navigation entries", () => {
   openAt("/nrl");
   expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
-    "My picks",
+    "My tips",
     "Model record",
     "Sign out",
     "Delete account",

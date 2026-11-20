@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/components/AuthProvider";
 import { AccountMenu } from "@/components/AccountMenu";
+import { Button } from "@/components/ui";
 
 /** Nav auth control. Signed in → an account circle (initials) with a Sign-out
  *  menu, shown on every page. Signed out → a "Sign in" button that opens the
@@ -15,12 +16,8 @@ export function AuthButton() {
   if (loading) return null;
 
   return (
-    <button
-      type="button"
-      onClick={() => openSignIn()}
-      className="rounded-lg bg-win/15 px-3 py-1.5 text-sm font-semibold text-lime-deep ring-1 ring-win/30 transition hover:bg-win/25"
-    >
+    <Button size="sm" onClick={() => openSignIn()} className="whitespace-nowrap px-4 sm:px-5">
       Sign in
-    </button>
+    </Button>
   );
 }

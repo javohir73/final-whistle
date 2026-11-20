@@ -86,7 +86,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     sport: "football",
     label: "Premier League",
     shortLabel: "EPL",
-    logoSrc: "/competitions/epl.png",
+    logoSrc: "/competitions/epl.svg",
     basePath: "/football/epl",
     accentVar: "--accent-epl",
     format: "league",
@@ -122,7 +122,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     sport: "football",
     label: "Bundesliga",
     shortLabel: "BUN",
-    logoSrc: "/competitions/bundesliga.png",
+    logoSrc: "/competitions/bundesliga.svg",
     basePath: "/football/bundesliga",
     accentVar: "--accent-bundesliga",
     format: "league",
@@ -140,7 +140,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     sport: "football",
     label: "UEFA Champions League",
     shortLabel: "UCL",
-    logoSrc: "/competitions/ucl.png",
+    logoSrc: "/competitions/ucl.svg",
     basePath: "/football/ucl",
     accentVar: "--accent-ucl",
     // The current surface covers the league phase. Knockout fixtures can
@@ -245,40 +245,41 @@ export function competitionFromPathname(pathname: string): CompetitionId {
 }
 
 /* ----------------------------------------------------------------------------
- * The shell: ONE five-tab template, scoped to the current competition, on
- * every route except /embed (UX rebuild plan 2026-11 §3.1). Same five ids,
- * labels and order for every competition; only the destinations (and the
- * Table slot's word) change with the scope.
+ * The shell (direction G): one tab template, scoped to the current
+ * competition, on every route except /embed. Football: Matches, Table,
+ * My picks, Leaderboard. NRL: Matches, Ladder, My tips, Leaderboard. A
+ * competition with a knockout bracket (WC26) adds Bracket after its table
+ * slot (which reads "Groups" there). SiteNav shows these from lg (1024px);
+ * BottomNav shows the same list below lg.
  * ------------------------------------------------------------------------- */
 
 /** Stable tab identity. NavIcon and tests key on this, never on label text. */
-export type NavTabId = "home" | "fixtures" | "table" | "play" | "mypicks";
+export type NavTabId = "matches" | "table" | "bracket" | "mypicks" | "leaderboard";
 
 export interface NavTab {
   id: NavTabId;
   label: string;
   href: string;
   /** Pathname prefixes that light this tab (segment-aware: "/play" lights
-   *  "/play" and "/play/x", never "/playoffs"). Home has none: it is
-   *  exact-match on its own href, or it would stay lit on every sub-page. */
+   *  "/play" and "/play/x", never "/playoffs"). */
   activePrefixes: readonly string[];
+  /** Also lit when the pathname equals this exactly (the competition home,
+   *  which as a prefix would light on every sub-page). */
+  activeExact?: string;
 }
 
-/** Play's surfaces, whichever competition is in scope. */
-const PLAY_PREFIXES = ["/play", "/tips", "/nrl/tips"] as const;
-
-/** The user's own area until /profile lands (Phase 1): picks, record and the
- *  info pages that used to hang off the old "You" tab. */
-const MY_PICKS_PREFIXES = [
-  "/leaderboard",
-  "/nrl/leaderboard",
-  "/record",
-  "/nrl/record",
-  "/about",
-  "/methodology",
-  "/privacy",
-  "/terms",
-] as const;
+/** Every real destination a competition has, for callers that need one link
+ *  rather than the tab list (hub cards, CTAs, search). */
+export interface CompetitionLinks {
+  home: string;
+  fixtures: string;
+  table: string;
+  tableLabel: "Table" | "Ladder" | "Groups";
+  picks: string;
+  picksLabel: "My picks" | "My tips";
+  leaderboard: string;
+  bracket: string | null;
+}
 
 /** The Table slot's word: "Ladder" in rugby league, "Groups" where the
  *  competition's table IS its group tables (WC26), "Table" everywhere else.
@@ -289,53 +290,76 @@ export function tableTabLabel(id: CompetitionId): "Table" | "Ladder" | "Groups" 
   return c.hasGroups ? "Groups" : "Table";
 }
 
+export function competitionLinks(id: CompetitionId): CompetitionLinks {
+  const c = COMPETITIONS[id];
+  const base = c.basePath;
+  // NRL keeps its own slugs (/nrl/matches, /nrl/ladder) and its own tips
+  // and leaderboard pages.
+  const nrl = c.sport === "nrl";
+  return {
+    home: base,
+    fixtures: nrl ? `${base}/matches` : `${base}/fixtures`,
+    table: nrl ? `${base}/ladder` : c.hasGroups ? `${base}/groups` : `${base}/standings`,
+    tableLabel: tableTabLabel(id),
+    picks: nrl ? `${base}/tips` : `/play?competition=${id}`,
+    picksLabel: nrl ? "My tips" : "My picks",
+    leaderboard: nrl ? `${base}/leaderboard` : `/leaderboard?competition=${id}`,
+    bracket: c.hasBracket ? `${base}/bracket` : null,
+  };
+}
+
 function buildNavTabs(id: CompetitionId): readonly NavTab[] {
   const c = COMPETITIONS[id];
   const base = c.basePath;
-  // NRL keeps its own slugs until the Phase 1 slug move (/nrl/matches ->
-  // /nrl/fixtures, /nrl/ladder -> /nrl/table) and its own Play surface.
   const nrl = c.sport === "nrl";
-  const fixtures = nrl ? `${base}/matches` : `${base}/fixtures`;
-  const table = nrl ? `${base}/ladder` : c.hasGroups ? `${base}/groups` : `${base}/standings`;
-  return [
-    { id: "home", label: "Home", href: base, activePrefixes: [] },
+  const links = competitionLinks(id);
+  const tabs: NavTab[] = [
     {
-      id: "fixtures",
-      label: "Fixtures",
-      href: fixtures,
-      // Match pages (and NRL's per-round fixture pages) belong to Fixtures.
+      id: "matches",
+      label: "Matches",
+      href: links.home,
+      activeExact: links.home,
+      // Fixtures, match pages, NRL rounds, and the NRL model-record and
+      // State of Origin pages all belong to Matches.
       activePrefixes: nrl
-        ? [fixtures, `${base}/match`, `${base}/round`]
-        : [fixtures, `${base}/match`],
+        ? [links.fixtures, `${base}/match`, `${base}/round`, `${base}/record`, `${base}/origin`]
+        : [links.fixtures, `${base}/match`],
     },
     {
       id: "table",
-      label: tableTabLabel(id),
-      href: table,
+      label: links.tableLabel,
+      href: links.table,
+      // Club pages belong to the table, as in the prototype.
       activePrefixes: nrl
-        ? [table, `${base}/run-home`]
-        : [`${base}/standings`, `${base}/groups`],
-    },
-    {
-      id: "play",
-      label: "Play",
-      href: nrl ? `${base}/tips` : `/play?competition=${id}`,
-      activePrefixes: nrl ? PLAY_PREFIXES : [...PLAY_PREFIXES, `${base}/bracket`],
-    },
-    {
-      id: "mypicks",
-      label: "My picks",
-      href: `/leaderboard?competition=${id}`,
-      activePrefixes: MY_PICKS_PREFIXES,
+        ? [links.table, `${base}/run-home`, `${base}/team`]
+        : [`${base}/standings`, `${base}/groups`, `${base}/team`],
     },
   ];
+  if (links.bracket) {
+    tabs.push({ id: "bracket", label: "Bracket", href: links.bracket, activePrefixes: [links.bracket] });
+  }
+  tabs.push(
+    {
+      id: "mypicks",
+      label: links.picksLabel,
+      href: links.picks,
+      activePrefixes: nrl ? [links.picks] : ["/play", "/tips"],
+    },
+    {
+      id: "leaderboard",
+      label: "Leaderboard",
+      href: links.leaderboard,
+      activePrefixes: nrl ? [links.leaderboard] : ["/leaderboard"],
+    },
+  );
+  return tabs;
 }
 
 const NAV_TABS = Object.fromEntries(
   (Object.keys(COMPETITIONS) as CompetitionId[]).map((id) => [id, buildNavTabs(id)]),
 ) as Record<CompetitionId, readonly NavTab[]>;
 
-/** The five tabs for a competition scope -- the only nav-link source SiteNav
+/** The tabs for a competition scope -- the only nav-link source SiteNav
  *  and BottomNav read. Stable references (built once at module load). */
 export function navTabsFor(id: CompetitionId): readonly NavTab[] {
   return NAV_TABS[id];
@@ -344,11 +368,11 @@ export function navTabsFor(id: CompetitionId): readonly NavTab[] {
 const hitPrefix = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(prefix + "/");
 
-/** Active-state rule shared by both nav surfaces. Home is exact-match; every
- *  other tab lights on its prefixes. A route that belongs to no tab ("/",
- *  "/premium", team pages) lights none. */
+/** Active-state rule shared by both nav surfaces: the tab's exact path, or
+ *  any of its prefixes. A route that belongs to no tab ("/", "/premium",
+ *  "/about") lights none. */
 export function isNavTabActive(tab: NavTab, pathname: string): boolean {
-  if (tab.id === "home") return pathname === tab.href;
+  if (tab.activeExact !== undefined && pathname === tab.activeExact) return true;
   return tab.activePrefixes.some((prefix) => hitPrefix(pathname, prefix));
 }
 
@@ -390,20 +414,11 @@ export function competitionsForSport(sport: SportId): Competition[] {
   return Object.values(COMPETITIONS).filter((c) => c.sport === sport);
 }
 
-/** The CSS variable a competition's chip LABEL should be painted in.
- *
- *  Not the same as `accentVar`. A chip sets its background to a 0.12 wash of
- *  the accent and its text to the accent itself, which reads fine on
- *  Floodlight's near-black washes and fails WCAG AA on Daylight's white ones —
- *  measured at EPL 3.67, La Liga 2.55, Bundesliga 3.59, NRL 2.55 against a
- *  4.5:1 floor. `--accent-{id}-ink` is the accent on Floodlight and a darkened
- *  variant under .theme-daylight, so callers get the right one for free.
- *
- *  This exists as one function because the two chip renderers
- *  (CompetitionOverlay's pill and Eyebrow's CompEyebrowChip) previously each
- *  carried their own inline ternary, and they had already drifted: the eyebrow
- *  routed NRL through its ink while the overlay did not. Derived from the
- *  registry's accent variable so consumers cannot drift from its identity. */
+/** The CSS variable a competition's chip LABEL should be painted in
+ *  (`--accent-{id}-ink`). In direction G every competition accent and ink is
+ *  the brand green (globals.css), so chips read the same everywhere and the
+ *  competition's identity comes from its real logo. Kept as one function so
+ *  the chip renderers (Eyebrow's CompEyebrowChip and others) cannot drift. */
 export function accentInkVar(comp: CompetitionId): string {
   return `${COMPETITIONS[comp].accentVar}-ink`;
 }

@@ -1,38 +1,39 @@
 "use client";
 
 import { useState } from "react";
+import { Monogram } from "@/components/ClubBadge";
 import { localFlag, teamInitials } from "@/lib/flags";
 import { cn } from "@/lib/utils";
 
-/** Rounded flag chip. Flags are self-hosted PNGs (`public/flags`, flagcdn w320,
- *  ~0.2–5 KB each) so they stay crisp on retina at every chip size and load fast
- *  from our own origin — no remote-CDN burst on the country chooser. If a flag is
- *  missing (unmapped team or a stray load error) we show a clean typographic chip,
- *  never the browser's broken-image "?" icon. */
+/** Round flag chip for national teams. Flags are self-hosted PNGs
+ *  (`public/flags`) so they stay crisp at every chip size and load from our own
+ *  origin. Default `alt` = the team name; pass `decorative` when the name is
+ *  printed next to the flag. If a flag is missing (unmapped team or a stray
+ *  load error) we show the neutral monogram, never a broken-image icon. */
 export function Flag({
   team,
   size = 28,
   className,
+  decorative = false,
 }: {
   team: string;
   size?: number;
   className?: string;
+  decorative?: boolean;
 }) {
   const url = localFlag(team);
   const [failed, setFailed] = useState(false);
 
   if (!url || failed) {
     return (
-      <span
-        className={cn(
-          "grid shrink-0 place-items-center rounded-full bg-surface-2 text-note font-bold text-muted ring-1 ring-border",
-          className,
-        )}
-        style={{ width: size, height: size }}
-        aria-hidden
-      >
-        {teamInitials(team)}
-      </span>
+      <Monogram
+        label={team}
+        initials={teamInitials(team)}
+        size={size}
+        shape="round"
+        decorative={decorative}
+        className={className}
+      />
     );
   }
 
@@ -40,14 +41,14 @@ export function Flag({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={url}
-      alt=""
-      aria-hidden
+      alt={decorative ? "" : team}
+      aria-hidden={decorative ? true : undefined}
       width={size}
       height={size}
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
-      className={cn("shrink-0 rounded-full object-cover ring-1 ring-border/80", className)}
+      className={cn("shrink-0 rounded-full object-cover ring-1 ring-line", className)}
       style={{ width: size, height: size }}
     />
   );

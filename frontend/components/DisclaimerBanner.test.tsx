@@ -15,7 +15,11 @@ it("keeps the compliance copy on one compact line", () => {
   const note = screen.getByRole("note");
   expect(note).toHaveTextContent(/For analytics and entertainment only\./);
   expect(note).toHaveTextContent(/Not betting advice\./);
-  expect(note).toHaveClass("h-8");
+  // One quiet line on the soft ground; the line truncates rather than wraps,
+  // and the dismiss control keeps a 44px target.
+  expect(note).toHaveClass("bg-soft");
+  expect(note.querySelector("p")).toHaveClass("truncate");
+  expect(screen.getByRole("button", { name: /dismiss disclaimer/i })).toHaveClass("h-11", "w-11");
   expect(note.className).not.toMatch(/\bsticky\b/);
   expect(note).not.toHaveTextContent("⚠️");
 });

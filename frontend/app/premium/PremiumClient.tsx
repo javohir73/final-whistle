@@ -134,7 +134,7 @@ export function PremiumClient() {
   };
 
   return (
-    <div className="fade-up mx-auto max-w-2xl space-y-8">
+    <div className="fade-up space-y-8">
       <header>
         <h1 className="font-display text-4xl font-extrabold tracking-tight">
           FinalWhistle <span className="text-lime-deep">Premium</span>

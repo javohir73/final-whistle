@@ -107,7 +107,7 @@ export default async function NrlMatchDetailPage({
 
   return (
     <LiveMatchProvider match={match}>
-      <div className="fade-up mx-auto max-w-2xl space-y-6">
+      <div className="fade-up space-y-6">
         <div className="flex items-center justify-between gap-3">
           <Link
             href="/nrl/matches"

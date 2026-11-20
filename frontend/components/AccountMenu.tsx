@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useState } from "react";
 import { createPortalSession, type SessionUser } from "@/lib/session";
 import { BILLING_ENABLED } from "@/lib/constants";
 import { recordEngagement } from "@/lib/engagement";
-import { COMPETITIONS, navTabsFor } from "@/lib/sports";
+import { COMPETITIONS, competitionLinks } from "@/lib/sports";
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
 import { useCompetitionScope } from "@/components/TournamentProvider";
-
-const ITEM_CLASS =
-  "w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-foreground";
+import { ChevronDownIcon, Menu, MenuItem, MenuSeparator, PILL_CLASS } from "@/components/ui";
+import { cn } from "@/lib/utils";
 
 function initials(user: SessionUser): string {
   const name = (user.display_name || "").trim();
@@ -21,10 +19,10 @@ function initials(user: SessionUser): string {
   return (user.email[0] || "?").toUpperCase();
 }
 
-/** Signed-in indicator: a circular avatar with the user's initials (top-right),
- *  opening a small menu: My picks and (where the competition has one) the
- *  model's record, scoped to the current competition like the rest of the
- *  shell, then the account actions. */
+/** Signed-in indicator: an account pill (initials + chevron) opening a small
+ *  menu: My picks / My tips and (where the competition has one) the model's
+ *  record, scoped to the current competition like the rest of the shell,
+ *  then the account actions. */
 export function AccountMenu({
   user,
   onLogout,
@@ -34,12 +32,10 @@ export function AccountMenu({
   onLogout: () => void;
   onDeleteAccount: (password: string) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const label = user.display_name || user.email;
   const { competition } = useCompetitionScope();
-  const myPicksHref = navTabsFor(competition).find((tab) => tab.id === "mypicks")!.href;
+  const links = competitionLinks(competition);
   const recordHref = COMPETITIONS[competition].recordPath;
 
   const onManageSubscription = async () => {
@@ -47,113 +43,55 @@ export function AccountMenu({
       const { url } = await createPortalSession();
       window.location.assign(url);
     } catch {
-      /* menu stays open; nothing to break */
+      /* nothing to break; the menu can be opened again */
     }
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("mousedown", onClick);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onClick);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() =>
-          setOpen((v) => {
-            if (!v) recordEngagement("menu-open"); // gates the install prompt
-            return !v;
-          })
+    <>
+      <Menu
+        label={`Account: ${label}`}
+        triggerClassName={cn(PILL_CLASS, "gap-1.5 pl-1.5 pr-3")}
+        onOpenChange={(open) => {
+          if (open) recordEngagement("menu-open"); // gates the install prompt
+        }}
+        trigger={
+          <>
+            <span
+              aria-hidden="true"
+              title={label}
+              className="grid h-8 w-8 place-items-center rounded-full bg-brand-soft text-label font-bold text-brand"
+            >
+              {initials(user)}
+            </span>
+            <ChevronDownIcon />
+          </>
         }
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Account: ${label}`}
-        title={label}
-        className="grid h-9 w-9 place-items-center rounded-full bg-pitch text-sm font-bold text-[#d6f5a8] transition hover:brightness-110"
       >
-        {initials(user)}
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          // Solid white card so the name/email stay legible over page content.
-          className="glass absolute right-0 z-50 mt-2 w-56 rounded-xl p-1.5 shadow-xl"
-        >
-          <div className="px-3 py-2">
-            <div className="truncate text-sm font-semibold">{user.display_name || "Signed in"}</div>
-            <div className="truncate text-xs text-muted">{user.email}</div>
-          </div>
-          <div className="my-1 border-t border-border" />
-          <Link
-            href={myPicksHref}
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            className={`block ${ITEM_CLASS}`}
-          >
-            My picks
-          </Link>
-          {recordHref && (
-            <Link
-              href={recordHref}
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className={`block ${ITEM_CLASS}`}
-            >
-              Model record
-            </Link>
-          )}
-          <div className="my-1 border-t border-border" />
-          {BILLING_ENABLED && user.premium && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={onManageSubscription}
-              className={ITEM_CLASS}
-            >
-              Manage subscription
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onLogout();
-            }}
-            className={ITEM_CLASS}
-          >
-            Sign out
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              setDeleteOpen(true);
-            }}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-loss/90 transition hover:bg-loss/10 hover:text-loss"
-          >
-            Delete account
-          </button>
+        <div className="px-3 py-2" role="none">
+          <div className="truncate font-semibold">{user.display_name || "Signed in"}</div>
+          <div className="truncate text-label text-muted">{user.email}</div>
         </div>
-      )}
+        <MenuSeparator />
+        <MenuItem href={links.picks}>{links.picksLabel}</MenuItem>
+        {recordHref && <MenuItem href={recordHref}>Model record</MenuItem>}
+        <MenuSeparator />
+        {BILLING_ENABLED && user.premium && (
+          <MenuItem keepOpen onSelect={() => void onManageSubscription()}>
+            Manage subscription
+          </MenuItem>
+        )}
+        <MenuItem onSelect={onLogout}>Sign out</MenuItem>
+        <MenuItem tone="danger" onSelect={() => setDeleteOpen(true)}>
+          Delete account
+        </MenuItem>
+      </Menu>
 
       <DeleteAccountModal
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onConfirm={onDeleteAccount}
       />
-    </div>
+    </>
   );
 }

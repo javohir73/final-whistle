@@ -110,7 +110,7 @@ export async function renderMatchDetailPage(
   const hasMarket = !!(p.odds_comparison?.available && p.odds_comparison.market);
 
   return (
-    <div className="fade-up mx-auto max-w-2xl space-y-6">
+    <div className="fade-up space-y-6">
       {/* The matchup is presented graphically by the hero; this gives crawlers
           and screen-reader users the page's one top-level title. */}
       <h1 className="sr-only">
@@ -318,7 +318,7 @@ function PredictionPending({
     .join(", ");
 
   return (
-    <div className="fade-up mx-auto max-w-2xl space-y-6">
+    <div className="fade-up space-y-6">
       <h1 className="sr-only">
         {home} vs {away} — {tournamentName}
       </h1>

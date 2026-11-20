@@ -10,6 +10,8 @@ import { extendTailwindMerge } from "tailwind-merge";
 const TYPE_SCALE = [
   "micro", "mini", "note", "label", "meta", "body", "lead", "sub",
   "numeral", "headline", "score-sm", "score", "display-hero", "rank",
+  // Direction G steps.
+  "h1", "h1-sm", "h2", "notes", "table", "stat",
 ] as const;
 
 const twMerge = extendTailwindMerge({

@@ -2,161 +2,118 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ============ "Floodlight" design system ============ */
-/* Exact canvas/card/ink palette from design/Floodlight Prototype.dc.html.
-   The previous blue-black Midnight values made the shipped UI read as a
-   different product even when component geometry matched the prototype. */
+/* ============ Direction G — "premium and calm" ============ */
+/* The site's ONE theme: white ground, ink text, one deep-green accent.
+   There is no dark theme and no toggle. Tailwind exposes the --fw-* values
+   below under their own names (`ground`, `ink`, `muted`, `line`, `line-soft`,
+   `soft`, `brand`, `brand-soft`, `miss`, `miss-soft` …, see tailwind.config.ts);
+   the older HSL-channel tokens further down are kept so the ~200 components
+   that still use `bg-surface`, `text-lime-deep`, `bg-win/10` … render in the
+   same calm palette until they are rebuilt. New code uses the G names. */
 :root {
-  --background: 156 33% 6%;   /* #0a1410  green-black page canvas */
-  --surface: 148 29% 9%;      /* #101d16  cards */
-  --surface-2: 144 19% 10%;   /* #151f19  insets / track / hover */
-  --foreground: 120 14% 96%;  /* #f3f6f3  primary ink */
-  --muted: 129 10% 62%;       /* #94a897  secondary text */
-  --border: 140 14% 17%;      /* #243028  card and divider strokes */
+  color-scheme: light;
+  /* One family (Instrument Sans, app/layout.tsx sets --font-body); the
+     display name points at the same face. */
+  --font-display: var(--font-body);
 
-  --win: 84 78% 55%;          /* #9ee633  Floodlight lime */
-  --draw: 38 94% 58%;         /* #f9b030  amber */
-  --loss: 351 90% 64%;        /* #f6516b  rose */
-  --gold: 42 62% 48%;         /* #c79a2e */
-  --accent: 84 78% 55%;       /* = win */
+  --fw-ground: #ffffff;
+  --fw-ink: #14181f;
+  --fw-muted: #5b6470;
+  --fw-line: #e4e7e3;
+  --fw-line-soft: #eef0ec;
+  --fw-soft: #f6f7f5;
+  --fw-brand: #0f4d3a;
+  --fw-brand-hover: #0b3d2e;
+  --fw-brand-soft: #e7f0ec;
+  --fw-miss: #8a3324;
+  --fw-miss-soft: #f6ebe8;
+  --fw-line-strong: #c3c8c1; /* hover border, input border */
+  --fw-chip: #f2f4f1;        /* segmented track, neutral chip, kick-off box */
+  --fw-disabled: #c9cfc8;    /* disabled button fill */
+  --fw-placeholder: #b3b9b1; /* empty score numeral */
+  --fw-dash: #9aa1a9;        /* the dash between two scores */
+  --fw-europa: #8fb3a5;      /* second table-zone marker */
 
-  --lime-deep: 84 78% 55%;    /* on dark, deep-lime text maps to bright lime */
-  --amber-ink: 38 94% 58%;    /* amber text = amber fill on dark */
-  --action-ink: 156 33% 6%;   /* original text-background ink on bright action fills */
-  --draw-ink: 38 94% 58%;     /* original draw text literal, split from fill */
-  --loss-ink: 351 90% 64%;    /* original loss text literal, split from fill */
-  --lime-deep-ink: 0 0% 0%;   /* original black ink on deep-lime fills */
-  --origin-disclaimer: 0 0% 100% / 0.4; /* legacy Origin disclaimer ink */
-  --disabled-opacity: 0.6; /* original disabled group opacity */
-  --disabled-opacity-40: 0.4; /* original compact-control disabled opacity */
-  --gold-ink: 42 62% 48%; /* original gold text literal */
-  --muted-solid: 129 10% 62% / 0.7; /* original text-muted/70 literal */
-  --hint-ink: 129 10% 62% / 0.8; /* original shared error hint text-muted/80 */
-  /* Ink on loss-tinted chips (the LIVE pill on MatchCard, GroupCard and
-     TipsheetBlock). Lifted from the --loss literal (64%) to 70%: 64% measured
-     4.39:1 on its own loss/15 wash over the card, under the 4.5:1 floor for
-     this 11px text; 70% clears it on every stop (5.17 inset .. 5.72 canvas). */
-  --loss-wash-ink: 351 90% 70%;
-  --gold-wash-ink: 38 94% 58%; /* original amber ink on warm-tinted chips */
-  --accent-nrl-ink: 174 60% 40%; /* original NRL eyebrow ink */
-  --pitch-accent-ink: 84 78% 55%; /* original lime ink on invariant pitch panels */
-  --pitch-loss-ink: 351 90% 64%; /* original loss ink on invariant pitch panels */
-  --pitch-foreground-ink: 120 14% 96%; /* original foreground ink on pitch panels */
-  --pitch-muted-ink: 129 10% 62%; /* original muted ink on pitch panels */
-  /* Was text-white/45: 4.10-4.48:1 across the pitch gradient stops. At .5 the
-     lightest stop clears AA (4.71:1). */
-  --pitch-subtle-ink: 0 0% 100% / 0.5;
-  --pitch-chip: 144 19% 10% / 0.7; /* original surface-2/70 pitch chip */
-  --pitch: 143 33% 8%;        /* #0d1a12  hero/accent panels */
-  --pitch-copy: #a9c7b4;      /* supporting copy on invariant dark pitch panels */
-  --feature-chart-ink: #8b95a7; /* Recharts axis + value-label ink */
-  /* Foot of the .glass card gradient. A TOKEN, not a literal: it used to be a
-     hardcoded hsl(148 29% 8%), which meant every card faded to near-black the
-     moment .theme-daylight swapped --surface to white — unreadable text at the
-     bottom of every card. The one orphan value in the system. */
-  --surface-grad-end: 148 29% 8%;
+  /* ---- Legacy HSL-channel tokens, re-pointed at direction G ----
+     Channels (not colours) so `bg-win/10`-style alpha keeps working. Values
+     are the exact G hexes converted to HSL. */
+  --background: 0 0% 100%;              /* ground */
+  --surface: 0 0% 100%;                 /* ground */
+  --surface-2: 90 11.11% 96.47%;        /* soft */
+  --foreground: 218.18 21.57% 10%;      /* ink */
+  --muted: 214.29 10.34% 39.8%;         /* muted */
+  --border: 105 7.69% 89.8%;            /* line */
 
-  /* ---- Floodlight (P1) additions ---- */
-  /* Display scale — feature %, scorebug numerals, ladder rank. */
-  --text-display-hero: 46px;  /* mobile; -> 74px desktop below */
-  --text-rank: 22px;          /* ladder/standings numerals */
-  /* Status-state accents (color) — mirror in .theme-daylight. */
+  --win: 161.61 67.39% 18.04%;          /* brand */
+  --draw: 214.29 10.34% 39.8%;          /* muted: a draw is neutral, not amber */
+  --loss: 8.82 58.62% 34.12%;           /* miss */
+  --gold: 214.29 10.34% 39.8%;          /* muted: no gold in G */
+  --accent: 161.61 67.39% 18.04%;       /* brand */
+
+  --lime-deep: 161.61 67.39% 18.04%;    /* brand */
+  --amber-ink: 214.29 10.34% 39.8%;     /* muted */
+  --action-ink: 0 0% 100%;              /* white text on brand fills */
+  --draw-ink: 214.29 10.34% 39.8%;
+  --loss-ink: 8.82 58.62% 34.12%;
+  --lime-deep-ink: 0 0% 100%;           /* white text on brand fills */
+  --origin-disclaimer: 214.29 10.34% 39.8%;
+  --disabled-opacity: 1;
+  --disabled-opacity-40: 1;
+  --gold-ink: 214.29 10.34% 39.8%;
+  --muted-solid: 214.29 10.34% 39.8%;
+  --hint-ink: 214.29 10.34% 39.8%;
+  --loss-wash-ink: 8.82 58.62% 34.12%;
+  --gold-wash-ink: 214.29 10.34% 39.8%;
+  --accent-nrl-ink: 161.61 67.39% 18.04%;
+  /* .panel-pitch is a light "soft" panel in G, so its inks are ordinary inks. */
+  --pitch-accent-ink: 161.61 67.39% 18.04%;
+  --pitch-loss-ink: 8.82 58.62% 34.12%;
+  --pitch-foreground-ink: 218.18 21.57% 10%;
+  --pitch-muted-ink: 214.29 10.34% 39.8%;
+  --pitch-subtle-ink: 214.29 10.34% 39.8%;
+  --pitch-chip: 0 0% 100%;
+  --pitch: 90 11.11% 96.47%;
+  --pitch-copy: #5b6470;
+  --feature-chart-ink: #5b6470;
+  --surface-grad-end: 0 0% 100%;
+
+  --text-display-hero: 44px;
+  --text-rank: 22px;
   --status-upcoming: var(--muted);
-  --status-live: var(--loss);   /* rose dot + rose/40 ring, 2s pulse */
-  --status-ft: var(--surface-2);/* finished chip surface */
-  /* Confidence mapping — HIGH=lime MEDIUM=amber LOW=muted. Ring + label
-     always; never color alone. */
+  --status-live: var(--loss);
+  --status-ft: var(--surface-2);
+  /* Confidence: High brand, Medium ink, Low muted. Ring + label always. */
   --confidence-high: var(--win);
-  --confidence-medium: var(--draw);
+  --confidence-medium: var(--foreground);
   --confidence-low: var(--muted);
-  /* Core per-competition accents used by the switcher overlay and league
-     eyebrow chips. The homepage Graphic split cards define their approved,
-     richer two-tone palette alongside the card rules below. HSL channel
-     triplets keep alpha composition and color-mix available to each consumer. */
-  --accent-epl: 283 60% 55%;        /* purple */
-  --accent-laliga: 8 78% 63%;       /* coral */
-  --accent-bundesliga: 0 75% 52%;   /* red */
-  --accent-ucl: 224 82% 52%;        /* UEFA blue */
-  --accent-wc26: 42 72% 52%;        /* trophy gold */
-  --accent-nrl: 174 60% 40%;        /* teal */
-  /* Opaque card boundaries keep the accent hue/saturation but normalize its
-     lightness into the narrow band that clears 3:1 against both the invariant
-     dark card fill and either theme's page canvas. One alpha cannot do this:
-     the card background paints beneath its translucent border. */
-  --accent-epl-boundary: 283 60% 61%;
-  --accent-laliga-boundary: 8 78% 58%;
-  --accent-bundesliga-boundary: 0 75% 60%;
-  --accent-ucl-boundary: 224 82% 63%;
-  --accent-wc26-boundary: 42 72% 38%;
-  --accent-nrl-boundary: 174 60% 35%;
-  /* Chip-label inks. Every competition needs one, because the chip paints its
-     accent as 11px/700 text on a 0.12 wash of that same accent — small text,
-     so the WCAG AA floor is 4.5:1, and browser measurement showed the raw
-     accent missing it in BOTH themes. A competition with no ink token resolves
-     hsl() of an undefined variable, i.e. an invalid colour, and the label
-     silently inherits its parent.
 
-     Floodlight (measured before the fix): EPL 3.38, Bundesliga 3.47, UCL 2.69
-     under the floor. Each is LIGHTENED to the lowest value on its own hue that
-     clears both dark stops — never darkened, so the chip keeps reading as its
-     brand colour. La Liga, the World Cup gold and NRL already cleared and are
-     left exactly as their accent. */
-  --accent-epl-ink: 283 60% 65%;
-  --accent-laliga-ink: 8 78% 63%;
-  --accent-bundesliga-ink: 0 75% 65%;
-  --accent-ucl-ink: 224 82% 67%;
-  --accent-wc26-ink: 42 72% 52%;    /* gold label ink on Floodlight washes */
-  --comp-accent: var(--accent-wc26);/* default; overlay/eyebrow set per comp */
-  --competition-card-base: 150 34% 8%;
-  --competition-card-ink: 0 0% 100%;
-  /* Height the fixed mobile tab bar (BottomNav, lg:hidden) occupies above the
+  /* Competition accents. G has ONE accent, so every competition chip and
+     eyebrow paints in brand; identity comes from the real competition logo. */
+  --accent-epl: 161.61 67.39% 18.04%;
+  --accent-laliga: 161.61 67.39% 18.04%;
+  --accent-bundesliga: 161.61 67.39% 18.04%;
+  --accent-ucl: 161.61 67.39% 18.04%;
+  --accent-wc26: 161.61 67.39% 18.04%;
+  --accent-nrl: 161.61 67.39% 18.04%;
+  --accent-epl-boundary: 105 7.69% 89.8%;
+  --accent-laliga-boundary: 105 7.69% 89.8%;
+  --accent-bundesliga-boundary: 105 7.69% 89.8%;
+  --accent-ucl-boundary: 105 7.69% 89.8%;
+  --accent-wc26-boundary: 105 7.69% 89.8%;
+  --accent-nrl-boundary: 105 7.69% 89.8%;
+  --accent-epl-ink: 161.61 67.39% 18.04%;
+  --accent-laliga-ink: 161.61 67.39% 18.04%;
+  --accent-bundesliga-ink: 161.61 67.39% 18.04%;
+  --accent-ucl-ink: 161.61 67.39% 18.04%;
+  --accent-wc26-ink: 161.61 67.39% 18.04%;
+  --comp-accent: var(--accent-epl);
+  --competition-card-base: 0 0% 100%;
+  --competition-card-ink: 218.18 21.57% 10%;
+  --competition-card-copy: 214.29 10.34% 39.8%;
+
+  /* Height the fixed phone tab bar (BottomNav, lg:hidden) occupies above the
      home-indicator inset; .bottom-above-tabbar parks toasts and cards on it. */
   --tabbar-clearance: 4.5rem;
-}
-
-/* Daylight rollback: apply .theme-daylight on <html> to restore the light theme. */
-.theme-daylight {
-  --background: 96 23% 96%; --surface: 0 0% 100%; --surface-2: 94 18% 93%;
-  /* --muted was 140 7% 45%, which measured 4.14:1 against the page canvas —
-     under the 4.5:1 WCAG AA floor for body text, and this token carries most
-     of the secondary copy on the site. Darkened to clear AA on BOTH surfaces
-     it sits on: 5.39:1 on the canvas, 5.82:1 on a white card. The dark theme
-     was audited at AAA; light must not ship as the inaccessible one. */
-  --foreground: 150 38% 9%; --muted: 140 8% 38%; --border: 84 20% 90%;
-  --win: 84 66% 52%; --draw: 41 78% 51%; --loss: 350 84% 62%;
-  --gold: 42 62% 48%; --accent: 84 66% 52%;
-  --lime-deep: 108 56% 27%; --amber-ink: 43 82% 29%; --pitch: 151 51% 14%;
-  --action-ink: 150 38% 9%; --draw-ink: 43 82% 29%; --loss-ink: 350 84% 45%;
-  --lime-deep-ink: 96 23% 96%; --origin-disclaimer: 140 8% 38%;
-  --disabled-opacity: 1; --disabled-opacity-40: 1;
-  --gold-ink: 42 72% 27%; --muted-solid: 140 8% 38%; --hint-ink: 140 8% 38%;
-  --loss-wash-ink: 350 84% 41%; --gold-wash-ink: 43 82% 27%;
-  /* Darkened chip inks. Each is the lightest value on its own hue that still
-     clears 4.5:1 on BOTH Daylight stops (canvas and white card), with a few
-     points of margin so a small accent tweak cannot silently drop it under AA.
-     Measured in-browser before the fix on /football/wc26: EPL 3.67, La Liga
-     2.55, Bundesliga 3.59, UCL 4.59, NRL 2.55 — four of six under the floor. */
-  --accent-epl-ink: 283 60% 45%;
-  --accent-laliga-ink: 8 78% 40%;
-  --accent-bundesliga-ink: 0 75% 41%;
-  --accent-ucl-ink: 224 82% 48%;
-  --accent-wc26-ink: 42 72% 27%;
-  --accent-nrl-ink: 174 60% 27%;
-  --pitch-accent-ink: 84 78% 55%; --pitch-loss-ink: 351 90% 69%;
-  --pitch-foreground-ink: 120 14% 96%;
-  --pitch-muted-ink: 129 10% 62%; --pitch-subtle-ink: 0 0% 100% / 0.7;
-  --pitch-chip: 144 19% 10% / 0.7;
-  /* .panel-pitch stays dark in Daylight, so its supporting ink is invariant. */
-  --pitch-copy: #a9c7b4; --feature-chart-ink: #657185;
-  /* Cards read white->faint-sage here, mirroring the dark theme's
-     surface->deeper-surface fall rather than inverting it. --pitch stays dark
-     in this theme by design, so .panel-pitch and its white ink are correct in
-     both and need no daylight override. */
-  --surface-grad-end: 94 18% 96%;
-}
-
-@media (min-width: 768px) {
-  :root { --text-display-hero: 74px; }
 }
 
 * {
@@ -169,10 +126,7 @@ html {
 }
 
 /* ============ Keyboard focus ============ */
-/* A single, consistent, high-contrast focus ring for every interactive element.
-   Uses the deep lime so the ring keeps >= 3:1 contrast against the light canvas
-   (the bright --win fails non-text contrast on white). :focus-visible only shows
-   it for keyboard/AT users, not mouse clicks. */
+/* One brand ring for every interactive element (brand on white: 9.9:1). */
 :focus-visible {
   outline: 2px solid hsl(var(--lime-deep));
   outline-offset: 2px;
@@ -196,17 +150,40 @@ html {
 body {
   color: hsl(var(--foreground));
   background-color: hsl(var(--background));
-  font-feature-settings: "ss01", "cv01", "tnum";
+  font-size: 16px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2 {
+  text-wrap: balance;
+}
+
+/* ============ The frame ============ */
+/* One container for header, main and footer: 1,360px, 40px gutters, 16px
+   under 900px. Safe-area insets are added for landscape notched phones. */
+.fw-wrap {
+  width: 100%;
+  max-width: 1360px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(40px, env(safe-area-inset-left));
+  padding-right: max(40px, env(safe-area-inset-right));
+}
+@media (max-width: 899.98px) {
+  .fw-wrap {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
 }
 
 /* ============ Installed-app (PWA) safe areas ============ */
 /* In standalone mode on a touch device the web view draws under the status
-   bar, so inset the top bar below the clock/Dynamic Island. max(...,20px)
-   also clears the status bar on non-notched iPhones where the safe-area
-   inset is 0. Scoped to standalone + coarse-pointer so the in-browser layout
-   is unaffected — and so desktop standalone windows (no status bar, no
-   safe-area inset) don't get a dead 20px band from the max(...,20px) floor. */
+   bar, so inset the top bar below the clock/Dynamic Island. Scoped to
+   standalone + coarse-pointer so the in-browser layout is unaffected. */
 .app-top {
   padding-top: 0;
 }
@@ -219,10 +196,6 @@ body {
   }
 }
 
-/* With viewport-fit=cover, landscape on notched phones draws edge-to-edge
-   under the sensor housing. Inset the full-bleed bars horizontally too —
-   resolves to 0 in portrait / on non-notched devices, so it's harmless. */
-.app-top,
 .safe-x {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
@@ -230,7 +203,7 @@ body {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
-/* Fixed toasts/cards sit above the mobile tab bar and the home indicator; the
+/* Fixed toasts/cards sit above the phone tab bar and the home indicator; the
    bar is lg:hidden, so from lg they drop to a plain 1.5rem gap. */
 .bottom-above-tabbar {
   bottom: calc(var(--tabbar-clearance) + env(safe-area-inset-bottom));
@@ -243,303 +216,83 @@ body {
 
 /* ============ Reusable utilities ============ */
 @layer components {
+  /* Legacy card class (93 files). In G a card is flat: white, 1px line, no
+     gradient, no shadow. New code uses <Card> from components/ui. */
   .glass {
-    background: linear-gradient(180deg, hsl(var(--surface)), hsl(var(--surface-grad-end)));
+    background: hsl(var(--surface));
     border: 1px solid hsl(var(--border));
-    box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.7);
+    box-shadow: none;
   }
 
+  /* Legacy "pitch" panel. Was a dark floodlit gradient; in G it is a soft,
+     flat panel with ordinary ink. Components inside it still written for the
+     dark panel (text-white …) are mapped back to ink/muted here. */
   .panel-pitch {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(150deg, hsl(147 44% 13%), hsl(var(--pitch)) 55%, hsl(147 45% 7%));
-    border: 1px solid hsl(var(--win) / 0.15);
-    color: #fff;
+    background: var(--fw-soft);
+    border: 1px solid var(--fw-line);
+    color: var(--fw-ink);
   }
-  .panel-pitch::after {
-    content: "";
-    position: absolute;
-    right: -46px;
-    top: -46px;
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
-    background: radial-gradient(circle, hsl(var(--win) / 0.22), transparent 65%);
-    pointer-events: none;
+  .panel-pitch .text-white {
+    color: var(--fw-ink);
+  }
+  .panel-pitch [class*="text-white/"] {
+    color: var(--fw-muted);
   }
 
   .card-hover {
-    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-      border-color 0.25s ease, box-shadow 0.25s ease;
+    transition: border-color 0.2s ease;
   }
   .card-hover:hover {
-    transform: translateY(-3px);
-    border-color: hsl(var(--win) / 0.4);
-    box-shadow: 0 14px 32px -14px rgba(0, 0, 0, 0.75);
+    border-color: var(--fw-line-strong);
   }
 
+  /* Competition cards on the platform home: plain light cards with the real
+     competition logo. No coloured slabs, no stripes, no lift. */
   .competition-card {
     position: relative;
-    isolation: isolate;
     color: hsl(var(--competition-card-ink));
-    background: hsl(var(--competition-card-deep));
-    border: 1px solid hsl(var(--competition-card-boundary));
-    box-shadow:
-      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.12),
-      0 12px 28px hsl(var(--competition-card-base) / 0.18);
-    transition:
-      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-      border-color 0.24s ease,
-      box-shadow 0.24s ease,
-      filter 0.24s ease;
+    background: hsl(var(--competition-card-base));
+    border: 1px solid var(--fw-line);
+    box-shadow: none;
+    transition: border-color 0.2s ease;
   }
-
-  .competition-card::before {
-    content: "";
-    position: absolute;
-    z-index: -2;
-    inset: -30% -20% 26% -34%;
-    background: hsl(var(--competition-card-accent));
-    transform: rotate(-13deg);
-    transform-origin: center;
-    box-shadow: 0 18px 35px hsl(var(--competition-card-base) / 0.16);
-    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-    pointer-events: none;
+  .competition-card:hover,
+  .competition-card:focus-visible {
+    border-color: var(--fw-line-strong);
   }
-
-  .competition-card::after {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    top: 0;
-    right: 0;
-    width: 45%;
-    height: 100%;
-    background: repeating-linear-gradient(
-      135deg,
-      transparent 0 14px,
-      hsl(var(--competition-card-ink) / 0.035) 14px 16px
-    );
-    pointer-events: none;
-  }
-
-  .competition-card > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  .competition-card[data-competition-card="epl"] {
-    --competition-card-accent: 283 59% 41%;
-    --competition-card-deep: 283 61% 17%;
-    --competition-card-boundary: 283 60% 61%;
-  }
-
-  .competition-card[data-competition-card="laliga"] {
-    --competition-card-accent: 6 100% 64%;
-    --competition-card-deep: 350 64% 33%;
-    --competition-card-boundary: 6 100% 72%;
-  }
-
-  .competition-card[data-competition-card="bundesliga"] {
-    --competition-card-accent: 355 87% 52%;
-    --competition-card-deep: 356 77% 28%;
-    --competition-card-boundary: 355 87% 65%;
-  }
-
-  .competition-card[data-competition-card="ucl"] {
-    --competition-card-accent: 226 79% 47%;
-    --competition-card-deep: 227 83% 19%;
-    --competition-card-boundary: 226 79% 64%;
-  }
-
-  .competition-card[data-competition-card="wc26"] {
-    --competition-card-accent: 42 68% 42%;
-    --competition-card-deep: 35 58% 24%;
-    --competition-card-boundary: 42 72% 68%;
-  }
-
-  .competition-card[data-competition-card="nrl"] {
-    --competition-card-accent: 174 60% 40%;
-    --competition-card-deep: 174 71% 18%;
-    --competition-card-boundary: 174 60% 48%;
-  }
-
-  .competition-card--wide::before {
-    inset: 0 auto 0 0;
-    width: 96px;
-    clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%);
-    transform: none;
-  }
-
   .competition-card__copy {
-    color: hsl(var(--competition-card-ink) / 0.72);
+    color: hsl(var(--competition-card-copy));
   }
-
-  .competition-card-grid {
-    position: relative;
-    left: 50%;
-    width: min(1280px, calc(100vw - 2rem));
-    transform: translateX(-50%);
-  }
-
-  .competition-card--compact .competition-card__content {
-    position: absolute;
-    inset: 116px 0 0;
-    margin-top: 0;
-    padding: 28px 20px 16px;
-    background: hsl(var(--competition-card-deep));
-    clip-path: polygon(0 16px, 100% 0, 100% 100%, 0 100%);
-  }
-
   .competition-card__wide-copy {
     min-width: 0;
   }
-
   .competition-card__arrow {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.875rem;
-    height: 1.875rem;
-    flex: 0 0 1.875rem;
-    border: 1px solid hsl(var(--competition-card-ink) / 0.16);
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 2rem;
+    border: 1px solid var(--fw-line);
     border-radius: 999px;
-    color: hsl(var(--competition-card-base));
-    background: hsl(var(--competition-card-ink));
-    transition:
-      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 0.24s ease,
-      border-color 0.24s ease;
-  }
-
-  .competition-card__arrow--wide {
-    width: auto;
-    height: auto;
-    flex-basis: auto;
-    padding: 0.55rem 0.75rem;
-  }
-
-  .competition-card [data-competition-logo] {
-    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .competition-card[data-competition-card="epl"] [data-competition-logo] img,
-  .competition-card[data-competition-card="laliga"] [data-competition-logo] img,
-  .competition-card[data-competition-card="ucl"] [data-competition-logo] img {
-    filter: brightness(0) invert(1) drop-shadow(0 1px 2px hsl(var(--competition-card-base) / 0.45));
-  }
-
-  .competition-card[data-competition-card="wc26"] [data-competition-logo] {
-    position: relative;
-    overflow: hidden;
-    background: hsl(var(--competition-card-ink));
-    mask-image: url("/competitions/wc26-20260821.png");
-    mask-mode: luminance;
-    mask-repeat: no-repeat;
-    mask-position: center;
-    mask-size: 180%;
-  }
-
-  .competition-card[data-competition-card="wc26"] [data-competition-logo] img {
-    opacity: 0;
-    transform: none;
-    filter: none;
-  }
-
-  .competition-card[data-competition-card="wc26"] .competition-card__arrow {
     color: hsl(var(--competition-card-ink));
     background: hsl(var(--competition-card-base));
   }
-
-  @media (hover: hover) and (pointer: fine) {
-    .competition-card:hover {
-      transform: translateY(-7px) scale(1.015);
-      border-color: hsl(var(--competition-card-ink) / 0.4);
-      box-shadow:
-        inset 0 1px 0 hsl(var(--competition-card-ink) / 0.22),
-        0 24px 48px color-mix(in srgb, hsl(var(--competition-card-accent)) 34%, transparent);
-      filter: saturate(1.12) brightness(1.06);
-    }
-
-    .competition-card:hover::before {
-      transform: rotate(-9deg) scale(1.06);
-    }
-
-    .competition-card[data-competition-card="wc26"]:hover::before {
-      transform: rotate(-13deg);
-    }
-
-    /* The NRL accent stays fixed on the logo rail; the card, logo and action
-       still carry the shared hover motion without pushing colour under copy. */
-    .competition-card--wide:hover::before {
-      transform: none;
-    }
-
-    .competition-card:hover [data-competition-logo] {
-      transform: translateY(-2px) scale(1.08) rotate(-2deg);
-    }
-
-    .competition-card[data-competition-card="wc26"]:hover [data-competition-logo] {
-      transform: none;
-    }
-
-    .competition-card:hover .competition-card__arrow {
-      transform: translateX(4px);
-      background: hsl(var(--competition-card-ink));
-      border-color: hsl(var(--competition-card-base) / 0.4);
-    }
-
-    .competition-card[data-competition-card="wc26"]:hover .competition-card__arrow {
-      color: hsl(var(--competition-card-ink));
-      background: hsl(var(--competition-card-base));
-      border-color: hsl(var(--competition-card-ink) / 0.4);
-    }
-  }
-
-  .competition-card:focus-visible {
-    transform: translateY(-7px) scale(1.015);
-    border-color: hsl(var(--competition-card-ink) / 0.4);
-    box-shadow:
-      inset 0 1px 0 hsl(var(--competition-card-ink) / 0.22),
-      0 24px 48px color-mix(in srgb, hsl(var(--competition-card-accent)) 34%, transparent);
-    filter: saturate(1.12) brightness(1.06);
-  }
-
-  .competition-card:focus-visible::before {
-    transform: rotate(-9deg) scale(1.06);
-  }
-
-  .competition-card[data-competition-card="wc26"]:focus-visible::before {
-    transform: rotate(-13deg);
-  }
-
-  .competition-card--wide:focus-visible::before {
-    transform: none;
-  }
-
-  .competition-card:focus-visible [data-competition-logo] {
-    transform: translateY(-2px) scale(1.08) rotate(-2deg);
-  }
-
-  .competition-card[data-competition-card="wc26"]:focus-visible [data-competition-logo] {
-    transform: none;
-  }
-
+  .competition-card:hover .competition-card__arrow,
   .competition-card:focus-visible .competition-card__arrow {
-    transform: translateX(4px);
-    background: hsl(var(--competition-card-ink));
-    border-color: hsl(var(--competition-card-base) / 0.4);
+    border-color: var(--fw-ink);
   }
 
-  .competition-card[data-competition-card="wc26"]:focus-visible .competition-card__arrow {
-    color: hsl(var(--competition-card-ink));
-    background: hsl(var(--competition-card-base));
-    border-color: hsl(var(--competition-card-ink) / 0.4);
-  }
+  /* Table zone markers on the position cell (components/ui/DataTable). */
+  .fw-zone-a { box-shadow: inset 3px 0 0 var(--fw-brand); }
+  .fw-zone-b { box-shadow: inset 3px 0 0 var(--fw-europa); }
+  .fw-zone-c { box-shadow: inset 3px 0 0 var(--fw-miss); }
 
   .chip {
     border: 1px solid hsl(var(--border));
-    background: hsl(var(--surface-2) / 0.6);
+    background: hsl(var(--surface-2));
   }
 
   /* Recharts replaces object-form tick classes with its own generated class.
@@ -550,9 +303,7 @@ body {
 
   /* Official knockout bracket connectors (decorative). Two-sided converging tree:
      the left half flows rightward and the right half leftward, both meeting the
-     centre Final. Each round is a flex column of equal-share ties, so a successor
-     tie's centre sits at its two feeders' midpoint; elbows are pseudo-element
-     borders. Stub width must match the inter-round column gap (0.75rem / gap-3). */
+     centre Final. Stub width must match the inter-round column gap (0.75rem). */
   .ko-round {
     display: flex;
     flex-direction: column;
@@ -565,15 +316,13 @@ body {
     justify-content: center;
     padding: 0.3rem 0;
   }
-  /* LEFT half — rounds flow rightward toward the centre Final. With equal-share
-     ties the two feeders' centres land at 25%/75% of the successor's box. */
   .ko-col-l .ko-tie::after {
     content: "";
     position: absolute;
     left: 100%;
     top: 50%;
     width: 0.75rem;
-    border-top: 1.5px solid hsl(var(--border) / 0.7);
+    border-top: 1.5px solid hsl(var(--border));
   }
   .ko-col-l .ko-tie::before {
     content: "";
@@ -581,16 +330,15 @@ body {
     right: 100%;
     top: 25%;
     height: 50%;
-    border-left: 1.5px solid hsl(var(--border) / 0.7);
+    border-left: 1.5px solid hsl(var(--border));
   }
-  /* RIGHT half — mirrored: rounds flow leftward toward the centre Final. */
   .ko-col-r .ko-tie::after {
     content: "";
     position: absolute;
     right: 100%;
     top: 50%;
     width: 0.75rem;
-    border-top: 1.5px solid hsl(var(--border) / 0.7);
+    border-top: 1.5px solid hsl(var(--border));
   }
   .ko-col-r .ko-tie::before {
     content: "";
@@ -598,17 +346,17 @@ body {
     left: 100%;
     top: 25%;
     height: 50%;
-    border-left: 1.5px solid hsl(var(--border) / 0.7);
+    border-left: 1.5px solid hsl(var(--border));
   }
-  /* Outermost round (R32) has no incoming feeder join. */
   .ko-edge .ko-tie::before {
     content: none;
   }
 
-  /* ---- Floodlight (P1) display scale + status chips ---- */
+  /* Display numerals (legacy names). */
   .text-display-hero {
     font-family: var(--font-display);
     font-size: var(--text-display-hero);
+    font-weight: 600;
     line-height: 1.02;
     letter-spacing: -0.03em;
   }
@@ -618,28 +366,21 @@ body {
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
   }
-  /* Status chips. `.status-live` gets a rose dot + rose/40 ring that pulses
-     2s; the pulse is disabled under reduced-motion (see the existing
-     prefers-reduced-motion block near line 294). */
+  /* Live status: a miss-coloured dot and ring, pulsing (off under reduced motion). */
   .status-live-ring {
     box-shadow: 0 0 0 1px hsl(var(--status-live) / 0.4);
     animation: statusLivePulse 2s ease-in-out infinite;
   }
-  .status-live-dot { color: hsl(var(--status-live)); }
+  .status-live-dot {
+    color: hsl(var(--status-live));
+  }
 
-  /* Floodlight hero glow — the radial "under the lights" wash behind
-     home/match/team heroes (design/Floodlight Prototype.dc.html). Each is a
-     single radial-gradient (no images), so there's nothing to disable under
-     reduced-motion. Placement varies per hero; pick the variant that matches
-     the prototype panel you're building. */
-  .floodlight-glow {
-    background-image: radial-gradient(120% 80% at 80% -10%, hsl(var(--win) / 0.18), transparent 60%);
-  }
-  .floodlight-glow-top {
-    background-image: radial-gradient(140% 80% at 50% -20%, hsl(var(--win) / 0.16), transparent 65%);
-  }
+  /* Former Floodlight glows. G has no glows; the classes stay as no-ops so
+     untouched components keep compiling. */
+  .floodlight-glow,
+  .floodlight-glow-top,
   .floodlight-glow-left {
-    background-image: radial-gradient(120% 80% at 20% -10%, hsl(var(--win) / 0.16), transparent 60%);
+    background-image: none;
   }
 }
 
@@ -688,6 +429,15 @@ body {
   50%      { box-shadow: 0 0 0 3px hsl(var(--status-live) / 0.15); }
 }
 
+/* The prototype's "rise" for content that appears after a pick is locked. */
+@keyframes fwRise {
+  from { transform: translateY(8px); }
+  to { transform: none; }
+}
+.fw-rise {
+  animation: fwRise 0.35s ease-out;
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
@@ -696,19 +446,14 @@ body {
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: hsl(var(--surface-2));
+  background: var(--fw-line-soft);
 }
 .skeleton::after {
   content: "";
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    hsl(var(--foreground) / 0.06),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, rgba(20, 24, 31, 0.04), transparent);
   animation: shimmer 1.5s infinite;
 }
 
@@ -716,13 +461,9 @@ body {
   html {
     scroll-behavior: auto;
   }
-  /* Belt-and-suspenders: neutralise EVERY animation/transition, not only the
-     named classes below. Catches Tailwind's `animate-pulse` (which ignores
-     prefers-reduced-motion), the `transition-[width]` prob/qualification bars,
-     the MatchTabs/BottomNav `transition`, and the skip-link/hero transitions —
-     none of which are in the explicit list. 0.01ms (not `none`) so a component
-     that self-shortens via matchMedia still runs once and settles instead of
-     being hard-killed mid-state. */
+  /* Neutralise EVERY animation/transition, not only the named classes below.
+     0.01ms (not `none`) so a component that self-shortens via matchMedia
+     still runs once and settles instead of being hard-killed mid-state. */
   *,
   *::before,
   *::after {
@@ -732,6 +473,7 @@ body {
     scroll-behavior: auto !important;
   }
   .fade-up,
+  .fw-rise,
   .skeleton::after,
   .float,
   .float-slow,
@@ -739,33 +481,9 @@ body {
   .status-live-ring {
     animation: none;
   }
-  .card-hover {
+  .card-hover,
+  .competition-card {
     transition: none;
-  }
-  .card-hover:hover {
-    transform: none;
-  }
-  .competition-card,
-  .competition-card::before,
-  .competition-card [data-competition-logo],
-  .competition-card .competition-card__arrow {
-    transition: none;
-  }
-  .competition-card:hover,
-  .competition-card:focus-visible,
-  .competition-card:hover [data-competition-logo],
-  .competition-card:focus-visible [data-competition-logo],
-  .competition-card:hover .competition-card__arrow,
-  .competition-card:focus-visible .competition-card__arrow {
-    transform: none;
-  }
-  .competition-card:hover::before,
-  .competition-card:focus-visible::before {
-    transform: rotate(-13deg);
-  }
-  .competition-card--wide:hover::before,
-  .competition-card--wide:focus-visible::before {
-    transform: none;
   }
   .reveal {
     opacity: 1;
@@ -774,22 +492,7 @@ body {
   }
 }
 
-/* Custom selection + scrollbar for the daylight feel */
 ::selection {
-  background: hsl(var(--win) / 0.3);
-  color: hsl(var(--foreground));
-}
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: hsl(var(--background));
-}
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted) / 0.5);
+  background: var(--fw-brand-soft);
+  color: var(--fw-ink);
 }

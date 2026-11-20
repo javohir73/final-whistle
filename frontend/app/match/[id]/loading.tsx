@@ -4,13 +4,13 @@ import { Skeleton, SkeletonScreen, SkeletonRows } from "@/components/Skeleton";
  *  /football/<comp>/match/<id> route). The page first awaits the prediction,
  *  the live summary and the competition together, then likely scorers and the
  *  forecast history together -- two parallel rounds on a cold backend, the
- *  highest cold-start risk of the football surfaces. Mirrors the max-w-2xl
+ *  highest cold-start risk of the football surfaces. Mirrors the page
  *  column: the back/share row, the hero (crests + "vs", the model's call with
  *  its one bar and two chips), the pick card, then one panel of rows. */
 export default function MatchLoading() {
   return (
     <SkeletonScreen label="Loading match…">
-      <div className="mx-auto max-w-2xl space-y-6">
+      <div className="space-y-6">
         {/* Back link ↔ share button row. */}
         <div className="flex items-center justify-between">
           <Skeleton className="h-5 w-28 rounded" />
