@@ -27,11 +27,25 @@ Rules the merge follows:
   phase, probability snapshots for the same day, regenerable per-team rows,
   and predictions that would change which prediction reads as frozen (see
   ``_prediction_drops``);
-- a duplicate club is deleted only after every reference to it has moved.
+- a duplicate club is deleted only after every reference to it has moved,
+  and only when every fixture that references it is part of a pair (or is
+  acknowledged with ``--acknowledge unpaired:<match id>``);
+- a pair whose matchweeks differ is blocked; a kickoff gap over 14 days, or
+  different final scores on a graded match, block until acknowledged per
+  match with ``--acknowledge kickoff-gap:<id>`` / ``score-mismatch:<id>``.
 
-The digest is a hash of the full planned change set and the code revision.
-Apply recomputes it and refuses unless it equals the ``--expected-digest``
-printed by the dry run, so data that changed in between also refuses.
+The dry run never commits. Unless ``--no-trial`` is passed it also executes
+the plan once inside a savepoint and rolls it back, so for the length of
+that trial it takes the same row locks apply would. On Postgres both runs use
+one REPEATABLE READ transaction with short lock and statement timeouts.
+
+The digest is a sha256 over: the code revision, the conflict policy, the
+acknowledgements, the team and fixture mappings with each merged fixture's
+final state, every conflict with both rows in full, every row to be deleted
+in full, and every row to be re-pointed (id and a hash of its full content).
+Apply recomputes it in its own transaction and refuses unless it equals the
+``--expected-digest`` printed by the dry run, so a change to any of those
+rows in between also refuses.
 """
 from __future__ import annotations
 
@@ -45,7 +59,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import Table, UniqueConstraint, delete, select, update
+from sqlalchemy import Table, UniqueConstraint, delete, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.db import Base, SessionLocal
@@ -72,12 +87,29 @@ POLICIES = (KEEP_SURVIVOR, KEEP_DONOR)
 # in learning_loop._already_in_history.
 _SAME_MATCH_WINDOW = timedelta(hours=48)
 
-_REPAIR_TEAM_NAMES = {
-    "Real Racing Club de Santander",
-    "RC Deportivo La Coruña",
-    "Málaga CF",
-    "SV 07 Elversberg",
+# The only merges this tool may make: duplicate club name -> original club
+# name (production ids 647->406, 648->375, 649->437 on 2026-11-20). Anything
+# else is out of scope.
+_EXPECTED_MERGES = {
+    "Real Racing Club de Santander": "Racing Santander",
+    "RC Deportivo La Coruña": "Deportivo La Coruna",
+    "SV 07 Elversberg": "SV Elversberg",
 }
+
+# A legacy kickoff froze on 2026-08-18. Broadcaster slotting moves a fixture
+# within its weekend (<= 3 days) and European/cup congestion moves it within
+# a fortnight; a larger gap is a postponement or a wrong pair, which a human
+# must confirm with --acknowledge kickoff-gap:<survivor id>.
+_MAX_KICKOFF_GAP = timedelta(days=14)
+
+# Postgres only. Fail fast rather than queue behind (or hold up) live writers:
+# the API's writes take milliseconds, so 5s of waiting means real contention.
+# The largest statement is a 500-id delete or a bulk re-point; 60s is far
+# above that on Render's small instance while still bounding a stuck run.
+_LOCK_TIMEOUT = "5s"
+_STATEMENT_TIMEOUT = "60s"
+# lock_not_available, query_canceled, serialization_failure, deadlock.
+_RETRYABLE_PGCODES = {"55P03", "57014", "40001", "40P01"}
 
 # Rebuilt by every refresh from matches and history; the duplicate's copies
 # are dropped instead of merged.
@@ -190,6 +222,9 @@ class RepairReport:
     warnings: list[str]
     moved_counts: dict[str, int]
     dropped_counts: dict[str, int]
+    acknowledged: list[str]
+    finished_count_delta: int
+    summary: dict
     deleted_rows: dict[str, list[dict]]
     trial: str = "not run"
 
@@ -303,6 +338,27 @@ def parse_on_conflict(values: list[str] | None) -> dict[str, str]:
     return dict(sorted(policy.items()))
 
 
+
+
+ACK_KINDS = ("kickoff-gap", "score-mismatch", "unpaired")
+
+
+def parse_acknowledgements(values: list[str] | None) -> list[str]:
+    """``kickoff-gap:<survivor id>``, ``score-mismatch:<survivor id>`` or
+    ``unpaired:<match id>``; space or comma separated."""
+    acks: set[str] = set()
+    for raw in values or []:
+        for item in raw.replace(",", " ").split():
+            kind, sep, match_id = item.partition(":")
+            if not sep or kind not in ACK_KINDS or not match_id.isdigit():
+                raise DuplicateRepairError(
+                    f"unknown acknowledgement {item!r}; use <kind>:<match id> "
+                    f"with kind in {ACK_KINDS}"
+                )
+            acks.add(f"{kind}:{int(match_id)}")
+    return sorted(acks)
+
+
 # ------------------------------------------------------------- the plan
 
 
@@ -322,15 +378,20 @@ class _Plan:
     team_details: list[TeamMerge]
     pairs: list[_Pair]
     policy: dict[str, str]
+    acknowledged: list[str]
     conflicts: list[dict] = field(default_factory=list)
     # table -> row id -> {"reason": str, "row": dict}
     deletions: dict[str, dict[int, dict]] = field(default_factory=dict)
-    # "table.column" -> row ids re-pointed at the survivor
-    moves: dict[str, set[int]] = field(default_factory=dict)
+    # "table.column" -> row id -> content hash, for rows re-pointed at the survivor
+    moves: dict[str, dict[int, str]] = field(default_factory=dict)
     blocking: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     # survivor match id -> read paths that agreed with the kept grade before
     read_paths: dict[int, dict[str, int]] = field(default_factory=dict)
+    # survivor match id -> kept grades {"is_shadow", "home", "away", "outcome"}
+    kept_grades: dict[int, list[dict]] = field(default_factory=dict)
+    finished_count_delta: int = 0
+    facts: dict = field(default_factory=dict)
 
     def drop(self, table: str, row: dict, reason: str) -> None:
         self.deletions.setdefault(table, {}).setdefault(
@@ -340,23 +401,53 @@ class _Plan:
     def dropped(self, table: str, row_id: int) -> bool:
         return row_id in self.deletions.get(table, {})
 
+    def move(self, key: str, rows: list[dict]) -> None:
+        moved = self.moves.setdefault(key, {})
+        for row in rows:
+            moved[row["id"]] = _content_hash(row)
+
+    def acked(self, kind: str, match_id: int) -> bool:
+        return f"{kind}:{match_id}" in self.acknowledged
+
     def unresolved(self) -> list[dict]:
         return [c for c in self.conflicts if c["resolution"] is None]
 
 
-def _team_merges(db: Session) -> dict[int, int]:
+def _content_hash(row: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(_evidence(row), sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def _team_merges(db: Session) -> tuple[dict[int, int], list[str]]:
+    """Merges limited to _EXPECTED_MERGES by name, with the alias table
+    required to agree; anything else is a blocking problem."""
     teams = db.execute(select(_table("teams").c.id, _table("teams").c.name)
                        .order_by(_table("teams").c.id)).all()
-    by_name = {name: team_id for team_id, name in teams}
-    merges: dict[int, int] = {}
+    by_name: dict[str, list[int]] = {}
     for team_id, name in teams:
-        if name not in _REPAIR_TEAM_NAMES:
+        by_name.setdefault(name, []).append(team_id)
+    merges: dict[int, int] = {}
+    problems: list[str] = []
+    for donor_name, survivor_name in sorted(_EXPECTED_MERGES.items()):
+        donors = by_name.get(donor_name, [])
+        if not donors:
             continue
-        survivor_id = by_name.get(normalize_team_name(name))
-        if survivor_id is None or survivor_id == team_id:
+        survivors = by_name.get(survivor_name, [])
+        if len(donors) > 1 or len(survivors) != 1:
+            problems.append(
+                f"club {donor_name!r} {donors} -> {survivor_name!r} {survivors} "
+                "is not exactly one club to one club"
+            )
             continue
-        merges[team_id] = survivor_id
-    return merges
+        if normalize_team_name(donor_name) != survivor_name:
+            problems.append(
+                f"alias table maps {donor_name!r} to "
+                f"{normalize_team_name(donor_name)!r}, expected {survivor_name!r}"
+            )
+            continue
+        merges[donors[0]] = survivors[0]
+    return merges, problems
 
 
 def _describe(rows: list[dict]) -> str:
@@ -368,11 +459,12 @@ def _describe(rows: list[dict]) -> str:
     )
 
 
-def _pair_group(rows: list[dict]) -> list[tuple[dict, dict, str]]:
+def _pair_group(rows: list[dict]) -> tuple[list[tuple[dict, dict, str]], list[dict]]:
+    """Pairs and the legacy rows left without a football-data twin."""
     donors = [row for row in rows if row["fixture_provider"] == FOOTBALL_DATA]
     survivors = [row for row in rows if row["fixture_provider"] != FOOTBALL_DATA]
     if len(donors) == 1 and len(survivors) == 1:
-        return [(survivors[0], donors[0], "identity")]
+        return [(survivors[0], donors[0], "identity")], []
     by_week: dict[int, tuple[list, list]] = {}
     for row in rows:
         if row["matchweek"] is None:
@@ -382,17 +474,18 @@ def _pair_group(rows: list[dict]) -> list[tuple[dict, dict, str]]:
             )
         bucket = by_week.setdefault(row["matchweek"], ([], []))
         bucket[0 if row["fixture_provider"] != FOOTBALL_DATA else 1].append(row)
-    pairs = []
+    pairs, leftover = [], []
     for week, (week_survivors, week_donors) in sorted(by_week.items()):
         if not week_donors:
-            continue  # a legacy row with no football-data twin stays as it is
+            leftover.extend(week_survivors)
+            continue
         if len(week_survivors) != 1 or len(week_donors) != 1:
             raise DuplicateRepairError(
                 f"ambiguous fixture duplicate group (matchweek {week} does not "
                 f"pair one-to-one): {_describe(rows)}"
             )
         pairs.append((week_survivors[0], week_donors[0], "identity+matchweek"))
-    return pairs
+    return pairs, leftover
 
 
 def _merged_state(survivor: dict, donor: dict, team_map: dict[int, int]):
@@ -410,7 +503,11 @@ def _merged_state(survivor: dict, donor: dict, team_map: dict[int, int]):
     return state_source, merged
 
 
-def _match_pairs(db: Session, team_map: dict[int, int]) -> list[_Pair]:
+def _match_pairs(
+    db: Session, team_map: dict[int, int], warnings: list[str],
+) -> list[_Pair]:
+    """Pair every football-data/legacy fixture of an affected club. Rows of
+    an affected club pairing that end up without a twin are warned about."""
     if not team_map:
         return []
     involved = set(team_map) | set(team_map.values())
@@ -442,11 +539,92 @@ def _match_pairs(db: Session, team_map: dict[int, int]) -> list[_Pair]:
         has_donor = any(r["fixture_provider"] == FOOTBALL_DATA for r in group)
         has_legacy = any(r["fixture_provider"] != FOOTBALL_DATA for r in group)
         if not (has_donor and has_legacy):
+            kind = "football-data" if has_donor else "legacy"
+            warnings.append(
+                f"{kind} fixture(s) with no twin for tournament {key[0]} "
+                f"clubs {key[1]} v {key[2]}: {_describe(group)}"
+            )
             continue
-        for survivor, donor, paired_by in _pair_group(group):
+        found, leftover = _pair_group(group)
+        if leftover:
+            warnings.append(
+                f"legacy fixture(s) with no football-data twin for tournament "
+                f"{key[0]} clubs {key[1]} v {key[2]}: {_describe(leftover)}"
+            )
+        for survivor, donor, paired_by in found:
             state_source, merged = _merged_state(survivor, donor, team_map)
             pairs.append(_Pair(survivor, donor, paired_by, state_source, merged))
     return pairs
+
+
+def _pair_checks(plan: _Plan, db: Session, pair: _Pair) -> None:
+    """Things identity pairing alone cannot prove (review H2/H3)."""
+    survivor, donor = pair.survivor, pair.donor
+    ref = f"pair {survivor['id']}<-{donor['id']}"
+    if (
+        survivor["matchweek"] is not None
+        and donor["matchweek"] is not None
+        and survivor["matchweek"] != donor["matchweek"]
+    ):
+        plan.blocking.append(
+            f"{ref}: matchweek {survivor['matchweek']} vs {donor['matchweek']}; "
+            "not the same fixture"
+        )
+    if survivor["kickoff_utc"] is not None and donor["kickoff_utc"] is not None:
+        gap = abs(_utc(donor["kickoff_utc"]) - _utc(survivor["kickoff_utc"]))
+        if gap > _MAX_KICKOFF_GAP and not plan.acked("kickoff-gap", survivor["id"]):
+            plan.blocking.append(
+                f"{ref}: kickoffs {gap.days} days apart (limit "
+                f"{_MAX_KICKOFF_GAP.days}); confirm with --acknowledge "
+                f"kickoff-gap:{survivor['id']}"
+            )
+    both_finished = survivor["status"] == FINISHED and donor["status"] == FINISHED
+    if both_finished and _score_90(survivor) != _score_90(donor):
+        results = _table("prediction_results")
+        graded = db.execute(select(results.c.id).where(
+            results.c.match_id.in_([survivor["id"], donor["id"]])
+        ).limit(1)).first()
+        if graded is not None and not plan.acked("score-mismatch", survivor["id"]):
+            plan.blocking.append(
+                f"{ref}: both copies finished with different scores "
+                f"{_score(survivor)} vs {_score(donor)} and one is graded; "
+                f"confirm with --acknowledge score-mismatch:{survivor['id']}"
+            )
+
+
+def _outcome(home, away) -> str | None:
+    if home is None or away is None:
+        return None
+    return "home" if home > away else "away" if away > home else "draw"
+
+
+def _grade_checks(plan: _Plan, db: Session, pair: _Pair) -> None:
+    """Every grade that survives must describe the merged match's result."""
+    results = _table("prediction_results")
+    kept = [
+        row
+        for match_id in (pair.survivor["id"], pair.donor["id"])
+        for row in _rows(db, results, results.c.match_id, match_id)
+        if not plan.dropped("prediction_results", row["id"])
+    ]
+    merged = pair.merged
+    expected = (merged["score_home"], merged["score_away"])
+    grades = []
+    for row in kept:
+        actual = (row["actual_score_home"], row["actual_score_away"])
+        grades.append({"id": row["id"], "is_shadow": bool(row["is_shadow"]),
+                       "home": actual[0], "away": actual[1], "outcome": row["outcome"]})
+        if merged["status"] != FINISHED or actual != expected or (
+            row["outcome"] != _outcome(*expected)
+        ):
+            plan.blocking.append(
+                f"pair {pair.survivor['id']}<-{pair.donor['id']}: kept grade "
+                f"{row['id']} records {actual[0]}-{actual[1]} ({row['outcome']}) "
+                f"but the merged match is {merged['status']} "
+                f"{expected[0]}-{expected[1]}; keep the grade on the copy whose "
+                "match state is kept"
+            )
+    plan.kept_grades[pair.survivor["id"]] = grades
 
 
 def _rows(db: Session, table: Table, column, value, *, soft: bool = False) -> list[dict]:
@@ -516,15 +694,13 @@ def _plan_reference_moves(
                 }
                 plan.conflicts.append(conflict)
                 _resolve(plan, conflict)
-        moved = plan.moves.setdefault(f"{table.name}.{column.name}", set())
-        moved.update(row["id"] for row in donor_rows)
+        plan.move(f"{table.name}.{column.name}", donor_rows)
     for table, column in _soft_columns(target):
         if table.name in skip_tables:
             continue
         rows = _rows(db, table, column, donor_id, soft=True)
         if rows:
-            moved = plan.moves.setdefault(f"{table.name}.{column.name}", set())
-            moved.update(row["id"] for row in rows)
+            plan.move(f"{table.name}.{column.name}", rows)
 
 
 def _odds_drops(plan: _Plan, db: Session, pair: _Pair) -> None:
@@ -543,9 +719,17 @@ def _odds_drops(plan: _Plan, db: Session, pair: _Pair) -> None:
             plan.drop("odds", row, "odds_phase_duplicate")
 
 
-def _graded_prediction_ids(db: Session) -> set[int]:
+def _graded_prediction_ids(plan: _Plan, db: Session) -> set[int]:
+    """Predictions a surviving grade points at. A grade deleted as a conflict
+    loser no longer protects its prediction (review L1)."""
     results = _table("prediction_results")
-    return set(db.execute(select(results.c.prediction_id)).scalars())
+    return {
+        prediction_id
+        for result_id, prediction_id in db.execute(
+            select(results.c.id, results.c.prediction_id)
+        )
+        if not plan.dropped("prediction_results", result_id)
+    }
 
 
 def _prediction_drops(
@@ -566,8 +750,8 @@ def _prediction_drops(
        in the frozen order (created_at desc, id desc) is dropped, so
        _frozen_prediction resolves to G's prediction.
 
-    Graded predictions are never dropped or edited; if one would have to be,
-    the pair is blocking. No prediction is ever created.
+    A prediction a surviving grade points at is never dropped or edited; if
+    one would have to be, the pair is blocking. No prediction is created.
     """
     predictions = _table("predictions")
     results = _table("prediction_results")
@@ -708,8 +892,8 @@ def _history_drops(plan: _Plan, db: Session) -> None:
     A cluster with a row on a duplicate club is one real match recorded more
     than once (both copies finished, or an alias-aware refresh re-synced the
     football-data row under the original club). Keep the row whose score
-    matches the merged fixture, else the one already on the original club,
-    else the oldest; drop the rest.
+    matches the merged fixture played at that date, else the one already on
+    the original club, else the oldest; drop the rest.
     """
     if not plan.team_map:
         return
@@ -730,10 +914,10 @@ def _history_drops(plan: _Plan, db: Session) -> None:
             plan.team_map.get(row["team_b_id"], row["team_b_id"]),
         )
         groups.setdefault(key, []).append(row)
-    finals = {
-        (pair.merged["team_home_id"], pair.merged["team_away_id"]): pair
-        for pair in plan.pairs
-    }
+    finals: dict[tuple, list[_Pair]] = {}
+    for pair in plan.pairs:
+        key = (pair.merged["team_home_id"], pair.merged["team_away_id"])
+        finals.setdefault(key, []).append(pair)
     for key, group in sorted(groups.items()):
         group.sort(key=lambda row: (_utc(row["date"]), row["id"]))
         clusters: list[list[dict]] = []
@@ -742,7 +926,6 @@ def _history_drops(plan: _Plan, db: Session) -> None:
                 clusters[-1].append(row)
             else:
                 clusters.append([row])
-        pair = finals.get(key)
         for cluster in clusters:
             on_donor = {
                 row["id"] for row in cluster
@@ -750,9 +933,18 @@ def _history_drops(plan: _Plan, db: Session) -> None:
             }
             if len(cluster) < 2 or not on_donor:
                 continue
+            # Only the merged fixture played at THIS cluster's date says which
+            # score is right; an earlier season's meeting says nothing (L2).
             final_score = None
-            if pair is not None and pair.merged["status"] == FINISHED:
-                final_score = _score_90(pair.merged)
+            for pair in finals.get(key, []):
+                kickoff = pair.merged["kickoff_utc"]
+                if (
+                    pair.merged["status"] == FINISHED
+                    and kickoff is not None
+                    and any(abs(_utc(row["date"]) - _utc(kickoff)) < _SAME_MATCH_WINDOW
+                            for row in cluster)
+                ):
+                    final_score = _score_90(pair.merged)
 
             def preference(row: dict) -> tuple:
                 return (
@@ -803,8 +995,106 @@ def _team_drops(plan: _Plan, db: Session, donor_id: int, survivor_id: int) -> No
             plan.drop("probability_snapshots", row, "probability_snapshot_duplicate")
 
 
-def _build_plan(db: Session, policy: dict[str, str]) -> _Plan:
-    team_map = _team_merges(db)
+def _unpaired_club_fixtures(plan: _Plan, db: Session) -> None:
+    """Every fixture still on a duplicate club must be in a pair (review H1).
+    One that is not would silently move to the original club and leave its
+    twin (if any) as a second row; block unless a human acknowledges it."""
+    if not plan.team_map:
+        return
+    matches = _table("matches")
+    paired = {pair.donor["id"] for pair in plan.pairs}
+    donors = list(plan.team_map)
+    rows = [
+        dict(row._mapping)
+        for row in db.execute(select(matches).where(
+            matches.c.team_home_id.in_(donors) | matches.c.team_away_id.in_(donors)
+        ).order_by(matches.c.id))
+    ]
+    for row in rows:
+        if row["id"] in paired or plan.acked("unpaired", row["id"]):
+            continue
+        plan.blocking.append(
+            f"fixture {row['id']} (tournament {row['tournament_id']}) references "
+            f"a duplicate club but has no twin to merge into: {_describe([row])}; "
+            f"investigate, or confirm moving it with --acknowledge unpaired:{row['id']}"
+        )
+
+
+def _finished_eligible(row: dict) -> bool:
+    """Mirrors app.chain_status.finished_matches_query."""
+    return (
+        row["status"] == FINISHED
+        and row["score_home"] is not None
+        and row["score_away"] is not None
+        and row["team_home_id"] is not None
+        and row["team_away_id"] is not None
+    )
+
+
+def _facts(plan: _Plan, db: Session) -> None:
+    """User-visible consequences, for the summary (review M3)."""
+    results = _table("prediction_results")
+    picks = _table("match_picks")
+    scored = _table("league_score_predictions")
+    deleted_grades = [
+        entry["row"] for entry in plan.deletions.get("prediction_results", {}).values()
+    ]
+    public_deleted = [g for g in deleted_grades if not g["is_shadow"]]
+    public_rows = db.execute(
+        select(results.c.winner_correct, results.c.exact_score_correct)
+        .where(results.c.is_shadow.is_(False))
+    ).all()
+    gradeable, scoreable = [], {"match_picks": 0, "league_score_predictions": 0}
+    for pair in plan.pairs:
+        merged = pair.merged
+        if merged["status"] != FINISHED:
+            continue
+        if not any(not g["is_shadow"] for g in plan.kept_grades.get(pair.survivor["id"], [])):
+            predictions = _table("predictions")
+            kickoff = merged["kickoff_utc"]
+            candidates = [
+                row
+                for match_id in (pair.survivor["id"], pair.donor["id"])
+                for row in _rows(db, predictions, predictions.c.match_id, match_id)
+                if not row["is_shadow"]
+                and not plan.dropped("predictions", row["id"])
+                and (kickoff is None or _utc(row["created_at"]) <= _utc(kickoff))
+            ]
+            if candidates:
+                gradeable.append(pair.survivor["id"])
+        for copy in (pair.survivor, pair.donor):
+            if copy["status"] == FINISHED:
+                continue
+            for name, table in (("match_picks", picks), ("league_score_predictions", scored)):
+                scoreable[name] += sum(
+                    1 for row in _rows(db, table, table.c.match_id, copy["id"])
+                    if not plan.dropped(name, row["id"])
+                )
+    deleted_lsp = [e["row"] for e in plan.deletions.get("league_score_predictions", {}).values()]
+    plan.facts = {
+        "public_grades_before": len(public_rows),
+        "public_grades_after": len(public_rows) - len(public_deleted),
+        "public_winner_correct_before": sum(1 for w, _ in public_rows if w),
+        "public_winner_correct_after": sum(1 for w, _ in public_rows if w)
+        - sum(1 for g in public_deleted if g["winner_correct"]),
+        "public_exact_correct_before": sum(1 for _, e in public_rows if e),
+        "public_exact_correct_after": sum(1 for _, e in public_rows if e)
+        - sum(1 for g in public_deleted if g["exact_score_correct"]),
+        "public_grades_removed": len(public_deleted),
+        "shadow_grades_removed": len(deleted_grades) - len(public_deleted),
+        "become_gradeable_next_refresh": sorted(gradeable),
+        "picks_deleted": len(plan.deletions.get("match_picks", {})),
+        "league_score_predictions_deleted": len(deleted_lsp),
+        "league_score_predictions_deleted_already_scored": sum(
+            1 for row in deleted_lsp if row["points"] is not None
+        ),
+        "picks_become_scoreable": scoreable["match_picks"],
+        "league_score_predictions_become_scoreable": scoreable["league_score_predictions"],
+    }
+
+
+def _build_plan(db: Session, policy: dict[str, str], acknowledged: list[str]) -> _Plan:
+    team_map, problems = _team_merges(db)
     teams = _table("teams")
     details = []
     for donor_id, survivor_id in sorted(team_map.items()):
@@ -812,18 +1102,27 @@ def _build_plan(db: Session, policy: dict[str, str]) -> _Plan:
             select(teams.c.id, teams.c.name).where(teams.c.id.in_([donor_id, survivor_id]))
         ).all())
         details.append(TeamMerge(donor_id, names[donor_id], survivor_id, names[survivor_id]))
-    plan = _Plan(db, team_map, details, _match_pairs(db, team_map), policy)
-    graded = _graded_prediction_ids(db)
+    warnings: list[str] = []
+    plan = _Plan(db, team_map, details, _match_pairs(db, team_map, warnings), policy,
+                 acknowledged, warnings=warnings, blocking=list(problems))
+    _unpaired_club_fixtures(plan, db)
     for pair in plan.pairs:
+        _pair_checks(plan, db, pair)
         _plan_reference_moves(
             plan, db, "matches.id", pair.donor["id"], pair.survivor["id"],
             scope="match", skip_tables=set(),
         )
         _odds_drops(plan, db, pair)
-        _prediction_drops(plan, db, pair, graded)
+        _prediction_drops(plan, db, pair, _graded_prediction_ids(plan, db))
+        _grade_checks(plan, db, pair)
         matches = _table("matches")
         plan.drop("matches", _rows(db, matches, matches.c.id, pair.donor["id"])[0],
                   f"merged_into:{pair.survivor['id']}")
+        plan.finished_count_delta += (
+            _finished_eligible(pair.merged)
+            - _finished_eligible(pair.survivor)
+            - _finished_eligible(pair.donor)
+        )
     _history_drops(plan, db)
     for donor_id, survivor_id in sorted(team_map.items()):
         _team_drops(plan, db, donor_id, survivor_id)
@@ -833,16 +1132,18 @@ def _build_plan(db: Session, policy: dict[str, str]) -> _Plan:
         )
         history = _table("historical_matches")
         for column in (history.c.team_a_id, history.c.team_b_id):
-            moved = plan.moves.setdefault(f"historical_matches.{column.name}", set())
-            moved.update(row["id"] for row in _rows(db, history, column, donor_id))
+            plan.move(f"historical_matches.{column.name}",
+                      _rows(db, history, column, donor_id))
         plan.drop("teams", _rows(db, teams, teams.c.id, donor_id)[0],
                   f"merged_into:{survivor_id}")
     for pair in plan.pairs:
         plan.read_paths[pair.survivor["id"]] = _expected_read_paths(db, pair, plan)
     # Rows deleted outright are not also "moved".
-    for key, ids in plan.moves.items():
-        ids.difference_update(plan.deletions.get(key.split(".")[0], {}))
-    plan.moves = {key: ids for key, ids in plan.moves.items() if ids}
+    for key, moved in plan.moves.items():
+        for row_id in plan.deletions.get(key.split(".")[0], {}):
+            moved.pop(row_id, None)
+    plan.moves = {key: moved for key, moved in plan.moves.items() if moved}
+    _facts(plan, db)
     return plan
 
 
@@ -855,6 +1156,9 @@ def _delete_ids(db: Session, table: Table, ids: list[int]) -> None:
 
 
 def _execute(db: Session, plan: _Plan) -> None:
+    from app.chain_status import finished_match_count
+
+    finished_before = finished_match_count(db)
     # 1. Losers and derived duplicates, dependents before their parents.
     for table in reversed(Base.metadata.sorted_tables):
         if table.name in {"matches", "teams"}:
@@ -886,13 +1190,26 @@ def _execute(db: Session, plan: _Plan) -> None:
                        .values({column.name: survivor_id}))
         teams = _table("teams")
         db.execute(delete(teams).where(teams.c.id == donor_id))
+
+    # 4. The chain watermark counts finished matches; merging two finished
+    # copies into one lowers that count, which would otherwise hide owed work
+    # behind a stale high watermark (review M2). Keep the pending gap as is.
+    if plan.finished_count_delta:
+        status = _table("learning_chain_status")
+        covered = db.execute(select(status.c.covered_finished)
+                             .where(status.c.id == 1)).scalar_one_or_none()
+        if covered is not None:
+            db.execute(update(status).where(status.c.id == 1).values(
+                covered_finished=max(0, covered + plan.finished_count_delta)))
     db.flush()
     db.expire_all()
-    _verify(db, plan)
+    _verify(db, plan, finished_before)
 
 
-def _verify(db: Session, plan: _Plan) -> None:
+def _verify(db: Session, plan: _Plan, finished_before: int) -> None:
     """Postconditions; any failure rolls the whole repair back."""
+    from app.chain_status import finished_match_count
+
     donor_matches = [pair.donor["id"] for pair in plan.pairs]
     donor_teams = list(plan.team_map)
     for target, ids in (("matches.id", donor_matches), ("teams.id", donor_teams)):
@@ -908,8 +1225,16 @@ def _verify(db: Session, plan: _Plan) -> None:
             if left is not None:
                 raise DuplicateRepairError(f"{table.name}.{column.name} still references {ids}")
 
+    finished_after = finished_match_count(db)
+    if finished_after - finished_before != plan.finished_count_delta:
+        raise DuplicateRepairError(
+            f"finished match count moved {finished_after - finished_before}, "
+            f"planned {plan.finished_count_delta}"
+        )
+
     matches = _table("matches")
     history = _table("historical_matches")
+    results = _table("prediction_results")
     for pair in plan.pairs:
         same_fixture = db.execute(select(matches.c.id).where(
             matches.c.tournament_id == pair.survivor["tournament_id"],
@@ -921,6 +1246,20 @@ def _verify(db: Session, plan: _Plan) -> None:
             raise DuplicateRepairError(
                 f"fixture {pair.survivor['id']} still has duplicates: {same_fixture}"
             )
+        merged = db.execute(select(matches).where(
+            matches.c.id == pair.survivor["id"])).one()._mapping
+        for grade in db.execute(select(results).where(
+                results.c.match_id == pair.survivor["id"])).all():
+            grade = grade._mapping
+            actual = (grade["actual_score_home"], grade["actual_score_away"])
+            expected = (merged["score_home"], merged["score_away"])
+            if merged["status"] != FINISHED or actual != expected or (
+                grade["outcome"] != _outcome(*expected)
+            ):
+                raise DuplicateRepairError(
+                    f"fixture {pair.survivor['id']}: grade {grade['id']} records "
+                    f"{actual} {grade['outcome']}, match is {merged['status']} {expected}"
+                )
         kickoff = pair.merged["kickoff_utc"]
         if pair.merged["status"] == FINISHED and kickoff is not None:
             kickoff = _utc(kickoff)
@@ -990,6 +1329,52 @@ def _match_details(db: Session, plan: _Plan) -> list[MatchMerge]:
     return details
 
 
+def _summary(plan: _Plan, matches: list[MatchMerge], tournament_counts: dict,
+             unresolved: int) -> dict:
+    facts = plan.facts
+    return {
+        "ready_to_apply": not plan.blocking and not unresolved,
+        "blocking_issues": len(plan.blocking),
+        "warnings": len(plan.warnings),
+        "conflicts_needing_a_decision": unresolved,
+        "clubs_merged": [
+            f"{t.donor_name} (id {t.donor_team_id}) into {t.survivor_name} "
+            f"(id {t.survivor_team_id})"
+            for t in plan.team_details
+        ],
+        "fixtures_merged": dict(tournament_counts),
+        "fixtures_with_different_final_scores": [
+            m.survivor_match_id for m in matches if m.score_mismatch
+        ],
+        "public_record": {
+            "grades_removed": facts["public_grades_removed"],
+            "graded_matches": f"{facts['public_grades_before']} -> {facts['public_grades_after']}",
+            "correct_winner_calls": (
+                f"{facts['public_winner_correct_before']} -> "
+                f"{facts['public_winner_correct_after']}"
+            ),
+            "exact_scores": (
+                f"{facts['public_exact_correct_before']} -> "
+                f"{facts['public_exact_correct_after']}"
+            ),
+            "shadow_grades_removed": facts["shadow_grades_removed"],
+        },
+        "matches_gradeable_at_next_refresh": facts["become_gradeable_next_refresh"],
+        "user_picks_deleted": facts["picks_deleted"],
+        "league_score_predictions_deleted": facts["league_score_predictions_deleted"],
+        "league_score_predictions_deleted_already_scored": (
+            facts["league_score_predictions_deleted_already_scored"]
+        ),
+        "user_picks_becoming_scoreable": facts["picks_become_scoreable"],
+        "league_score_predictions_becoming_scoreable": (
+            facts["league_score_predictions_become_scoreable"]
+        ),
+        "history_rows_dropped": len(plan.deletions.get("historical_matches", {})),
+        "predictions_dropped": len(plan.deletions.get("predictions", {})),
+        "finished_match_count_change": plan.finished_count_delta,
+    }
+
+
 def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
     matches = _match_details(db, plan)
     tournament_counts: dict[str, int] = {}
@@ -1009,6 +1394,7 @@ def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
     material = {
         "code_revision": code_revision(),
         "on_conflict": plan.policy,
+        "acknowledged": plan.acknowledged,
         "team_mappings": [asdict(team) for team in plan.team_details],
         "match_mappings": [asdict(match) for match in matches],
         "merged_state": [
@@ -1017,9 +1403,12 @@ def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
         ],
         "conflicts": conflicts,
         "blocking": sorted(plan.blocking),
-        "moves": {key: sorted(ids) for key, ids in sorted(plan.moves.items())},
+        "moves": {
+            key: sorted(moved.items()) for key, moved in sorted(plan.moves.items())
+        },
         "deleted_rows": deleted_rows,
         "read_paths": {str(k): v for k, v in sorted(plan.read_paths.items())},
+        "finished_count_delta": plan.finished_count_delta,
     }
     digest = hashlib.sha256(
         json.dumps(material, sort_keys=True, default=str).encode()
@@ -1042,13 +1431,39 @@ def _report(db: Session, plan: _Plan, *, dry_run: bool) -> RepairReport:
         unresolved_conflicts=unresolved,
         blocking=sorted(plan.blocking),
         warnings=sorted(plan.warnings),
-        moved_counts={key: len(ids) for key, ids in sorted(plan.moves.items())},
+        moved_counts={key: len(moved) for key, moved in sorted(plan.moves.items())},
         dropped_counts={table: len(rows) for table, rows in sorted(plan.deletions.items())},
+        acknowledged=plan.acknowledged,
+        finished_count_delta=plan.finished_count_delta,
+        summary=_summary(plan, matches, tournament_counts, unresolved),
         deleted_rows=deleted_rows,
     )
 
 
 # ------------------------------------------------------------ entrypoint
+
+
+def _begin(db: Session) -> None:
+    """On Postgres: one REPEATABLE READ snapshot for plan + execution, so the
+    plan and the writes see the same data (review L3), with short lock and
+    statement timeouts so the run fails fast instead of queueing behind or
+    blocking live traffic (review H4). No-op elsewhere (tests use SQLite)."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.rollback()
+    db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+    db.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
+    db.execute(text(f"SET LOCAL statement_timeout = '{_STATEMENT_TIMEOUT}'"))
+
+
+def _retryable(exc: BaseException) -> bool:
+    while exc is not None:
+        if isinstance(exc, DBAPIError):
+            code = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
+            if code in _RETRYABLE_PGCODES:
+                return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def repair_fixture_duplicates(
@@ -1057,66 +1472,89 @@ def repair_fixture_duplicates(
     apply: bool = False,
     expected_digest: str | None = None,
     on_conflict: dict[str, str] | None = None,
+    acknowledge: list[str] | None = None,
+    trial: bool = True,
+    require_schema_head: bool = False,
 ) -> RepairReport:
     """Plan the repair; apply it only with a matching dry-run digest.
 
-    The dry run reads only. When the plan is cleared to run it also executes
-    once inside a savepoint (postconditions included) and rolls back, so a
-    constraint the plan did not foresee shows up before apply.
+    The dry run never commits. When the plan is cleared to run and ``trial``
+    is on, it executes once inside a savepoint (postconditions included) and
+    rolls back, so a constraint the plan did not foresee shows up before
+    apply. A lock or statement timeout, or a serialization failure, refuses
+    cleanly: nothing is written and the run can simply be repeated.
     """
     policy = dict(sorted((on_conflict or {}).items()))
-    plan = _build_plan(db, policy)
-    report = _report(db, plan, dry_run=not apply)
-    if not apply:
-        if not report.ready_to_apply:
-            report.trial = "skipped: plan is blocked or has unresolved conflicts"
-        elif not plan.pairs and not plan.team_map:
-            report.trial = "skipped: nothing to repair"
-        else:
-            nested = db.begin_nested()
-            try:
-                _execute(db, plan)
-                report.trial = "ok"
-            except Exception as exc:  # noqa: BLE001 - reported, then rolled back
-                report.trial = f"failed: {exc}"
-                report.ready_to_apply = False
-            finally:
-                nested.rollback()
-                db.expire_all()
-        db.rollback()
-        return report
-
-    if not expected_digest:
-        raise RepairRefused("apply requires --expected-digest from a dry run")
-    if expected_digest != report.digest:
-        raise RepairRefused(
-            f"digest mismatch: dry run {expected_digest}, now {report.digest}; "
-            "the data or code changed since the dry run, run it again"
-        )
-    if report.blocking:
-        raise RepairRefused(f"plan is blocked: {report.blocking}")
-    if report.unresolved_conflicts:
-        raise RepairRefused(
-            f"{report.unresolved_conflicts} unresolved dependent-row conflicts; "
-            "pass an explicit --on-conflict policy"
-        )
+    acknowledged = sorted(set(acknowledge or []))
     try:
+        _begin(db)
+        if require_schema_head:
+            assert_schema_at_head(db)
+        plan = _build_plan(db, policy, acknowledged)
+        report = _report(db, plan, dry_run=not apply)
+        if not apply:
+            if not report.ready_to_apply:
+                report.trial = "skipped: plan is blocked or has unresolved conflicts"
+            elif not plan.pairs and not plan.team_map:
+                report.trial = "skipped: nothing to repair"
+            elif not trial:
+                report.trial = "skipped: --no-trial"
+            else:
+                nested = db.begin_nested()
+                try:
+                    _execute(db, plan)
+                    report.trial = "ok"
+                except Exception as exc:  # noqa: BLE001 - reported, then rolled back
+                    report.trial = f"failed: {exc}"
+                    report.ready_to_apply = False
+                finally:
+                    nested.rollback()
+                    db.expire_all()
+            db.rollback()
+            return report
+
+        if not expected_digest:
+            raise RepairRefused("apply requires --expected-digest from a dry run")
+        if expected_digest != report.digest:
+            raise RepairRefused(
+                f"digest mismatch: dry run {expected_digest}, now {report.digest}; "
+                "the data or code changed since the dry run, run it again"
+            )
+        if report.blocking:
+            raise RepairRefused(f"plan is blocked: {report.blocking}")
+        if report.unresolved_conflicts:
+            raise RepairRefused(
+                f"{report.unresolved_conflicts} unresolved dependent-row conflicts; "
+                "pass an explicit --on-conflict policy"
+            )
         _execute(db, plan)
         db.commit()
-    except Exception:
+    except RepairRefused:
+        db.rollback()
+        raise
+    except Exception as exc:
         db.rollback()
         db.expire_all()
+        if _retryable(exc):
+            raise RepairRefused(
+                f"database busy or changed concurrently ({type(exc).__name__}); "
+                "nothing was written, run the dry run again"
+            ) from exc
         raise
     report.trial = "applied"
     return report
 
 
 def report_json(report: RepairReport, *, include_rows: bool = True) -> str:
-    """Stable machine-readable evidence emitted by dry-run and apply."""
+    """Evidence: the plain-language summary first, then the full report."""
     payload = asdict(report)
+    summary = payload.pop("summary")
     if not include_rows:
         payload.pop("deleted_rows")
-    return json.dumps(payload, sort_keys=True, default=str)
+    return (
+        '{"summary": ' + json.dumps(summary, sort_keys=True, default=str)
+        + ', "report": ' + json.dumps(payload, sort_keys=True, default=str) + "}"
+    )
 
 
 ROOT_ALEMBIC = Path(__file__).resolve().parents[1] / "backend" / "alembic"
@@ -1132,7 +1570,7 @@ def assert_schema_at_head(db: Session) -> None:
     if current != heads:
         raise DuplicateRepairError(
             f"database schema is at {sorted(current)}, code expects {sorted(heads)}; "
-            "run alembic upgrade head first"
+            "apply migrations through refresh.yml first"
         )
 
 
@@ -1144,27 +1582,34 @@ def main(argv: list[str] | None = None) -> int:
         "--on-conflict", action="append", default=[],
         help="keep-survivor | keep-donor | <table>=keep-survivor|keep-donor",
     )
+    parser.add_argument(
+        "--acknowledge", action="append", default=[],
+        help="kickoff-gap:<id> | score-mismatch:<id> | unpaired:<id>",
+    )
+    parser.add_argument("--no-trial", action="store_true")
     parser.add_argument("--evidence-file", default=None)
     parser.add_argument("--require-schema-head", action="store_true")
     args = parser.parse_args(argv)
     policy = parse_on_conflict(args.on_conflict)
+    acknowledged = parse_acknowledgements(args.acknowledge)
     with SessionLocal() as db:
-        if args.require_schema_head:
-            assert_schema_at_head(db)
         try:
             report = repair_fixture_duplicates(
                 db,
                 apply=args.apply,
                 expected_digest=args.expected_digest,
                 on_conflict=policy,
+                acknowledge=acknowledged,
+                trial=not args.no_trial,
+                require_schema_head=args.require_schema_head,
             )
         except RepairRefused as exc:
             print(f"REFUSED: {exc}", file=sys.stderr)
             return 2
     if args.evidence_file:
         Path(args.evidence_file).write_text(report_json(report))
-        print(report_json(report, include_rows=False))
-    else:
+    print(json.dumps(report.summary, indent=2, sort_keys=True))
+    if not args.evidence_file:
         print(report_json(report))
     print(f"digest: {report.digest}")
     print(f"ready_to_apply: {str(report.ready_to_apply).lower()}")

@@ -4,128 +4,168 @@
 **Workflow:** `.github/workflows/repair-fixture-duplicates.yml` (manual dispatch only)
 **Tests:** `pipeline/repair_fixture_duplicates_test.py`, `pipeline/repair_fixture_duplicates_workflow_test.py`
 
+Written for the owner. Every step that touches production is stop-gated
+(`CLAUDE.md`): it happens only after an explicit "go".
+
 ## What went wrong
 
 API-Football lapsed on 2026-08-18 and football-data.org took over league fixtures on
-2026-09-02. Promoted clubs with no alias (Real Racing Club de Santander, RC Deportivo
-La Coruña, SV 07 Elversberg, plus Málaga CF) were created as new clubs, and each of
-their fixtures got a second Match row: 74 in La Liga and 34 in the Bundesliga. Since
-then:
+2026-09-02. Three promoted clubs had no name alias, so they were created a second
+time: Real Racing Club de Santander (id 647, original Racing Santander 406),
+RC Deportivo La Coruña (648, original Deportivo La Coruna 375) and SV 07 Elversberg
+(649, original SV Elversberg 437). Every one of their fixtures got a second row:
+about 74 in La Liga and 34 in the Bundesliga. Since then:
 
-- the legacy (API-Football) rows are frozen at their 18 Aug state; some still read
-  `scheduled` and keep receiving a new prediction every day, long after kickoff;
-- the football-data rows carry the real kickoffs, results, predictions and grades,
-  and may have user picks;
-- matches that finished on both copies (16–17 Aug) are in `historical_matches`
-  twice, so club Elo counts them twice.
+- the old (API-Football) rows are frozen at their 18 Aug state; some still read
+  "scheduled" and get a new prediction every day, long after the match was played;
+- the new (football-data) rows have the real kickoffs, results, predictions and
+  grades, and may have user picks;
+- matches that finished on both copies (16–17 Aug) are in the results history twice,
+  so club ratings count them twice.
 
-## What the repair does
+## What the repair does, in short
 
-For every duplicate club it merges the football-data copy of each fixture (the
-**donor**) into the legacy copy (the **survivor**, whose id is kept so links and
-picks keep working), then merges the duplicate club into the original club.
+For each fixture it merges the new copy into the old one (the old match id is kept, so
+links keep working), then merges each duplicate club into the original club. It refuses
+to run whenever it cannot prove a merge is right, and it never deletes a user's pick
+or a grade unless you tell it which copy to keep. Every row it deletes is written to
+the evidence file in full.
 
-- **Pairing** is by identity: same tournament, same oriented (home, away) canonical
-  club pair, one football-data row and one legacy row. Current team ids and kickoff
-  are not used, so a moved kickoff still pairs and the plan is the same before and
-  after an alias-aware refresh. Matchweek breaks a tie. Anything still ambiguous
-  stops the tool with the row ids; nothing is written.
-- **Fixture state** comes from the donor, except that a finished survivor is never
-  un-finished by an unfinished donor (the ingest rule). Provider identity always
-  moves to the survivor so the next refresh reconciles it by fixture id.
-- **Dependent rows** (predictions, grades, picks, score predictions, lineups, odds,
-  validation rows, market snapshots, venue markets) move to the survivor. Rows that
-  would break a unique constraint are **conflicts** (see below).
-- **Derived duplicates are dropped automatically and listed in full** in the
-  evidence: a second `historical_matches` row for the same real match; a second
-  `odds` row for the same phase (the stale copy's is dropped); a second
-  `probability_snapshots` row for the same day; the duplicate club's regenerable
-  rows (`group_teams`, `standings`, `team_stats`, `team_tournament_state`,
-  `tournament_odds`); and predictions that would change which prediction reads as
-  frozen.
-- **Frozen = graded.** On the merged row (kickoff K): predictions from the stale copy
-  created after K are dropped; for each kept grade, predictions from the other copy
-  in the same basis created at or before K that sort after the graded prediction are
-  dropped. A graded prediction is never dropped or edited, and no prediction is
-  created; if one would have to go, the plan is **blocked**. After the merge the tool
-  checks `_frozen_prediction`, `latest_prediction` and the shadow frozen selection
-  against every kept grade and rolls back if any disagree.
-- **The duplicate club is deleted last**, after a check that nothing references it or
-  the donor matches any more. Every check failure rolls the whole transaction back.
+It stops (lists the problem under `blocking`) when:
 
-## Conflicts and choosing a policy
+- a fixture of a duplicate club has no twin to merge into;
+- the two copies have different matchweeks;
+- the two kickoffs are more than 14 days apart (normal reschedules move a match
+  within its weekend or, for cup and European congestion, within two weeks; anything
+  bigger is a postponement or a wrong pair, so a person must confirm it);
+- both copies finished with different scores and one of them is graded;
+- a grade it would keep does not match the result the merged match shows;
+- a graded prediction would have to be deleted.
 
-A conflict is a pair of rows, one on each copy, that cannot both live on the merged
-match: `match_picks (user_id, match_id)`, `league_score_predictions (match_id,
-player_id)`, `prediction_results (match_id, is_shadow)`, `match_lineups (match_id,
-side)`, `bracket_group_picks (bracket_id, match_id)`. Each is listed with the table,
-the key, and both rows in full (for picks: both picks and their `updated_at`).
+The last two cannot be overridden. The first three and the score mismatch can be
+confirmed per match with an acknowledgement (below), after you have checked it.
 
-Apply refuses while any conflict is unresolved. Resolving one deletes a user's data,
-so it is the owner's decision; the tool only makes it explicit:
+## Before you start
 
-| Policy | Keeps | Typical reason |
-|---|---|---|
-| `keep-donor` | the row on the football-data copy | it is the copy users have seen and acted on since 2 Sep; for a pick, usually the later `updated_at` |
-| `keep-survivor` | the row on the legacy copy | the legacy row predates the cutover and should stand |
+1. **Back up the database** from the MacBook (the only machine that holds
+   `DATABASE_URL`). Assume Render's free Postgres has no point-in-time recovery: this
+   file is the only way back.
 
-Pass one policy for every table (`keep-donor`) or per table
-(`match_picks=keep-donor prediction_results=keep-survivor`). A per-table entry wins.
-Every deleted row (and any child row, e.g. a deleted lineup's players) is written to
-the evidence with the reason `conflict_loser:<policy>`.
+   ```sh
+   pg_dump -Fc "$DATABASE_URL" -f finalwhistle-before-repair-$(date +%Y%m%d-%H%M).dump
+   pg_restore -l finalwhistle-before-repair-*.dump | head   # must list tables, no error
+   ```
 
-## Operating sequence
+   Keep the file outside the repository (never commit it, never upload it anywhere
+   public).
 
-Each step that touches production is stop-gated (`CLAUDE.md`): show the summary,
-wait for "go".
+2. **Pause the scheduled writers** before merging, and pick a window with no
+   La Liga, Bundesliga or Champions League match in play:
 
-1. **Merge the PR** (aliases + repair tool). The daily refresh may run after this.
-   With the new aliases it re-points the football-data rows at the original clubs,
-   and the repair still finds the same pairs and ends with the same result (tested:
-   `test_end_to_end_on_a_production_shaped_database[True]`). One cost: each refresh in
-   this window re-syncs every finished football-data fixture into
-   `historical_matches` under the original club, so those matches count twice in club
-   Elo until the repair runs. The repair removes the extra rows; keep the window short.
-2. **Dry run.** Dispatch `repair-fixture-duplicates` with `apply=false`, empty
-   `expected_digest`, empty `on_conflict`. The workflow applies migrations, asserts
-   the schema is at Alembic head, plans, executes once inside a savepoint to prove
-   the plan, rolls back, and uploads `repair-evidence.json`. The log prints the
-   evidence summary, then `digest: <hex>` and `ready_to_apply: true|false`.
-3. **A human reads the evidence** and checks:
-   - `team_mappings`: only the expected clubs, each mapped to the right original.
-   - `tournament_counts` and `matches_merged`: about 74 La Liga and 34 Bundesliga.
-   - `match_mappings`: per pair, both statuses and scores, `kickoff_delta_seconds`,
-     `state_source` (should be `donor` except where the legacy row was finished and
-     the donor was not), and any `score_mismatch: true` (both finished with
-     different results; investigate before applying).
-   - `blocking`: must be empty. `warnings`: read each one.
-   - `conflicts`: decide a policy (above).
-   - `dropped_counts` / `deleted_rows`: `historical_matches` should equal the
-     number of real matches recorded twice; `predictions` should be stale-copy rows
-     after kickoff or rows outranking a graded one; no surprises elsewhere.
-   - `moved_counts`: dependent rows that will follow the merge.
-   - `trial`: must be `ok`.
-4. **If there are conflicts**, dispatch the dry run again with `on_conflict` set
-   (for example `match_picks=keep-donor`). Repeat step 3 on the new evidence until it
-   prints `ready_to_apply: true`. The digest changes with the policy.
-5. **Apply.** Dispatch with `apply=true`, the same `on_conflict` value, and
-   `expected_digest` set to the `digest:` line from step 4, on the same commit. The
-   tool replans and refuses if the digest differs: another commit, another policy,
-   or data that changed since the dry run (a refresh in between adds predictions, so
-   a scheduled refresh landing between the two runs makes apply refuse; just repeat
-   steps 2–5). Apply also refuses without a digest, with unresolved conflicts, or
-   with a blocked plan. Keep the evidence artifact; it is the record of every row
-   deleted.
-6. **Verify.** Dispatch the dry run once more: it must report `matches_merged: 0`,
-   `teams_merged: 0` and no deleted rows (the repair is idempotent). Then let the
-   next refresh run (it recomputes club Elo from `historical_matches`), and check
-   `GET /api/health` and a merged fixture's match page.
+   ```sh
+   gh workflow disable refresh.yml
+   gh workflow disable odds-snapshots.yml
+   ```
+
+   Why: the first refresh after the merge uses the new aliases, re-points the new
+   copies at the original clubs and re-inserts about 35 finished fixtures into the
+   results history under the original club. From then until the repair, every refresh
+   computes club ratings with those matches counted twice, and predictions frozen
+   from those ratings can never be corrected. Measured: the duplicate history rows go
+   1 → 2 on the first refresh and stay at 2 on later ones, so the damage is that
+   first refresh plus every prediction made while it stands. The repair still gets
+   the right answer if a refresh does run (tested), but avoid it.
+
+   The repair shares the `production-database` lock only with `refresh.yml`.
+   `odds-snapshots` (hourly), `market-intel` (daily), `refresh-live` (every two hours)
+   and the live API also write to the database. Any of them changing a row the repair
+   touches makes the digest differ, and apply then refuses: that is safe, but it means
+   running the dry run again. In a quiet window with the two workflows paused this
+   should not happen.
+
+## Steps
+
+3. **Merge the PR** (go required).
+
+4. **Dry run.** In GitHub, Actions → repair-fixture-duplicates → Run workflow, with
+   `apply` unticked and everything else empty. The dry run never commits. It checks the
+   database schema is up to date (it does not migrate), plans the repair, then runs it
+   once inside a savepoint and rolls it back to prove it works. For as long as that
+   trial runs it holds the same row locks apply would; it gives up after waiting 5
+   seconds for a lock or 60 seconds on one statement rather than hold up the site. If the site is busy, untick `trial` to plan only.
+
+   The log starts with a plain summary; the full evidence is the
+   `repair-evidence-dry-run-…` artifact. Check:
+
+   - `clubs_merged`: exactly the three clubs above, each into its original.
+   - `fixtures_merged`: about 74 La Liga and 34 Bundesliga.
+   - `blocking_issues`: must be 0. The evidence lists each one under `report.blocking`.
+   - `warnings`: read every one in `report.warnings` (for example, old fixtures of an
+     affected club with no twin).
+   - `fixtures_with_different_final_scores`: look at each one on a results site.
+   - `public_record`: how the published AI record changes (graded matches, correct
+     winner calls, exact scores, before → after).
+   - `user_picks_deleted`, `league_score_predictions_deleted` (and how many of those
+     were already scored), `…_becoming_scoreable`, `matches_gradeable_at_next_refresh`,
+     `history_rows_dropped`.
+   - `report.match_mappings`: per fixture, both kickoffs and the gap, both statuses and
+     scores, and which copy's state is kept (`state_source`).
+
+5. **Decide what the dry run asks you to decide**, then run the dry run again with
+   those inputs until it prints `ready_to_apply: true`:
+
+   - **Conflicts** (`on_conflict`): the same user has a pick, or a score prediction, on
+     both copies of a match, or both copies have a grade. Only one can stay.
+     `keep-donor` keeps the one on the new copy, which is what users have been looking
+     at since 2 Sep; `keep-survivor` keeps the one on the old copy. You can choose per
+     table, e.g. `match_picks=keep-donor`. For grades, keep the grade on the copy whose
+     match state is kept (the evidence's `state_source`; usually the new copy, i.e.
+     `prediction_results=keep-donor`). The tool will refuse any other choice that
+     leaves a grade disagreeing with the shown result.
+   - **Acknowledgements** (`acknowledge`), only after checking each match yourself:
+     `kickoff-gap:<id>`, `score-mismatch:<id>`, `unpaired:<id>` (moves that fixture to
+     the original club without merging it). Ids are the ones named in `blocking`.
+
+6. **Apply within the hour.** Run the workflow with `apply` ticked, the same
+   `on_conflict` and `acknowledge` values, and `expected_digest` set to the `digest:`
+   line of the last dry run, on the same commit. The apply job waits for the
+   `production-database` environment approval. It replans and refuses if anything
+   differs from the dry run: another commit, other inputs, or data that changed in
+   between. A refusal writes nothing; run the dry run again and use the new digest.
+   Keep the `repair-evidence-apply-…` artifact: it is the record of every deleted row.
+
+7. **Check and resume.**
+   - Run the dry run once more: it must report nothing to do (0 clubs, 0 fixtures).
+   - Re-enable the writers and run a refresh:
+
+     ```sh
+     gh workflow enable refresh.yml
+     gh workflow enable odds-snapshots.yml
+     gh workflow run refresh.yml
+     ```
+
+     The refresh grades the matches listed in `matches_gradeable_at_next_refresh` and
+     recomputes club ratings from the corrected history.
+   - `GET /api/health`: the stuck La Liga and Bundesliga fixtures are gone. The 14
+     orphaned Champions League play-off fixtures will still be reported; they are a
+     separate problem this repair does not touch.
+   - Open one merged fixture's match page and check the result and the shown
+     prediction.
+
+## One-time setup for the approval gate
+
+The apply job runs in a GitHub environment called `production-database`, which
+GitHub creates the first time the job runs. Before the first apply, in the repository
+on GitHub: Settings → Environments → `production-database`:
+
+- **Required reviewers**: add yourself (and anyone else who must approve).
+- **Deployment branches and tags**: "Selected branches and tags", add `main` only.
+
+The dry-run job has no environment, so it never waits for an approval.
 
 ## Not handled
 
-- Match ids inside JSON (`venue_market.mapping_history`, `resolution_context`) are
-  history and are not rewritten; `venue_market.canonical_event_id` is.
-- Predictions already served from inflated Elo during the window stay as they are
-  (predictions are append-only).
-- Required reviewers on the workflow need a GitHub environment, which cannot be set
-  from repository files; see the workflow header.
+- Match ids inside JSON history (`venue_market.mapping_history`,
+  `resolution_context`) are not rewritten; `venue_market.canonical_event_id` is.
+- Predictions already made from double-counted ratings stay as they are
+  (predictions are never edited after the fact).

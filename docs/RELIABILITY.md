@@ -133,7 +133,10 @@ had no football-data.org alias. The aliases are now in `pipeline/team_mapping.py
 the existing duplicates are merged by the dry-run-first repair in
 [RUNBOOK-FIXTURE-DUPLICATE-REPAIR.md](RUNBOOK-FIXTURE-DUPLICATE-REPAIR.md). Apply
 needs the digest from a dry run of the same commit, an explicit policy for any
-dependent-row conflict, and shares the `production-database` lock with the refresh.
+dependent-row conflict and a per-fixture acknowledgement for anything it cannot
+prove, runs behind the `production-database` environment approval, and shares the
+`production-database` concurrency lock with the refresh (other writers such as
+`odds-snapshots` are paused by hand; see the runbook).
 
 Changing production secrets or repository variables, dispatching the production
 refresh/migration, merging, and deploying are stop-gated operations. They require

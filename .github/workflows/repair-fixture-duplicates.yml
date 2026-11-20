@@ -1,31 +1,36 @@
 # Repair the provider-cutover duplicate fixtures in the production database.
 # Operating sequence: docs/RUNBOOK-FIXTURE-DUPLICATE-REPAIR.md.
 #
-# 1. Dispatch with apply=false (dry run, read-only). Read the evidence
-#    artifact. If it lists conflicts, choose a policy and dispatch the dry run
-#    again with on_conflict set, until it prints "ready_to_apply: true".
-# 2. Dispatch with apply=true on the SAME commit, the SAME on_conflict value,
-#    and expected_digest copied from that dry run's "digest:" line. The tool
-#    recomputes the plan and refuses if the digest differs (another commit,
-#    another policy, or data that changed in between).
+# 1. Dispatch with apply=false (dry run). It never commits; unless trial is
+#    off it executes the plan once inside a savepoint and rolls it back, which
+#    briefly takes the same row locks apply would. Read the summary and the
+#    evidence artifact. Choose a conflict policy / acknowledgements if asked
+#    and dispatch the dry run again until it prints "ready_to_apply: true".
+# 2. Dispatch with apply=true on the SAME commit with the SAME on_conflict and
+#    acknowledge values, and expected_digest copied from that dry run's
+#    "digest:" line. The tool replans and refuses if the digest differs.
 #
-# Approval gate (not configurable from repository files): create a GitHub
-# environment named "production-database" with required reviewers (repo
-# Settings -> Environments), then add `environment: production-database` to
-# the job below. Until then the digest hand-off is the only guard between a
-# dispatch and a production write.
+# Neither job migrates: both require the schema to already be at Alembic head
+# (migrations go through refresh.yml, the guarded path in CLAUDE.md), so a
+# dry run can never change the schema.
+#
+# Approval gate: the apply job runs in the "production-database" environment
+# (GitHub creates it on first use). The owner must then add required
+# reviewers and a deployment-branch rule allowing only main under
+# repo Settings -> Environments -> production-database. The dry-run job has no
+# environment, so it can run without an approval.
 name: repair-fixture-duplicates
 
 on:
   workflow_dispatch:
     inputs:
       apply:
-        description: Apply the repair (false performs a read-only dry run)
+        description: Apply the repair (false = dry run, never commits)
         required: true
         type: boolean
         default: false
       expected_digest:
-        description: Required for apply. The "digest:" line from the dry run of this commit and policy
+        description: Required for apply. The "digest:" line from the dry run of this commit, policy and acknowledgements
         required: false
         type: string
         default: ""
@@ -34,13 +39,24 @@ on:
         required: false
         type: string
         default: ""
+      acknowledge:
+        description: Per-fixture confirmations, e.g. "kickoff-gap:123 score-mismatch:456 unpaired:789"
+        required: false
+        type: string
+        default: ""
+      trial:
+        description: Dry run only. Execute the plan in a rolled-back savepoint to prove it
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: production-database
   cancel-in-progress: false
 
 jobs:
-  repair:
+  dry-run:
+    if: ${{ !inputs.apply }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -51,37 +67,57 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
-      - name: Apply migrations
-        working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: alembic upgrade head
       - name: Dry run
-        if: ${{ !inputs.apply }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
           ON_CONFLICT: ${{ inputs.on_conflict }}
+          ACKNOWLEDGE: ${{ inputs.acknowledge }}
+          NO_TRIAL: ${{ !inputs.trial && '--no-trial' || '' }}
         run: >-
           python -m pipeline.repair_fixture_duplicates --require-schema-head
           --evidence-file repair-evidence.json --on-conflict "$ON_CONFLICT"
+          --acknowledge "$ACKNOWLEDGE" $NO_TRIAL
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-evidence-dry-run-${{ github.run_id }}
+          path: repair-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  apply:
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    environment: production-database
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
       - name: Apply repair
-        if: ${{ inputs.apply }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
           ON_CONFLICT: ${{ inputs.on_conflict }}
+          ACKNOWLEDGE: ${{ inputs.acknowledge }}
           EXPECTED_DIGEST: ${{ inputs.expected_digest }}
         run: >-
           test -n "$EXPECTED_DIGEST" &&
           python -m pipeline.repair_fixture_duplicates --require-schema-head
           --evidence-file repair-evidence.json --on-conflict "$ON_CONFLICT"
+          --acknowledge "$ACKNOWLEDGE"
           --apply --expected-digest "$EXPECTED_DIGEST"
       - name: Upload evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: repair-evidence-${{ github.run_id }}
+          name: repair-evidence-apply-${{ github.run_id }}
           path: repair-evidence.json
           if-no-files-found: warn
           retention-days: 90
