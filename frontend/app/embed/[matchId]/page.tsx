@@ -38,11 +38,14 @@ export default async function EmbedPage({
     return <Unavailable config={config} />;
   }
 
-  const revealed = canRevealModelPublicly(
-    summary?.competition ?? "",
-    summary?.status ?? null,
-    summary?.kickoff_utc ?? prediction.kickoff_utc,
-  );
+  // Fail closed: without the summary we know neither the status nor the
+  // competition, so the model's numbers stay hidden. (An empty competition
+  // would read as "no pick game" and reveal them.)
+  const revealed =
+    summary != null &&
+    typeof summary.competition === "string" &&
+    summary.competition !== "" &&
+    canRevealModelPublicly(summary.competition, summary.status ?? null, summary.kickoff_utc ?? prediction.kickoff_utc);
 
   return <EmbedPredictionCard prediction={prediction} summary={summary} revealed={revealed} config={config} />;
 }

@@ -78,7 +78,7 @@ export interface MatchweekViewProps {
 
 /** Phones: a little more room for long club names ("Nottingham Forest",
  *  "Borussia Mönchengladbach") -- 12px row padding and 15px names. */
-const PHONE_ROW = "max-[899px]:px-3 max-[899px]:[&_a>span]:text-notes";
+const PHONE_ROW = "max-[899px]:px-3";
 
 const VERDICT_TONE: Record<ModelVerdict["kind"], ChipTone> = { exact: "good", result: "ok", miss: "miss" };
 

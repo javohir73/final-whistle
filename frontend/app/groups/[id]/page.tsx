@@ -8,6 +8,8 @@ import { GroupFixtureList } from "@/components/GroupFixtureList";
 import { ShareButton } from "@/components/ShareButton";
 import { Card, CardHead, Legend, Note, PageHead, TextLink } from "@/components/ui";
 import { COMPETITIONS } from "@/lib/sports";
+import { canRevealModelPublicly } from "@/lib/reveal";
+import { withoutModel } from "@/lib/matchweeks";
 
 /** Served at /football/wc26/groups/[id]; every exit links its final URL
  *  (the legacy /groups, /brackets and /matches paths are redirect hops). */
@@ -49,7 +51,10 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ id
       if (!a.kickoff_utc) return 1;
       if (!b.kickoff_utc) return -1;
       return a.kickoff_utc < b.kickoff_utc ? -1 : 1;
-    });
+    })
+    // Reveal rule: an open fixture leaves the server without the model's call,
+    // so it is in neither the HTML nor the payload sent to the client list.
+    .map((m) => (canRevealModelPublicly("wc26", m.status, m.kickoff_utc) ? m : withoutModel(m)));
   const decided = groupDecided(group.standings);
 
   return (

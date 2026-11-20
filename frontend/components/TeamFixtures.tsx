@@ -135,6 +135,7 @@ export function TeamFixtures({
           <FixtureRow
             key={m.match_id}
             href={href}
+            leftOnPhone
             left={
               <>
                 {label && <span className="block">{label}</span>}

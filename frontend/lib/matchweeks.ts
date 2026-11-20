@@ -12,6 +12,7 @@
  *  Pure and server-safe: no React, no window. */
 import type { MatchSummary } from "@/lib/types";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { clubLogoSrc } from "@/components/ClubBadge";
 
 export interface Round {
   /** URL value (`?mw=<key>`): the matchweek number, or a stage slug. */
@@ -93,7 +94,48 @@ function tournamentRounds(matches: MatchSummary[]): Round[] {
 export function buildRounds(competition: CompetitionId, matches: readonly MatchSummary[]): Round[] {
   const list = [...matches];
   if (COMPETITIONS[competition].format === "knockout") return tournamentRounds(list);
-  return leagueRounds(list, competition === "ucl" ? "Matchday" : "Matchweek");
+  return leagueRounds(list, competition === "ucl" ? "Matchday" : "Matchweek").map((round) => ({
+    ...round,
+    matches: withoutTwinFixtures(round.matches),
+  }));
+}
+
+/** How far along a row is: a played or live row beats one still "scheduled". */
+function progress(m: MatchSummary): number {
+  if (m.status === "finished") return 3;
+  if (m.status === "in_play") return 2;
+  return m.status === "scheduled" ? 0 : 1;
+}
+
+/** The live feeds list a few clubs under two names ("Racing Santander" and
+ *  "Real Racing Club de Santander"), so the same fixture can arrive twice in a
+ *  round: once with its result, once stuck on "scheduled". Two rows are the
+ *  same fixture when both sides resolve to the same crest file; the row that
+ *  is further along stays (earliest id on a tie). In a league a pairing can
+ *  only happen once per round, so nothing real is dropped. */
+export function withoutTwinFixtures(matches: readonly MatchSummary[]): MatchSummary[] {
+  const best = new Map<string, MatchSummary>();
+  const keyOf = (m: MatchSummary) => {
+    const home = clubLogoSrc(m.teams.home);
+    const away = clubLogoSrc(m.teams.away);
+    return home && away ? `${home}|${away}` : null;
+  };
+  for (const m of matches) {
+    const key = keyOf(m);
+    if (!key) continue;
+    const prev = best.get(key);
+    if (
+      !prev ||
+      progress(m) > progress(prev) ||
+      (progress(m) === progress(prev) && m.match_id < prev.match_id)
+    ) {
+      best.set(key, m);
+    }
+  }
+  return matches.filter((m) => {
+    const key = keyOf(m);
+    return !key || best.get(key) === m;
+  });
 }
 
 /** Live now, or still to kick off (a "scheduled" row whose kickoff has passed

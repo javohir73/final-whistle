@@ -12,7 +12,7 @@ export const alt = "Match — FinalWhistle";
 
 const pc = (n: number) => `${Math.round(n * 100)}%`;
 
-/** Confidence tier → Floodlight colour. The tier WORD is always printed
+/** Confidence tier → colour. The tier WORD is always printed
  *  alongside (never colour alone) — see the pill in the rich card. */
 const confColor: Record<"High" | "Medium" | "Low", string> = {
   High: C.win,

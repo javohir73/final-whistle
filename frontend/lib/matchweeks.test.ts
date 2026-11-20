@@ -9,6 +9,7 @@ import {
   seasonFromMatches,
   seasonFromName,
   withoutModel,
+  withoutTwinFixtures,
 } from "./matchweeks";
 import type { MatchSummary } from "./types";
 
@@ -34,6 +35,26 @@ describe("buildRounds", () => {
     ]);
     expect(rounds.map((r) => r.title)).toEqual(["Matchweek 11", "Matchweek 12"]);
     expect(rounds[0].matches[0].kickoff_utc).toBe("2026-11-21T15:00:00Z");
+  });
+
+  it("drops a fixture the feed lists twice under two club names, keeping the played row", () => {
+    const ghost = m({ teams: { home: "Arsenal", away: "Racing Santander" }, status: "scheduled" });
+    const real = m({
+      teams: { home: "Arsenal", away: "Real Racing Club de Santander" },
+      status: "finished", score_home: 1, score_away: 2,
+    });
+    const other = m({ teams: { home: "Chelsea", away: "Liverpool" } });
+    const [round] = buildRounds("laliga", [ghost, real, other]);
+    expect(round.matches.map((x) => x.match_id).sort()).toEqual([real.match_id, other.match_id].sort());
+  });
+
+  it("keeps rows whose clubs have no crest on file, and the earlier id on a tie", () => {
+    const a = m({ teams: { home: "Nowhere FC", away: "Elsewhere FC" } });
+    const b = m({ teams: { home: "Nowhere FC", away: "Elsewhere FC" } });
+    expect(withoutTwinFixtures([a, b])).toEqual([a, b]);
+    const c = m({ teams: { home: "Arsenal", away: "Chelsea" } });
+    const d = m({ teams: { home: "Arsenal", away: "Chelsea" } });
+    expect(withoutTwinFixtures([d, c])).toEqual([c]);
   });
 
   it("calls UCL league-phase weeks matchdays and leaves qualifying out", () => {
