@@ -6,7 +6,7 @@ name: market-intel
 
 on:
   schedule:
-    - cron: "23 5 * * *"   # daily: private repo, 2,000 free Actions minutes a month
+    - cron: "23 5 * * *"   # daily; sized to stay affordable if the repo is ever private again
   workflow_dispatch: {}
 
 jobs:
