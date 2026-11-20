@@ -126,6 +126,15 @@ fixture feeds for all four competition codes. Keep the stored provenance and
 status rows; provider-aware reconciliation switches existing matches back without
 discarding history.
 
+### Cutover duplicates
+
+The 2026-09-02 switch created duplicate clubs and fixtures for promoted clubs that
+had no football-data.org alias. The aliases are now in `pipeline/team_mapping.py`;
+the existing duplicates are merged by the dry-run-first repair in
+[RUNBOOK-FIXTURE-DUPLICATE-REPAIR.md](RUNBOOK-FIXTURE-DUPLICATE-REPAIR.md). Apply
+needs the digest from a dry run of the same commit, an explicit policy for any
+dependent-row conflict, and shares the `production-database` lock with the refresh.
+
 Changing production secrets or repository variables, dispatching the production
 refresh/migration, merging, and deploying are stop-gated operations. They require
 an explicit human `go`; local validation must not perform them.
