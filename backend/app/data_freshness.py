@@ -68,20 +68,22 @@ def stuck_matches(
     now: datetime | None = None,
     grace_hours: float = MATCH_MAX_DURATION_HOURS,
     limit: int = 20,
+    statuses: tuple[str, ...] = _UNFINISHED,
 ) -> list[dict]:
     """Matches whose kickoff is far enough in the past that their current
     status is impossible.
 
     Returns one dict per offending row — id, competition, status, kickoff and
     how many hours overdue — so an alert can name the league that broke rather
-    than just asserting that something did.
+    than just asserting that something did. At most ``limit`` rows: use
+    ``stuck_counts`` for how many there are.
     """
     _now, cutoff = _horizon(now, grace_hours)
     rows = (
         db.query(Match, Tournament.name)
         .join(Tournament, Match.tournament_id == Tournament.id, isouter=True)
         .filter(
-            Match.status.in_(_UNFINISHED),
+            Match.status.in_(statuses),
             Match.kickoff_utc.isnot(None),
             Match.kickoff_utc < cutoff,
         )
@@ -106,11 +108,38 @@ def stuck_matches(
     return out
 
 
+def stuck_counts(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    grace_hours: float = MATCH_MAX_DURATION_HOURS,
+) -> dict[str, int]:
+    """How many matches sit in each impossible status — uncapped, unlike the
+    row list ``stuck_matches`` returns."""
+    _now, cutoff = _horizon(now, grace_hours)
+    return {
+        status: int(n)
+        for status, n in (
+            db.query(Match.status, func.count(Match.id))
+            .filter(
+                Match.status.in_(_UNFINISHED),
+                Match.kickoff_utc.isnot(None),
+                Match.kickoff_utc < cutoff,
+            )
+            .group_by(Match.status)
+            .all()
+        )
+    }
+
+
 #: How far ahead a fixture counts as "imminent" for coverage reporting. Matches
 #: the odds/injuries ingest window, so a gap here means an enrichment pass that
 #: should already have run has not.
 COVERAGE_WINDOW_HOURS = 48.0
 FIXTURE_FEED_STALE_HOURS = 36.0
+#: A daily pipeline plus slack: an imminent fixture whose latest production
+#: prediction is older than this was not re-priced by the last expected run.
+PREDICTION_STALE_HOURS = 36.0
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -258,11 +287,41 @@ def coverage_gaps(
         }
         without_market = total - len(priced)
 
+    # A prediction older than the daily cadence allows means the pipeline that
+    # re-prices fixtures stopped running, and the row that freezes at kickoff
+    # will not reflect the results since. The 2026-11-20 audit found frozen club
+    # predictions a median 4-6 days old, the oldest 20 days, with nothing in
+    # /api/health saying so. Fixtures with no prediction at all are reported by
+    # prediction_coverage, not here.
+    stale_prediction = 0
+    if total:
+        from app.models import Prediction
+
+        latest = (
+            db.query(Prediction.match_id, func.max(Prediction.created_at))
+            .filter(
+                Prediction.match_id.in_([m.id for m in imminent.all()]),
+                Prediction.is_shadow.is_(False),
+            )
+            .group_by(Prediction.match_id)
+            .all()
+        )
+        stale_before = _now - timedelta(hours=PREDICTION_STALE_HOURS)
+        for _match_id, created_at in latest:
+            if created_at is None:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at < stale_before:
+                stale_prediction += 1
+
     return {
         "window_hours": window_hours,
         "upcoming_matches": total,
         "without_venue": without_venue,
         "without_market_intel": without_market,
+        "with_stale_prediction": stale_prediction,
+        "prediction_stale_hours": PREDICTION_STALE_HOURS,
     }
 
 
@@ -280,29 +339,33 @@ def data_status(
     outage to the page while making an API outage unreportable here. Monitors
     assert on ``data_status``; the browser keeps using ``status``.
     """
-    stuck = stuck_matches(db, now=now, grace_hours=grace_hours)
     feeds = fixture_feed_health(db, now=now)
     degradations: list[dict] = []
-    if stuck:
-        # Split the two causes: a stuck in_play row is a live-feed fault, a
-        # stuck scheduled row means the daily ingest never ran or ingested
-        # nothing. They page different people.
-        in_play = [m for m in stuck if m["status"] == IN_PLAY]
-        scheduled = [m for m in stuck if m["status"] == SCHEDULED]
-        if in_play:
-            degradations.append({
-                "kind": "stale_live_match",
-                "detail": f"{len(in_play)} match(es) still in_play more than "
-                          f"{grace_hours:g}h after kickoff",
-                "matches": in_play,
-            })
-        if scheduled:
-            degradations.append({
-                "kind": "stale_fixture",
-                "detail": f"{len(scheduled)} match(es) still scheduled more than "
-                          f"{grace_hours:g}h after kickoff — results ingest is behind",
-                "matches": scheduled,
-            })
+    # Split the two causes: a stuck in_play row is a live-feed fault, a stuck
+    # scheduled row means the daily ingest never ran or ingested nothing. They
+    # page different people. Each is counted and listed on its own: one capped
+    # query over both used to report "20 match(es)" when 45 were stuck
+    # (2026-11-20 audit), and 20 old stuck fixtures could hide a stuck live
+    # match behind the cap entirely.
+    totals = stuck_counts(db, now=now, grace_hours=grace_hours)
+    if totals.get(IN_PLAY):
+        degradations.append({
+            "kind": "stale_live_match",
+            "detail": f"{totals[IN_PLAY]} match(es) still in_play more than "
+                      f"{grace_hours:g}h after kickoff",
+            "count": totals[IN_PLAY],
+            "matches": stuck_matches(db, now=now, grace_hours=grace_hours,
+                                     statuses=(IN_PLAY,)),
+        })
+    if totals.get(SCHEDULED):
+        degradations.append({
+            "kind": "stale_fixture",
+            "detail": f"{totals[SCHEDULED]} match(es) still scheduled more than "
+                      f"{grace_hours:g}h after kickoff — results ingest is behind",
+            "count": totals[SCHEDULED],
+            "matches": stuck_matches(db, now=now, grace_hours=grace_hours,
+                                     statuses=(SCHEDULED,)),
+        })
     unhealthy_feeds = [
         row["competition_code"] for row in feeds if row["status"] != "ok"
     ]

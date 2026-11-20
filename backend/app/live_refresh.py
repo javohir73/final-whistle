@@ -101,6 +101,9 @@ def maybe_run_post_results_chain(db: Session, summary: dict, trigger: str = "liv
                 trigger=trigger,
                 n_sims=settings.chain_n_sims,
                 tournament_sims=settings.chain_tournament_sims,
+                # Never re-predict a fixture whose kickoff has passed but whose
+                # result has not landed yet (generate_predictions docstring).
+                kickoff_after=datetime.now(timezone.utc),
             )
             summary["post_results"] = chain
             log.info("post-results chain (%s): %s", trigger, chain)

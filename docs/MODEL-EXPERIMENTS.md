@@ -796,3 +796,46 @@ did not ship. Served as `poisson-elo-ucl-v0.2` with the unfitted v0.1
 predecessor as the live `+baseline` twin. The 2025 edition is consumed; the
 next clean holdout is the live 2026-27 edition. Full card:
 `docs/experiments/2026-08-06-ucl-base-fit/EVIDENCE-CARD.md`.
+
+## 2026-11-20 — post-restart football audit (appended)
+
+First use of the live 2026-27 season as the fresh holdout the club program
+promised. Criteria were pre-registered in the audit before any candidate was
+scored; nothing above is edited. Full card, commands and data cutoffs:
+`docs/experiments/2026-11-20-football-model-audit/AUDIT.md`.
+
+Holdout: every 2026-27 EPL/La Liga/Bundesliga match to 2026-11-19 (n = 100 /
+119 / 81). Gate: paired Δ 1X2 log loss vs the served parameters (C0),
+matchweek-clustered bootstrap, Bonferroni k=2.
+
+| League | Candidate | Δ 1X2 vs C0 [97.5%] | Δ O/U [95%] | Verdict |
+|---|---|---|---|---|
+| EPL | R1 refit (home_adv 40, base 1.32, beta 0.0018, rho 0, q3 calibrator) | −0.0130 [−0.0397, +0.0144] | −0.0042 [−0.0120, +0.0032] | **NOT SHIPPED** — within noise; collect evidence |
+| EPL | U1 dynamic Dixon–Coles (half-life 365 d) | −0.0041 [−0.0838, +0.0870] | +0.0022 [−0.0365, +0.0443] | **NOT SHIPPED** — within noise |
+| La Liga | R1 (home_adv 60, base 1.18, beta 0.0018, rho 0, q3) | −0.0047 [−0.0224, +0.0112] | +0.0089 [−0.0008, +0.0180] | **NOT SHIPPED** — within noise |
+| La Liga | U1 (365 d) | −0.0166 [−0.0670, +0.0370] | −0.0299 [−0.0771, +0.0251] | **NOT SHIPPED** — within noise; collect evidence |
+| Bundesliga | R1 (home_adv 30, base 1.46, beta 0.0016, rho −0.04, q3) | −0.0125 [−0.0507, +0.0232] | +0.0042 [−0.0085, +0.0163] | **NOT SHIPPED** — within noise; collect evidence |
+| Bundesliga | U1 (365 d) | +0.0062 [−0.0567, +0.0562] | −0.0146 [−0.0950, +0.0710] | **NOT SHIPPED** — within noise |
+
+The served model stays behind the de-vigged `AvgC` closing line in all three
+leagues (live: EPL +0.035, La Liga +0.044 credible, Bundesliga +0.011 nats).
+The offline replay reproduces every live EPL and Bundesliga forecast to within
+1e-4 per probability (stored values are rounded to 4 dp); La Liga reproduces
+only once the duplicate-club identity defect is modelled (`replay_d1.py`), apart
+from 8 rows frozen before 2 Sep. Re-runs score the configs frozen in
+`frozen_candidates.json` via `candidates.py --frozen`; no refit or re-selection.
+
+**U1 caveat (post-review).** U1 as registered under-shrinks promoted clubs: after
+one 2-0 win Hull's attack − defence exceeded Arsenal's, and U1's largest EPL
+disagreements with C0 are all Hull/Coventry matches. Its "not shipped" rows are
+not evidence against a Dixon–Coles upgrade. A corrected candidate, **U2**, is
+registered **post-hoc** (spec frozen in `frozen_candidates.json`, not scored on
+2026-27 yet): per-club Gaussian prior (τ = 10) toward the league mean, or toward
+a promoted-club prior for clubs new to the division; half-life chosen on
+2025-26 from {365, 540, 730} d.
+
+**Power (post-review).** If R1's true effect is about −0.01 nats, 80% power at
+the Bonferroni gate needs ~1,600 pooled matches — more than one season (1,066
+domestic matches). The late-January look (~640 pooled, ≈ 50% power) is a
+progress check and ships nothing; season end is the decision look, and may
+still be underpowered.

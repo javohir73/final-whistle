@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import schemas
@@ -302,12 +303,29 @@ def prediction_to_live_markets_out(
     )
 
 
+def created_by_kickoff():
+    """SQL predicate: the Prediction row was written at or before its match's
+    kickoff (a NULL kickoff cannot be proven started, so every row counts).
+
+    The one rule every read that presents "the match's prediction" applies,
+    mirroring learning_loop._frozen_prediction (what grading scores) and
+    league_score_predictions' kickoff lock. For an upcoming match it filters
+    nothing. Once kickoff has passed it hides rows appended after the whistle
+    -- a fixture stuck "scheduled" used to be re-predicted on every run (1,942
+    such rows by 2026-11-20). A started match with ONLY post-kickoff rows
+    therefore has no served prediction, exactly as grading has nothing to
+    score. Callers must join Match on Prediction.match_id."""
+    return or_(Match.kickoff_utc.is_(None), Prediction.created_at <= Match.kickoff_utc)
+
+
 def latest_prediction(db: Session, match_id: int) -> Prediction | None:
-    """Latest PRODUCTION prediction — shadow rows are never served (FR-4.5)."""
+    """Latest PRODUCTION prediction written by kickoff — shadow rows are never
+    served (FR-4.5), post-kickoff rows never presented (created_by_kickoff)."""
     return (
         db.query(Prediction)
-        .filter_by(match_id=match_id)
-        .filter(Prediction.is_shadow.is_(False))
+        .join(Match, Prediction.match_id == Match.id)
+        .filter(Prediction.match_id == match_id)
+        .filter(Prediction.is_shadow.is_(False), created_by_kickoff())
         .order_by(Prediction.created_at.desc(), Prediction.id.desc())
         .first()
     )

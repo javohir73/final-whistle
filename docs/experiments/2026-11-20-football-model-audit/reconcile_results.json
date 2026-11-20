@@ -1,0 +1,333 @@
+{
+ "leagues": {
+  "epl": {
+   "league": "epl",
+   "fd_matches_to_cutoff": 100,
+   "api_rows": 380,
+   "api_status": {
+    "finished": 100,
+    "scheduled": 280
+   },
+   "api_team_names": 20,
+   "duplicate_team_entities": {},
+   "issues": {},
+   "examples": {},
+   "recording": {
+    "frozen_pre_kickoff": 100
+   }
+  },
+  "laliga": {
+   "league": "laliga",
+   "fd_matches_to_cutoff": 119,
+   "api_rows": 454,
+   "api_status": {
+    "finished": 121,
+    "scheduled": 333
+   },
+   "api_team_names": 22,
+   "duplicate_team_entities": {
+    "Racing Santander": [
+     "Racing Santander",
+     "Real Racing Club de Santander"
+    ],
+    "Deportivo La Coruna": [
+     "Deportivo La Coruna",
+     "RC Deportivo La Coru\u00f1a"
+    ]
+   },
+   "issues": {
+    "duplicate_api_rows": 24,
+    "multiple_finished_api_rows": 2
+   },
+   "examples": {
+    "duplicate_api_rows": [
+     "2026-08-16 Racing Santander-Villarreal: #487 Racing Santander-Villarreal finished, #1261 Real Racing Club de Santander-Villarreal finished",
+     "2026-08-17 Deportivo La Coruna-Elche: #490 Deportivo La Coruna-Elche finished, #1262 RC Deportivo La Coru\u00f1a-Elche finished",
+     "2026-08-23 Getafe-Racing Santander: #498 Getafe-Racing Santander scheduled, #1263 Getafe-Real Racing Club de Santander finished",
+     "2026-08-24 Malaga-Deportivo La Coruna: #501 Malaga-Deportivo La Coruna scheduled, #1264 Malaga-RC Deportivo La Coru\u00f1a finished",
+     "2026-08-28 Racing Santander-Elche: #505 Racing Santander-Elche scheduled, #1265 Real Racing Club de Santander-Elche finished",
+     "2026-08-30 Deportivo La Coruna-Valencia: #511 Deportivo La Coruna-Valencia scheduled, #1266 RC Deportivo La Coru\u00f1a-Valencia finished",
+     "2026-09-05 Rayo Vallecano-Racing Santander: #523 Rayo Vallecano-Racing Santander scheduled, #1267 Rayo Vallecano-Real Racing Club de Santander finished",
+     "2026-09-05 Villarreal-Deportivo La Coruna: #517 Villarreal-Deportivo La Coruna scheduled, #1268 Villarreal-RC Deportivo La Coru\u00f1a finished",
+     "2026-09-12 Racing Santander-Alaves: #1269 Real Racing Club de Santander-Alaves finished, #534 Racing Santander-Alaves scheduled",
+     "2026-09-13 Getafe-Deportivo La Coruna: #531 Getafe-Deportivo La Coruna scheduled, #1270 Getafe-RC Deportivo La Coru\u00f1a finished",
+     "2026-09-16 Deportivo La Coruna-Sevilla: #541 Deportivo La Coruna-Sevilla scheduled, #1271 RC Deportivo La Coru\u00f1a-Sevilla finished",
+     "2026-09-16 Barcelona-Racing Santander: #535 Barcelona-Racing Santander scheduled, #1272 Barcelona-Real Racing Club de Santander finished",
+     "2026-09-19 Celta Vigo-Racing Santander: #1273 Celta Vigo-Real Racing Club de Santander finished, #550 Celta Vigo-Racing Santander scheduled",
+     "2026-09-20 Deportivo La Coruna-Real Betis: #552 Deportivo La Coruna-Real Betis scheduled, #1274 RC Deportivo La Coru\u00f1a-Real Betis finished",
+     "2026-10-11 Real Sociedad-Deportivo La Coruna: #1276 Real Sociedad-RC Deportivo La Coru\u00f1a finished, #561 Real Sociedad-Deportivo La Coruna scheduled",
+     "2026-10-11 Racing Santander-Valencia: #564 Racing Santander-Valencia scheduled, #1275 Real Racing Club de Santander-Valencia finished",
+     "2026-10-16 Deportivo La Coruna-Levante: #1278 RC Deportivo La Coru\u00f1a-Levante finished, #572 Deportivo La Coruna-Levante scheduled",
+     "2026-10-18 Osasuna-Racing Santander: #1277 Osasuna-Real Racing Club de Santander finished, #574 Osasuna-Racing Santander scheduled",
+     "2026-10-24 Racing Santander-Espanyol: #1280 Real Racing Club de Santander-Espanyol finished, #584 Racing Santander-Espanyol scheduled",
+     "2026-10-24 Atletico Madrid-Deportivo La Coruna: #1279 Atletico Madrid-RC Deportivo La Coru\u00f1a finished, #576 Atletico Madrid-Deportivo La Coruna scheduled",
+     "2026-11-01 Racing Santander-Real Madrid: #1282 Real Racing Club de Santander-Real Madrid finished, #594 Racing Santander-Real Madrid scheduled",
+     "2026-11-02 Deportivo La Coruna-Osasuna: #590 Deportivo La Coruna-Osasuna scheduled, #1281 RC Deportivo La Coru\u00f1a-Osasuna finished",
+     "2026-11-07 Malaga-Racing Santander: #1283 Malaga-Real Racing Club de Santander finished, #598 Malaga-Racing Santander scheduled",
+     "2026-11-07 Espanyol-Deportivo La Coruna: #1284 Espanyol-RC Deportivo La Coru\u00f1a finished, #601 Espanyol-Deportivo La Coruna scheduled"
+    ]
+   },
+   "recording": {
+    "frozen_pre_kickoff": 115,
+    "never_predicted": 4
+   }
+  },
+  "bundesliga": {
+   "league": "bundesliga",
+   "fd_matches_to_cutoff": 81,
+   "api_rows": 340,
+   "api_status": {
+    "finished": 81,
+    "scheduled": 259
+   },
+   "api_team_names": 19,
+   "duplicate_team_entities": {
+    "SV Elversberg": [
+     "SV Elversberg",
+     "SV 07 Elversberg"
+    ]
+   },
+   "issues": {
+    "duplicate_api_rows": 9
+   },
+   "examples": {
+    "duplicate_api_rows": [
+     "2026-08-29 SV Elversberg-Bayer Leverkusen: #870 SV Elversberg-Bayer Leverkusen scheduled, #1335 SV 07 Elversberg-Bayer Leverkusen finished",
+     "2026-09-05 Borussia M\u00f6nchengladbach-SV Elversberg: #876 Borussia M\u00f6nchengladbach-SV Elversberg scheduled, #1336 Borussia M\u00f6nchengladbach-SV 07 Elversberg finished",
+     "2026-09-13 SV Elversberg-Bayern M\u00fcnchen: #891 SV Elversberg-Bayern M\u00fcnchen scheduled, #1337 SV 07 Elversberg-Bayern M\u00fcnchen finished",
+     "2026-09-20 FC Schalke 04-SV Elversberg: #899 FC Schalke 04-SV Elversberg scheduled, #1338 FC Schalke 04-SV 07 Elversberg finished",
+     "2026-10-10 Union Berlin-SV Elversberg: #907 Union Berlin-SV Elversberg scheduled, #1339 Union Berlin-SV 07 Elversberg finished",
+     "2026-10-17 SV Elversberg-FC Augsburg: #918 SV Elversberg-FC Augsburg scheduled, #1340 SV 07 Elversberg-FC Augsburg finished",
+     "2026-10-24 RB Leipzig-SV Elversberg: #925 RB Leipzig-SV Elversberg scheduled, #1341 RB Leipzig-SV 07 Elversberg finished",
+     "2026-10-30 SV Elversberg-FSV Mainz 05: #1342 SV 07 Elversberg-FSV Mainz 05 finished, #936 SV Elversberg-FSV Mainz 05 scheduled",
+     "2026-11-07 Borussia Dortmund-SV Elversberg: #939 Borussia Dortmund-SV Elversberg scheduled, #1343 Borussia Dortmund-SV 07 Elversberg finished"
+    ]
+   },
+   "recording": {
+    "frozen_pre_kickoff": 80,
+    "never_predicted": 1
+   }
+  }
+ },
+ "graded": {
+  "epl": {
+   "n_graded": 100,
+   "model_1x2_ll": 1.0456922270720606,
+   "model_brier": 0.6274024391422859,
+   "model_accuracy": 0.47,
+   "n_with_avgc": 100,
+   "market_avgc_ll": 1.0107901324805406,
+   "model_ll_on_market_rows": 1.0456922270720606,
+   "model_minus_market_avgc": {
+    "n": 100,
+    "clusters": 10,
+    "mean": 0.03490209459151985,
+    "ci95": [
+     -0.009377774507643462,
+     0.07941712280729198
+    ],
+    "ci97.5": [
+     -0.015400165083037138,
+     0.08611276805047811
+    ]
+   },
+   "model_minus_market_avgc_shin": {
+    "n": 100,
+    "clusters": 10,
+    "mean": 0.0346819061519699,
+    "ci95": [
+     -0.010170595424966013,
+     0.07883955926109365
+    ],
+    "ci97.5": [
+     -0.015842648632962565,
+     0.08441330236396632
+    ]
+   },
+   "model_minus_market_bfec": {
+    "n": 100,
+    "clusters": 10,
+    "mean": 0.03571211687908624,
+    "ci95": [
+     -0.009202123632432425,
+     0.07917767154857469
+    ],
+    "ci97.5": [
+     -0.01634655795704313,
+     0.08529444233813495
+    ]
+   },
+   "lead_hours_median": 128.81476730166665,
+   "lead_hours_max": 487.6544134966667,
+   "frozen_older_than_48h": 61,
+   "frozen_with_unseen_team_results": 46,
+   "frozen_model_versions": {
+    "poisson-elo-club-v0.3": 100
+   }
+  },
+  "laliga": {
+   "n_graded": 115,
+   "model_1x2_ll": 0.9483018905045282,
+   "model_brier": 0.5601877817075042,
+   "model_accuracy": 0.5391304347826087,
+   "n_with_avgc": 115,
+   "market_avgc_ll": 0.9046134767074614,
+   "model_ll_on_market_rows": 0.9483018905045282,
+   "model_minus_market_avgc": {
+    "n": 115,
+    "clusters": 11,
+    "mean": 0.04368841379706661,
+    "ci95": [
+     0.010935805138934806,
+     0.08117894569458088
+    ],
+    "ci97.5": [
+     0.006486498135408529,
+     0.08723513775396297
+    ]
+   },
+   "model_minus_market_avgc_shin": {
+    "n": 115,
+    "clusters": 11,
+    "mean": 0.047155023723365025,
+    "ci95": [
+     0.014254788368729544,
+     0.08498275129314434
+    ],
+    "ci97.5": [
+     0.009171822461232996,
+     0.09025010508772872
+    ]
+   },
+   "model_minus_market_bfec": {
+    "n": 115,
+    "clusters": 11,
+    "mean": 0.05091967219043625,
+    "ci95": [
+     0.01932226401444602,
+     0.08711054976545066
+    ],
+    "ci97.5": [
+     0.01595323633091302,
+     0.09174910313473116
+    ]
+   },
+   "lead_hours_median": 106.36383435277777,
+   "lead_hours_max": 487.5055166680555,
+   "frozen_older_than_48h": 70,
+   "frozen_with_unseen_team_results": 55,
+   "frozen_model_versions": {
+    "poisson-elo-club-v0.3": 115
+   }
+  },
+  "bundesliga": {
+   "n_graded": 80,
+   "model_1x2_ll": 0.9712837603839155,
+   "model_brier": 0.5793538481706675,
+   "model_accuracy": 0.55,
+   "n_with_avgc": 80,
+   "market_avgc_ll": 0.9608279338223225,
+   "model_ll_on_market_rows": 0.9712837603839155,
+   "model_minus_market_avgc": {
+    "n": 80,
+    "clusters": 9,
+    "mean": 0.01045582656159292,
+    "ci95": [
+     -0.01830987699712328,
+     0.0414361160379771
+    ],
+    "ci97.5": [
+     -0.022125232225914414,
+     0.046489953125822416
+    ]
+   },
+   "model_minus_market_avgc_shin": {
+    "n": 80,
+    "clusters": 9,
+    "mean": 0.01017806296714609,
+    "ci95": [
+     -0.015533185687282255,
+     0.039436929918792905
+    ],
+    "ci97.5": [
+     -0.01816193172907371,
+     0.04348831644356855
+    ]
+   },
+   "model_minus_market_bfec": {
+    "n": 80,
+    "clusters": 9,
+    "mean": 0.012229897025434614,
+    "ci95": [
+     -0.012710817797891105,
+     0.04130424001414503
+    ],
+    "ci97.5": [
+     -0.015168129910138817,
+     0.04449796096509825
+    ]
+   },
+   "lead_hours_median": 144.58907575916666,
+   "lead_hours_max": 484.5890757591667,
+   "frozen_older_than_48h": 44,
+   "frozen_with_unseen_team_results": 29,
+   "frozen_model_versions": {
+    "poisson-elo-club-v0.3": 80
+   }
+  }
+ },
+ "ucl": {
+  "api_rows": 234,
+  "finished_to_cutoff": 148,
+  "recording": {
+   "never_predicted": 56,
+   "frozen_pre_kickoff": 92
+  },
+  "graded_by_stage": {
+   "qualifying": 20,
+   "group": 72
+  },
+  "stuck_scheduled": [
+   "#1249 2026-08-18 Fenerbah\u00e7e-Lyon (qualifying)",
+   "#1250 2026-08-18 Dinamo Zagreb-Viking (qualifying)",
+   "#1251 2026-08-18 Levski Sofia-AEK Athens FC (qualifying)",
+   "#1247 2026-08-19 Celtic-Lask Linz (qualifying)",
+   "#1252 2026-08-19 NEC Nijmegen-Bodo/Glimt (qualifying)",
+   "#1253 2026-08-19 Hapoel Beer Sheva-Sabah FA (qualifying)",
+   "#1254 2026-08-19 Slovan Bratislava-Celje (qualifying)",
+   "#1255 2026-08-25 Sabah FA-Hapoel Beer Sheva (qualifying)",
+   "#1248 2026-08-25 Lask Linz-Celtic (qualifying)",
+   "#1256 2026-08-25 Bodo/Glimt-NEC Nijmegen (qualifying)",
+   "#1257 2026-08-26 Lyon-Fenerbah\u00e7e (qualifying)",
+   "#1258 2026-08-26 AEK Athens FC-Levski Sofia (qualifying)",
+   "#1259 2026-08-26 Viking-Dinamo Zagreb (qualifying)",
+   "#1260 2026-08-26 Celje-Slovan Bratislava (qualifying)"
+  ],
+  "model_1x2_ll": 0.8699954385372386,
+  "model_brier": 0.5080729860872425,
+  "model_accuracy": 0.75,
+  "n_graded": 92
+ },
+ "post_kickoff_writes": {
+  "epl": {
+   "matches_with_post_kickoff_rows": 1,
+   "post_kickoff_rows": 1
+  },
+  "laliga": {
+   "matches_with_post_kickoff_rows": 26,
+   "post_kickoff_rows": 783
+  },
+  "bundesliga": {
+   "matches_with_post_kickoff_rows": 9,
+   "post_kickoff_rows": 303
+  },
+  "ucl": {
+   "matches_with_post_kickoff_rows": 15,
+   "post_kickoff_rows": 855
+  }
+ },
+ "missing_frozen_breakdown": {
+  "bundesliga | never_predicted | duplicate-entity row": 1,
+  "laliga | never_predicted | duplicate-entity row": 4
+ }
+}

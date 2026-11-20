@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -557,6 +558,8 @@ def _regenerate_tournament_predictions(
     *,
     n_sims: int,
     tournament_sims: int,
+    kickoff_after: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> dict:
     """Regenerate every loaded competition behind an explicit DB boundary.
 
@@ -600,6 +603,8 @@ def _regenerate_tournament_predictions(
                 tournament_sims=tournament_sims,
                 tournament_id=tournament.id,
                 commit=False,
+                kickoff_after=kickoff_after,
+                clock=clock,
             )
         else:
             code, cfg = registered
@@ -620,6 +625,8 @@ def _regenerate_tournament_predictions(
                 ),
                 standings_advance_count=cfg.get("standings_advance_count", 2),
                 commit=False,
+                kickoff_after=kickoff_after,
+                clock=clock,
             )
         for key in ("matches_predicted", "groups_simulated", "tournament_teams"):
             totals[key] += result[key]
@@ -633,6 +640,8 @@ def run_post_results_chain(
     model_version: str,
     n_sims: int = 2000,
     tournament_sims: int = 1000,
+    kickoff_after: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> dict:
     """Everything that should follow new results, in order: evaluate + update
     ratings → regenerate future predictions/simulations (which read the
@@ -669,6 +678,8 @@ def run_post_results_chain(
         model_version,
         n_sims=n_sims,
         tournament_sims=tournament_sims,
+        kickoff_after=kickoff_after,
+        clock=clock,
     )
     summary["brackets"] = recompute_scores(db, knockout_results=knockout_results_from_db(db))
     try:
@@ -687,6 +698,8 @@ def run_tracked_post_results_chain(
     trigger: str,
     n_sims: int = 2000,
     tournament_sims: int = 1000,
+    kickoff_after: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> dict:
     """``run_post_results_chain`` with a durable heartbeat (app/chain_status).
 
@@ -701,7 +714,8 @@ def run_tracked_post_results_chain(
     record_attempt(db, trigger)
     try:
         summary = run_post_results_chain(
-            db, model_version, n_sims=n_sims, tournament_sims=tournament_sims
+            db, model_version, n_sims=n_sims, tournament_sims=tournament_sims,
+            kickoff_after=kickoff_after, clock=clock,
         )
     except Exception as exc:
         db.rollback()  # drop any partial, uncommitted stage before the status write

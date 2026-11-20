@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.serializers import created_by_kickoff
 from app.models import Match, Prediction
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -23,7 +24,11 @@ def prob_history(match_id: int, db: Session = Depends(get_db)):
                                                      "message": f"No match {match_id}"})
     rows = (
         db.query(Prediction)
-        .filter(Prediction.match_id == match_id, Prediction.is_shadow.is_(False))
+        .join(Match, Prediction.match_id == Match.id)
+        # A point is a pre-match price: rows written after kickoff are not
+        # drawn as if they were (serializers.created_by_kickoff).
+        .filter(Prediction.match_id == match_id, Prediction.is_shadow.is_(False),
+                created_by_kickoff())
         .order_by(Prediction.created_at.desc(), Prediction.id.desc())
         .limit(_FETCH_LIMIT)
         .all()

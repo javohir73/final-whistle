@@ -161,6 +161,12 @@ _ALIASES: dict[str, str] = {
     # rosters and the ten-season SP1/D1 football-data.co.uk names on
     # 2026-07-27. Racing Santander and SV Elversberg have no top-flight row in
     # that source window and remain explicit cold starts in pipeline/leagues.py.
+    # Their football-data.co.uk spellings ("Santander", "Elversberg") first
+    # appear in the 2026-27 SP1/D1 files; aliased here (audit 2026-11-20) so
+    # the season's backfill, once SEASON_CODES gains "2627", lands on the
+    # same Team rows instead of creating a third and fourth duplicate entity.
+    "santander": "Racing Santander",
+    "elversberg": "SV Elversberg",
     "ath madrid": "Atletico Madrid",
     "betis": "Real Betis",
     "ath bilbao": "Athletic Club",
