@@ -97,7 +97,9 @@ jobs:
           # host that played in Group A, which makes it a stable needle rather
           # than one that rots when a roster or draw changes.
           check "$SITE/"
-          check "$SITE/football/wc26/fixtures" "" "Mexico"
+          # The fixtures page now shows one round at a time and opens on the
+          # Final, so ask for group matchday 1 (Mexico played the opening match).
+          check "$SITE/football/wc26/fixtures?mw=md1" "" "Mexico"
           check "$SITE/football/wc26/bracket" "" "Mexico"
           check "$SITE/football/wc26/match/1" "" "Mexico"
           check "$SITE/football/wc26/team/1" "" "Mexico"
