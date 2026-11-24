@@ -50,6 +50,7 @@ class IngestSummary:
     bouts_new: int = 0
     bouts_changed: int = 0
     bouts_cancelled: int = 0
+    bouts_reinstated: int = 0
     fighters_named: int = 0
     failed: int = 0
 
@@ -150,16 +151,28 @@ def _apply_bout(
     if current is None:
         new_row(0)
         summary.bouts_new += 1
-    elif (current.fighter_a_id, current.fighter_b_id) == (a.id, b.id):
-        if current.locked_at is None and current.status == "scheduled":
+        return
+    # The pair is unordered and the stored a/b order never changes: picks and
+    # probabilities are stored as "a" / "b" for the life of the row.
+    same_pair = {current.fighter_a_id, current.fighter_b_id} == {a.id, b.id}
+    if same_pair and current.status == "scheduled" and current.locked_at is None:
+        for f in _BOUT_FIELDS:
+            setattr(current, f, getattr(card, f))
+    elif same_pair and current.status == "cancelled":
+        if current.locked_at is None:
             for f in _BOUT_FIELDS:
                 setattr(current, f, getattr(card, f))
-    elif current.status == "scheduled":
-        current.status = "changed"
+            current.status = "scheduled"
+            summary.bouts_reinstated += 1
+        else:
+            log.warning("bout %s is cancelled and locked; not reinstating", card.provider_id)
+    elif not same_pair and current.status in ("scheduled", "cancelled"):
+        if current.status == "scheduled":
+            current.status = "changed"
         successor = new_row(current.revision + 1)
         current.replaced_by_id = successor.id
         summary.bouts_changed += 1
-    else:
+    elif not same_pair:
         log.warning(
             "bout %s is %s; ignoring changed fighters in the feed", card.provider_id, current.status
         )
@@ -173,7 +186,11 @@ def upsert_event(
     summary: IngestSummary | None = None,
 ) -> UfcEvent:
     """Write one card (event, fighters, bouts) without committing. `now` only
-    dates the slug of an event whose feed has no bout times."""
+    dates the slug of an event whose feed has no bout times.
+
+    Once a bout is locked or no longer "scheduled", none of its card fields
+    are updated (a cancelled, unlocked bout back on the card is reinstated).
+    A card with no bouts is treated as a bad snapshot: nothing is cancelled."""
     summary = summary if summary is not None else IngestSummary()
     now = now or datetime.now(timezone.utc)
     event = db.scalar(
@@ -197,6 +214,10 @@ def upsert_event(
     for bout in card.bouts:
         _apply_bout(db, provider, event, bout, summary)
 
+    if not card.bouts:
+        log.warning("event %s (%s): card has no bouts; skipping cancellation sweep", card.provider_id, card.name)
+        db.flush()
+        return event
     on_card = {b.provider_id for b in card.bouts}
     for row in db.scalars(
         select(UfcBout).where(UfcBout.event_id == event.id, UfcBout.status == "scheduled")

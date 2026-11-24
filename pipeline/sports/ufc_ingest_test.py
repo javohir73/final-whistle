@@ -240,3 +240,92 @@ def test_missing_profile_leaves_tba(db_session):
     assert summary.failed == 0 and summary.fighters_named == 0
     assert {f.name for f in db_session.query(UfcFighter)} == {"TBA"}
     assert len(provider.fighter_calls) == 6
+
+
+def test_flipped_pair_is_the_same_bout_and_keeps_stored_order(db_session):
+    upsert_event(db_session, "espn", _card(_bout(a=("1", None), b=("2", None))), now=NOW)
+    db_session.commit()
+    before = current_bout(db_session, "espn", "b1")
+    stored = (before.id, before.fighter_a_id, before.fighter_b_id)
+    later = datetime(2026, 12, 5, 21, 0, tzinfo=timezone.utc)
+    summary = IngestSummary()
+    upsert_event(
+        db_session, "espn", _card(_bout(a=("2", None), b=("1", None), when=later)),
+        now=NOW, summary=summary,
+    )
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    assert _count(db_session, UfcBout) == 1
+    assert (row.id, row.fighter_a_id, row.fighter_b_id) == stored
+    assert row.revision == 0 and row.status == "scheduled"
+    assert _utc(row.scheduled_utc) == later
+    assert summary.bouts_changed == 0 and summary.bouts_new == 0
+
+
+def test_empty_card_cancels_nothing(db_session):
+    upsert_event(db_session, "espn", _card(_bout()), now=NOW)
+    db_session.commit()
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(), now=NOW, summary=summary)
+    db_session.commit()
+    assert current_bout(db_session, "espn", "b1").status == "scheduled"
+    assert summary.bouts_cancelled == 0
+
+
+def _drop(db_session):
+    upsert_event(db_session, "espn", _card(_bout(), _bout("b2", ("5", None), ("6", None), order=2)), now=NOW)
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)), now=NOW)
+    db_session.commit()
+    assert current_bout(db_session, "espn", "b1").status == "cancelled"
+
+
+def test_dropped_then_readded_same_pair_is_reinstated(db_session):
+    _drop(db_session)
+    old = current_bout(db_session, "espn", "b1")
+    old_id, a_id, b_id = old.id, old.fighter_a_id, old.fighter_b_id
+    later = datetime(2026, 12, 5, 19, 0, tzinfo=timezone.utc)
+    summary = IngestSummary()
+    upsert_event(
+        db_session, "espn",
+        _card(_bout(a=("2", None), b=("1", None), when=later), _bout("b2", ("5", None), ("6", None), order=2)),
+        now=NOW, summary=summary,
+    )
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.id, row.revision, row.status) == (old_id, 0, "scheduled")
+    assert (row.fighter_a_id, row.fighter_b_id) == (a_id, b_id)
+    assert _utc(row.scheduled_utc) == later
+    assert summary.bouts_reinstated == 1 and summary.bouts_new == 0
+
+
+def test_dropped_then_readded_with_new_opponent_is_a_new_revision(db_session):
+    _drop(db_session)
+    old = current_bout(db_session, "espn", "b1")
+    summary = IngestSummary()
+    upsert_event(
+        db_session, "espn",
+        _card(_bout(b=("3", None)), _bout("b2", ("5", None), ("6", None), order=2)),
+        now=NOW, summary=summary,
+    )
+    db_session.commit()
+    new = current_bout(db_session, "espn", "b1")
+    db_session.refresh(old)
+    assert new.id != old.id and new.revision == 1 and new.status == "scheduled"
+    assert old.status == "cancelled" and old.replaced_by_id == new.id
+    assert summary.bouts_changed == 1 and summary.bouts_reinstated == 0
+
+
+def test_locked_cancelled_bout_is_not_reinstated(db_session):
+    _drop(db_session)
+    old = current_bout(db_session, "espn", "b1")
+    old.locked_at = NOW
+    db_session.commit()
+    summary = IngestSummary()
+    upsert_event(
+        db_session, "espn",
+        _card(_bout(), _bout("b2", ("5", None), ("6", None), order=2)), now=NOW, summary=summary,
+    )
+    db_session.commit()
+    assert current_bout(db_session, "espn", "b1").status == "cancelled"
+    assert _count(db_session, UfcBout) == 2 and summary.bouts_reinstated == 0
