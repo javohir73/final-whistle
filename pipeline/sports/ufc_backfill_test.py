@@ -1,14 +1,17 @@
 """Tests for the UFC history backfill and its daily workflow file."""
 from __future__ import annotations
 
+import logging
 import shutil
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pytest
 import yaml
 from sqlalchemy import select
 
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter, UfcOddsSnapshot
+from pipeline.sports import ufc_backfill
 from pipeline.sports.ufc_backfill import backfill
 from pipeline.sports.ufc_recorded import RecordedUfcProvider
 
@@ -62,9 +65,7 @@ def test_backfill_includes_an_upcoming_card_as_scheduled(db_session):
         assert bout.status == "scheduled" and bout.winner is None
 
 
-def test_backfill_survives_a_truncated_event_file(db_session, tmp_path):
-    # An unparseable file cannot even be listed by the recorded provider, so it
-    # is skipped without being counted; the rest of the history still loads.
+def test_backfill_survives_a_broken_event_file(db_session, tmp_path):
     raw = tmp_path / "raw"
     shutil.copytree(RAW, raw)
     path = raw / "events" / f"{UPCOMING_EVENT}.json"
@@ -72,7 +73,7 @@ def test_backfill_survives_a_truncated_event_file(db_session, tmp_path):
     summary = backfill(db_session, RecordedUfcProvider(raw), START, END, now=NOW)
     assert _event(db_session, FINISHED_EVENT).status == "finished"
     assert _event(db_session, UPCOMING_EVENT) is None
-    assert summary.events == 1 and summary.finished == 3 and summary.failed == 0
+    assert summary.failed == 1 and summary.events == 1 and summary.finished == 3
 
 
 def test_backfill_counts_a_listed_but_unusable_event_file(db_session, tmp_path):
@@ -143,3 +144,105 @@ def test_workflow_is_valid_yaml_with_both_steps():
     assert "--days-back 2 --days-ahead 60" in ingest[0]["run"]
     assert results[0].get("continue-on-error") is True
     assert not ingest[0].get("continue-on-error")
+
+
+class _Reversed(RecordedUfcProvider):
+    def list_event_ids(self, start, end):
+        return sorted(super().list_event_ids(start, end), reverse=True)
+
+
+def test_backfill_loads_oldest_first_whatever_the_provider_order(db_session):
+    ids = _Reversed(RAW).list_event_ids(START, END)
+    assert ids[0] == UPCOMING_EVENT  # the provider hands back the newest first
+    backfill(db_session, _Reversed(RAW), START, END, now=NOW)
+    rows = db_session.scalars(select(UfcEvent).order_by(UfcEvent.id)).all()
+    assert [e.provider_event_id for e in rows] == [FINISHED_EVENT, UPCOMING_EVENT]
+
+
+class _CountingFighters(RecordedUfcProvider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fighter_calls: list[str] = []
+        self.raise_for: set[str] = set()
+
+    def fetch_fighter(self, fighter_id):
+        self.fighter_calls.append(fighter_id)
+        if fighter_id in self.raise_for:
+            raise RuntimeError("boom")
+        return super().fetch_fighter(fighter_id)
+
+
+def test_missing_profiles_are_not_refetched_on_a_rerun(db_session, tmp_path):
+    raw = tmp_path / "raw"
+    shutil.copytree(RAW, raw)
+    (raw / "athletes" / "3156612.json").unlink()
+    provider = _CountingFighters(raw)
+    backfill(db_session, provider, START, END, now=NOW)
+    assert provider.fighter_calls.count("3156612") == 1
+    provider.fighter_calls.clear()
+    backfill(db_session, provider, START, END, now=NOW)
+    assert provider.fighter_calls == []
+
+
+def test_a_failing_profile_does_not_roll_back_the_event(db_session):
+    provider = _CountingFighters(RAW)
+    provider.raise_for = {"3156612"}
+    summary = backfill(db_session, provider, START, END, now=NOW)
+    assert _event(db_session, FINISHED_EVENT).status == "finished"
+    assert db_session.query(UfcBoutStat).count() == 6
+    assert summary.failed == 1 and summary.events == 2
+
+
+def test_historic_odds_are_stamped_with_the_scheduled_start(db_session):
+    backfill(db_session, RecordedUfcProvider(RAW), START, END, now=NOW)
+    bout = _bout(db_session, "401922277")
+    snap = db_session.scalar(select(UfcOddsSnapshot).where(UfcOddsSnapshot.bout_id == bout.id))
+    taken = snap.taken_at if snap.taken_at.tzinfo else snap.taken_at.replace(tzinfo=timezone.utc)
+    start = bout.scheduled_utc if bout.scheduled_utc.tzinfo else bout.scheduled_utc.replace(tzinfo=timezone.utc)
+    assert taken == start
+
+
+def test_backfill_warnings_do_not_leak_the_exception_text(db_session, caplog):
+    class Leaky(RecordedUfcProvider):
+        def fetch_stats(self, event_id, bout):
+            raise RuntimeError("SECRET-MARKER-123")
+
+    with caplog.at_level(logging.DEBUG):
+        backfill(db_session, Leaky(RAW), START, END, now=NOW)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings and not any("SECRET-MARKER-123" in m for m in warnings)
+
+
+def test_live_run_without_from_is_refused(monkeypatch, capsys):
+    monkeypatch.setattr(ufc_backfill, "backfill", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(SystemExit) as exc:
+        ufc_backfill.main([])
+    assert exc.value.code == 2
+    assert "--raw" in capsys.readouterr().err
+
+
+def test_live_run_with_from_warns_with_the_window(monkeypatch, caplog):
+    import app.db
+    import pipeline.sports.ufc_provider as prov
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+    seen = {}
+
+    def fake(db, provider, start, end, now=None):
+        seen["window"] = (start, end)
+        return ufc_backfill.BackfillSummary()
+
+    monkeypatch.setattr(ufc_backfill, "backfill", fake)
+    with caplog.at_level(logging.WARNING):
+        assert ufc_backfill.main(["--from", "2026-11-01", "--to", "2026-11-30"]) == 0
+    assert seen["window"] == (date(2026, 11, 1), date(2026, 11, 30))
+    assert any("2026-11-01" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_workflow_has_read_only_permissions():
+    assert yaml.safe_load(WORKFLOW.read_text())["permissions"] == {"contents": "read"}

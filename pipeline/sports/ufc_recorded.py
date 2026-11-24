@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from pipeline.sports import ufc_espn_parse as parse
@@ -47,13 +47,20 @@ class RecordedUfcProvider:
         return self._load("bouts", f"{event_id}_{bout.provider_id}.json")
 
     def list_event_ids(self, start: date, end: date) -> list[str]:
-        ids: list[str] = []
+        """Ids in the window, oldest first by (event date, id): filename order
+        would sort ids of different lengths as strings. A file that cannot be
+        read or has no date is still listed, after the dated ones and whatever
+        the window, so the caller meets it and counts it as a failure."""
+        dated: list[tuple[datetime, str]] = []
+        unreadable: list[str] = []
         for path in sorted((self.root / "events").glob("*.json")):
             doc = self._load("events", path.name)
             when = parse.parse_dt(doc.get("date")) if doc else None
-            if when is not None and start <= when.date() <= end:
-                ids.append(path.stem)
-        return ids
+            if when is None:
+                unreadable.append(path.stem)
+            elif start <= when.date() <= end:
+                dated.append((when, path.stem))
+        return [event_id for _, event_id in sorted(dated)] + unreadable
 
     def fetch_event(self, event_id: str) -> EventCard | None:
         doc = self._load("events", f"{event_id}.json")

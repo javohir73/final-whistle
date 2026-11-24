@@ -284,7 +284,8 @@ def ingest_window(
             db.commit()
         except Exception as exc:  # noqa: BLE001 - one bad event must never stop the rest
             db.rollback()
-            log.warning("event %s: ingest failed, skipping: %s", event_id, exc)
+            log.warning("event %s: ingest failed, skipping: %s", event_id, type(exc).__name__)
+            log.debug("event %s: ingest failure detail: %s", event_id, exc)
             total.failed += 1
             continue
         mine.events = 1

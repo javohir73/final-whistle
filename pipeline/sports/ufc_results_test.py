@@ -434,3 +434,81 @@ def test_one_profile_failure_does_not_stop_the_others(db_session):
     assert summary.failed == 1
     assert summary.profiles == 0
     assert db_session.scalar(select(UfcEvent)).status == "finished"
+
+
+def test_process_bout_is_public_and_records_odds_for_unfinished_bouts_on_request(db_session):
+    from pipeline.sports.ufc_results import process_bout
+
+    provider = _provider()
+    ingest_window(db_session, provider, date(2026, 11, 20), date(2026, 11, 22), now=AFTER_CARD)
+    bout = _bout(db_session, "401922277")
+    summary = ResultsSummary()
+    process_bout(db_session, provider, bout, summary, AFTER_CARD)
+    assert bout.status == "finished" and summary.finished == 1 and summary.stats == 2
+    assert summary.odds == 1
+
+
+def test_process_bout_odds_always_covers_a_bout_that_has_not_finished(db_session):
+    from pipeline.sports.ufc_results import process_bout
+
+    class PreWithOdds(RecordedUfcProvider):
+        def fetch_odds(self, event_id, bout):
+            return [OddsLine("DraftKings", -150, 130)]
+
+    provider = PreWithOdds(RAW)
+    ingest_window(db_session, provider, date(2026, 12, 4), date(2026, 12, 6), now=AFTER_CARD)
+    bout = _bout(db_session, "401933595")
+    quiet = ResultsSummary()
+    process_bout(db_session, provider, bout, quiet, AFTER_CARD)
+    assert quiet.odds == 0
+    loud = ResultsSummary()
+    process_bout(db_session, provider, bout, loud, AFTER_CARD, odds_always=True)
+    assert loud.odds == 1 and bout.status == "scheduled"
+
+
+def test_record_odds_taken_at_stamps_the_snapshot(db_session):
+    bout = _bare_bout(db_session)[0]
+    when = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    assert record_odds(db_session, bout, [OddsLine("DraftKings", -150, 130)], taken_at=when) == 1
+    row = db_session.scalar(select(UfcOddsSnapshot))
+    assert _utc(row.taken_at) == when
+
+
+def test_fill_profiles_fighter_ids_restricts_candidates(db_session):
+    from pipeline.sports.ufc_results import fill_profiles
+
+    provider = _NoDobProvider(RAW)
+    _tba_card(db_session, provider)
+    only = db_session.scalar(select(UfcFighter).where(UfcFighter.provider_fighter_id == "3156612"))
+    changed, failed = fill_profiles(db_session, provider, now=AFTER_CARD, fighter_ids={only.id})
+    assert (changed, failed) == (1, 0)
+    assert provider.calls == ["3156612"]
+
+
+def test_stale_scheduled_bouts_are_not_fetched_forever(db_session):
+    from pipeline.sports.ufc_results import RESULTS_LOOKBACK
+
+    assert RESULTS_LOOKBACK == timedelta(days=14)
+    old = _bare_bout(db_session, (("old", "scheduled"),), when=AFTER_CARD - timedelta(days=30), event_id="e-old")[0]
+    recent = _bare_bout(db_session, (("recent", "scheduled"),), when=AFTER_CARD - timedelta(days=3), event_id="e-new")[0]
+    provider = CountingOutcomeProvider(RAW)
+    refresh_results(db_session, provider, now=AFTER_CARD)
+    assert "old" not in provider.outcome_calls
+    assert "recent" in provider.outcome_calls
+
+
+def test_failure_warnings_do_not_leak_the_exception_text(db_session, caplog):
+    import logging
+
+    class Leaky(RecordedUfcProvider):
+        def fetch_outcome(self, event_id, bout):
+            raise RuntimeError("SECRET-MARKER-123")
+
+    provider = Leaky(RAW)
+    ingest_window(db_session, provider, date(2026, 11, 20), date(2026, 11, 22), now=AFTER_CARD)
+    with caplog.at_level(logging.DEBUG):
+        summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert summary.failed == 3
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings and not any("SECRET-MARKER-123" in m for m in warnings)
+    assert any("RuntimeError" in m for m in warnings)

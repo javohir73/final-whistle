@@ -63,3 +63,32 @@ def test_outcome_none_when_recorded_pair_differs_from_card():
     main = next(b for b in p.fetch_event("600061665").bouts if b.provider_id == "401922277")
     other = replace(main, fighter_b=replace(main.fighter_b, provider_id="999"))
     assert p.fetch_outcome("600061665", other) is None
+
+
+def _write_event(raw, event_id, when):
+    (raw / "events" / f"{event_id}.json").write_text(f'{{"date": "{when}"}}', encoding="utf-8")
+
+
+def test_events_are_listed_by_date_then_id_not_by_filename(tmp_path):
+    import shutil
+
+    raw = tmp_path / "raw"
+    shutil.copytree(RAW, raw)
+    _write_event(raw, "99", "2020-03-01T00:00Z")
+    _write_event(raw, "1000", "2021-03-01T00:00Z")
+    _write_event(raw, "5", "2021-03-01T00:00Z")
+    ids = RecordedUfcProvider(raw).list_event_ids(date(2020, 1, 1), date(2021, 12, 31))
+    assert ids == ["99", "1000", "5"]
+
+
+def test_unreadable_event_file_is_listed_after_the_dated_ones(tmp_path):
+    import shutil
+
+    raw = tmp_path / "raw"
+    shutil.copytree(RAW, raw)
+    path = raw / "events" / "600061665.json"
+    path.write_text(path.read_text()[:30], encoding="utf-8")
+    p = RecordedUfcProvider(raw)
+    assert p.list_event_ids(date(2026, 12, 1), date(2026, 12, 31)) == ["600062700", "600061665"]
+    assert p.list_event_ids(date(2020, 1, 1), date(2020, 1, 2)) == ["600061665"]
+    assert p.fetch_event("600061665") is None

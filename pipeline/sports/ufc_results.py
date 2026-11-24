@@ -42,6 +42,9 @@ _RESULT_FIELDS = ("winner", "method", "method_detail", "end_round", "end_clock")
 _UNTOUCHABLE = ("cancelled", "changed")
 _NO_WINNER_METHODS = ("draw", "no_contest")
 PROFILE_RECHECK = timedelta(days=30)
+# A scheduled or live bout older than this that the feed never finalised is
+# left alone rather than fetched twice a day for ever.
+RESULTS_LOOKBACK = timedelta(days=14)
 
 
 @dataclass
@@ -135,9 +138,14 @@ def record_stats(db: Session, bout: UfcBout, stats: dict[str, FighterBoutStats])
     return written
 
 
-def record_odds(db: Session, bout: UfcBout, lines: list[OddsLine]) -> int:
+def record_odds(
+    db: Session, bout: UfcBout, lines: list[OddsLine], taken_at: datetime | None = None
+) -> int:
     """Store a line when it differs from the latest one for that source, so a
-    price moving A, B, A is kept three times; returns the new snapshots."""
+    price moving A, B, A is kept three times; returns the new snapshots.
+    `taken_at` defaults to the database's now. For backfilled history the
+    caller passes the bout's scheduled start, an approximation of the closing
+    line, so an old fight is not stamped with the load date."""
     stored = 0
     for line in lines:
         latest = db.scalar(
@@ -150,10 +158,13 @@ def record_odds(db: Session, bout: UfcBout, lines: list[OddsLine]) -> int:
             line.moneyline_a, line.moneyline_b
         ):
             continue
-        db.add(UfcOddsSnapshot(
+        snapshot = UfcOddsSnapshot(
             bout_id=bout.id, source=line.source,
             moneyline_a=line.moneyline_a, moneyline_b=line.moneyline_b,
-        ))
+        )
+        if taken_at is not None:
+            snapshot.taken_at = taken_at
+        db.add(snapshot)
         db.flush()
         stored += 1
     return stored
@@ -179,18 +190,23 @@ _PROFILE_FIELDS = (
 def ensure_profiles(
     db: Session, provider: UfcProvider, limit: int = 40, now: datetime | None = None
 ) -> int:
-    """Returns the fighters updated; see `_fill_profiles`."""
-    return _fill_profiles(db, provider, limit, now)[0]
+    """Returns the fighters updated; see `fill_profiles`."""
+    return fill_profiles(db, provider, limit, now)[0]
 
 
-def _fill_profiles(
-    db: Session, provider: UfcProvider, limit: int, now: datetime | None
+def fill_profiles(
+    db: Session,
+    provider: UfcProvider,
+    limit: int = 40,
+    now: datetime | None = None,
+    fighter_ids: set[int] | None = None,
 ) -> tuple[int, int]:
     """Fetch profiles for fighters with no date of birth that were not checked
     in the last 30 days, soonest bout (relative to `now`) first. Every attempt,
     even one that returns nothing, stamps `profile_checked_at`. Commits per
     fighter; a failing fighter is rolled back and skipped. Returns (fighters
-    whose data really changed, failures)."""
+    whose data really changed, failures). `fighter_ids` restricts the
+    candidates to those fighters (the history backfill passes one event's)."""
     now = _utc(now) or datetime.now(timezone.utc)
     rows = db.execute(
         select(UfcFighter, func.min(UfcBout.scheduled_utc))
@@ -212,7 +228,8 @@ def _fill_profiles(
 
     candidates = [
         (f, w) for f, w in rows
-        if f.profile_checked_at is None or _utc(f.profile_checked_at) <= now - PROFILE_RECHECK
+        if (fighter_ids is None or f.id in fighter_ids)
+        and (f.profile_checked_at is None or _utc(f.profile_checked_at) <= now - PROFILE_RECHECK)
     ]
     updated = failed = 0
     for fighter, _ in sorted(candidates, key=soonest)[:limit]:
@@ -227,7 +244,8 @@ def _fill_profiles(
             db.commit()
         except Exception as exc:  # noqa: BLE001 - one bad fighter must never stop the rest
             db.rollback()
-            log.warning("fighter %s: profile failed, skipping: %s", fighter_id, exc)
+            log.warning("fighter %s: profile failed, skipping: %s", fighter_id, type(exc).__name__)
+            log.debug("fighter %s: profile failure detail: %s", fighter_id, exc)
             failed += 1
             continue
         updated += changed
@@ -246,19 +264,35 @@ def roll_up_event(db: Session, event: UfcEvent) -> None:
         event.status = "live"
 
 
-def _process_bout(
-    db: Session, provider: UfcProvider, event: UfcEvent, bout: UfcBout,
-    now: datetime, summary: ResultsSummary,
+def process_bout(
+    db: Session,
+    provider: UfcProvider,
+    bout: UfcBout,
+    summary,
+    now: datetime,
+    odds_always: bool = False,
+    odds_taken_at: datetime | None = None,
 ) -> None:
+    """Fetch and apply one bout's outcome, then (once it is finished) its stats
+    and odds. `summary` is anything with finished / stats / odds counters.
+    `odds_always` also records odds for a bout that has not finished;
+    `odds_taken_at` stamps the snapshot of a finished bout (history loads).
+    Does not commit."""
+    event = db.get(UfcEvent, bout.event_id)
     card = bout_card(db, bout)
     was_finished = bout.status == "finished"
     outcome = provider.fetch_outcome(event.provider_event_id, card)
     if outcome is not None and apply_outcome(db, bout, outcome, now=now):
         if bout.status == "finished" and not was_finished:
             summary.finished += 1
-    if bout.status == "finished":
+    finished = bout.status == "finished"
+    if finished:
         summary.stats += record_stats(db, bout, provider.fetch_stats(event.provider_event_id, card))
-        summary.odds += record_odds(db, bout, provider.fetch_odds(event.provider_event_id, card))
+    if finished or odds_always:
+        summary.odds += record_odds(
+            db, bout, provider.fetch_odds(event.provider_event_id, card),
+            taken_at=odds_taken_at if finished else None,
+        )
 
 
 def _has_stats(db: Session, bout: UfcBout) -> bool:
@@ -279,7 +313,7 @@ def refresh_results(
         if bout.status == "finished":
             if now - STATS_GRACE <= when <= now and not _has_stats(db, bout):
                 due.append(bout.id)
-        elif when <= now:
+        elif now - RESULTS_LOOKBACK <= when <= now:
             due.append(bout.id)
         elif bout.status == "scheduled" and when <= now + ODDS_HORIZON:
             upcoming.append(bout.id)
@@ -291,7 +325,7 @@ def refresh_results(
         try:
             if results:
                 summary.checked += 1
-                _process_bout(db, provider, event, bout, now, summary)
+                process_bout(db, provider, bout, summary, now)
             else:
                 summary.odds += record_odds(
                     db, bout, provider.fetch_odds(event.provider_event_id, bout_card(db, bout))
@@ -300,13 +334,15 @@ def refresh_results(
             touched.add(event.id)
         except Exception as exc:  # noqa: BLE001 - one bad bout must never stop the rest
             db.rollback()
-            log.warning("bout %s: results failed, skipping: %s", bout_id, exc)
+            log.warning("bout %s: results failed, skipping: %s", bout_id, type(exc).__name__)
+            log.debug("bout %s: results failure detail: %s", bout_id, exc)
             summary.failed += 1
 
     try:
         stale = db.scalars(
             select(UfcEvent).where(
                 UfcEvent.status != "finished",
+                (UfcEvent.first_bout_utc >= now - RESULTS_LOOKBACK) | UfcEvent.id.in_(touched),
                 UfcEvent.id.in_(
                     select(UfcBout.event_id).where(
                         UfcBout.scheduled_utc.is_not(None),
@@ -324,10 +360,11 @@ def refresh_results(
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        log.warning("event roll-up failed: %s", exc)
+        log.warning("event roll-up failed: %s", type(exc).__name__)
+        log.debug("event roll-up failure detail: %s", exc)
         summary.failed += 1
 
-    summary.profiles, profile_failures = _fill_profiles(db, provider, 40, now)
+    summary.profiles, profile_failures = fill_profiles(db, provider, 40, now)
     summary.failed += profile_failures
     return summary
 

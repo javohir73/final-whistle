@@ -5,6 +5,9 @@
 # Steps print only counts; never row contents (this repository is public).
 name: UFC refresh
 
+permissions:
+  contents: read
+
 on:
   schedule:
     - cron: "20 9 * * *"

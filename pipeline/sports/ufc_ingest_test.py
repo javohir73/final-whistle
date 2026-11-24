@@ -329,3 +329,19 @@ def test_locked_cancelled_bout_is_not_reinstated(db_session):
     db_session.commit()
     assert current_bout(db_session, "espn", "b1").status == "cancelled"
     assert _count(db_session, UfcBout) == 2 and summary.bouts_reinstated == 0
+
+
+def test_failure_warning_does_not_leak_the_exception_text(db_session, caplog):
+    import logging
+
+    class Leaky(RecordedUfcProvider):
+        def fetch_event(self, event_id):
+            raise RuntimeError("SECRET-MARKER-123")
+
+    with caplog.at_level(logging.DEBUG):
+        summary = ingest_window(db_session, Leaky(RAW), date(2026, 11, 1), date(2026, 12, 31))
+    assert summary.failed == 2
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings and not any("SECRET-MARKER-123" in m for m in warnings)
+    assert any("RuntimeError" in m for m in warnings)
+    assert any("SECRET-MARKER-123" in r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
