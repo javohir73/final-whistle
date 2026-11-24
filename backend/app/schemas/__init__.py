@@ -467,8 +467,6 @@ class LeaderboardRowOut(BaseModel):
     total_points: int
     percentile: int | None = None
     updated_at: str | None = None
-    # FinalWhistle Premium supporter badge (defaults False for older clients).
-    premium: bool = False
 
 
 # ---- Match lineups (display-only; never feeds the prediction model) ----
@@ -591,27 +589,7 @@ class MarketsOut(BaseModel):
 
 
 # ---- Billing (FinalWhistle Premium) ----
-class CheckoutSessionIn(BaseModel):
-    plan: Literal["monthly", "annual"]
-    competition: Literal["epl", "laliga", "bundesliga", "ucl", "wc26", "nrl"] | None = None
-    return_to: str | None = None
-
-
 class BillingUrlOut(BaseModel):
     url: str
 
 
-class SetupIntentOut(BaseModel):
-    # The client secret is all the browser needs to mount Payment Element, and
-    # deliberately all it gets — the intent id comes back from Stripe's own SDK.
-    client_secret: str
-
-
-class SubscribeIn(BaseModel):
-    plan: Literal["monthly", "annual"]
-    setup_intent_id: str
-
-
-class SubscribeOut(BaseModel):
-    status: str
-    premium: bool

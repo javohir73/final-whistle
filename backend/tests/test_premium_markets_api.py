@@ -1,4 +1,4 @@
-"""Consumer premium markets: server-side entitlement (401/403), and the payload
+"""Match markets are public: no sign-in or subscription needed, and the payload
 is the same MarketsOut the B2B /v1 surface serves (frozen basis)."""
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import Match, Prediction, Subscription, Team
+from app.models import Match, Prediction, Team
 
 ALLOWED_ORIGIN = "http://localhost:3000"
 
@@ -54,31 +54,7 @@ def _register(client, email="fan@example.com"):
     return r.json()
 
 
-def test_anonymous_gets_401(client):
-    db = client.sessionmaker(); match_id = _seed_match(db); db.close()
-    r = client.get(f"/api/matches/{match_id}/markets")
-    assert r.status_code == 401
-    assert r.headers.get("cache-control") == "no-store"
-
-
-def test_free_user_gets_403(client):
-    db = client.sessionmaker(); match_id = _seed_match(db); db.close()
-    _register(client)
-    r = client.get(f"/api/matches/{match_id}/markets")
-    assert r.status_code == 403
-    # The global exception handler wraps HTTPException details as
-    # {"error": {code, message}} on the wire (see test_billing_api.py).
-    assert r.json()["error"]["code"] == "premium_required"
-    assert r.headers.get("cache-control") == "no-store"
-
-
-def test_premium_user_gets_full_markets(client):
-    db = client.sessionmaker(); match_id = _seed_match(db); db.close()
-    user = _register(client)
-    db = client.sessionmaker()
-    db.add(Subscription(user_id=user["id"], status="active", plan="monthly"))
-    db.commit(); db.close()
-    r = client.get(f"/api/matches/{match_id}/markets")
+def _assert_full_markets(r, match_id):
     assert r.status_code == 200
     body = r.json()
     assert body["match_id"] == match_id
@@ -86,11 +62,27 @@ def test_premium_user_gets_full_markets(client):
                                     "correct_score", "asian_handicap"}
     assert body["markets"]["correct_score"]  # non-empty grid
     assert "disclaimer" in body
-    # Entitlement-gated per-user content: a shared cache keyed on this
-    # user-less URL must never replay a premium 200 to a free/anonymous
-    # caller. See test_auth_responses_are_not_shared_cached in
-    # test_auth_api.py for the same pattern on other per-user surfaces.
-    assert r.headers.get("cache-control") == "no-store"
+
+
+def test_anonymous_gets_full_markets(client):
+    db = client.sessionmaker(); match_id = _seed_match(db); db.close()
+    r = client.get(f"/api/matches/{match_id}/markets")
+    _assert_full_markets(r, match_id)
+    # Public match data: the same shared-cache header as other /api GETs.
+    assert r.headers.get("cache-control") == "public, max-age=60, stale-while-revalidate=300"
+
+
+def test_free_user_gets_full_markets(client):
+    db = client.sessionmaker(); match_id = _seed_match(db); db.close()
+    _register(client)
+    r = client.get(f"/api/matches/{match_id}/markets")
+    _assert_full_markets(r, match_id)
+
+
+def test_404_when_match_missing(client):
+    r = client.get("/api/matches/999999/markets")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "not_found"
 
 
 def test_404_when_no_prediction(client):
@@ -102,8 +94,16 @@ def test_404_when_no_prediction(client):
     db.add(m); db.commit()
     match_id = m.id
     db.close()
-    user = _register(client)
-    db = client.sessionmaker()
-    db.add(Subscription(user_id=user["id"], status="active", plan="monthly"))
+    r = client.get(f"/api/matches/{match_id}/markets")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "no_prediction"
+
+
+def test_404_when_markets_unavailable(client):
+    db = client.sessionmaker(); match_id = _seed_match(db)
+    pred = db.query(Prediction).filter_by(match_id=match_id).one()
+    pred.lambda_home = None
     db.commit(); db.close()
-    assert client.get(f"/api/matches/{match_id}/markets").status_code == 404
+    r = client.get(f"/api/matches/{match_id}/markets")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "markets_unavailable"
