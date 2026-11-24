@@ -19,7 +19,7 @@
 - Do not run `npm install`, and do not edit `frontend/package.json` or `frontend/package-lock.json`: `frontend/node_modules` is a symlink shared with other worktrees. Removing the unused `@stripe/*` packages is a follow-up, to be listed in the report.
 - Leave `frontend/lib/csp.mjs`, `SentryInit.tsx`, `SpeedInsightsMount.tsx` and `instrumentation.ts` alone.
 - The retired-endpoint response, exactly: HTTP 410 with `{"detail": {"code": "premium_retired", "message": "FinalWhistle Premium has been retired. Everything on the site is free."}}`.
-- Match the surrounding code. Commit after each task with explicit paths (never `git add -A`), message ending with `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>`. Do not push.
+- Match the surrounding code. Commit after each task with explicit paths (never `git add -A`), message ending with the Co-Authored-By line your own harness specifies for commits. Do not push.
 - Gates: Python `.venv/bin/python -m pytest -q`; frontend `cd frontend && npm run typecheck && npm run lint && npm test`.
 
 ## Review Focus
