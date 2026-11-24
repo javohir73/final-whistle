@@ -92,3 +92,18 @@ def test_unreadable_event_file_is_listed_after_the_dated_ones(tmp_path):
     assert p.list_event_ids(date(2026, 12, 1), date(2026, 12, 31)) == ["600062700", "600061665"]
     assert p.list_event_ids(date(2020, 1, 1), date(2020, 1, 2)) == ["600061665"]
     assert p.fetch_event("600061665") is None
+
+
+def test_cancelled_recorded_status_is_cancelled(tmp_path):
+    import json
+    import shutil
+
+    root = tmp_path / "raw"
+    shutil.copytree(RAW, root)
+    path = root / "bouts" / "600061665_401922277.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["status"] = {"type": {"name": "STATUS_CANCELED", "state": "post", "completed": False}, "result": {}}
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    p = RecordedUfcProvider(root)
+    main = next(b for b in p.fetch_event("600061665").bouts if b.provider_id == "401922277")
+    assert p.fetch_outcome("600061665", main).state == "cancelled"

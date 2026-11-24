@@ -143,6 +143,7 @@ def test_workflow_is_valid_yaml_with_both_steps():
     assert ingest and results
     assert "--days-back 2 --days-ahead 60" in ingest[0]["run"]
     assert results[0].get("continue-on-error") is True
+    assert all(job["timeout-minutes"] == 30 for job in doc["jobs"].values())
     assert not ingest[0].get("continue-on-error")
 
 

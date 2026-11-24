@@ -65,6 +65,12 @@ def comp_doc(bout_id: str) -> dict:
     return next(c for c in event["competitions"] if c["id"] == bout_id)
 
 
+def _waits(sleeps: list[float]) -> list[float]:
+    """Retry waits only: the 0.25 s politeness pause before each request is
+    asserted on its own."""
+    return [s for s in sleeps if s != espn._PAUSE]
+
+
 def make(routes=None):
     session = FakeSession(routes)
     sleeps: list[float] = []
@@ -156,7 +162,7 @@ def test_404_is_none_without_retry():
     provider, session, sleeps = make()
     assert provider.fetch_fighter("0") is None
     assert len(session.calls) == 1
-    assert sleeps == []
+    assert _waits(sleeps) == []
 
 
 def test_429_then_success_retries_once():
@@ -164,7 +170,7 @@ def test_429_then_success_retries_once():
     provider, session, sleeps = make({url: [FakeResponse(429, {}), ok(load("athletes", "3156612.json"))]})
     assert provider.fetch_fighter("3156612").provider_id == "3156612"
     assert len(session.calls) == 2
-    assert sleeps == [5]
+    assert _waits(sleeps) == [5]
 
 
 def test_403_three_times_gives_up():
@@ -172,7 +178,7 @@ def test_403_three_times_gives_up():
     provider, session, sleeps = make({url: [FakeResponse(403, {}) for _ in range(3)]})
     assert provider.fetch_fighter("1") is None
     assert len(session.calls) == 3
-    assert sleeps == [5, 15]
+    assert _waits(sleeps) == [5, 15]
 
 
 def test_timeout_and_bad_json_are_none():
@@ -314,3 +320,67 @@ def test_outcome_none_when_feed_pair_differs_from_card(caplog):
     with caplog.at_level("WARNING"):
         assert provider.fetch_outcome(EVENT, other) is None
     assert "999" in caplog.text
+
+
+def _cancelled_routes(bout_id: str):
+    status = {"type": {"name": "STATUS_CANCELED", "state": "post", "completed": False}, "result": {}}
+    return {bout_url(bout_id, "/status"): ok(status)}
+
+
+def test_cancelled_outcome_is_returned_with_one_request():
+    provider, session, _ = make(_cancelled_routes(KO_BOUT))
+    outcome = provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT))
+    assert outcome.state == "cancelled"
+    assert (outcome.winner, outcome.method) == (None, None)
+    assert session.urls == [bout_url(KO_BOUT, "/status")]
+
+
+def test_stats_empty_and_warned_when_status_document_fails(caplog):
+    routes = bout_routes(DEC_BOUT)
+    del routes[bout_url(DEC_BOUT, "/status")]
+    provider, _, _ = make(routes)
+    with caplog.at_level("WARNING"):
+        assert provider.fetch_stats(EVENT, card_bout(provider, DEC_BOUT)) == {}
+    assert "status" in caplog.text
+
+
+def _url_403s(url: str, n: int = 3) -> list:
+    return [FakeResponse(403, {}) for _ in range(n)]
+
+
+def test_breaker_trips_after_two_given_up_403s(caplog):
+    provider, session, _ = make(
+        {f"{espn.CORE}/athletes/{i}": _url_403s("") for i in ("1", "2", "3")}
+    )
+    with caplog.at_level("WARNING"):
+        assert provider.fetch_fighter("1") is None
+        assert provider.fetch_fighter("2") is None
+        calls = len(session.calls)
+        assert calls == 6
+        assert provider.fetch_fighter("3") is None
+    assert len(session.calls) == calls
+    assert sum("blocked" in r.getMessage() for r in caplog.records if r.levelname == "WARNING") == 1
+
+
+def test_a_success_resets_the_breaker():
+    routes = {
+        f"{espn.CORE}/athletes/1": _url_403s(""),
+        f"{espn.CORE}/athletes/2": [ok(load("athletes", "3156612.json"))],
+        f"{espn.CORE}/athletes/3": _url_403s(""),
+        f"{espn.CORE}/athletes/4": [ok(load("athletes", "3156612.json"))],
+    }
+    provider, session, _ = make(routes)
+    assert provider.fetch_fighter("1") is None
+    assert provider.fetch_fighter("2") is not None
+    assert provider.fetch_fighter("3") is None
+    n = len(session.calls)
+    assert provider.fetch_fighter("4") is not None  # not blocked: count was reset
+    assert len(session.calls) == n + 1
+
+
+def test_pause_before_every_http_attempt():
+    url = f"{espn.CORE}/athletes/1"
+    provider, session, sleeps = make({url: [FakeResponse(429, {}), FakeResponse(403, {}), ok({"id": "1"})]})
+    provider.fetch_fighter("1")
+    assert len(session.calls) == 3
+    assert sleeps.count(0.25) == 3

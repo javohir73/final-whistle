@@ -5,7 +5,10 @@ All politeness and failure handling lives in `_get_json`: every request sends
 5 s then 15 s, and any other trouble (404, timeouts, bad JSON) is logged and
 answered with `None`. The provider methods sit on top of it and parse through
 the same pure functions as the recorded provider, so they never raise for feed
-trouble. A bout's winner comes from the competition document's
+trouble. A pause of 0.25 s precedes every request, and after two calls in a
+row that gave up on HTTP 403 the provider treats itself as blocked for the
+rest of the process (one warning, then every call answers `None` without a
+request) rather than hammer a host that is refusing us. A bout's winner comes from the competition document's
 `competitors[].winner` flags, which ESPN updates live.
 """
 from __future__ import annotations
@@ -38,6 +41,8 @@ _RETRY_WAITS = (5, 15)  # seconds before the 2nd and 3rd attempt
 _RETRY_STATUSES = (403, 429)
 _MAX_PAGES = 10  # never walk more event pages than this, whatever pageCount claims
 _NO_WINNER_METHODS = ("draw", "no_contest")
+_PAUSE = 0.25  # seconds before each request
+_BREAKER_LIMIT = 2  # consecutive given-up 403s before the provider stops asking
 
 
 class EspnUfcProvider:
@@ -50,9 +55,14 @@ class EspnUfcProvider:
     ) -> None:
         self.session = session if session is not None else requests.Session()
         self._sleep = sleep
+        self._blocked = False
+        self._given_up_403 = 0
 
     def _get_json(self, url: str) -> dict | None:
+        if self._blocked:
+            return None
         for attempt in range(len(_RETRY_WAITS) + 1):
+            self._sleep(_PAUSE)
             try:
                 resp = self.session.get(url, headers=_HEADERS, timeout=_TIMEOUT)
             except requests.RequestException as exc:
@@ -66,7 +76,15 @@ class EspnUfcProvider:
                     self._sleep(wait)
                     continue
                 log.warning("UFC feed HTTP %s for %s; giving up", status, url)
+                if status == 403:
+                    self._given_up_403 += 1
+                    if self._given_up_403 >= _BREAKER_LIMIT:
+                        self._blocked = True
+                        log.warning("UFC feed refused us twice in a row; blocked for this run")
+                else:
+                    self._given_up_403 = 0
                 return None
+            self._given_up_403 = 0
             if status != 200:
                 log.warning("UFC feed HTTP %s for %s", status, url)
                 return None
@@ -120,8 +138,13 @@ class EspnUfcProvider:
     def fetch_outcome(self, event_id: str, bout: BoutCard) -> BoutOutcome | None:
         # Status first, so the winner flags are never older than the status.
         status = self._status_doc(event_id, bout)
+        if status is None:
+            return None
+        early = parse.parse_outcome(status, None, None)
+        if early is not None and early.state == "cancelled":
+            return early  # no winner to look up
         competition = self._get_json(self._bout_url(event_id, bout))
-        if competition is None or status is None:
+        if competition is None:
             return None
         ids = (bout.fighter_a.provider_id, bout.fighter_b.provider_id)
         if parse.competition_fighter_ids(competition) != frozenset(ids):
@@ -148,7 +171,14 @@ class EspnUfcProvider:
         return outcome
 
     def fetch_stats(self, event_id: str, bout: BoutCard) -> dict[str, FighterBoutStats]:
-        outcome = parse.parse_outcome(self._status_doc(event_id, bout), None, None)
+        status = self._status_doc(event_id, bout)
+        if status is None:
+            # Without it we cannot tell a decision from a finish; an empty answer
+            # keeps the bout inside results' grace window instead of storing
+            # stats that lack the judges' scores for good.
+            log.warning("UFC bout %s: status unavailable; stats will be retried", bout.provider_id)
+            return {}
+        outcome = parse.parse_outcome(status, None, None)
         is_decision = outcome is not None and outcome.method == "decision"
         out: dict[str, FighterBoutStats] = {}
         for key, fighter in (("a", bout.fighter_a), ("b", bout.fighter_b)):

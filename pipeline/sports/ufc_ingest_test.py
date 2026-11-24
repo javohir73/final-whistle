@@ -14,7 +14,7 @@ from pipeline.sports.ufc_ingest import (
     upsert_event,
     upsert_fighter,
 )
-from pipeline.sports.ufc_provider import BoutCard, EventCard, FighterRef
+from pipeline.sports.ufc_provider import BoutCard, EventCard, FighterProfile, FighterRef
 from pipeline.sports.ufc_recorded import RecordedUfcProvider
 
 RAW = Path(__file__).parent / "testdata" / "ufc" / "raw"
@@ -345,3 +345,74 @@ def test_failure_warning_does_not_leak_the_exception_text(db_session, caplog):
     assert warnings and not any("SECRET-MARKER-123" in m for m in warnings)
     assert any("RuntimeError" in m for m in warnings)
     assert any("SECRET-MARKER-123" in r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
+
+
+def test_feed_cancelled_bout_still_on_the_card_is_not_reinstated(db_session):
+    upsert_event(db_session, "espn", _card(_bout()), now=NOW)
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    row.status, row.method_detail = "cancelled", "cancelled by feed"
+    db_session.commit()
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout()), now=NOW, summary=summary)
+    db_session.commit()
+    assert current_bout(db_session, "espn", "b1").status == "cancelled"
+    assert summary.bouts_reinstated == 0 and _count(db_session, UfcBout) == 1
+
+
+def test_none_profile_is_stamped_and_not_refetched_within_a_day(db_session):
+    from datetime import timedelta
+
+    provider = CountingProvider(RAW, no_profiles=True)
+    window = (date(2026, 11, 21), date(2026, 11, 21))
+    ingest_window(db_session, provider, *window, now=NOW)
+    assert len(provider.fighter_calls) == 6
+    assert all(f.profile_checked_at is not None for f in db_session.query(UfcFighter))
+    provider.fighter_calls.clear()
+    ingest_window(db_session, provider, *window, now=NOW + timedelta(hours=1))
+    assert provider.fighter_calls == []
+    ingest_window(db_session, provider, *window, now=NOW + timedelta(days=1, minutes=1))
+    assert len(provider.fighter_calls) == 6
+
+
+def test_long_feed_text_is_clipped_to_the_column_limits(db_session):
+    long_bout = replace(
+        _bout(a=("1", "N" * 300), b=("2", None)),
+        segment="s" * 50, segment_label="l" * 100, weight_class="w" * 100,
+    )
+    card = replace(_card(long_bout, name="E" * 300), venue="V" * 300)
+    event = upsert_event(db_session, "espn", card, now=NOW)
+    db_session.commit()
+    assert len(event.name) == 200 and len(event.venue) == 160 and len(event.slug) <= 220
+    bout = current_bout(db_session, "espn", "b1")
+    assert (len(bout.segment), len(bout.segment_label), len(bout.weight_class)) == (20, 40, 60)
+    fighter = db_session.query(UfcFighter).filter_by(provider_fighter_id="1").one()
+    assert len(fighter.name) == 120 and len(fighter.slug) <= 140
+    upsert_fighter(
+        db_session, "espn", FighterRef("9", "Z"),
+        FighterProfile("9", "P" * 300, None, None, None, None, "x" * 50, "c" * 100, "g" * 30),
+    )
+    f9 = db_session.query(UfcFighter).filter_by(provider_fighter_id="9").one()
+    assert (len(f9.name), len(f9.stance), len(f9.country), len(f9.gender)) == (120, 20, 60, 10)
+
+
+def test_ingest_main_exit_codes(monkeypatch):
+    import app.db
+    import pipeline.sports.ufc_ingest as ingest
+    import pipeline.sports.ufc_provider as prov
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+
+    def run(summary):
+        monkeypatch.setattr(ingest, "ingest_window", lambda *a, **k: summary)
+        return ingest.main([])
+
+    assert run(IngestSummary(events=0, failed=2)) == 1
+    assert run(IngestSummary(events=1, failed=2)) == 0
+    assert run(IngestSummary(events=0, failed=0)) == 0
+    assert run(IngestSummary(events=2, failed=0)) == 0

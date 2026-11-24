@@ -254,3 +254,43 @@ def test_extreme_datetime_is_none():
     doc = load("events/600061665.json")
     doc["competitions"][0]["date"] = "0001-01-01T00:00:00+05:00"
     assert parse_event(doc).bouts[0].scheduled_utc is None
+
+
+def _cancelled_status(name: str, state: str = "post", completed: bool | None = False) -> dict:
+    type_doc: dict = {"name": name, "state": state}
+    if completed is not None:
+        type_doc["completed"] = completed
+    return {"period": 0, "displayClock": "0:00", "type": type_doc, "result": {}}
+
+
+def test_cancelled_status_parses_as_cancelled():
+    out = parse_outcome(_cancelled_status("STATUS_CANCELED"), None, None)
+    assert out.state == "cancelled"
+    assert (out.winner, out.method, out.method_detail) == (None, None, None)
+
+
+def test_postponed_status_parses_as_cancelled():
+    out = parse_outcome(_cancelled_status("STATUS_POSTPONED", state="pre", completed=None), None, None)
+    assert out.state == "cancelled"
+    assert (out.winner, out.method, out.method_detail) == (None, None, None)
+
+
+def test_post_and_not_completed_parses_as_cancelled():
+    out = parse_outcome(_cancelled_status("STATUS_SOMETHING_NEW"), False, False)
+    assert out.state == "cancelled"
+
+
+def test_normal_final_is_not_cancelled():
+    doc = status_with("kotko", "KO/TKO")
+    doc["type"].update({"name": "STATUS_FINAL", "completed": True})
+    assert parse_outcome(doc, True, False).state == "final"
+    assert parse_outcome(status_with("kotko", "KO/TKO"), True, False).state == "final"
+
+
+def test_int_is_capped_at_the_postgres_integer_range():
+    from pipeline.sports.ufc_espn_parse import _int
+
+    assert _int(2**31) is None
+    assert _int(-(2**31)) is None
+    assert _int(2**31 - 1) == 2**31 - 1
+    assert _int(-(2**31 - 1)) == -(2**31 - 1)

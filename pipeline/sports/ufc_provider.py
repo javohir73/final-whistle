@@ -58,7 +58,7 @@ class FighterProfile:
 
 @dataclass(frozen=True)
 class BoutOutcome:
-    state: str  # "pre" | "live" | "final"
+    state: str  # "pre" | "live" | "final" | "cancelled" (cancelled or postponed; no result)
     round: int | None
     clock: str | None
     winner: str | None  # "a" | "b" | None

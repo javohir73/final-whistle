@@ -540,3 +540,95 @@ def test_bouts_older_than_the_lookback_get_no_provider_call_of_any_kind(db_sessi
     assert [c for c in provider.calls if c[1] == "old"] == []
     assert ("outcome", "recent") in provider.calls
     assert ("odds", "soon") in provider.calls
+
+
+CANCELLED = BoutOutcome("cancelled", None, None, None, None, None)
+
+
+def test_cancelled_outcome_cancels_a_scheduled_row(db_session):
+    (bout,) = _bare_bout(db_session)
+    assert apply_outcome(db_session, bout, CANCELLED, now=AFTER_CARD) is True
+    assert bout.status == "cancelled" and bout.method_detail == "cancelled by feed"
+    assert bout.winner is None and bout.method is None
+    assert apply_outcome(db_session, bout, CANCELLED, now=AFTER_CARD) is False  # now untouchable
+
+
+def test_cancelled_outcome_cancels_a_live_row(db_session):
+    (bout,) = _bare_bout(db_session, (("b1", "live"),))
+    assert apply_outcome(db_session, bout, CANCELLED, now=AFTER_CARD) is True
+    assert bout.status == "cancelled"
+
+
+def test_cancelled_outcome_never_touches_finished_cancelled_or_changed(db_session):
+    finished, cancelled, changed = _bare_bout(
+        db_session, (("f", "finished"), ("c", "cancelled"), ("x", "changed"))
+    )
+    finished.winner, finished.method, finished.method_detail = "a", "decision", "Unanimous"
+    for row in (finished, cancelled, changed):
+        before = (row.status, row.winner, row.method, row.method_detail)
+        assert apply_outcome(db_session, row, CANCELLED, now=AFTER_CARD) is False
+        assert (row.status, row.winner, row.method, row.method_detail) == before
+
+
+def test_event_rolls_up_to_finished_when_the_other_bout_was_cancelled_by_the_feed(db_session):
+    one, two = _bare_bout(db_session, (("b1", "scheduled"), ("b2", "scheduled")))
+    event = db_session.get(UfcEvent, one.event_id)
+    apply_outcome(db_session, one, KO, now=AFTER_CARD)
+    apply_outcome(db_session, two, CANCELLED, now=AFTER_CARD)
+    roll_up_event(db_session, event)
+    assert (one.status, two.status, event.status) == ("finished", "cancelled", "finished")
+
+
+class _ProfileCountingProvider(RecordedUfcProvider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fighter_calls: list[str] = []
+
+    def fetch_fighter(self, fighter_id):
+        self.fighter_calls.append(fighter_id)
+        return super().fetch_fighter(fighter_id)
+
+
+def test_refresh_results_skips_profiles_of_retired_fighters(db_session):
+    _bare_bout(db_session, (("old", "finished"),), when=AFTER_CARD - timedelta(days=3000), event_id="e-old")
+    _bare_bout(db_session, (("soon", "scheduled"),), when=AFTER_CARD + timedelta(days=7), event_id="e-soon")
+    _bare_bout(db_session, (("far", "scheduled"),), when=AFTER_CARD + timedelta(days=90), event_id="e-far")
+    _bare_bout(db_session, (("gone", "cancelled"),), when=AFTER_CARD + timedelta(days=7), event_id="e-gone")
+    provider = _ProfileCountingProvider(RAW)
+    refresh_results(db_session, provider, now=AFTER_CARD)
+    assert sorted(provider.fighter_calls) == ["soon-a", "soon-b"]
+
+
+def test_clipped_text_fits_the_postgres_columns(db_session):
+    from pipeline.sports.ufc_ingest import _clip
+
+    assert _clip(None, 5) is None and _clip("abcdef", 5) == "abcde" and _clip("abc", 5) == "abc"
+    (bout,) = _bare_bout(db_session)
+    long_outcome = BoutOutcome("final", 1, "x" * 30, "a", "m" * 50, "d" * 400)
+    apply_outcome(db_session, bout, long_outcome, now=AFTER_CARD)
+    assert len(bout.method_detail) == 120 and len(bout.method) == 20 and len(bout.end_clock) == 8
+    record_odds(db_session, bout, [OddsLine("S" * 100, -150, 130)])
+    assert len(db_session.scalar(select(UfcOddsSnapshot)).source) == 40
+
+
+def test_results_main_exit_codes(monkeypatch):
+    import app.db
+    import pipeline.sports.ufc_provider as prov
+    from pipeline.sports import ufc_results
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+
+    def run(summary):
+        monkeypatch.setattr(ufc_results, "refresh_results", lambda db, provider: summary)
+        return ufc_results.main([])
+
+    assert run(ResultsSummary(checked=3, failed=3)) == 1
+    assert run(ResultsSummary(checked=0, failed=1)) == 1
+    assert run(ResultsSummary(checked=3, failed=1)) == 0
+    assert run(ResultsSummary(checked=0, failed=0)) == 0
+    assert run(ResultsSummary(checked=3, failed=0)) == 0

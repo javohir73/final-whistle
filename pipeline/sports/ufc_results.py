@@ -5,7 +5,10 @@ provider about bouts that should have started (and recently finished bouts whose
 stats ESPN posts late), applies the outcome, then stores stats and odds. A
 finished result is never reopened or blanked: only another final outcome that
 carries a method may change it. A provider answer of None means "not trustworthy
-yet" and is simply skipped. One bout failing is counted and rolled back; the
+yet" and is simply skipped. A "cancelled" outcome (the feed's cancelled or
+postponed bout) cancels a scheduled or live row and marks it with
+`method_detail = FEED_CANCELLED`, which card ingest reads so it does not
+reinstate the bout just because the card still lists it. One bout failing is counted and rolled back; the
 rest carry on, committing per bout.
 """
 from __future__ import annotations
@@ -19,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter, UfcOddsSnapshot
-from pipeline.sports.ufc_ingest import _utc, upsert_fighter
+from pipeline.sports.ufc_ingest import FEED_CANCELLED, _clip, _utc, upsert_fighter
 from pipeline.sports.ufc_provider import (
     BoutCard,
     BoutOutcome,
@@ -42,6 +45,7 @@ _RESULT_FIELDS = ("winner", "method", "method_detail", "end_round", "end_clock")
 _UNTOUCHABLE = ("cancelled", "changed")
 _NO_WINNER_METHODS = ("draw", "no_contest")
 PROFILE_RECHECK = timedelta(days=30)
+PROFILE_HORIZON = timedelta(days=60)  # refresh_results only profiles fighters with a bout this soon
 # A scheduled or live bout older than this that the feed never finalised is
 # left alone rather than fetched twice a day for ever.
 RESULTS_LOOKBACK = timedelta(days=14)
@@ -60,9 +64,18 @@ class ResultsSummary:
 def apply_outcome(
     db: Session, bout: UfcBout, outcome: BoutOutcome, now: datetime | None = None
 ) -> bool:
-    """Apply a provider outcome to a bout row; True if the row changed."""
+    """Apply a provider outcome to a bout row; True if the row changed. A
+    cancelled outcome sets a scheduled or live row to "cancelled" with
+    `method_detail = FEED_CANCELLED`; finished, cancelled and changed rows are
+    never touched by it. Text is clipped to the column lengths."""
     if bout.status in _UNTOUCHABLE or outcome.state == "pre":
         return False
+    if outcome.state == "cancelled":
+        if bout.status not in ("scheduled", "live"):
+            return False
+        bout.status = "cancelled"
+        bout.method_detail = FEED_CANCELLED
+        return True
     now = now or datetime.now(timezone.utc)
     changed = False
 
@@ -83,9 +96,9 @@ def apply_outcome(
     if outcome.state != "final":
         return False
     new = {
-        "winner": outcome.winner, "method": outcome.method,
-        "method_detail": outcome.method_detail, "end_round": outcome.round,
-        "end_clock": outcome.clock,
+        "winner": outcome.winner, "method": _clip(outcome.method, 20),
+        "method_detail": _clip(outcome.method_detail, 120), "end_round": outcome.round,
+        "end_clock": _clip(outcome.clock, 8),
     }
     if bout.status == "finished":
         if not outcome.method:
@@ -150,7 +163,7 @@ def record_odds(
     for line in lines:
         latest = db.scalar(
             select(UfcOddsSnapshot)
-            .where(UfcOddsSnapshot.bout_id == bout.id, UfcOddsSnapshot.source == line.source)
+            .where(UfcOddsSnapshot.bout_id == bout.id, UfcOddsSnapshot.source == _clip(line.source, 40))
             .order_by(UfcOddsSnapshot.taken_at.desc(), UfcOddsSnapshot.id.desc())
             .limit(1)
         )
@@ -159,7 +172,7 @@ def record_odds(
         ):
             continue
         snapshot = UfcOddsSnapshot(
-            bout_id=bout.id, source=line.source,
+            bout_id=bout.id, source=_clip(line.source, 40),
             moneyline_a=line.moneyline_a, moneyline_b=line.moneyline_b,
         )
         if taken_at is not None:
@@ -208,7 +221,7 @@ def fill_profiles(
     whose data really changed, failures). `fighter_ids` restricts the
     candidates to those fighters (the history backfill passes one event's)."""
     now = _utc(now) or datetime.now(timezone.utc)
-    rows = db.execute(
+    query = (
         select(UfcFighter, func.min(UfcBout.scheduled_utc))
         .outerjoin(
             UfcBout,
@@ -217,7 +230,10 @@ def fill_profiles(
         )
         .where(UfcFighter.provider == provider.name, UfcFighter.date_of_birth.is_(None))
         .group_by(UfcFighter.id)
-    ).all()
+    )
+    if fighter_ids is not None:
+        query = query.where(UfcFighter.id.in_(fighter_ids))  # filtered in SQL
+    rows = db.execute(query).all()
 
     def soonest(row) -> tuple:
         when = _utc(row[1])
@@ -228,8 +244,7 @@ def fill_profiles(
 
     candidates = [
         (f, w) for f, w in rows
-        if (fighter_ids is None or f.id in fighter_ids)
-        and (f.profile_checked_at is None or _utc(f.profile_checked_at) <= now - PROFILE_RECHECK)
+        if (f.profile_checked_at is None or _utc(f.profile_checked_at) <= now - PROFILE_RECHECK)
     ]
     updated = failed = 0
     for fighter, _ in sorted(candidates, key=soonest)[:limit]:
@@ -364,16 +379,29 @@ def refresh_results(
         log.debug("event roll-up failure detail: %s", exc)
         summary.failed += 1
 
-    summary.profiles, profile_failures = fill_profiles(db, provider, 40, now)
+    # Only fighters with a live bout nearby: a retired fighter with no birth date
+    # would otherwise be re-fetched every 30 days for ever.
+    lo, hi = now - RESULTS_LOOKBACK, now + PROFILE_HORIZON
+    in_window = (
+        UfcBout.status.notin_(_UNTOUCHABLE),
+        UfcBout.scheduled_utc >= lo,
+        UfcBout.scheduled_utc <= hi,
+    )
+    near = set(db.scalars(select(UfcBout.fighter_a_id).where(*in_window))) | set(
+        db.scalars(select(UfcBout.fighter_b_id).where(*in_window))
+    )
+    summary.profiles, profile_failures = fill_profiles(db, provider, 40, now, fighter_ids=near)
     summary.failed += profile_failures
     return summary
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Exit 1 when nothing succeeded: failures and no bout checked, or every
+    checked bout failed."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--provider", default=None, help="provider name (default: settings.ufc_provider)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     from app.db import SessionLocal
     from pipeline.sports.ufc_provider import get_provider
@@ -388,7 +416,7 @@ def main() -> int:
         summary.checked, summary.finished, summary.stats, summary.odds, summary.profiles,
         summary.failed,
     )
-    return 0
+    return 1 if summary.failed > 0 and summary.failed >= summary.checked else 0
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ from pipeline.sports.ufc_provider import (
 
 log = logging.getLogger(__name__)
 
+_INT_MAX = 2**31 - 1
+_CANCELLED_NAMES = ("STATUS_CANCELED", "STATUS_POSTPONED")
 _STATE = {"pre": "pre", "in": "live", "post": "final"}
 
 # ESPN stat name -> FighterBoutStats field. Everything else lands in `extra`.
@@ -64,8 +66,9 @@ def _int(value: object) -> int | None:
         out = int(round(value))  # NaN raises ValueError, inf OverflowError
     except (ValueError, OverflowError):
         return None
-    # Not a usable order, round, price or score (and would overflow a DB integer).
-    return out if abs(out) < 2**63 else None
+    # Not a usable order, round, price or score; beyond Postgres INTEGER (SQLite
+    # would take it, Postgres would reject the row).
+    return out if abs(out) <= _INT_MAX else None
 
 
 def _float(value: object) -> float | None:
@@ -214,12 +217,22 @@ def normalise_method(result: dict | None) -> str | None:
 def parse_outcome(
     status_doc: dict | None, winner_a: bool | None, winner_b: bool | None
 ) -> BoutOutcome | None:
+    """State is pre / live / final, or cancelled for a cancelled or postponed
+    bout (`type.name` STATUS_CANCELED / STATUS_POSTPONED, or state "post" with
+    `completed` false); a cancelled outcome carries no winner or method."""
     if not isinstance(status_doc, dict):
         return None
-    raw_state = _dict(status_doc.get("type")).get("state")
+    type_doc = _dict(status_doc.get("type"))
+    raw_state = type_doc.get("state")
     state = _STATE.get(raw_state) if isinstance(raw_state, str) else None
     if state is None:
         return None
+    # A cancelled or postponed bout reports state "post" with no result, which
+    # would otherwise read as a final with nothing recorded.
+    if type_doc.get("name") in _CANCELLED_NAMES or (
+        raw_state == "post" and type_doc.get("completed") is False
+    ):
+        return BoutOutcome("cancelled", None, None, None, None, None)
     result = status_doc.get("result")
     if winner_a is True and winner_b is not True:
         winner = "a"
