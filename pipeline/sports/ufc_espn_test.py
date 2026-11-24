@@ -209,3 +209,83 @@ def test_get_provider_default_is_espn():
 def test_get_provider_rejects_unknown():
     with pytest.raises(ValueError, match="espn"):
         get_provider("nope")
+
+
+def _flagged_routes(bout_id: str, flags: tuple, status_patch: dict | None = None):
+    routes = bout_routes(bout_id)
+    comp = copy.deepcopy(comp_doc(bout_id))
+    for c in comp["competitors"]:
+        c["winner"] = flags[c["order"] - 1]
+    routes[bout_url(bout_id)] = ok(comp)
+    if status_patch is not None:
+        status = copy.deepcopy(load("bouts", f"{EVENT}_{bout_id}.json")["status"])
+        status.update(status_patch)
+        routes[bout_url(bout_id, "/status")] = ok(status)
+    return routes
+
+
+def test_outcome_fetches_status_before_competition():
+    provider, session, _ = make(bout_routes(KO_BOUT))
+    provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT))
+    assert session.urls == [bout_url(KO_BOUT, "/status"), bout_url(KO_BOUT)]
+
+
+def test_final_decisive_method_without_winner_is_none(caplog):
+    provider, _, _ = make(_flagged_routes(KO_BOUT, (False, False)))
+    with caplog.at_level("WARNING"):
+        assert provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT)) is None
+    assert "winner" in caplog.text
+
+
+def test_final_without_method_or_winner_is_none():
+    routes = _flagged_routes(KO_BOUT, (None, None), {"result": None})
+    provider, _, _ = make(routes)
+    assert provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT)) is None
+
+
+@pytest.mark.parametrize("name", ["draw", "nocontest"])
+def test_final_draw_and_no_contest_without_winner_are_returned(name):
+    result = {"name": name, "displayName": name, "description": "x"}
+    provider, _, _ = make(_flagged_routes(KO_BOUT, (False, False), {"result": result}))
+    outcome = provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT))
+    assert outcome.state == "final" and outcome.winner is None
+    assert outcome.method in ("draw", "no_contest")
+
+
+def test_live_bout_without_winner_is_returned():
+    status = copy.deepcopy(load("bouts", f"{EVENT}_{KO_BOUT}.json")["status"])
+    status["type"]["state"] = "in"
+    status.pop("result", None)
+    routes = _flagged_routes(KO_BOUT, (None, None))
+    routes[bout_url(KO_BOUT, "/status")] = ok(status)
+    provider, _, _ = make(routes)
+    assert provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT)).state == "live"
+
+
+def test_pagination_is_capped():
+    base = f"{espn.LEAGUE}/events?dates=20261101-20261130&limit=200&page="
+    routes = {
+        base + str(n): [ok({"pageCount": 10**6, "items": [{"$ref": f"{espn.LEAGUE}/events/{n}"}]})]
+        for n in range(1, 50)
+    }
+    provider, session, _ = make(routes)
+    ids = provider.list_event_ids(date(2026, 11, 1), date(2026, 11, 30))
+    assert len(session.calls) == espn._MAX_PAGES
+    assert len(ids) == espn._MAX_PAGES
+
+
+def test_pagination_stops_on_empty_page():
+    base = f"{espn.LEAGUE}/events?dates=20261101-20261130&limit=200&page="
+    provider, session, _ = make(
+        {base + "1": ok({"pageCount": 500, "items": []}), base + "2": ok({"pageCount": 500, "items": []})}
+    )
+    assert provider.list_event_ids(date(2026, 11, 1), date(2026, 11, 30)) == []
+    assert len(session.calls) == 1
+
+
+def test_later_page_failure_is_logged(caplog):
+    base = f"{espn.LEAGUE}/events?dates=20261101-20261130&limit=200&page="
+    provider, _, _ = make({base + "1": ok({"pageCount": 2, "items": [{"$ref": f"{espn.LEAGUE}/events/7"}]})})
+    with caplog.at_level("WARNING"):
+        assert provider.list_event_ids(date(2026, 11, 1), date(2026, 11, 30)) == ["7"]
+    assert "page 2" in caplog.text

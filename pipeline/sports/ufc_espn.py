@@ -36,6 +36,8 @@ _HEADERS = {"User-Agent": "Mozilla/5.0"}
 _TIMEOUT = 20
 _RETRY_WAITS = (5, 15)  # seconds before the 2nd and 3rd attempt
 _RETRY_STATUSES = (403, 429)
+_MAX_PAGES = 10  # never walk more event pages than this, whatever pageCount claims
+_NO_WINNER_METHODS = ("draw", "no_contest")
 
 
 class EspnUfcProvider:
@@ -88,11 +90,18 @@ class EspnUfcProvider:
         ids: list[str] = []
         page, page_count = 1, 1
         while page <= page_count:
+            if page > _MAX_PAGES:
+                log.warning("UFC event list for %s hit the %d page cap; list is partial", window, _MAX_PAGES)
+                break
             doc = self._get_json(f"{LEAGUE}/events?dates={window}&limit=200&page={page}")
             if doc is None:
+                if page > 1:
+                    log.warning("UFC event list for %s failed on page %d; list is partial", window, page)
                 break
             items = doc.get("items")
-            for item in items if isinstance(items, list) else []:
+            if not isinstance(items, list) or not items:
+                break
+            for item in items:
                 event_id = parse._ref_id(item)
                 if event_id:
                     ids.append(event_id)
@@ -109,13 +118,27 @@ class EspnUfcProvider:
         return self._get_json(self._bout_url(event_id, bout, "/status"))
 
     def fetch_outcome(self, event_id: str, bout: BoutCard) -> BoutOutcome | None:
-        competition = self._get_json(self._bout_url(event_id, bout))
+        # Status first, so the winner flags are never older than the status.
         status = self._status_doc(event_id, bout)
+        competition = self._get_json(self._bout_url(event_id, bout))
         if competition is None or status is None:
             return None
         # A competition document has the shape of one entry of an event's list.
         a, b = parse.winner_flags({"competitions": [competition]}, bout.provider_id)
-        return parse.parse_outcome(status, a, b)
+        outcome = parse.parse_outcome(status, a, b)
+        if (
+            outcome is not None
+            and outcome.state == "final"
+            and outcome.winner is None
+            and outcome.method not in _NO_WINNER_METHODS
+        ):
+            log.warning(
+                "UFC bout %s is final (method %s) but has no winner yet; will retry",
+                bout.provider_id,
+                outcome.method,
+            )
+            return None
+        return outcome
 
     def fetch_stats(self, event_id: str, bout: BoutCard) -> dict[str, FighterBoutStats]:
         outcome = parse.parse_outcome(self._status_doc(event_id, bout), None, None)
