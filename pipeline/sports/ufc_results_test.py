@@ -315,3 +315,122 @@ def test_finished_bout_without_stats_is_retried_for_three_days(db_session):
     provider.outcome_calls.clear()
     refresh_results(db_session, provider, now=AFTER_CARD)
     assert provider.outcome_calls == []
+
+
+def test_winner_follows_the_stored_fighter_not_the_feed_order(db_session):
+    provider = _ingested(db_session)
+    bout = _bout(db_session, "401922277")
+    bout.fighter_a_id, bout.fighter_b_id = bout.fighter_b_id, bout.fighter_a_id
+    db_session.commit()
+    refresh_results(db_session, provider, now=AFTER_CARD)
+    bout = _bout(db_session, "401922277")
+    stirling = db_session.scalar(select(UfcFighter).where(UfcFighter.provider_fighter_id == "5216713"))
+    assert bout.fighter_a_id == stirling.id
+    assert bout.winner == "a"
+    row = db_session.scalar(
+        select(UfcBoutStat).where(UfcBoutStat.bout_id == bout.id, UfcBoutStat.fighter_id == stirling.id)
+    )
+    assert row.knockdowns == 1
+
+
+def test_later_final_that_changes_winner_or_method_is_logged(db_session, caplog):
+    (bout,) = _bare_bout(db_session)
+    apply_outcome(db_session, bout, KO, now=AFTER_CARD)
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        assert apply_outcome(
+            db_session, bout, BoutOutcome("final", 2, "4:58", "a", "ko_tko", "Punch"), now=AFTER_CARD
+        )
+    assert any("b1" in r.getMessage() and "ko_tko" in r.getMessage() for r in caplog.records)
+
+
+def test_later_final_cannot_leave_a_finished_bout_without_a_winner(db_session, caplog):
+    (bout,) = _bare_bout(db_session)
+    apply_outcome(db_session, bout, KO, now=AFTER_CARD)
+    with caplog.at_level("WARNING"):
+        assert apply_outcome(
+            db_session, bout, BoutOutcome("final", 2, "4:58", None, "ko_tko", None), now=AFTER_CARD
+        ) is False
+    assert (bout.winner, bout.method) == ("b", "ko_tko")
+    assert caplog.records
+    # a genuine draw correction is allowed
+    assert apply_outcome(db_session, bout, BoutOutcome("final", 3, "5:00", None, "draw", None), now=AFTER_CARD)
+    assert (bout.winner, bout.method) == (None, "draw")
+
+
+def test_later_final_never_blanks_round_clock_or_detail(db_session):
+    (bout,) = _bare_bout(db_session)
+    apply_outcome(db_session, bout, KO, now=AFTER_CARD)
+    apply_outcome(db_session, bout, BoutOutcome("final", None, None, "a", "ko_tko", None), now=AFTER_CARD)
+    assert bout.winner == "a"
+    assert (bout.end_round, bout.end_clock, bout.method_detail) == (2, "4:58", "Punch")
+
+
+def test_missed_roll_up_heals_on_the_next_run(db_session):
+    one, two = _bare_bout(db_session, (("b1", "finished"), ("b2", "finished")), when=AFTER_CARD - timedelta(days=10))
+    event = db_session.get(UfcEvent, one.event_id)
+    event.status = "live"
+    db_session.commit()
+    refresh_results(db_session, _provider(), now=AFTER_CARD)
+    assert db_session.get(UfcEvent, event.id).status == "finished"
+
+
+class _NoDobProvider(RecordedUfcProvider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.calls: list[str] = []
+        self.none_for: set[str] = set()
+        self.raise_for: set[str] = set()
+
+    def fetch_fighter(self, fighter_id):
+        self.calls.append(fighter_id)
+        if fighter_id in self.raise_for:
+            raise RuntimeError("boom")
+        if fighter_id in self.none_for:
+            return None
+        from dataclasses import replace
+
+        profile = super().fetch_fighter(fighter_id)
+        return replace(profile, date_of_birth=None) if profile else None
+
+
+def _tba_card(db, provider):
+    upsert_event(db, "espn", provider.fetch_event(EVENT), now=AFTER_CARD)
+
+
+def test_fighter_without_dob_is_fetched_once_then_again_after_31_days(db_session):
+    provider = _NoDobProvider(RAW)
+    _tba_card(db_session, provider)
+    assert ensure_profiles(db_session, provider, now=AFTER_CARD) == 6  # named: real change
+    assert len(provider.calls) == 6
+    assert ensure_profiles(db_session, provider, now=AFTER_CARD + timedelta(days=1)) == 0
+    assert len(provider.calls) == 6
+    assert ensure_profiles(db_session, provider, now=AFTER_CARD + timedelta(days=31)) == 0  # fetched, nothing changed
+    assert len(provider.calls) == 12
+
+
+def test_none_profile_is_not_retried_next_run(db_session):
+    provider = _NoDobProvider(RAW)
+    provider.none_for = {"3156612"}
+    _tba_card(db_session, provider)
+    assert ensure_profiles(db_session, provider, now=AFTER_CARD) == 5
+    provider.calls.clear()
+    ensure_profiles(db_session, provider, now=AFTER_CARD + timedelta(days=1))
+    assert provider.calls == []
+    fighter = db_session.scalar(select(UfcFighter).where(UfcFighter.provider_fighter_id == "3156612"))
+    assert fighter.profile_checked_at is not None
+
+
+def test_one_profile_failure_does_not_stop_the_others(db_session):
+    provider = _NoDobProvider(RAW)
+    provider.raise_for = {"3156612"}
+    ingest_window(db_session, _provider(), date(2026, 11, 20), date(2026, 11, 22), now=AFTER_CARD)
+    # strip dobs so every fighter is a candidate, and roll-up must still happen
+    for f in db_session.scalars(select(UfcFighter)):
+        f.date_of_birth = None
+        f.profile_checked_at = None
+    db_session.commit()
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert summary.failed == 1
+    assert summary.profiles == 0
+    assert db_session.scalar(select(UfcEvent)).status == "finished"

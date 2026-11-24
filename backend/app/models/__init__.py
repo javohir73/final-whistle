@@ -1808,6 +1808,7 @@ class UfcFighter(Base):
     country: Mapped[str | None] = mapped_column(String(60))
     gender: Mapped[str | None] = mapped_column(String(10))
     rating: Mapped[float] = mapped_column(Float, default=1500.0)
+    profile_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

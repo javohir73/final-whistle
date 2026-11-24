@@ -43,6 +43,7 @@ def upgrade() -> None:
         sa.Column("country", sa.String(length=60), nullable=True),
         sa.Column("gender", sa.String(length=10), nullable=True),
         sa.Column("rating", sa.Float(), nullable=False, server_default="1500"),
+        sa.Column("profile_checked_at", sa.DateTime(timezone=True), nullable=True),
         _updated_at(),
         sa.UniqueConstraint("provider", "provider_fighter_id", name="uq_ufc_fighter_provider_id"),
     )

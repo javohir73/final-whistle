@@ -40,6 +40,8 @@ _STAT_FIELDS = (
 )
 _RESULT_FIELDS = ("winner", "method", "method_detail", "end_round", "end_clock")
 _UNTOUCHABLE = ("cancelled", "changed")
+_NO_WINNER_METHODS = ("draw", "no_contest")
+PROFILE_RECHECK = timedelta(days=30)
 
 
 @dataclass
@@ -77,14 +79,29 @@ def apply_outcome(
 
     if outcome.state != "final":
         return False
-    if bout.status == "finished" and not outcome.method:
-        return False
     new = {
         "winner": outcome.winner, "method": outcome.method,
         "method_detail": outcome.method_detail, "end_round": outcome.round,
         "end_clock": outcome.clock,
     }
-    if bout.status != "finished":
+    if bout.status == "finished":
+        if not outcome.method:
+            return False
+        if outcome.winner is None and outcome.method not in _NO_WINNER_METHODS:
+            log.warning(
+                "bout %s: refusing a later final with no winner (method %s) over %s/%s",
+                bout.provider_bout_id, outcome.method, bout.winner, bout.method,
+            )
+            return False
+        for field in ("end_round", "end_clock", "method_detail"):
+            if new[field] is None:
+                new[field] = getattr(bout, field)
+        if (new["winner"], new["method"]) != (bout.winner, bout.method):
+            log.warning(
+                "bout %s: later final changes result %s/%s -> %s/%s",
+                bout.provider_bout_id, bout.winner, bout.method, new["winner"], new["method"],
+            )
+    else:
         bout.status = "finished"
         changed = True
     for field, value in new.items():
@@ -154,10 +171,27 @@ def bout_card(db: Session, bout: UfcBout) -> BoutCard:
     )
 
 
-def ensure_profiles(db: Session, provider: UfcProvider, limit: int = 40) -> int:
-    """Fetch profiles for fighters with no date of birth, those with the
-    soonest bout first; returns the fighters updated."""
-    now = datetime.now(timezone.utc)
+_PROFILE_FIELDS = (
+    "name", "date_of_birth", "height_in", "reach_in", "weight_lb", "stance", "country", "gender"
+)
+
+
+def ensure_profiles(
+    db: Session, provider: UfcProvider, limit: int = 40, now: datetime | None = None
+) -> int:
+    """Returns the fighters updated; see `_fill_profiles`."""
+    return _fill_profiles(db, provider, limit, now)[0]
+
+
+def _fill_profiles(
+    db: Session, provider: UfcProvider, limit: int, now: datetime | None
+) -> tuple[int, int]:
+    """Fetch profiles for fighters with no date of birth that were not checked
+    in the last 30 days, soonest bout (relative to `now`) first. Every attempt,
+    even one that returns nothing, stamps `profile_checked_at`. Commits per
+    fighter; a failing fighter is rolled back and skipped. Returns (fighters
+    whose data really changed, failures)."""
+    now = _utc(now) or datetime.now(timezone.utc)
     rows = db.execute(
         select(UfcFighter, func.min(UfcBout.scheduled_utc))
         .outerjoin(
@@ -176,15 +210,28 @@ def ensure_profiles(db: Session, provider: UfcProvider, limit: int = 40) -> int:
         gap = (when - now).total_seconds()
         return (0, gap) if gap >= 0 else (1, -gap)
 
-    updated = 0
-    for fighter, _ in sorted(rows, key=soonest)[:limit]:
-        profile = provider.fetch_fighter(fighter.provider_fighter_id)
-        if profile is None:
+    candidates = [
+        (f, w) for f, w in rows
+        if f.profile_checked_at is None or _utc(f.profile_checked_at) <= now - PROFILE_RECHECK
+    ]
+    updated = failed = 0
+    for fighter, _ in sorted(candidates, key=soonest)[:limit]:
+        fighter_id, provider_id = fighter.id, fighter.provider_fighter_id
+        try:
+            profile = provider.fetch_fighter(provider_id)
+            before = {f: getattr(fighter, f) for f in _PROFILE_FIELDS}
+            if profile is not None:
+                upsert_fighter(db, provider.name, FighterRef(provider_id, None), profile)
+            fighter.profile_checked_at = now
+            changed = any(getattr(fighter, f) != v for f, v in before.items())
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 - one bad fighter must never stop the rest
+            db.rollback()
+            log.warning("fighter %s: profile failed, skipping: %s", fighter_id, exc)
+            failed += 1
             continue
-        upsert_fighter(db, provider.name, FighterRef(fighter.provider_fighter_id, None), profile)
-        updated += 1
-    db.flush()
-    return updated
+        updated += changed
+    return updated, failed
 
 
 def roll_up_event(db: Session, event: UfcEvent) -> None:
@@ -257,14 +304,31 @@ def refresh_results(
             summary.failed += 1
 
     try:
-        summary.profiles = ensure_profiles(db, provider)
-        for event_id in touched:
-            roll_up_event(db, db.get(UfcEvent, event_id))
+        stale = db.scalars(
+            select(UfcEvent).where(
+                UfcEvent.status != "finished",
+                UfcEvent.id.in_(
+                    select(UfcBout.event_id).where(
+                        UfcBout.scheduled_utc.is_not(None),
+                        UfcBout.status.notin_(_UNTOUCHABLE),
+                    )
+                ),
+            )
+        ).all()
+        started = {
+            e for e in db.scalars(select(UfcBout.event_id).where(UfcBout.scheduled_utc <= now))
+        }
+        for event in stale:
+            if event.id in touched or event.id in started:
+                roll_up_event(db, event)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        log.warning("profiles / roll-up failed: %s", exc)
+        log.warning("event roll-up failed: %s", exc)
         summary.failed += 1
+
+    summary.profiles, profile_failures = _fill_profiles(db, provider, 40, now)
+    summary.failed += profile_failures
     return summary
 
 
