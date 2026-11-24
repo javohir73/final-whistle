@@ -315,7 +315,7 @@ def refresh_results(
                 due.append(bout.id)
         elif now - RESULTS_LOOKBACK <= when <= now:
             due.append(bout.id)
-        elif bout.status == "scheduled" and when <= now + ODDS_HORIZON:
+        elif bout.status == "scheduled" and now < when <= now + ODDS_HORIZON:
             upcoming.append(bout.id)
 
     touched: set[int] = set()

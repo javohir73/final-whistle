@@ -512,3 +512,31 @@ def test_failure_warnings_do_not_leak_the_exception_text(db_session, caplog):
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert warnings and not any("SECRET-MARKER-123" in m for m in warnings)
     assert any("RuntimeError" in m for m in warnings)
+
+
+def test_bouts_older_than_the_lookback_get_no_provider_call_of_any_kind(db_session):
+    class Spy(RecordedUfcProvider):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.calls: list[tuple[str, str]] = []
+
+        def fetch_outcome(self, event_id, bout):
+            self.calls.append(("outcome", bout.provider_id))
+            return super().fetch_outcome(event_id, bout)
+
+        def fetch_stats(self, event_id, bout):
+            self.calls.append(("stats", bout.provider_id))
+            return super().fetch_stats(event_id, bout)
+
+        def fetch_odds(self, event_id, bout):
+            self.calls.append(("odds", bout.provider_id))
+            return super().fetch_odds(event_id, bout)
+
+    _bare_bout(db_session, (("old", "scheduled"),), when=AFTER_CARD - timedelta(days=30), event_id="e-old")
+    _bare_bout(db_session, (("recent", "scheduled"),), when=AFTER_CARD - timedelta(days=3), event_id="e-new")
+    _bare_bout(db_session, (("soon", "scheduled"),), when=AFTER_CARD + timedelta(days=2), event_id="e-soon")
+    provider = Spy(RAW)
+    refresh_results(db_session, provider, now=AFTER_CARD)
+    assert [c for c in provider.calls if c[1] == "old"] == []
+    assert ("outcome", "recent") in provider.calls
+    assert ("odds", "soon") in provider.calls
