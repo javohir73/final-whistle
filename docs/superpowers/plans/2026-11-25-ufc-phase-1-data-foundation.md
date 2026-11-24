@@ -277,8 +277,8 @@ def upsert_fighter(db: Session, provider: str, ref: FighterRef, profile: Fighter
 def upsert_event(db: Session, provider: str, card: EventCard, now: datetime | None = None) -> UfcEvent
 def current_bout(db: Session, provider: str, provider_bout_id: str) -> UfcBout | None   # highest revision
 @dataclass
-class IngestSummary: events: int = 0; bouts_new: int = 0; bouts_changed: int = 0; bouts_cancelled: int = 0; failed: int = 0
-def ingest_window(db: Session, provider: UfcProvider, start: date, end: date, now: datetime | None = None) -> IngestSummary
+class IngestSummary: events: int = 0; bouts_new: int = 0; bouts_changed: int = 0; bouts_cancelled: int = 0; fighters_named: int = 0; failed: int = 0
+def ingest_window(db: Session, provider: UfcProvider, start: date, end: date, now: datetime | None = None, max_profiles: int = 60) -> IngestSummary
 def main() -> int                                                # python -m pipeline.sports.ufc_ingest --days-back 2 --days-ahead 60
 ```
 
@@ -288,12 +288,13 @@ Rules:
 - For each `BoutCard`: find `current_bout`. None → insert revision 0. Same fighter pair (a and b by provider id) → update `card_order`, `segment`, `segment_label`, `weight_class`, `scheduled_rounds`, and `scheduled_utc` only while `locked_at is None` and the status is `scheduled`. Different pair → if the current row is `scheduled`, set it to `changed`, insert a new row with `revision + 1`, and point the old row's `replaced_by_id` at it; if the current row is `live` or `finished`, leave it alone and log a warning.
 - After processing a card: every bout of that event in the database with status `scheduled` whose provider bout id is absent from the card becomes `cancelled`. Never delete.
 - `ingest_window`: `list_event_ids`, then `fetch_event` each; a `None` event or an exception on one event counts in `failed`, rolls back that event only, and the loop continues. Commit per event.
-- This module does not touch `status` of live or finished bouts, results, stats or odds (Task 5 owns those), and never fetches fighter profiles.
+- ESPN's event feed carries only links to fighters, never their names, so `FighterRef.name` is `None` there. `upsert_event` stays database-only. `ingest_window` therefore names fighters itself: after each event's `upsert_event`, for every fighter on that card whose name is still `"TBA"`, it calls `provider.fetch_fighter(provider_fighter_id)` and passes the profile to `upsert_fighter`, at most `max_profiles` (default 60) fetches per run; a `None` profile leaves the fighter as `"TBA"` for the next run.
+- This module does not touch `status` of live or finished bouts, results, stats or odds (Task 5 owns those).
 
 - [ ] **Step 1: Write failing tests** using `RecordedUfcProvider` over the fixtures and hand-built `EventCard`s:
 
 ```python
-def test_ingests_a_card():                       # 600061665 → 1 event, its fixture bout count, 2 fighters per bout; statuses "scheduled"
+def test_ingests_a_card():                       # upsert_event(parse of 600061665) → 1 event, 3 bouts, 6 fighters (named "TBA": the event feed has no names); statuses "scheduled"
 def test_second_run_changes_nothing():           # row counts and ids identical; summary.bouts_new == 0
 def test_slugs_are_ascii_and_unique():
     assert slugify("Mateusz Rębecki") == "mateusz-rebecki" and slugify("Jiří Procházka") == "jiri-prochazka"
@@ -305,6 +306,9 @@ def test_time_moves_until_locked():              # scheduled_utc follows the car
 def test_finished_bout_is_not_rewritten_by_a_changed_card():   # status "finished" + different pair in the feed → row untouched
 def test_one_bad_event_does_not_stop_the_rest(): # provider returns None for one id → failed == 1, the other event ingested
 def test_tba_fighter_is_named_later():           # ref with name None → "TBA"; later ref with the name → name and slug updated
+def test_ingest_window_names_fighters_from_profiles():   # recorded fixtures: after ingest_window no fighter on the card is "TBA"; "Jiří Procházka" has slug "jiri-prochazka"; summary.fighters_named == 6 when the window covers only event 600061665
+def test_profile_fetches_are_capped():           # max_profiles=2 → exactly 2 fetch_fighter calls; the rest stay "TBA" and are named on the next run
+def test_missing_profile_leaves_tba():           # provider.fetch_fighter returns None → fighter stays "TBA", nothing raised
 ```
 
 - [ ] **Step 2: Run** — expected: import error.
