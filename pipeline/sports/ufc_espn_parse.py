@@ -8,6 +8,7 @@ than raising: the feed is third-party and routinely incomplete.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, timezone
 
 from pipeline.sports.ufc_provider import (
@@ -55,16 +56,16 @@ def parse_dt(value: object) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
+def _finite(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
 def _int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return int(round(value))
+    return int(round(value)) if _finite(value) else None
 
 
 def _float(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
+    return float(value) if _finite(value) else None
 
 
 def _text(value: object) -> str | None:
@@ -73,6 +74,10 @@ def _text(value: object) -> str | None:
 
 def _dict(value: object) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+def _list(value: object) -> list:
+    return value if isinstance(value, list) else []
 
 
 def _ref_id(ref: object) -> str | None:
@@ -86,8 +91,8 @@ def _ref_id(ref: object) -> str | None:
 
 def _parse_bout(comp: dict) -> BoutCard | None:
     bout_id = comp.get("id")
-    competitors = comp.get("competitors")
-    if bout_id is None or not isinstance(competitors, list) or len(competitors) != 2:
+    competitors = _list(comp.get("competitors"))
+    if bout_id is None or len(competitors) != 2:
         return None
     by_order: dict[int, dict] = {}
     for c in competitors:
@@ -120,16 +125,15 @@ def _parse_bout(comp: dict) -> BoutCard | None:
 def parse_event(doc: dict) -> EventCard | None:
     if not isinstance(doc, dict) or doc.get("id") is None or not _text(doc.get("name")):
         return None
-    comps = doc.get("competitions")
     bouts = tuple(
         bout
-        for bout in (_parse_bout(_dict(c)) for c in (comps if isinstance(comps, list) else []))
+        for bout in (_parse_bout(_dict(c)) for c in _list(doc.get("competitions")))
         if bout is not None
     )
     times = [b.scheduled_utc for b in bouts if b.scheduled_utc is not None]
-    venues = doc.get("venues")
+    venues = _list(doc.get("venues"))
     venue = None
-    if isinstance(venues, list) and venues:
+    if venues:
         venue = _text(_dict(venues[0]).get("fullName"))
     name = _text(doc.get("name"))
     return EventCard(
@@ -145,13 +149,12 @@ def parse_event(doc: dict) -> EventCard | None:
 
 def winner_flags(event_doc: dict, bout_id: str) -> tuple[bool | None, bool | None]:
     """Winner flags of fighters a (order 1) and b (order 2) from the event document."""
-    comps = _dict(event_doc).get("competitions")
-    for comp in comps if isinstance(comps, list) else []:
+    for comp in _list(_dict(event_doc).get("competitions")):
         comp = _dict(comp)
         if str(comp.get("id")) != str(bout_id):
             continue
         flags: dict[int, bool | None] = {}
-        for c in comp.get("competitors") or []:
+        for c in _list(comp.get("competitors")):
             c = _dict(c)
             w = c.get("winner")
             order = _int(c.get("order"))
@@ -189,7 +192,8 @@ def parse_outcome(
 ) -> BoutOutcome | None:
     if not isinstance(status_doc, dict):
         return None
-    state = _STATE.get(_dict(status_doc.get("type")).get("state"))
+    raw_state = _dict(status_doc.get("type")).get("state")
+    state = _STATE.get(raw_state) if isinstance(raw_state, str) else None
     if state is None:
         return None
     result = status_doc.get("result")
@@ -211,8 +215,8 @@ def parse_outcome(
 
 def _judges(linescores_doc: dict | None) -> tuple[int, ...]:
     scored: list[tuple[int, int]] = []
-    for item in _dict(linescores_doc).get("items") or []:
-        for ls in _dict(item).get("linescores") or []:
+    for item in _list(_dict(linescores_doc).get("items")):
+        for ls in _list(_dict(item).get("linescores")):
             ls = _dict(ls)
             value, order = _int(ls.get("value")), _int(ls.get("order"))
             if value is not None:
@@ -225,9 +229,8 @@ def parse_stats(
 ) -> FighterBoutStats | None:
     known: dict[str, int | None] = {field: None for field in _KNOWN_STATS.values()}
     extra: dict = {}
-    categories = _dict(_dict(statistics_doc).get("splits")).get("categories")
-    for cat in categories if isinstance(categories, list) else []:
-        for stat in _dict(cat).get("stats") or []:
+    for cat in _list(_dict(_dict(statistics_doc).get("splits")).get("categories")):
+        for stat in _list(_dict(cat).get("stats")):
             stat = _dict(stat)
             name, value = stat.get("name"), _float(stat.get("value"))
             if not isinstance(name, str) or value is None:
@@ -247,8 +250,7 @@ def parse_stats(
 
 def parse_odds(odds_doc: dict | None, fighter_a_id: str, fighter_b_id: str) -> list[OddsLine]:
     lines: list[OddsLine] = []
-    items = _dict(odds_doc).get("items")
-    for item in items if isinstance(items, list) else []:
+    for item in _list(_dict(odds_doc).get("items")):
         item = _dict(item)
         away, home = _dict(item.get("awayAthleteOdds")), _dict(item.get("homeAthleteOdds"))
         by_fighter: dict[str, int] = {}

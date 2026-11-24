@@ -176,3 +176,38 @@ def test_fighter_profile():
         "Jiří Procházka", date(1992, 10, 14), 75.0, 80.0, "Orthodox",
     )
     assert p.weight_lb == 205.0 and p.country == "Czechia" and p.gender == "MALE"
+
+
+def test_wrong_typed_values_degrade_instead_of_raising():
+    assert parse_stats({"splits": {"categories": [{"stats": 5}]}}, None) is None
+    assert parse_stats({"splits": {"categories": 5}}, None) is None
+    assert parse_stats(None, {"items": [{"linescores": 7}]}) is None
+    assert parse_stats(None, {"items": 7}) is None
+    assert winner_flags({"competitions": [{"id": "1", "competitors": 3}]}, "1") == (None, None)
+    assert winner_flags({"competitions": 3}, "1") == (None, None)
+    assert parse_event({"id": "1", "name": "UFC X", "competitions": 5}).bouts == ()
+    assert parse_event({"id": "1", "name": "UFC X", "competitions": [{"id": "2", "competitors": 5}]}).bouts == ()
+    assert parse_odds({"items": 5}, "1", "2") == []
+    assert parse_odds({"items": [5, {"awayAthleteOdds": 3}]}, "1", "2") == []
+
+
+def test_unhashable_state_is_none():
+    assert parse_outcome({"type": {"state": ["post"]}}, None, None) is None
+    assert parse_outcome({"type": {"state": {"a": 1}}}, None, None) is None
+
+
+def test_non_finite_numbers_are_ignored():
+    nan, inf = float("nan"), float("inf")
+    doc = load("events/600061665.json")
+    doc["competitions"][0]["competitors"][0]["order"] = nan
+    assert [b.provider_id for b in parse_event(doc).bouts] == ["401927850", "401922278"]
+    stats = parse_stats(
+        {"splits": {"categories": [{"stats": [
+            {"name": "knockDowns", "value": nan},
+            {"name": "totalStrikesAttempted", "value": inf},
+            {"name": "totalStrikesLanded", "value": 3.0},
+        ]}]}},
+        None,
+    )
+    assert stats is None
+    assert parse_outcome({"period": inf, "type": {"state": "post"}}, None, None).round is None

@@ -65,6 +65,8 @@ class RecordedUfcProvider:
             return None
         bout_doc = self._bout_doc(event_id, bout)
         if bout_doc is None:
+            # Recorded layout only: "no bout file" means nothing has happened yet.
+            # The HTTP provider must not copy this; a failed fetch there is None.
             return BoutOutcome("pre", None, None, None, None, None)
         a, b = parse.winner_flags(event_doc, bout.provider_id)
         return parse.parse_outcome(bout_doc.get("status"), a, b)
