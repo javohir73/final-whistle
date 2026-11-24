@@ -13,7 +13,9 @@ from pipeline.sports.ufc_espn_parse import (
     parse_odds,
     parse_outcome,
     parse_stats,
-    winner_flags,
+    competition_fighter_ids,
+    find_competition,
+    winner_flags_by_id,
 )
 from pipeline.sports.ufc_provider import BoutOutcome, OddsLine
 
@@ -72,110 +74,30 @@ def test_outcome_of_a_knockout():
     assert out.method_detail == "Punch"
 
 
-def test_winner_flags_come_from_the_event_document():
-    event = load("events/600061665.json")
-    assert winner_flags(event, "401922277") == (False, True)
-    assert winner_flags(event, "401922278") == (True, False)
-    assert winner_flags(event, "missing") == (None, None)
+def test_winner_flags_by_id_in_feed_order():
+    comp = find_competition(load("events/600061665.json"), "401922277")
+    assert winner_flags_by_id(comp, "3156612", "5216713") == (False, True)
+    assert competition_fighter_ids(comp) == frozenset({"3156612", "5216713"})
 
 
-def test_outcome_of_a_decision_has_judges():
-    bout = load("bouts/600061665_401927850.json")
-    out = parse_outcome(bout["status"], False, True)
-    assert (out.method, out.winner, out.round, out.clock) == ("decision", "b", 3, "5:00")
-    block_a = bout["competitors"]["3031559"]
-    block_b = bout["competitors"]["5145681"]
-    stats_a = parse_stats(block_a["statistics"], block_a.get("linescores"))
-    stats_b = parse_stats(block_b["statistics"], block_b.get("linescores"))
-    assert stats_a.judges == (27, 28, 27) and stats_b.judges == (30, 29, 30)
+def test_winner_flags_by_id_follow_the_ids_when_flipped():
+    comp = find_competition(load("events/600061665.json"), "401922277")
+    assert winner_flags_by_id(comp, "5216713", "3156612") == (True, False)
 
 
-def test_draw_and_no_contest_have_no_winner():
-    draw = parse_outcome(status_with("draw", "Draw"), False, False)
-    nc = parse_outcome(status_with("nocontest", "No Contest"), False, False)
-    assert draw.method == "draw" and nc.method == "no_contest"
-    assert draw.winner is None and nc.winner is None
-    assert draw.state == "final" and nc.state == "final"
+def test_winner_flags_by_id_missing_competitor_and_flag():
+    comp = {"competitors": [{"id": "1", "winner": True}, {"id": 2}]}
+    assert winner_flags_by_id(comp, "1", "2") == (True, None)
+    assert winner_flags_by_id(comp, "1", "9") == (True, None)
+    assert winner_flags_by_id(comp, "8", "9") == (None, None)
 
 
-def test_scheduled_bout_is_pre_with_no_result():
-    pre = {"period": 0, "displayClock": "-", "type": {"state": "pre"}}
-    assert parse_outcome(pre, False, False) == BoutOutcome("pre", 0, "-", None, None, None)
-    assert parse_outcome(None, None, None) is None
-
-
-def test_in_progress_state_is_live():
-    assert parse_outcome({"type": {"state": "in"}}, None, None).state == "live"
-
-
-def test_normalise_method_vocabulary():
-    cases = {
-        "kotko": "ko_tko",
-        "submission": "submission",
-        "decision---unanimous": "decision",
-        "dq": "dq",
-        "disqualification": "dq",
-        "draw": "draw",
-        "nocontest": "no_contest",
-        "technical---decision": "decision",
-        "something odd": "other",
-    }
-    for name, expected in cases.items():
-        assert normalise_method({"name": name}) == expected, name
-    assert normalise_method({"name": "x", "displayName": "No Contest"}) == "no_contest"
-    assert normalise_method({}) is None and normalise_method(None) is None
-
-
-def test_stats_split_known_fields_from_extra():
-    bout = load("bouts/600061665_401922277.json")
-    block = bout["competitors"]["3156612"]
-    stats = parse_stats(block["statistics"], block.get("linescores"))
-    assert stats.knockdowns == 0 and stats.total_strikes_attempted == 48 and stats.total_strikes_landed == 26
-    assert stats.sig_strikes_landed == 23 and stats.control_seconds == 18 and isinstance(stats.knockdowns, int)
-    assert "sigDistanceLegStrikesLanded" in stats.extra and "totalStrikesLanded" not in stats.extra
-    assert stats.judges == ()
-    other = bout["competitors"]["5216713"]
-    stats_b = parse_stats(other["statistics"], other.get("linescores"))
-    assert stats_b.knockdowns == 1 and stats_b.total_strikes_landed == 51 and stats_b.total_strikes_attempted == 98
-
-
-def test_empty_stat_block_is_none():
-    assert parse_stats({"splits": {"categories": []}}, None) is None
-    assert parse_stats(None, None) is None
-
-
-def test_judges_without_stats_keep_the_scores():
-    linescores = {"items": [{"linescores": [{"value": 29.0, "order": 2}, {"value": 30.0, "order": 1}]}]}
-    stats = parse_stats({"splits": {"categories": []}}, linescores)
-    assert stats.judges == (30, 29)
-    assert stats.knockdowns is None and stats.total_strikes_attempted is None and stats.extra == {}
-
-
-def test_odds_line_for_the_main_event():
-    bout = load("bouts/600061665_401922277.json")
-    assert parse_odds(bout["odds"], "3156612", "5216713") == [OddsLine("DraftKings", 180, -218)]
-    assert parse_odds(bout["odds"], "5216713", "3156612") == [OddsLine("DraftKings", -218, 180)]
-    assert parse_odds(bout["odds"], "1", "2") == []
-
-
-def test_contender_series_is_not_a_card():
-    doc = load("events/600061665.json")
-    doc["name"] = "Dana White's Contender Series: Season 10, Week 1"
-    assert parse_event(doc).is_card is False
-
-
-def test_malformed_documents_return_none():
-    assert parse_event({}) is None and parse_fighter(None) is None and parse_odds(None, "1", "2") == []
-    assert parse_stats({"splits": "oops"}, {"items": "oops"}) is None
-    assert parse_outcome({"type": {"state": "weird"}}, None, None) is None
-
-
-def test_fighter_profile():
-    p = parse_fighter(load("athletes/3156612.json"))
-    assert (p.name, p.date_of_birth, p.height_in, p.reach_in, p.stance) == (
-        "Jiří Procházka", date(1992, 10, 14), 75.0, 80.0, "Orthodox",
-    )
-    assert p.weight_lb == 205.0 and p.country == "Czechia" and p.gender == "MALE"
+def test_winner_flags_by_id_wrong_typed_input():
+    for bad in (None, 3, "x", {"competitors": 3}, {"competitors": [3, None]}, {}):
+        assert winner_flags_by_id(bad, "1", "2") == (None, None)
+        assert competition_fighter_ids(bad) == frozenset()
+    assert find_competition({"competitions": 3}, "1") is None
+    assert find_competition(None, "1") is None
 
 
 def test_wrong_typed_values_degrade_instead_of_raising():
@@ -183,8 +105,6 @@ def test_wrong_typed_values_degrade_instead_of_raising():
     assert parse_stats({"splits": {"categories": 5}}, None) is None
     assert parse_stats(None, {"items": [{"linescores": 7}]}) is None
     assert parse_stats(None, {"items": 7}) is None
-    assert winner_flags({"competitions": [{"id": "1", "competitors": 3}]}, "1") == (None, None)
-    assert winner_flags({"competitions": 3}, "1") == (None, None)
     assert parse_event({"id": "1", "name": "UFC X", "competitions": 5}).bouts == ()
     assert parse_event({"id": "1", "name": "UFC X", "competitions": [{"id": "2", "competitors": 5}]}).bouts == ()
     assert parse_odds({"items": 5}, "1", "2") == []

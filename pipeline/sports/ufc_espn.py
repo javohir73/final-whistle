@@ -123,8 +123,15 @@ class EspnUfcProvider:
         competition = self._get_json(self._bout_url(event_id, bout))
         if competition is None or status is None:
             return None
-        # A competition document has the shape of one entry of an event's list.
-        a, b = parse.winner_flags({"competitions": [competition]}, bout.provider_id)
+        ids = (bout.fighter_a.provider_id, bout.fighter_b.provider_id)
+        if parse.competition_fighter_ids(competition) != frozenset(ids):
+            log.warning(
+                "UFC bout %s on the feed is no longer %s vs %s; skipping outcome",
+                bout.provider_id,
+                *ids,
+            )
+            return None
+        a, b = parse.winner_flags_by_id(competition, *ids)
         outcome = parse.parse_outcome(status, a, b)
         if (
             outcome is not None

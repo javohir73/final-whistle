@@ -44,3 +44,22 @@ def test_missing_files_are_not_errors():
     assert p.fetch_outcome("600062700", upcoming) == BoutOutcome("pre", None, None, None, None, None)
     assert p.fetch_stats("600062700", upcoming) == {} and p.fetch_odds("600062700", upcoming) == []
     assert p.fetch_outcome("nope", upcoming) is None
+
+
+def test_outcome_credits_winner_by_fighter_id_not_feed_order():
+    from dataclasses import replace
+
+    p = RecordedUfcProvider(RAW)
+    main = next(b for b in p.fetch_event("600061665").bouts if b.provider_id == "401922277")
+    flipped = replace(main, fighter_a=main.fighter_b, fighter_b=main.fighter_a)
+    assert p.fetch_outcome("600061665", main).winner == "b"
+    assert p.fetch_outcome("600061665", flipped).winner == "a"  # Navajo Stirling, 5216713
+
+
+def test_outcome_none_when_recorded_pair_differs_from_card():
+    from dataclasses import replace
+
+    p = RecordedUfcProvider(RAW)
+    main = next(b for b in p.fetch_event("600061665").bouts if b.provider_id == "401922277")
+    other = replace(main, fighter_b=replace(main.fighter_b, provider_id="999"))
+    assert p.fetch_outcome("600061665", other) is None

@@ -157,21 +157,35 @@ def parse_event(doc: dict) -> EventCard | None:
     )
 
 
-def winner_flags(event_doc: dict, bout_id: str) -> tuple[bool | None, bool | None]:
-    """Winner flags of fighters a (order 1) and b (order 2) from the event document."""
+def find_competition(event_doc: dict | None, bout_id: str) -> dict | None:
+    """The entry of an event document's `competitions` list for one bout."""
     for comp in _list(_dict(event_doc).get("competitions")):
-        comp = _dict(comp)
-        if str(comp.get("id")) != str(bout_id):
-            continue
-        flags: dict[int, bool | None] = {}
-        for c in _list(comp.get("competitors")):
-            c = _dict(c)
+        if isinstance(comp, dict) and str(comp.get("id")) == str(bout_id):
+            return comp
+    return None
+
+
+def competition_fighter_ids(competition_doc: dict | None) -> frozenset[str]:
+    """Ids of the fighters listed in a competition document."""
+    return frozenset(
+        str(c["id"])
+        for c in _list(_dict(competition_doc).get("competitors"))
+        if isinstance(c, dict) and c.get("id") is not None
+    )
+
+
+def winner_flags_by_id(
+    competition_doc: dict | None, fighter_a_id: str, fighter_b_id: str
+) -> tuple[bool | None, bool | None]:
+    """Winner flags of the two given fighters, matched by id rather than by the
+    feed's listing order (the stored a/b order may differ from the feed's)."""
+    flags: dict[str, bool | None] = {}
+    for c in _list(_dict(competition_doc).get("competitors")):
+        c = _dict(c)
+        if c.get("id") is not None:
             w = c.get("winner")
-            order = _int(c.get("order"))
-            if order in (1, 2):
-                flags[order] = w if isinstance(w, bool) else None
-        return flags.get(1), flags.get(2)
-    return None, None
+            flags[str(c["id"])] = w if isinstance(w, bool) else None
+    return flags.get(str(fighter_a_id)), flags.get(str(fighter_b_id))
 
 
 def normalise_method(result: dict | None) -> str | None:

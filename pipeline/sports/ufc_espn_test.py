@@ -289,3 +289,28 @@ def test_later_page_failure_is_logged(caplog):
     with caplog.at_level("WARNING"):
         assert provider.list_event_ids(date(2026, 11, 1), date(2026, 11, 30)) == ["7"]
     assert "page 2" in caplog.text
+
+
+def _reversed(bout):
+    from dataclasses import replace
+
+    return replace(bout, fighter_a=bout.fighter_b, fighter_b=bout.fighter_a)
+
+
+def test_outcome_credits_winner_by_fighter_id_not_feed_order():
+    provider, _, _ = make(bout_routes(KO_BOUT))  # feed: order-2 fighter (5216713) won
+    flipped = _reversed(card_bout(provider, KO_BOUT))
+    assert flipped.fighter_a.provider_id == "5216713"
+    assert provider.fetch_outcome(EVENT, flipped).winner == "a"
+    assert provider.fetch_outcome(EVENT, card_bout(provider, KO_BOUT)).winner == "b"
+
+
+def test_outcome_none_when_feed_pair_differs_from_card(caplog):
+    from dataclasses import replace
+
+    provider, _, _ = make(bout_routes(KO_BOUT))
+    bout = card_bout(provider, KO_BOUT)
+    other = replace(bout, fighter_b=replace(bout.fighter_b, provider_id="999"))
+    with caplog.at_level("WARNING"):
+        assert provider.fetch_outcome(EVENT, other) is None
+    assert "999" in caplog.text

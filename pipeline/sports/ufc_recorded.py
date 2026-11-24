@@ -68,7 +68,12 @@ class RecordedUfcProvider:
             # Recorded layout only: "no bout file" means nothing has happened yet.
             # The HTTP provider must not copy this; a failed fetch there is None.
             return BoutOutcome("pre", None, None, None, None, None)
-        a, b = parse.winner_flags(event_doc, bout.provider_id)
+        competition = parse.find_competition(event_doc, bout.provider_id)
+        ids = (bout.fighter_a.provider_id, bout.fighter_b.provider_id)
+        if parse.competition_fighter_ids(competition) != frozenset(ids):
+            log.warning("recorded UFC bout %s is not %s vs %s", bout.provider_id, *ids)
+            return None
+        a, b = parse.winner_flags_by_id(competition, *ids)
         return parse.parse_outcome(bout_doc.get("status"), a, b)
 
     def fetch_stats(self, event_id: str, bout: BoutCard) -> dict[str, FighterBoutStats]:
