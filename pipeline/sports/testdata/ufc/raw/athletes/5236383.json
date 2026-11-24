@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5236383?lang=en&region=us",
+ "id": "5236383",
+ "uid": "s:3301~a:5236383",
+ "guid": "fd43730a-8508-3cca-90fd-dacdc6e5610d",
+ "firstName": "Hecher",
+ "lastName": "Sosa",
+ "fullName": "Hecher Sosa",
+ "displayName": "Hecher Sosa",
+ "nickname": "Guanche Warrior",
+ "shortName": "H. Sosa",
+ "weight": 135.5,
+ "displayWeight": "135.5 lbs",
+ "height": 68.0,
+ "displayHeight": "5' 8\"",
+ "age": 31,
+ "dateOfBirth": "1995-08-25T07:00Z",
+ "gender": "MALE",
+ "citizenship": "Spain",
+ "citizenshipCountry": {
+  "alternateId": "104",
+  "abbreviation": "ESP",
+  "color": "#AA151B",
+  "alternateColor": "#F1BF00"
+ },
+ "slug": "hecher-sosa",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5236383/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 70.0,
+ "displayReach": "70\"",
+ "weightClass": {
+  "id": "970",
+  "text": "Bantamweight",
+  "shortName": "Bantamweight",
+  "slug": "bantamweight"
+ },
+ "stance": {
+  "id": "75",
+  "text": "Orthodox"
+ }
+}

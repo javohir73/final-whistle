@@ -1,0 +1,49 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3156612?lang=en&region=us",
+ "id": "3156612",
+ "uid": "s:3301~a:3156612",
+ "guid": "38f1a6d3-8b45-3810-1323-1a9273ebfbd7",
+ "firstName": "Jiří",
+ "lastName": "Procházka",
+ "fullName": "Jiří Procházka",
+ "displayName": "Jiří Procházka",
+ "shortName": "J. Procházka",
+ "weight": 205.0,
+ "displayWeight": "205 lbs",
+ "height": 75.0,
+ "displayHeight": "6' 3\"",
+ "age": 34,
+ "dateOfBirth": "1992-10-14T07:00Z",
+ "gender": "MALE",
+ "citizenship": "Czechia",
+ "citizenshipCountry": {
+  "alternateId": "153",
+  "abbreviation": "CZE",
+  "color": "#D71619",
+  "alternateColor": "#10457E"
+ },
+ "slug": "jiri-prochazka",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3156612/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 80.0,
+ "displayReach": "80\"",
+ "weightClass": {
+  "id": "990",
+  "text": "Light Heavyweight",
+  "shortName": "Light Heavyweight",
+  "slug": "light-heavyweight"
+ },
+ "stance": {
+  "id": "75",
+  "text": "Orthodox"
+ }
+}

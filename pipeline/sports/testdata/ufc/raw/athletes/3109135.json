@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3109135?lang=en&region=us",
+ "id": "3109135",
+ "uid": "s:3301~a:3109135",
+ "guid": "08fd167d-4a0e-7044-a89f-da7beee2f39c",
+ "firstName": "Dan",
+ "lastName": "Hooker",
+ "fullName": "Dan Hooker",
+ "displayName": "Dan Hooker",
+ "nickname": "The Hangman",
+ "shortName": "D. Hooker",
+ "weight": 156.0,
+ "displayWeight": "156 lbs",
+ "height": 72.0,
+ "displayHeight": "6' 0\"",
+ "age": 36,
+ "dateOfBirth": "1990-02-13T08:00Z",
+ "gender": "MALE",
+ "citizenship": "New Zealand",
+ "citizenshipCountry": {
+  "alternateId": "124",
+  "abbreviation": "NZL",
+  "color": "#01237E",
+  "alternateColor": "#CC142B"
+ },
+ "slug": "dan-hooker",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3109135/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 75.0,
+ "displayReach": "75\"",
+ "weightClass": {
+  "id": "986",
+  "text": "Lightweight",
+  "shortName": "Lightweight",
+  "slug": "lightweight"
+ },
+ "stance": {
+  "id": "80",
+  "text": "Switch"
+ }
+}

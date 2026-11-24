@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5145681?lang=en&region=us",
+ "id": "5145681",
+ "uid": "s:3301~a:5145681",
+ "guid": "03201c73-3aab-3f6f-9907-6ebc358a96c1",
+ "firstName": "Kevin",
+ "lastName": "Vallejos",
+ "fullName": "Kevin Vallejos",
+ "displayName": "Kevin Vallejos",
+ "nickname": "El Chino",
+ "shortName": "K. Vallejos",
+ "weight": 145.0,
+ "displayWeight": "145 lbs",
+ "height": 67.0,
+ "displayHeight": "5' 7\"",
+ "age": 24,
+ "dateOfBirth": "2001-12-08T08:00Z",
+ "gender": "MALE",
+ "citizenship": "Argentina",
+ "citizenshipCountry": {
+  "alternateId": "141",
+  "abbreviation": "ARG",
+  "color": "#74ACDF",
+  "alternateColor": "#F6B40E"
+ },
+ "slug": "kevin-vallejos",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5145681/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 68.0,
+ "displayReach": "68\"",
+ "weightClass": {
+  "id": "999",
+  "text": "Featherweight",
+  "shortName": "Featherweight",
+  "slug": "featherweight"
+ },
+ "stance": {
+  "id": "80",
+  "text": "Switch"
+ }
+}

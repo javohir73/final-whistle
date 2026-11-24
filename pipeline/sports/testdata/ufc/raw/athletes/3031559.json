@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3031559?lang=en&region=us",
+ "id": "3031559",
+ "uid": "s:3301~a:3031559",
+ "guid": "27165ce2-5ad4-ea77-e7aa-bf3bb0d8127d",
+ "firstName": "Aljamain",
+ "lastName": "Sterling",
+ "fullName": "Aljamain Sterling",
+ "displayName": "Aljamain Sterling",
+ "nickname": "Funk Master",
+ "shortName": "A. Sterling",
+ "weight": 145.0,
+ "displayWeight": "145 lbs",
+ "height": 67.0,
+ "displayHeight": "5' 7\"",
+ "age": 37,
+ "dateOfBirth": "1989-07-31T07:00Z",
+ "gender": "MALE",
+ "citizenship": "USA",
+ "citizenshipCountry": {
+  "alternateId": "1",
+  "abbreviation": "USA",
+  "color": "#3C3B6E",
+  "alternateColor": "#B22234"
+ },
+ "slug": "aljamain-sterling",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3031559/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 71.0,
+ "displayReach": "71\"",
+ "weightClass": {
+  "id": "999",
+  "text": "Featherweight",
+  "shortName": "Featherweight",
+  "slug": "featherweight"
+ },
+ "stance": {
+  "id": "75",
+  "text": "Orthodox"
+ }
+}

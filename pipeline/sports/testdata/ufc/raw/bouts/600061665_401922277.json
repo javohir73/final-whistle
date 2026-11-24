@@ -1,0 +1,1259 @@
+{
+ "event_id": "600061665",
+ "bout_id": "401922277",
+ "status": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277/status?lang=en&region=us",
+  "clock": 298.0,
+  "displayClock": "4:58",
+  "period": 2,
+  "type": {
+   "id": "3",
+   "name": "STATUS_FINAL",
+   "state": "post",
+   "completed": true,
+   "description": "Final",
+   "detail": "Final",
+   "shortDetail": "Final"
+  },
+  "result": {
+   "id": 356,
+   "name": "kotko",
+   "displayName": "KO/TKO",
+   "description": "Punch",
+   "displayDescription": "Punch",
+   "shortDisplayName": "KO/TKO",
+   "target": {
+    "id": 122,
+    "name": "head",
+    "description": "Head",
+    "displayDescription": "Head"
+   }
+  },
+  "featured": false
+ },
+ "odds": {
+  "count": 1,
+  "pageIndex": 1,
+  "pageSize": 50,
+  "pageCount": 1,
+  "items": [
+   {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277/odds/100?lang=en&region=us",
+    "provider": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/providers/100?lang=en&region=us",
+     "id": "100",
+     "name": "DraftKings",
+     "priority": 1
+    },
+    "details": "N. Stirling -218",
+    "overUnder": 2.5,
+    "spread": 13.5,
+    "overOdds": 124.0,
+    "underOdds": -160.0,
+    "awayAthleteOdds": {
+     "favorite": true,
+     "underdog": false,
+     "moneyLine": -218,
+     "spreadOdds": -145.0,
+     "open": {
+      "favorite": true,
+      "pointSpread": {
+       "alternateDisplayValue": "-13.5",
+       "american": "-13.5"
+      },
+      "spread": {
+       "value": 1.8,
+       "displayValue": "4/5",
+       "alternateDisplayValue": "-125",
+       "decimal": 1.8,
+       "fraction": "4/5",
+       "american": "-125"
+      },
+      "moneyLine": {
+       "value": 1.67,
+       "displayValue": "25/37",
+       "alternateDisplayValue": "-148",
+       "decimal": 1.67,
+       "fraction": "25/37",
+       "american": "-148"
+      },
+      "victoryMethod": {
+       "koTkoDq": {
+        "value": 1.86,
+        "displayValue": "20/23",
+        "alternateDisplayValue": "-115",
+        "decimal": 1.86,
+        "fraction": "20/23",
+        "american": "-115"
+       },
+       "submission": {
+        "value": 20.0,
+        "displayValue": "19/1",
+        "alternateDisplayValue": "+1900",
+        "decimal": 20.0,
+        "fraction": "19/1",
+        "american": "+1900"
+       },
+       "points": {
+        "value": 9.0,
+        "displayValue": "8/1",
+        "alternateDisplayValue": "+800",
+        "decimal": 9.0,
+        "fraction": "8/1",
+        "american": "+800"
+       }
+      }
+     },
+     "close": {
+      "pointSpread": {
+       "alternateDisplayValue": "-13.5",
+       "american": "-13.5"
+      },
+      "spread": {
+       "value": 1.68,
+       "displayValue": "20/29",
+       "alternateDisplayValue": "-145",
+       "decimal": 1.68,
+       "fraction": "20/29",
+       "american": "-145"
+      },
+      "moneyLine": {
+       "value": 1.45,
+       "displayValue": "50/109",
+       "alternateDisplayValue": "-218",
+       "decimal": 1.45,
+       "fraction": "50/109",
+       "american": "-218"
+      },
+      "victoryMethod": {
+       "koTkoDq": {
+        "value": 1.74,
+        "displayValue": "20/27",
+        "alternateDisplayValue": "-135",
+        "decimal": 1.74,
+        "fraction": "20/27",
+        "american": "-135"
+       },
+       "submission": {
+        "value": 19.0,
+        "displayValue": "18/1",
+        "alternateDisplayValue": "+1800",
+        "decimal": 19.0,
+        "fraction": "18/1",
+        "american": "+1800"
+       },
+       "points": {
+        "value": 9.0,
+        "displayValue": "8/1",
+        "alternateDisplayValue": "+800",
+        "decimal": 9.0,
+        "fraction": "8/1",
+        "american": "+800"
+       }
+      }
+     },
+     "current": {
+      "pointSpread": {
+       "alternateDisplayValue": "-13.5",
+       "american": "-13.5"
+      },
+      "spread": {
+       "value": 1.68,
+       "displayValue": "20/29",
+       "alternateDisplayValue": "-145",
+       "decimal": 1.68,
+       "fraction": "20/29",
+       "american": "-145"
+      },
+      "moneyLine": {
+       "value": 1.45,
+       "displayValue": "50/109",
+       "alternateDisplayValue": "-218",
+       "decimal": 1.45,
+       "fraction": "50/109",
+       "american": "-218"
+      },
+      "victoryMethod": {
+       "koTkoDq": {
+        "value": 1.74,
+        "displayValue": "20/27",
+        "alternateDisplayValue": "-135",
+        "decimal": 1.74,
+        "fraction": "20/27",
+        "american": "-135"
+       },
+       "submission": {
+        "value": 19.0,
+        "displayValue": "18/1",
+        "alternateDisplayValue": "+1800",
+        "decimal": 19.0,
+        "fraction": "18/1",
+        "american": "+1800"
+       },
+       "points": {
+        "value": 9.0,
+        "displayValue": "8/1",
+        "alternateDisplayValue": "+800",
+        "decimal": 9.0,
+        "fraction": "8/1",
+        "american": "+800"
+       }
+      }
+     },
+     "athlete": {
+      "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5216713?lang=en&region=us"
+     }
+    },
+    "homeAthleteOdds": {
+     "favorite": false,
+     "underdog": true,
+     "moneyLine": 180,
+     "spreadOdds": 110.0,
+     "open": {
+      "favorite": false,
+      "pointSpread": {
+       "alternateDisplayValue": "+13.5",
+       "american": "+13.5"
+      },
+      "spread": {
+       "value": 1.95,
+       "displayValue": "20/21",
+       "alternateDisplayValue": "-105",
+       "decimal": 1.95,
+       "fraction": "20/21",
+       "american": "-105"
+      },
+      "moneyLine": {
+       "value": 2.24,
+       "displayValue": "31/25",
+       "alternateDisplayValue": "+124",
+       "decimal": 2.24,
+       "fraction": "31/25",
+       "american": "+124"
+      },
+      "victoryMethod": {
+       "koTkoDq": {
+        "value": 2.6,
+        "displayValue": "8/5",
+        "alternateDisplayValue": "+160",
+        "decimal": 2.6,
+        "fraction": "8/5",
+        "american": "+160"
+       },
+       "submission": {
+        "value": 19.0,
+        "displayValue": "18/1",
+        "alternateDisplayValue": "+1800",
+        "decimal": 19.0,
+        "fraction": "18/1",
+        "american": "+1800"
+       },
+       "points": {
+        "value": 12.0,
+        "displayValue": "11/1",
+        "alternateDisplayValue": "+1100",
+        "decimal": 12.0,
+        "fraction": "11/1",
+        "american": "+1100"
+       }
+      }
+     },
+     "close": {
+      "pointSpread": {
+       "alternateDisplayValue": "+13.5",
+       "american": "+13.5"
+      },
+      "spread": {
+       "value": 2.1,
+       "displayValue": "11/10",
+       "alternateDisplayValue": "+110",
+       "decimal": 2.1,
+       "fraction": "11/10",
+       "american": "+110"
+      },
+      "moneyLine": {
+       "value": 2.8,
+       "displayValue": "9/5",
+       "alternateDisplayValue": "+180",
+       "decimal": 2.8,
+       "fraction": "9/5",
+       "american": "+180"
+      },
+      "victoryMethod": {
+       "koTkoDq": {
+        "value": 3.15,
+        "displayValue": "43/20",
+        "alternateDisplayValue": "+215",
+        "decimal": 3.15,
+        "fraction": "43/20",
+        "american": "+215"
+       },
+       "submission": {
+        "value": 21.0,
+        "displayValue": "20/1",
+        "alternateDisplayValue": "+2000",
+        "decimal": 21.0,
+        "fraction": "20/1",
+        "american": "+2000"
+       },
+       "points": {
+        "value": 12.0,
+        "displayValue": "11/1",
+        "alternateDisplayValue": "+1100",
+        "decimal": 12.0,
+        "fraction": "11/1",
+        "american": "+1100"
+       }
+      }
+     },
+     "current": {
+      "pointSpread": {
+       "alternateDisplayValue": "+13.5",
+       "american": "+13.5"
+      },
+      "spread": {
+       "value": 2.1,
+       "displayValue": "11/10",
+       "alternateDisplayValue": "+110",
+       "decimal": 2.1,
+       "fraction": "11/10",
+       "american": "+110"
+      },
+      "moneyLine": {
+       "value": 2.8,
+       "displayValue": "9/5",
+       "alternateDisplayValue": "+180",
+       "decimal": 2.8,
+       "fraction": "9/5",
+       "american": "+180"
+      },
+      "victoryMethod": {
+       "koTkoDq": {
+        "value": 3.15,
+        "displayValue": "43/20",
+        "alternateDisplayValue": "+215",
+        "decimal": 3.15,
+        "fraction": "43/20",
+        "american": "+215"
+       },
+       "submission": {
+        "value": 21.0,
+        "displayValue": "20/1",
+        "alternateDisplayValue": "+2000",
+        "decimal": 21.0,
+        "fraction": "20/1",
+        "american": "+2000"
+       },
+       "points": {
+        "value": 12.0,
+        "displayValue": "11/1",
+        "alternateDisplayValue": "+1100",
+        "decimal": 12.0,
+        "fraction": "11/1",
+        "american": "+1100"
+       }
+      }
+     },
+     "athlete": {
+      "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/3156612?lang=en&region=us"
+     }
+    },
+    "moneylineWinner": false,
+    "spreadWinner": false,
+    "open": {
+     "over": {
+      "value": 1.83,
+      "displayValue": "5/6",
+      "alternateDisplayValue": "-120",
+      "decimal": 1.83,
+      "fraction": "5/6",
+      "american": "-120"
+     },
+     "under": {
+      "value": 1.9,
+      "displayValue": "10/11",
+      "alternateDisplayValue": "-110",
+      "decimal": 1.9,
+      "fraction": "10/11",
+      "american": "-110"
+     },
+     "total": {
+      "alternateDisplayValue": "2.5",
+      "american": "2.5"
+     }
+    },
+    "close": {
+     "over": {
+      "value": 2.24,
+      "displayValue": "31/25",
+      "alternateDisplayValue": "+124",
+      "decimal": 2.24,
+      "fraction": "31/25",
+      "american": "+124"
+     },
+     "under": {
+      "value": 1.62,
+      "displayValue": "5/8",
+      "alternateDisplayValue": "-160",
+      "decimal": 1.62,
+      "fraction": "5/8",
+      "american": "-160"
+     },
+     "total": {
+      "alternateDisplayValue": "2.5",
+      "american": "2.5"
+     }
+    },
+    "current": {
+     "over": {
+      "value": 2.24,
+      "displayValue": "31/25",
+      "alternateDisplayValue": "+124",
+      "decimal": 2.24,
+      "fraction": "31/25",
+      "american": "+124"
+     },
+     "under": {
+      "value": 1.62,
+      "displayValue": "5/8",
+      "alternateDisplayValue": "-160",
+      "decimal": 1.62,
+      "fraction": "5/8",
+      "american": "-160"
+     },
+     "total": {
+      "alternateDisplayValue": "2.5",
+      "american": "2.5"
+     }
+    },
+    "propBets": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277/odds/100/propBets?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ "competitors": {
+  "3156612": {
+   "statistics": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277/competitors/3156612/statistics/0?lang=en&region=us",
+    "competition": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277?lang=en&region=us"
+    },
+    "splits": {
+     "id": "0",
+     "name": "All Splits",
+     "abbreviation": "TOT",
+     "type": "total",
+     "categories": [
+      {
+       "name": "general",
+       "displayName": "General",
+       "shortDisplayName": "General",
+       "abbreviation": "gen",
+       "summary": "",
+       "stats": [
+        {
+         "name": "knockDowns",
+         "displayName": "Knockdowns",
+         "shortDisplayName": "Knockdowns",
+         "description": "Knockdowns",
+         "abbreviation": "KD",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "totalStrikesAttempted",
+         "displayName": "Total Strikes Attempts",
+         "shortDisplayName": "Total Strikes Attempts",
+         "description": "Total Strikes Attempts",
+         "abbreviation": "TSA",
+         "value": 48.0,
+         "displayValue": "48"
+        },
+        {
+         "name": "totalStrikesLanded",
+         "displayName": "Total Strikes Landed",
+         "shortDisplayName": "Strikes Landed",
+         "description": "Total Strikes Landed",
+         "abbreviation": "TSL",
+         "value": 26.0,
+         "displayValue": "26"
+        },
+        {
+         "name": "sigStrikesAttempted",
+         "displayName": "Significant Strikes Attempts",
+         "shortDisplayName": "Significant Strikes Attempts",
+         "description": "Significant Strikes Attempts",
+         "abbreviation": "SSA",
+         "type": "sigStrikesAttempted",
+         "value": 45.0,
+         "displayValue": "45"
+        },
+        {
+         "name": "sigStrikesLanded",
+         "displayName": "Significant Strikes Landed",
+         "shortDisplayName": "Significant Strikes Landed",
+         "description": "Significant Strikes Landed",
+         "abbreviation": "SSL",
+         "value": 23.0,
+         "displayValue": "23"
+        },
+        {
+         "name": "sigDistanceHeadStrikesAttempted",
+         "displayName": "Significant Distance Head Strike Attempts",
+         "shortDisplayName": "Significant Distance Head Strike Attempts",
+         "description": "Significant Distance Head Strike Attempts",
+         "abbreviation": "SIGDISTHSA",
+         "value": 30.0,
+         "displayValue": "30"
+        },
+        {
+         "name": "sigDistanceHeadStrikesLanded",
+         "displayName": "Significant Distance Head Strikes Landed",
+         "shortDisplayName": "Significant Distance Head Strikes Landed",
+         "description": "Significant Distance Head Strikes Landed",
+         "abbreviation": "SIGDISTHSL",
+         "value": 10.0,
+         "displayValue": "10"
+        },
+        {
+         "name": "sigDistanceBodyStrikesAttempted",
+         "displayName": "Significant Distance Body Strike Attempts",
+         "shortDisplayName": "Significant DistanceBodyStrike Attempts",
+         "description": "Significant Distance Body Strike Attempts",
+         "abbreviation": "SIGDISTBSA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigDistanceBodyStrikesLanded",
+         "displayName": "Significant Distance Body Strikes Landed",
+         "shortDisplayName": "Significant Distance Body Strikes Landed",
+         "description": "Significant Distance Body Strikes Landed",
+         "abbreviation": "SIGDISTBSL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigDistanceLegStrikesAttempted",
+         "displayName": "Significant Distance Leg Strike Attempts",
+         "shortDisplayName": "Significant Distance Leg Strike Attempts",
+         "description": "Significant Distance Leg Strike Attempts",
+         "abbreviation": "SIGDISTLSA",
+         "value": 14.0,
+         "displayValue": "14"
+        },
+        {
+         "name": "sigDistanceLegStrikesLanded",
+         "displayName": "Significant Distance Leg Strikes Landed",
+         "shortDisplayName": "Significant Distance Leg Strikes Landed",
+         "description": "Significant Distance Leg Strikes Landed",
+         "abbreviation": "SIGDISTLSL",
+         "value": 12.0,
+         "displayValue": "12"
+        },
+        {
+         "name": "sigClinchBodyStrikesAttempted",
+         "displayName": "Significant Clinch Body Strike Attempts",
+         "shortDisplayName": "Significant Clinch Body Strike Attempts",
+         "description": "Significant Clinch Body Strike Attempts",
+         "abbreviation": "SCBA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigClinchBodyStrikesLanded",
+         "displayName": "Significant Clinch Body Strikes Landed",
+         "shortDisplayName": "Significant Clinch Body Strikes Landed",
+         "description": "Significant Clinch Body Strikes Landed",
+         "abbreviation": "SCBL\t",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigClinchHeadStrikesAttempted",
+         "displayName": "Significant Clinch Head Strike Attempts",
+         "shortDisplayName": "Significant Clinch Head Strike Attempts",
+         "description": "Significant Clinch Head Strike Attempts",
+         "abbreviation": "SCHA",
+         "value": 1.0,
+         "displayValue": "1"
+        },
+        {
+         "name": "sigClinchHeadStrikesLanded",
+         "displayName": "Significant Clinch Head Strikes Landed",
+         "shortDisplayName": "Significant Clinch Head Strikes Landed",
+         "description": "Significant Clinch Head Strikes Landed",
+         "abbreviation": "SCHL",
+         "value": 1.0,
+         "displayValue": "1"
+        },
+        {
+         "name": "sigClinchLegStrikesAttempted",
+         "displayName": "Significant Clinch Leg Strike Attempts",
+         "shortDisplayName": "Significant Clinch Leg Strike Attempts",
+         "description": "Significant Clinch Leg Strike Attempts",
+         "abbreviation": "SCLA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigClinchLegStrikesLanded",
+         "displayName": "Significant Clinch Leg Strikes Landed",
+         "shortDisplayName": "Significant Clinch Leg Strikes Landed",
+         "description": "Significant Clinch Leg Strikes Landed",
+         "abbreviation": "SCLL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundHeadStrikesAttempted",
+         "displayName": "Significant Ground Head Strike Attempts",
+         "shortDisplayName": "Significant Ground Head Strike Attempts",
+         "description": "Significant Ground Head Strike Attempts",
+         "abbreviation": "SGHA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundHeadStrikesLanded",
+         "displayName": "Significant Ground Head Strikes Landed",
+         "shortDisplayName": "Significant Ground Head Strikes Landed",
+         "description": "Significant Ground Head Strikes Landed",
+         "abbreviation": "SGHL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundBodyStrikesAttempted",
+         "displayName": "Significant Ground Body Strike Attempts",
+         "shortDisplayName": "Significant Ground Body Strike Attempts",
+         "description": "Significant Ground Body Strike Attempts",
+         "abbreviation": "SGBA\t",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundBodyStrikesLanded",
+         "displayName": "Significant Ground Body Strikes Landed",
+         "shortDisplayName": "Significant Ground Body Strikes Landed",
+         "description": "Significant Ground Body Strikes Landed",
+         "abbreviation": "SGBL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundLegStrikesAttempted",
+         "displayName": "Significant Ground Leg Strikes Attempted",
+         "shortDisplayName": "Significant Ground Leg Strikes Attempted",
+         "description": "Significant Ground Leg Strikes Attempted",
+         "abbreviation": "SGLA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundLegStrikesLanded",
+         "displayName": "Significant Ground Leg Strikes Landed",
+         "shortDisplayName": "Significant Ground Leg Strikes Landed",
+         "description": "Significant Ground Leg Strikes Landed",
+         "abbreviation": "SGLL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownsAttempted",
+         "displayName": "Takedowns Attempted",
+         "shortDisplayName": "Takedowns Attempted",
+         "description": "Takedowns Attempted",
+         "abbreviation": "TDA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownsLanded",
+         "displayName": "Takedowns Landed",
+         "shortDisplayName": "Takedowns Landed",
+         "description": "Takedowns Landed",
+         "abbreviation": "TDL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownsSlams",
+         "displayName": "Takedowns Slams",
+         "shortDisplayName": "Takedowns Slams",
+         "description": "Takedowns Slams",
+         "abbreviation": "TDS",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownAccuracy",
+         "displayName": "Takedown Accuracy",
+         "shortDisplayName": "TK ACC",
+         "description": "Takedown Accuracy",
+         "abbreviation": "TK ACC",
+         "value": 0.0,
+         "displayValue": "0.00"
+        },
+        {
+         "name": "targetBreakdownHead",
+         "displayName": "Target Breakdown Head",
+         "shortDisplayName": "Target Breakdown Head",
+         "description": "Target Breakdown Head",
+         "abbreviation": "%HEAD",
+         "value": 0.355,
+         "displayValue": "0"
+        },
+        {
+         "name": "targetBreakdownBody",
+         "displayName": "Target Breakdown Body",
+         "shortDisplayName": "Target Breakdown Body",
+         "description": "Target Breakdown Body",
+         "abbreviation": "%BODY",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "targetBreakdownLeg",
+         "displayName": "Target Breakdown Leg",
+         "shortDisplayName": "Target Breakdown Leg",
+         "description": "Target Breakdown Leg",
+         "abbreviation": "%LEG",
+         "value": 0.857,
+         "displayValue": "1"
+        },
+        {
+         "name": "posBreakdownDistance",
+         "displayName": "Position Breakdown Distance",
+         "shortDisplayName": "Position Breakdown Distance",
+         "description": "Position Breakdown Distance",
+         "abbreviation": "POSBRKDWNDIST",
+         "value": 0.5,
+         "displayValue": "1"
+        },
+        {
+         "name": "posBreakdownClinch",
+         "displayName": "Position Breakdown Clinch",
+         "shortDisplayName": "Position Breakdown Clinch",
+         "description": "Position Breakdown Clinch",
+         "abbreviation": "POSBRKDWNCLI",
+         "value": 1.0,
+         "displayValue": "1"
+        },
+        {
+         "name": "posBreakdownGround",
+         "displayName": "Position Breakdown Ground",
+         "shortDisplayName": "Position Breakdown Ground",
+         "description": "Position Breakdown Ground",
+         "abbreviation": "POSBRKDWNGRND",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advances",
+         "displayName": "Advances",
+         "shortDisplayName": "Advances",
+         "description": "Advances",
+         "abbreviation": "AD",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToHalfGuard",
+         "displayName": "Advance To Half Guard",
+         "shortDisplayName": "Advance To Half Guard",
+         "description": "Advance To Half Guard",
+         "abbreviation": "ADHG",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToSide",
+         "displayName": "Advance To Side",
+         "shortDisplayName": "Advance To Side",
+         "description": "Advance To Side",
+         "abbreviation": "ADTS",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToMount",
+         "displayName": "Advance To Mount",
+         "shortDisplayName": "Advance To Mount",
+         "description": "Advance To Mount",
+         "abbreviation": "ADTM",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToBack",
+         "displayName": "Advance To Back",
+         "shortDisplayName": "Advance To Back",
+         "description": "Advance To Back",
+         "abbreviation": "ADTB",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "reversals",
+         "displayName": "Reversals",
+         "shortDisplayName": "Reversals",
+         "description": "Reversals",
+         "abbreviation": "RV",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "submissions",
+         "displayName": "Submissions",
+         "shortDisplayName": "Submissions",
+         "description": "Submissions",
+         "abbreviation": "SM",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "slamRate",
+         "displayName": "Slam Rate",
+         "shortDisplayName": "Slam Rate",
+         "description": "Slam Rate",
+         "abbreviation": "SR",
+         "value": 0.0,
+         "displayValue": "0.000"
+        },
+        {
+         "name": "timeInControl",
+         "displayName": "Time in Control",
+         "description": "Time in Control",
+         "abbreviation": "TIC",
+         "value": 18.0,
+         "displayValue": "0:18"
+        },
+        {
+         "name": "wallclock",
+         "displayName": "Wallclock",
+         "description": "Wallclock",
+         "abbreviation": "WC",
+         "value": 1795322949.0,
+         "displayValue": "2026-11-22T04:49:09Z"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "5216713": {
+   "statistics": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277/competitors/5216713/statistics/0?lang=en&region=us",
+    "competition": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/mma/leagues/ufc/events/600061665/competitions/401922277?lang=en&region=us"
+    },
+    "splits": {
+     "id": "0",
+     "name": "All Splits",
+     "abbreviation": "TOT",
+     "type": "total",
+     "categories": [
+      {
+       "name": "general",
+       "displayName": "General",
+       "shortDisplayName": "General",
+       "abbreviation": "gen",
+       "summary": "",
+       "stats": [
+        {
+         "name": "knockDowns",
+         "displayName": "Knockdowns",
+         "shortDisplayName": "Knockdowns",
+         "description": "Knockdowns",
+         "abbreviation": "KD",
+         "value": 1.0,
+         "displayValue": "1"
+        },
+        {
+         "name": "totalStrikesAttempted",
+         "displayName": "Total Strikes Attempts",
+         "shortDisplayName": "Total Strikes Attempts",
+         "description": "Total Strikes Attempts",
+         "abbreviation": "TSA",
+         "value": 98.0,
+         "displayValue": "98"
+        },
+        {
+         "name": "totalStrikesLanded",
+         "displayName": "Total Strikes Landed",
+         "shortDisplayName": "Strikes Landed",
+         "description": "Total Strikes Landed",
+         "abbreviation": "TSL",
+         "value": 51.0,
+         "displayValue": "51"
+        },
+        {
+         "name": "sigStrikesAttempted",
+         "displayName": "Significant Strikes Attempts",
+         "shortDisplayName": "Significant Strikes Attempts",
+         "description": "Significant Strikes Attempts",
+         "abbreviation": "SSA",
+         "type": "sigStrikesAttempted",
+         "value": 94.0,
+         "displayValue": "94"
+        },
+        {
+         "name": "sigStrikesLanded",
+         "displayName": "Significant Strikes Landed",
+         "shortDisplayName": "Significant Strikes Landed",
+         "description": "Significant Strikes Landed",
+         "abbreviation": "SSL",
+         "value": 48.0,
+         "displayValue": "48"
+        },
+        {
+         "name": "sigDistanceHeadStrikesAttempted",
+         "displayName": "Significant Distance Head Strike Attempts",
+         "shortDisplayName": "Significant Distance Head Strike Attempts",
+         "description": "Significant Distance Head Strike Attempts",
+         "abbreviation": "SIGDISTHSA",
+         "value": 32.0,
+         "displayValue": "32"
+        },
+        {
+         "name": "sigDistanceHeadStrikesLanded",
+         "displayName": "Significant Distance Head Strikes Landed",
+         "shortDisplayName": "Significant Distance Head Strikes Landed",
+         "description": "Significant Distance Head Strikes Landed",
+         "abbreviation": "SIGDISTHSL",
+         "value": 5.0,
+         "displayValue": "5"
+        },
+        {
+         "name": "sigDistanceBodyStrikesAttempted",
+         "displayName": "Significant Distance Body Strike Attempts",
+         "shortDisplayName": "Significant DistanceBodyStrike Attempts",
+         "description": "Significant Distance Body Strike Attempts",
+         "abbreviation": "SIGDISTBSA",
+         "value": 14.0,
+         "displayValue": "14"
+        },
+        {
+         "name": "sigDistanceBodyStrikesLanded",
+         "displayName": "Significant Distance Body Strikes Landed",
+         "shortDisplayName": "Significant Distance Body Strikes Landed",
+         "description": "Significant Distance Body Strikes Landed",
+         "abbreviation": "SIGDISTBSL",
+         "value": 7.0,
+         "displayValue": "7"
+        },
+        {
+         "name": "sigDistanceLegStrikesAttempted",
+         "displayName": "Significant Distance Leg Strike Attempts",
+         "shortDisplayName": "Significant Distance Leg Strike Attempts",
+         "description": "Significant Distance Leg Strike Attempts",
+         "abbreviation": "SIGDISTLSA",
+         "value": 42.0,
+         "displayValue": "42"
+        },
+        {
+         "name": "sigDistanceLegStrikesLanded",
+         "displayName": "Significant Distance Leg Strikes Landed",
+         "shortDisplayName": "Significant Distance Leg Strikes Landed",
+         "description": "Significant Distance Leg Strikes Landed",
+         "abbreviation": "SIGDISTLSL",
+         "value": 31.0,
+         "displayValue": "31"
+        },
+        {
+         "name": "sigClinchBodyStrikesAttempted",
+         "displayName": "Significant Clinch Body Strike Attempts",
+         "shortDisplayName": "Significant Clinch Body Strike Attempts",
+         "description": "Significant Clinch Body Strike Attempts",
+         "abbreviation": "SCBA",
+         "value": 2.0,
+         "displayValue": "2"
+        },
+        {
+         "name": "sigClinchBodyStrikesLanded",
+         "displayName": "Significant Clinch Body Strikes Landed",
+         "shortDisplayName": "Significant Clinch Body Strikes Landed",
+         "description": "Significant Clinch Body Strikes Landed",
+         "abbreviation": "SCBL\t",
+         "value": 2.0,
+         "displayValue": "2"
+        },
+        {
+         "name": "sigClinchHeadStrikesAttempted",
+         "displayName": "Significant Clinch Head Strike Attempts",
+         "shortDisplayName": "Significant Clinch Head Strike Attempts",
+         "description": "Significant Clinch Head Strike Attempts",
+         "abbreviation": "SCHA",
+         "value": 2.0,
+         "displayValue": "2"
+        },
+        {
+         "name": "sigClinchHeadStrikesLanded",
+         "displayName": "Significant Clinch Head Strikes Landed",
+         "shortDisplayName": "Significant Clinch Head Strikes Landed",
+         "description": "Significant Clinch Head Strikes Landed",
+         "abbreviation": "SCHL",
+         "value": 1.0,
+         "displayValue": "1"
+        },
+        {
+         "name": "sigClinchLegStrikesAttempted",
+         "displayName": "Significant Clinch Leg Strike Attempts",
+         "shortDisplayName": "Significant Clinch Leg Strike Attempts",
+         "description": "Significant Clinch Leg Strike Attempts",
+         "abbreviation": "SCLA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigClinchLegStrikesLanded",
+         "displayName": "Significant Clinch Leg Strikes Landed",
+         "shortDisplayName": "Significant Clinch Leg Strikes Landed",
+         "description": "Significant Clinch Leg Strikes Landed",
+         "abbreviation": "SCLL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundHeadStrikesAttempted",
+         "displayName": "Significant Ground Head Strike Attempts",
+         "shortDisplayName": "Significant Ground Head Strike Attempts",
+         "description": "Significant Ground Head Strike Attempts",
+         "abbreviation": "SGHA",
+         "value": 2.0,
+         "displayValue": "2"
+        },
+        {
+         "name": "sigGroundHeadStrikesLanded",
+         "displayName": "Significant Ground Head Strikes Landed",
+         "shortDisplayName": "Significant Ground Head Strikes Landed",
+         "description": "Significant Ground Head Strikes Landed",
+         "abbreviation": "SGHL",
+         "value": 2.0,
+         "displayValue": "2"
+        },
+        {
+         "name": "sigGroundBodyStrikesAttempted",
+         "displayName": "Significant Ground Body Strike Attempts",
+         "shortDisplayName": "Significant Ground Body Strike Attempts",
+         "description": "Significant Ground Body Strike Attempts",
+         "abbreviation": "SGBA\t",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundBodyStrikesLanded",
+         "displayName": "Significant Ground Body Strikes Landed",
+         "shortDisplayName": "Significant Ground Body Strikes Landed",
+         "description": "Significant Ground Body Strikes Landed",
+         "abbreviation": "SGBL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundLegStrikesAttempted",
+         "displayName": "Significant Ground Leg Strikes Attempted",
+         "shortDisplayName": "Significant Ground Leg Strikes Attempted",
+         "description": "Significant Ground Leg Strikes Attempted",
+         "abbreviation": "SGLA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "sigGroundLegStrikesLanded",
+         "displayName": "Significant Ground Leg Strikes Landed",
+         "shortDisplayName": "Significant Ground Leg Strikes Landed",
+         "description": "Significant Ground Leg Strikes Landed",
+         "abbreviation": "SGLL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownsAttempted",
+         "displayName": "Takedowns Attempted",
+         "shortDisplayName": "Takedowns Attempted",
+         "description": "Takedowns Attempted",
+         "abbreviation": "TDA",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownsLanded",
+         "displayName": "Takedowns Landed",
+         "shortDisplayName": "Takedowns Landed",
+         "description": "Takedowns Landed",
+         "abbreviation": "TDL",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownsSlams",
+         "displayName": "Takedowns Slams",
+         "shortDisplayName": "Takedowns Slams",
+         "description": "Takedowns Slams",
+         "abbreviation": "TDS",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "takedownAccuracy",
+         "displayName": "Takedown Accuracy",
+         "shortDisplayName": "TK ACC",
+         "description": "Takedown Accuracy",
+         "abbreviation": "TK ACC",
+         "value": 0.0,
+         "displayValue": "0.00"
+        },
+        {
+         "name": "targetBreakdownHead",
+         "displayName": "Target Breakdown Head",
+         "shortDisplayName": "Target Breakdown Head",
+         "description": "Target Breakdown Head",
+         "abbreviation": "%HEAD",
+         "value": 0.222,
+         "displayValue": "0"
+        },
+        {
+         "name": "targetBreakdownBody",
+         "displayName": "Target Breakdown Body",
+         "shortDisplayName": "Target Breakdown Body",
+         "description": "Target Breakdown Body",
+         "abbreviation": "%BODY",
+         "value": 0.563,
+         "displayValue": "1"
+        },
+        {
+         "name": "targetBreakdownLeg",
+         "displayName": "Target Breakdown Leg",
+         "shortDisplayName": "Target Breakdown Leg",
+         "description": "Target Breakdown Leg",
+         "abbreviation": "%LEG",
+         "value": 0.738,
+         "displayValue": "1"
+        },
+        {
+         "name": "posBreakdownDistance",
+         "displayName": "Position Breakdown Distance",
+         "shortDisplayName": "Position Breakdown Distance",
+         "description": "Position Breakdown Distance",
+         "abbreviation": "POSBRKDWNDIST",
+         "value": 0.489,
+         "displayValue": "0"
+        },
+        {
+         "name": "posBreakdownClinch",
+         "displayName": "Position Breakdown Clinch",
+         "shortDisplayName": "Position Breakdown Clinch",
+         "description": "Position Breakdown Clinch",
+         "abbreviation": "POSBRKDWNCLI",
+         "value": 0.75,
+         "displayValue": "1"
+        },
+        {
+         "name": "posBreakdownGround",
+         "displayName": "Position Breakdown Ground",
+         "shortDisplayName": "Position Breakdown Ground",
+         "description": "Position Breakdown Ground",
+         "abbreviation": "POSBRKDWNGRND",
+         "value": 1.0,
+         "displayValue": "1"
+        },
+        {
+         "name": "advances",
+         "displayName": "Advances",
+         "shortDisplayName": "Advances",
+         "description": "Advances",
+         "abbreviation": "AD",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToHalfGuard",
+         "displayName": "Advance To Half Guard",
+         "shortDisplayName": "Advance To Half Guard",
+         "description": "Advance To Half Guard",
+         "abbreviation": "ADHG",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToSide",
+         "displayName": "Advance To Side",
+         "shortDisplayName": "Advance To Side",
+         "description": "Advance To Side",
+         "abbreviation": "ADTS",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToMount",
+         "displayName": "Advance To Mount",
+         "shortDisplayName": "Advance To Mount",
+         "description": "Advance To Mount",
+         "abbreviation": "ADTM",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "advanceToBack",
+         "displayName": "Advance To Back",
+         "shortDisplayName": "Advance To Back",
+         "description": "Advance To Back",
+         "abbreviation": "ADTB",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "reversals",
+         "displayName": "Reversals",
+         "shortDisplayName": "Reversals",
+         "description": "Reversals",
+         "abbreviation": "RV",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "submissions",
+         "displayName": "Submissions",
+         "shortDisplayName": "Submissions",
+         "description": "Submissions",
+         "abbreviation": "SM",
+         "value": 0.0,
+         "displayValue": "0"
+        },
+        {
+         "name": "slamRate",
+         "displayName": "Slam Rate",
+         "shortDisplayName": "Slam Rate",
+         "description": "Slam Rate",
+         "abbreviation": "SR",
+         "value": 0.0,
+         "displayValue": "0.000"
+        },
+        {
+         "name": "timeInControl",
+         "displayName": "Time in Control",
+         "description": "Time in Control",
+         "abbreviation": "TIC",
+         "value": 8.0,
+         "displayValue": "0:08"
+        },
+        {
+         "name": "wallclock",
+         "displayName": "Wallclock",
+         "description": "Wallclock",
+         "abbreviation": "WC",
+         "value": 1795322949.0,
+         "displayValue": "2026-11-22T04:49:09Z"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

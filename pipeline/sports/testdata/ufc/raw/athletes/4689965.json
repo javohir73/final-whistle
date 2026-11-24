@@ -1,0 +1,49 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4689965?lang=en&region=us",
+ "id": "4689965",
+ "uid": "s:3301~a:4689965",
+ "guid": "1a33603b-5e60-3192-acf6-e20408376427",
+ "firstName": "Mateusz",
+ "lastName": "Rębecki",
+ "fullName": "Mateusz Rębecki",
+ "displayName": "Mateusz Rębecki",
+ "shortName": "M. Rębecki",
+ "weight": 155.5,
+ "displayWeight": "155.5 lbs",
+ "height": 67.0,
+ "displayHeight": "5' 7\"",
+ "age": 34,
+ "dateOfBirth": "1992-11-03T08:00Z",
+ "gender": "MALE",
+ "citizenship": "Poland",
+ "citizenshipCountry": {
+  "alternateId": "171",
+  "abbreviation": "POL",
+  "color": "#DD143C",
+  "alternateColor": "#FFFFFF"
+ },
+ "slug": "mateusz-rebecki",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4689965/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 66.0,
+ "displayReach": "66\"",
+ "weightClass": {
+  "id": "986",
+  "text": "Lightweight",
+  "shortName": "Lightweight",
+  "slug": "lightweight"
+ },
+ "stance": {
+  "id": "76",
+  "text": "Southpaw"
+ }
+}

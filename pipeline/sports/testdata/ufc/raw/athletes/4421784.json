@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4421784?lang=en&region=us",
+ "id": "4421784",
+ "uid": "s:3301~a:4421784",
+ "guid": "1610eec0-ae78-d8de-3fe2-7c397fc528d3",
+ "firstName": "Shara",
+ "lastName": "Magomedov",
+ "fullName": "Shara Magomedov",
+ "displayName": "Shara Magomedov",
+ "nickname": "Bullet",
+ "shortName": "S. Magomedov",
+ "weight": 186.0,
+ "displayWeight": "186 lbs",
+ "height": 74.0,
+ "displayHeight": "6' 2\"",
+ "age": 32,
+ "dateOfBirth": "1994-05-16T07:00Z",
+ "gender": "MALE",
+ "citizenship": "Russia",
+ "citizenshipCountry": {
+  "alternateId": "175",
+  "abbreviation": "RUS",
+  "color": "#D00B0E",
+  "alternateColor": "#0039A6"
+ },
+ "slug": "shara-magomedov",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4421784/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 73.0,
+ "displayReach": "73\"",
+ "weightClass": {
+  "id": "972",
+  "text": "Middleweight",
+  "shortName": "Middleweight",
+  "slug": "middleweight"
+ },
+ "stance": {
+  "id": "75",
+  "text": "Orthodox"
+ }
+}

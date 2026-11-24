@@ -126,7 +126,7 @@ blocks are absent, not empty.
 | State | What the visitor sees | Pick | Model call |
 | --- | --- | --- | --- |
 | Scheduled, not picked | Fighters, weight class, scheduled rounds, lock time | Open | Hidden |
-| Scheduled, picked | Their pick, editable until lock | Open | Shown to this player only |
+| Scheduled, picked | Their pick, final | Made | Shown to this player only |
 | Locked | "Picks closed" | Closed | Shown to everyone |
 | Live | Round and clock, "Live" chip | Closed | Shown |
 | Finished | Winner, method, round, time; their pick right or wrong | Graded | Graded |
@@ -136,22 +136,32 @@ blocks are absent, not empty.
 
 ### 5.3 The picks game
 
-- One pick per bout: the winner (required) and how they win (optional): KO/TKO,
-  Submission or Decision.
-- Scoring: 1 point for the winner. 1 bonus point for the method, only when the winner is
-  right. A disqualification win counts for the winner and for no method.
-- Card leaderboard ranks by points, then correct winners, then earlier final pick time.
-  The year leaderboard sums cards.
-- You versus the model compares winners only (your correct winners against the model's),
-  because the model has no method pick until phase 6. Your method bonus is shown as
-  yours alone.
-- On leaderboards the model is a reference line labelled "FinalWhistle model", showing
-  winner points, not counted as a participant and not ranked. It becomes a ranked row,
-  as on the NRL boards, once it makes method picks.
-- Identity and submission follow `backend/app/api/nrl_user_tips.py`: a device id creates
-  the `tip_players` row, an account is an optional later claim, the server clock decides
-  the lock, with the same same-origin check and rate limit. As in NRL, a pick can be
-  changed until lock even after the model's call has been revealed to that player.
+Owner's direction, 2026-11-25: the UFC game is the football tips game with UFC words.
+It copies football's flow, rules and layout (`MatchPick.tsx`, `MatchweekView.tsx`,
+`backend/app/api/league_score_predictions.py`) wherever a fight allows it.
+
+| Football | UFC |
+| --- | --- |
+| Pick the exact score with two steppers | Pick the winner, then how they win: KO/TKO, Submission or Decision. Both are required |
+| "Lock in Arsenal 2–1 Chelsea" | "Lock in Magomedov by decision" |
+| The first accepted pick is final (409 afterwards) | The same |
+| Exact score 5 points, right result 2 | Winner and method 5 points, winner only 2 |
+| Matchweek row: "Pick score", then "You 2–1" | Card row: "Pick winner", then "You: Magomedov, decision" |
+| The pick is made on the match page, at `#pick` | The pick is made on the fight page, at `#pick` |
+| After locking: "Locked.", an agreement line, "Next: X v Y" | The same, with fighters |
+| The model's call reveals on lock and scrolls into view | The same |
+| The model is a flagged row on the leaderboard, scored by the same rule | The same; the model's method pick is its most likely method |
+| `/play` "My picks", leaderboard season and week views | `/ufc/picks`, leaderboard year and card views |
+| Tiebreak: exact scores | Tiebreak: winner-and-method picks |
+
+- A disqualification win scores the winner (2) and no method. A draw, a no contest, a
+  cancelled or a changed bout scores nothing for anyone and is skipped on the boards.
+- Identity, the same-origin check and the rate limit follow
+  `backend/app/api/league_score_predictions.py`: a UUID v4 device id creates the
+  `tip_players` row; an account is an optional later claim.
+- Because the first pick is final and the response reveals the model's call, the lock
+  rule in 4.3 decides only until when a first pick is accepted.
+- Scoring copy, everywhere it appears: "Winner and method 5 points, winner 2."
 - No prizes, no entry fee, no bookmaker links.
 
 ### 5.4 Reveal rule
@@ -183,7 +193,9 @@ radius, 1px lines, no shadows, Instrument Sans, existing `components/ui` primiti
 - Result box: where football shows `2–1`, a finished bout shows the method and round,
   e.g. `KO R2` or `DEC`, in the ink box, with the winner's name in the weight it has in
   football for the winning side.
-- The method pick is a three-way `Segmented` control under the winner pick.
+- The pick control sits where football's steppers sit: two fighter buttons, then a
+  three-way `Segmented` control for the method, then the wide "Lock in …" button,
+  disabled until both are chosen, with the rule line under it.
 - Times are the viewer's local time, lower-case, as the kickoff helper already prints
   them. A card is labelled by the viewer's local day.
 - Phone first: every screen is designed at 390px and checked at 1024 and 1440, as the
@@ -201,8 +213,10 @@ radius, 1px lines, no shadows, Instrument Sans, existing `components/ui` primiti
 - `ufc-form-v0.2` (later): logistic model on top of the rating: age gap, reach gap,
   layoff, recent form, striking and grappling differentials. Every feature must be
   computed from fights strictly before the bout; career averages are the classic leak.
-- Method probabilities (later): KO/TKO, Submission, Decision from weight class,
-  scheduled rounds and both fighters' finishing history.
+- Method probabilities: the model needs a method pick from day one, because it plays
+  the game by the same rule as everyone else. `v0.1` uses how often fights in that
+  weight class and round count ended each way in the last ten years; a later version
+  adds both fighters' finishing history.
 - The "why": templated sentences from the largest factors, as `preview_text` does for
   NRL. No generated prose.
 - `is_shadow` keeps the meaning it has elsewhere in the repo: a row the public pages
