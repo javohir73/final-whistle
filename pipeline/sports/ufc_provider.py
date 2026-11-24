@@ -103,3 +103,17 @@ class UfcProvider(Protocol):
     def fetch_odds(self, event_id: str, bout: BoutCard) -> list[OddsLine]: ...
 
     def fetch_fighter(self, fighter_id: str) -> FighterProfile | None: ...
+
+
+def get_provider(name: str | None = None) -> UfcProvider:
+    """Build the configured provider (default: settings.ufc_provider)."""
+    if name is None:
+        from app.config import settings
+
+        name = settings.ufc_provider
+    if name == "espn":
+        # Imported here because ufc_espn imports this module.
+        from pipeline.sports.ufc_espn import EspnUfcProvider
+
+        return EspnUfcProvider()
+    raise ValueError(f"unknown UFC provider {name!r}; supported: 'espn'")
