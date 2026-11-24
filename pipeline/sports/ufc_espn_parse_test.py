@@ -1,0 +1,178 @@
+"""Tests for pipeline/sports/ufc_espn_parse.py, run against the recorded ESPN
+fixtures in pipeline/sports/testdata/ufc/raw/. No network."""
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from pipeline.sports.ufc_espn_parse import (
+    normalise_method,
+    parse_event,
+    parse_fighter,
+    parse_odds,
+    parse_outcome,
+    parse_stats,
+    winner_flags,
+)
+from pipeline.sports.ufc_provider import BoutOutcome, OddsLine
+
+RAW = Path(__file__).parent / "testdata" / "ufc" / "raw"
+
+
+def load(name: str) -> dict:
+    with (RAW / name).open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def status_with(name: str, display_name: str, state: str = "post") -> dict:
+    return {
+        "period": 3,
+        "displayClock": "5:00",
+        "type": {"state": state},
+        "result": {"name": name, "displayName": display_name},
+    }
+
+
+def test_parse_event_reads_the_card():
+    card = parse_event(load("events/600061665.json"))
+    assert card.name == "UFC Fight Night: Procházka vs. Stirling" and card.is_card is True
+    main = next(b for b in card.bouts if b.provider_id == "401922277")
+    assert main.weight_class == "Light Heavyweight" and main.scheduled_rounds == 5
+    assert main.card_order == 1 and main.segment == "main" and main.segment_label == "Main Card"
+    assert main.fighter_a.provider_id == "3156612" and main.fighter_b.provider_id == "5216713"
+    assert main.scheduled_utc == datetime(2026, 11, 21, 18, 0, tzinfo=timezone.utc)
+    assert len(card.bouts) == 3
+
+
+def test_event_times_are_min_and_max_of_bouts():
+    card = parse_event(load("events/600062700.json"))
+    assert card.first_bout_utc == datetime(2026, 12, 5, 15, 0, tzinfo=timezone.utc)
+    assert card.last_bout_utc == datetime(2026, 12, 5, 18, 0, tzinfo=timezone.utc)
+
+
+def test_competition_without_two_competitors_is_skipped():
+    doc = load("events/600061665.json")
+    doc["competitions"][0]["competitors"] = doc["competitions"][0]["competitors"][:1]
+    card = parse_event(doc)
+    assert [b.provider_id for b in card.bouts] == ["401927850", "401922278"]
+
+
+def test_datetime_with_seconds_is_accepted():
+    doc = load("events/600061665.json")
+    doc["competitions"][0]["date"] = "2026-11-21T18:00:30Z"
+    main = parse_event(doc).bouts[0]
+    assert main.scheduled_utc == datetime(2026, 11, 21, 18, 0, 30, tzinfo=timezone.utc)
+
+
+def test_outcome_of_a_knockout():
+    bout = load("bouts/600061665_401922277.json")
+    out = parse_outcome(bout["status"], False, True)
+    assert (out.state, out.winner, out.method, out.round, out.clock) == ("final", "b", "ko_tko", 2, "4:58")
+    assert out.method_detail == "Punch"
+
+
+def test_winner_flags_come_from_the_event_document():
+    event = load("events/600061665.json")
+    assert winner_flags(event, "401922277") == (False, True)
+    assert winner_flags(event, "401922278") == (True, False)
+    assert winner_flags(event, "missing") == (None, None)
+
+
+def test_outcome_of_a_decision_has_judges():
+    bout = load("bouts/600061665_401927850.json")
+    out = parse_outcome(bout["status"], False, True)
+    assert (out.method, out.winner, out.round, out.clock) == ("decision", "b", 3, "5:00")
+    block_a = bout["competitors"]["3031559"]
+    block_b = bout["competitors"]["5145681"]
+    stats_a = parse_stats(block_a["statistics"], block_a.get("linescores"))
+    stats_b = parse_stats(block_b["statistics"], block_b.get("linescores"))
+    assert stats_a.judges == (27, 28, 27) and stats_b.judges == (30, 29, 30)
+
+
+def test_draw_and_no_contest_have_no_winner():
+    draw = parse_outcome(status_with("draw", "Draw"), False, False)
+    nc = parse_outcome(status_with("nocontest", "No Contest"), False, False)
+    assert draw.method == "draw" and nc.method == "no_contest"
+    assert draw.winner is None and nc.winner is None
+    assert draw.state == "final" and nc.state == "final"
+
+
+def test_scheduled_bout_is_pre_with_no_result():
+    pre = {"period": 0, "displayClock": "-", "type": {"state": "pre"}}
+    assert parse_outcome(pre, False, False) == BoutOutcome("pre", 0, "-", None, None, None)
+    assert parse_outcome(None, None, None) is None
+
+
+def test_in_progress_state_is_live():
+    assert parse_outcome({"type": {"state": "in"}}, None, None).state == "live"
+
+
+def test_normalise_method_vocabulary():
+    cases = {
+        "kotko": "ko_tko",
+        "submission": "submission",
+        "decision---unanimous": "decision",
+        "dq": "dq",
+        "disqualification": "dq",
+        "draw": "draw",
+        "nocontest": "no_contest",
+        "technical---decision": "decision",
+        "something odd": "other",
+    }
+    for name, expected in cases.items():
+        assert normalise_method({"name": name}) == expected, name
+    assert normalise_method({"name": "x", "displayName": "No Contest"}) == "no_contest"
+    assert normalise_method({}) is None and normalise_method(None) is None
+
+
+def test_stats_split_known_fields_from_extra():
+    bout = load("bouts/600061665_401922277.json")
+    block = bout["competitors"]["3156612"]
+    stats = parse_stats(block["statistics"], block.get("linescores"))
+    assert stats.knockdowns == 0 and stats.total_strikes_attempted == 48 and stats.total_strikes_landed == 26
+    assert stats.sig_strikes_landed == 23 and stats.control_seconds == 18 and isinstance(stats.knockdowns, int)
+    assert "sigDistanceLegStrikesLanded" in stats.extra and "totalStrikesLanded" not in stats.extra
+    assert stats.judges == ()
+    other = bout["competitors"]["5216713"]
+    stats_b = parse_stats(other["statistics"], other.get("linescores"))
+    assert stats_b.knockdowns == 1 and stats_b.total_strikes_landed == 51 and stats_b.total_strikes_attempted == 98
+
+
+def test_empty_stat_block_is_none():
+    assert parse_stats({"splits": {"categories": []}}, None) is None
+    assert parse_stats(None, None) is None
+
+
+def test_judges_without_stats_keep_the_scores():
+    linescores = {"items": [{"linescores": [{"value": 29.0, "order": 2}, {"value": 30.0, "order": 1}]}]}
+    stats = parse_stats({"splits": {"categories": []}}, linescores)
+    assert stats.judges == (30, 29)
+    assert stats.knockdowns is None and stats.total_strikes_attempted is None and stats.extra == {}
+
+
+def test_odds_line_for_the_main_event():
+    bout = load("bouts/600061665_401922277.json")
+    assert parse_odds(bout["odds"], "3156612", "5216713") == [OddsLine("DraftKings", 180, -218)]
+    assert parse_odds(bout["odds"], "5216713", "3156612") == [OddsLine("DraftKings", -218, 180)]
+    assert parse_odds(bout["odds"], "1", "2") == []
+
+
+def test_contender_series_is_not_a_card():
+    doc = load("events/600061665.json")
+    doc["name"] = "Dana White's Contender Series: Season 10, Week 1"
+    assert parse_event(doc).is_card is False
+
+
+def test_malformed_documents_return_none():
+    assert parse_event({}) is None and parse_fighter(None) is None and parse_odds(None, "1", "2") == []
+    assert parse_stats({"splits": "oops"}, {"items": "oops"}) is None
+    assert parse_outcome({"type": {"state": "weird"}}, None, None) is None
+
+
+def test_fighter_profile():
+    p = parse_fighter(load("athletes/3156612.json"))
+    assert (p.name, p.date_of_birth, p.height_in, p.reach_in, p.stance) == (
+        "Jiří Procházka", date(1992, 10, 14), 75.0, 80.0, "Orthodox",
+    )
+    assert p.weight_lb == 205.0 and p.country == "Czechia" and p.gender == "MALE"
