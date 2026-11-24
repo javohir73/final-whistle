@@ -23,7 +23,7 @@
 - Upstream manners: header `User-Agent: Mozilla/5.0`, timeout 20 s, on HTTP 403 or 429 wait and retry at most twice, then give up for that call.
 - Match the surrounding code: module docstring explaining the why, `from __future__ import annotations`, `log = logging.getLogger(__name__)`, tests co-located as `*_test.py` for pipeline code and under `backend/tests/` for models.
 - Test gate for every task: `.venv/bin/python -m pytest <the task's test file> -q`, and before the final commit of the plan `.venv/bin/python -m pytest -q` (whole Python suite).
-- Commit after each task with a conventional message (`feat(ufc): …`), ending with the line `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>`. Do not push.
+- Commit after each task with a conventional message (`feat(ufc): …`), ending with the Co-Authored-By line your own harness specifies for commits. Do not push.
 
 ## Review Focus
 
@@ -40,7 +40,7 @@
 
 **Files:**
 - Modify: `backend/app/models/__init__.py` (append after the last NRL model class)
-- Create: `backend/alembic/versions/c7d8e9f0a1b2_add_ufc_tables.py` (`revision = "c7d8e9f0a1b2"`, `down_revision = "a9b4c7d2e601"`)
+- Create: `backend/alembic/versions/1f2e3d4c5b6a_add_ufc_tables.py` (`revision = "1f2e3d4c5b6a"`, `down_revision = "a9b4c7d2e601"`)
 - Test: `backend/tests/test_ufc_models.py`
 
 **Interfaces:**
