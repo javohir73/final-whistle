@@ -51,21 +51,31 @@ def parse_dt(value: object) -> datetime | None:
         dt = datetime.fromisoformat(text)
     except ValueError:
         return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def _finite(value: object) -> bool:
-    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+    try:
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    except OverflowError:
+        return None
 
 
 def _int(value: object) -> int | None:
-    return int(round(value)) if _finite(value) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        out = int(round(value))  # NaN raises ValueError, inf OverflowError
+    except (ValueError, OverflowError):
+        return None
+    # Not a usable order, round, price or score (and would overflow a DB integer).
+    return out if abs(out) < 2**63 else None
 
 
 def _float(value: object) -> float | None:
-    return float(value) if _finite(value) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        out = float(value)  # huge ints raise OverflowError
+    except OverflowError:
+        return None
+    return out if math.isfinite(out) else None
 
 
 def _text(value: object) -> str | None:

@@ -211,3 +211,27 @@ def test_non_finite_numbers_are_ignored():
     )
     assert stats is None
     assert parse_outcome({"period": inf, "type": {"state": "post"}}, None, None).round is None
+
+
+def test_huge_ints_are_ignored():
+    huge = 10**400
+    doc = load("events/600061665.json")
+    doc["competitions"][0]["competitors"][0]["order"] = huge
+    assert [b.provider_id for b in parse_event(doc).bouts] == ["401927850", "401922278"]
+    stats = parse_stats(
+        {"splits": {"categories": [{"stats": [{"name": "knockDowns", "value": huge}]}]}}, None
+    )
+    assert stats is None
+    odds = load("bouts/600061665_401922277.json")["odds"]
+    odds["items"][0]["homeAthleteOdds"]["moneyLine"] = huge
+    assert parse_odds(odds, "3156612", "5216713") == []
+    athlete = load("athletes/3156612.json")
+    athlete["height"] = huge
+    assert parse_fighter(athlete).height_in is None
+    assert parse_outcome({"period": huge, "type": {"state": "post"}}, None, None).round is None
+
+
+def test_extreme_datetime_is_none():
+    doc = load("events/600061665.json")
+    doc["competitions"][0]["date"] = "0001-01-01T00:00:00+05:00"
+    assert parse_event(doc).bouts[0].scheduled_utc is None
