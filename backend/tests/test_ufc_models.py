@@ -128,3 +128,38 @@ def test_migration_creates_the_same_tables_as_the_models():
     spec.loader.exec_module(module)
     assert module.revision == "1f2e3d4c5b6a"
     assert module.down_revision == "a9b4c7d2e601"
+
+
+def test_migration_gives_database_defaults_to_every_defaulted_column():
+    """create_all uses the ORM's Python defaults, so only the real migration
+    shows whether a raw INSERT that omits defaulted columns works."""
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine, text
+
+    spec = importlib.util.spec_from_file_location("ufc_migration_run", MIGRATION)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        with Operations.context(MigrationContext.configure(conn)):
+            module.upgrade()
+        conn.execute(text(
+            "INSERT INTO ufc_fighters (provider, provider_fighter_id, name, slug) "
+            "VALUES ('espn', 'f1', 'A B', 'a-b')"))
+        conn.execute(text(
+            "INSERT INTO ufc_events (provider, provider_event_id, name, slug) "
+            "VALUES ('espn', 'e1', 'UFC 1', 'ufc-1')"))
+        conn.execute(text(
+            "INSERT INTO ufc_bouts (event_id, provider, provider_bout_id, fighter_a_id, fighter_b_id) "
+            "VALUES (1, 'espn', '401', 1, 1)"))
+        conn.execute(text(
+            "INSERT INTO ufc_predictions (bout_id, model_version, p_a, p_b) VALUES (1, 'v', .5, .5)"))
+        rating = conn.execute(text("SELECT rating FROM ufc_fighters")).scalar_one()
+        bout = conn.execute(text("SELECT status, revision FROM ufc_bouts")).one()
+        event = conn.execute(text("SELECT status, is_card FROM ufc_events")).one()
+        shadow = conn.execute(text("SELECT is_shadow FROM ufc_predictions")).scalar_one()
+    assert rating == 1500.0
+    assert tuple(bout) == ("scheduled", 0)
+    assert tuple(event) == ("scheduled", 1)
+    assert shadow == 1
