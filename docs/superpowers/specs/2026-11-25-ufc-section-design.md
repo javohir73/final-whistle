@@ -352,6 +352,33 @@ The fourth answer decides whether an in-fight probability is worth designing. If
 feed only moves between rounds, the live product is status and results, which this
 design already covers.
 
+### 9.1 Evidence so far (2026-11-25)
+
+- History: ESPN's feed returned 916 events, 9,524 finished bouts and 3,228 fighter profiles (2,898 with a date of
+  birth, 2,655 with reach), with no fetch errors. Fight stats exist for 9,442 bouts back to 1993; judges' scores for
+  4,238 of 4,301 decisions; a bookmaker moneyline for 3,723 bouts, almost all from mid-2019 on.
+- End to end: the phase 1 backfill loaded that history into an empty database in 21 seconds with no failures, and a
+  second run changed nothing.
+- First model test, a plain Elo rating scored walk-forward on 2,800 fights from 2022 to 2026 it never saw:
+
+  | Predictor | Picked the winner | Brier | Log loss |
+  | --- | --- | --- | --- |
+  | Coin flip | 50% | 0.2500 | 0.6931 |
+  | Elo, history from 1993 | 56.8% | 0.2432 | 0.6794 |
+  | Elo, history from 2005 | 56.8% | 0.2431 | 0.6793 |
+  | Elo, history from 2016 | 57.9% | 0.2407 | 0.6742 |
+  | Betting market, the 2,330 of those fights with a price | 68.7% | 0.2050 | 0.5966 |
+
+- What it changes. A shorter history did slightly better, so ratings should start around 2016 or discount old
+  fights. A plain rating clears the gate in section 6 on paper (it beats a coin flip) but is too weak to publish:
+  it is far behind the market and behind what rival sites report (63% to 66%). The fighter listed first by the
+  feed won 55.8% of the time, nearly as much as the rating predicts, which confirms that listing order must never
+  reach the model. `ufc-form-v0.2` (age, reach, layoff, recent form, record before the UFC, striking and grappling
+  differentials) is therefore the launch model, and the gate gains a second condition: Brier at or below 0.235 on
+  the same holdout.
+- Cancelled bouts on the feed carry `STATUS_CANCELED`, state `post`, `completed: false` and an empty result.
+- Still open: the reachability probe from GitHub Actions and Render, and the two live recordings.
+
 ## 10. Build order
 
 Each phase ends in a pull request with the test gate green. Sizes are rough estimates
