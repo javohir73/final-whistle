@@ -254,7 +254,7 @@ describe("a finished match", () => {
     expect(within(call).getByText("Right result · 2 points")).toBeInTheDocument();
     expect(container.querySelector("#pick")).toBeNull();
     // The call itself is public: sent by the server, never fetched here.
-    expect(fetchMock.mock.calls.filter(([url]) => !String(url).includes("/markets"))).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("adds the viewer's own graded pick when there is one", async () => {

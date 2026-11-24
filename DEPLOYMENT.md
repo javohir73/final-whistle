@@ -69,40 +69,22 @@ full match markets panel.
 |---|---|---|
 | `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. |
 | `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for `/api/billing/webhook`. |
-| `STRIPE_PRICE_MONTHLY` | Render (backend) | Monthly price ID. Used to label existing plans. |
+| `STRIPE_PRICE_MONTHLY` | Render (backend) | Monthly price ID. Required for billing to stay on (portal and webhook). |
 | `STRIPE_PRICE_ANNUAL` | Render (backend) | Annual price ID. Used to label existing plans. |
 | `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` shows "Manage subscription" in the account menu for subscribers. |
 
 - The portal and webhook endpoints work only when all four backend variables
   are set. Without them, billing is off.
+- Keep the Stripe webhook registered at `<backend origin>/api/billing/webhook`
+  for the events `checkout.session.completed`,
+  `customer.subscription.created`, `customer.subscription.updated`,
+  `customer.subscription.deleted` and `invoice.payment_failed` while any
+  subscription remains.
 - `NEXT_PUBLIC_BILLING_ENABLED` is inlined at build time, so changing it needs
   a frontend redeploy.
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is no longer read. It can be deleted.
 - Cancelling existing subscriptions is done in the Stripe dashboard. That is
   the owner's decision.
-
----|---|---|
-| `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. Required for billing to activate. |
-| `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for the `/api/billing/webhook` endpoint. Also required — without it, checkout would take payment with no way to record the subscription, so `billing_enabled` treats it the same as a missing secret key. |
-| `STRIPE_PRICE_MONTHLY` | Render (backend) | Price ID for the $4.99/month plan. Required. |
-| `STRIPE_PRICE_ANNUAL` | Render (backend) | Price ID for the $39.99/year plan. Required. |
-| `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` to render premium surfaces. Keep in lockstep with the backend gate. |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Vercel (frontend) | The `pk_…` key that mounts the in-page Payment Element. Public by design (unlike the secret key). Unset ⇒ `/premium` falls back to the hosted-Checkout redirect instead of rendering a form that cannot mount. |
-
-Billing is OFF unless **all four** backend vars above are set — any one missing
-(including the webhook secret) disables checkout/portal/webhook and the site
-behaves exactly as it did before Premium existed.
-
-All six stay unset until the stop-gated production rollout (spec:
-docs/superpowers/specs/2026-08-11-premium-subscriptions-design.md). The
-webhook endpoint to register in the Stripe dashboard is
-`<backend origin>/api/billing/webhook` with events: checkout.session.completed,
-customer.subscription.created, customer.subscription.updated,
-customer.subscription.deleted, invoice.payment_failed.
-
-Both `NEXT_PUBLIC_*` variables are inlined into the JS bundle at build time, so
-flipping either on Vercel requires a rebuild/redeploy of the frontend, not just
-an env var change; setting one and waiting is not enough.
 
 ---
 

@@ -25,7 +25,8 @@ export interface SessionUser {
   // field existed won't have it (undefined = unknown, treat as not premium).
   premium?: boolean;
   // Raw Stripe subscription status (null when no subscription) — drives the
-  // past-due "payment issue" banner on /premium.
+  // account menu's "Manage subscription" item for subscribers whose payment
+  // failed (past_due, unpaid, incomplete) but who are no longer premium.
   premium_status?: string | null;
 }
 

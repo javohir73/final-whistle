@@ -1,6 +1,6 @@
 # backend/tests/test_billing_api.py
-"""Billing: checkout-session is retired (410), portal needs a customer and a\nsubscription row, Stripe errors stay inside the error contract."""
-from datetime import datetime, timedelta, timezone
+"""Billing: checkout-session is retired (410), portal needs a customer and a
+subscription row, Stripe errors stay inside the error contract."""
 
 import pytest
 import stripe

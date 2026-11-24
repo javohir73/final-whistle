@@ -1,5 +1,5 @@
 /** AccountMenu — "Manage subscription" menu item. Shown only when billing is
- *  enabled AND the user is premium; calls createPortalSession() and navigates
+ *  enabled AND the user is premium or has a non-canceled subscription status; calls createPortalSession() and navigates
  *  to the returned billing-portal URL. Errors are swallowed quietly so the
  *  menu stays usable (no error banner inside the account menu). */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -58,6 +58,41 @@ describe("AccountMenu — Manage subscription (billing on)", () => {
     expect(screen.queryByText(/manage subscription/i)).not.toBeInTheDocument();
   });
 
+  it("shows Manage subscription for a lapsed payer (past_due, premium false)", () => {
+    const user = { ...freeUser, premium_status: "past_due" };
+    render(<AccountMenu user={user} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: /manage subscription/i })).toBeInTheDocument();
+  });
+
+  it.each(["unpaid", "incomplete"])("shows Manage subscription for status %s", (status) => {
+    const user = { ...freeUser, premium_status: status };
+    render(<AccountMenu user={user} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: /manage subscription/i })).toBeInTheDocument();
+  });
+
+  it("does not show Manage subscription for a canceled subscription", () => {
+    const user = { ...freeUser, premium_status: "canceled" };
+    render(<AccountMenu user={user} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+    openMenu();
+    expect(screen.queryByText(/manage subscription/i)).not.toBeInTheDocument();
+  });
+
+  it("does not show Manage subscription for null status and premium false", () => {
+    const user = { ...freeUser, premium_status: null };
+    render(<AccountMenu user={user} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+    openMenu();
+    expect(screen.queryByText(/manage subscription/i)).not.toBeInTheDocument();
+  });
+
+  it("does not show Manage subscription for an empty status", () => {
+    const user = { ...freeUser, premium_status: "" };
+    render(<AccountMenu user={user} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+    openMenu();
+    expect(screen.queryByText(/manage subscription/i)).not.toBeInTheDocument();
+  });
+
   it("navigates to the billing portal url on click", async () => {
     mockCreatePortalSession.mockResolvedValue({ url: "https://billing.stripe.test/portal" });
     const assignSpy = jest.fn();
@@ -95,10 +130,8 @@ describe("AccountMenu — Manage subscription (billing on)", () => {
 // BILLING_ENABLED is read at import time, and the file-level jest.mock above
 // fixes it to `true` for every test in the block above — so proving the
 // "billing off" behavior needs a fresh, isolated require of the module graph
-// with a different mocked value (same technique as
-// components/PremiumGate.test.tsx and components/PremiumMarkets.test.tsx's
-// "billing off" block). AccountMenu uses real useState/useEffect/useRef (not
-// just a mocked hook), so — per the PremiumMarkets precedent — the isolated
+// with a different mocked value (jest.isolateModules). AccountMenu uses real
+// useState/useEffect/useRef (not just a mocked hook), so the isolated
 // component must be rendered with an isolated `render`/`screen`/`fireEvent`
 // too, keeping every piece (react, react-dom, the component's own hooks) from
 // the same sandboxed module registry.
@@ -122,6 +155,18 @@ describe("AccountMenu — billing disabled", () => {
   it("hides Manage subscription even for a premium user", () => {
     isolatedRender(
       <IsolatedAccountMenu user={premiumUser} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />,
+    );
+    isolatedFireEvent.click(isolatedScreen.getByRole("button", { name: /account: pat/i }));
+    expect(isolatedScreen.queryByText(/manage subscription/i)).not.toBeInTheDocument();
+  });
+
+  it("hides Manage subscription for a past_due user too", () => {
+    isolatedRender(
+      <IsolatedAccountMenu
+        user={{ ...freeUser, premium_status: "past_due" }}
+        onLogout={jest.fn()}
+        onDeleteAccount={jest.fn()}
+      />,
     );
     isolatedFireEvent.click(isolatedScreen.getByRole("button", { name: /account: pat/i }));
     expect(isolatedScreen.queryByText(/manage subscription/i)).not.toBeInTheDocument();

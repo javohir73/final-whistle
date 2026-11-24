@@ -52,7 +52,7 @@ export function CompetitionOverlay({
               live in the bottom bar, and from xl); the short code on phones
               and at lg, where the header also carries the tab row. The menu
               and the accessible name always carry the full name. */}
-          <span className={"sm:hidden lg:inline xl:hidden"}>
+          <span className="sm:hidden lg:inline xl:hidden">
             {current.shortLabel}
           </span>
           <span className="hidden sm:inline lg:hidden xl:inline">{current.label}</span>
