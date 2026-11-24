@@ -1,0 +1,47 @@
+# UFC data refresh: ingest upcoming/recent cards, then record results, stats and
+# odds -- against the Render Postgres via the same DATABASE_URL secret the other
+# refresh workflows use. Twice a day (09:20 and 21:20 UTC) covers US-evening
+# and prelim-hour fights landing in either half of the UTC day.
+# Steps print only counts; never row contents (this repository is public).
+name: UFC refresh
+
+on:
+  schedule:
+    - cron: "20 9 * * *"
+    - cron: "20 21 * * *"
+  workflow_dispatch: {}
+
+# Overlapping runs would race on the ufc_* unique keys. Queue instead.
+concurrency:
+  group: ufc-refresh
+  cancel-in-progress: false
+
+jobs:
+  ufc-refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Apply migrations
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: alembic upgrade head
+      - name: Ingest UFC cards (idempotent)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+        run: python -m pipeline.sports.ufc_ingest --days-back 2 --days-ahead 60
+      - name: Record UFC results, stats and odds (idempotent)
+        # Additive layer: a feed hiccup here must not fail the whole run.
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+        run: python -m pipeline.sports.ufc_results
