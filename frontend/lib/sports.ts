@@ -369,7 +369,7 @@ const hitPrefix = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(prefix + "/");
 
 /** Active-state rule shared by both nav surfaces: the tab's exact path, or
- *  any of its prefixes. A route that belongs to no tab ("/", "/premium",
+ *  any of its prefixes. A route that belongs to no tab ("/" and
  *  "/about") lights none. */
 export function isNavTabActive(tab: NavTab, pathname: string): boolean {
   if (tab.activeExact !== undefined && pathname === tab.activeExact) return true;

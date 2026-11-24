@@ -51,10 +51,37 @@ no-ops. The matches board shows a LIVE badge + running score and minute.
 |---|---|---|---|
 | `NEXT_PUBLIC_API_URL` | ✅ | `https://pitchprophet-api.onrender.com` | Backend base URL. Must be set for all environments (Production/Preview). |
 
-### Billing (FinalWhistle Premium — optional, OFF by default)
+### Premium (retired 2026-11-25)
+
+FinalWhistle Premium was removed. Everything on the site is free, including the
+full match markets panel.
+
+- The three sign-up endpoints (checkout session, setup intent and subscribe)
+  answer HTTP 410 with the code `premium_retired`.
+- `/premium` redirects to the home page.
+- `POST /api/billing/webhook` and `POST /api/billing/portal-session` still
+  work, so people who already subscribed keep their record and can manage the
+  subscription.
+- These variables matter only while existing subscribers remain, for the portal
+  and the webhook:
 
 | Variable | Where | Meaning |
 |---|---|---|
+| `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. |
+| `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for `/api/billing/webhook`. |
+| `STRIPE_PRICE_MONTHLY` | Render (backend) | Monthly price ID. Used to label existing plans. |
+| `STRIPE_PRICE_ANNUAL` | Render (backend) | Annual price ID. Used to label existing plans. |
+| `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` shows "Manage subscription" in the account menu for subscribers. |
+
+- The portal and webhook endpoints work only when all four backend variables
+  are set. Without them, billing is off.
+- `NEXT_PUBLIC_BILLING_ENABLED` is inlined at build time, so changing it needs
+  a frontend redeploy.
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is no longer read. It can be deleted.
+- Cancelling existing subscriptions is done in the Stripe dashboard. That is
+  the owner's decision.
+
+---|---|---|
 | `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. Required for billing to activate. |
 | `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for the `/api/billing/webhook` endpoint. Also required — without it, checkout would take payment with no way to record the subscription, so `billing_enabled` treats it the same as a missing secret key. |
 | `STRIPE_PRICE_MONTHLY` | Render (backend) | Price ID for the $4.99/month plan. Required. |
