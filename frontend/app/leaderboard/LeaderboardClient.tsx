@@ -241,11 +241,6 @@ function WorldCupBoard({ initialRows }: { initialRows?: LeaderboardRow[] }) {
                         <Td pos>{row.rank ?? i + 1}</Td>
                         <Td align="left" className="font-semibold text-ink">
                           {row.display_name}
-                          {row.premium ? (
-                            <span aria-label="Premium supporter" title="Premium supporter" className="ml-1.5 text-brand">
-                              ★
-                            </span>
-                          ) : null}
                         </Td>
                         <Td align="left">
                           {row.champion ? (

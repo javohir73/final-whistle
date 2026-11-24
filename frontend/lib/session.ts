@@ -265,8 +265,8 @@ export function clearUserHint(): void {
   }
 }
 
-// ---- Billing (FinalWhistle Premium) ----
-export interface PremiumMarkets {
+// ---- Match markets (free for every visitor) ----
+export interface MatchMarketsPayload {
   match_id: number;
   model_version: string;
   markets: {
@@ -279,48 +279,12 @@ export interface PremiumMarkets {
   disclaimer: string;
 }
 
-/** DEPRECATED — the hosted-Checkout redirect. Still the fallback when
- *  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is unset, so a half-configured deploy
- *  degrades to a redirect instead of showing a form that cannot mount. */
-export interface CheckoutContext {
-  competition: string;
-  returnTo: string;
-}
+export const getMatchMarkets = (matchId: number | string) =>
+  request<MatchMarketsPayload>(`/api/matches/${matchId}/markets`);
 
-export const createCheckoutSession = (
-  plan: "monthly" | "annual",
-  context?: CheckoutContext,
-) =>
-  request<{ url: string }>("/api/billing/checkout-session", {
-    method: "POST",
-    body: JSON.stringify({
-      plan,
-      ...(context
-        ? { competition: context.competition, return_to: context.returnTo }
-        : {}),
-    }),
-  });
-
-/** Step 1 of in-page signup: the client secret that mounts Payment Element.
- *  Entitles nothing on its own — no subscription exists until subscribe() runs. */
-export const createSetupIntent = () =>
-  request<{ client_secret: string }>("/api/billing/setup-intent", { method: "POST" });
-
-/** Step 2: turn a confirmed SetupIntent into the subscription. The id comes
- *  from Stripe's SDK, never from us, and the backend re-checks that it belongs
- *  to this user. Idempotent server-side, so retrying after a dropped connection
- *  describes the existing subscription rather than buying a second one. */
-export const subscribe = (plan: "monthly" | "annual", setupIntentId: string) =>
-  request<{ status: string; premium: boolean }>("/api/billing/subscribe", {
-    method: "POST",
-    body: JSON.stringify({ plan, setup_intent_id: setupIntentId }),
-  });
-
+// ---- Billing (existing subscribers only) ----
 export const createPortalSession = () =>
   request<{ url: string }>("/api/billing/portal-session", { method: "POST" });
-
-export const getPremiumMarkets = (matchId: number | string) =>
-  request<PremiumMarkets>(`/api/matches/${matchId}/markets`);
 
 // ---- Anonymous device activity ping (D7/D14 retention cohorts) ----
 // A device id is NOT auth — it identifies a browser/install, not a person,

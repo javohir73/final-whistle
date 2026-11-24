@@ -26,12 +26,8 @@ const SECTIONS: Array<{ heading: string; includes: (c: Competition) => boolean }
  *  Name kept for history: this used to be a full-screen overlay. */
 export function CompetitionOverlay({
   competition,
-  compact = false,
 }: {
   competition?: CompetitionId;
-  /** Logo-only on phones (no short code): the header passes this when it also
-   *  has to fit the Premium link at 360px. */
-  compact?: boolean;
 }) {
   const scope = useCompetitionScope();
   const active = competition ?? scope.competition;
@@ -56,7 +52,7 @@ export function CompetitionOverlay({
               live in the bottom bar, and from xl); the short code on phones
               and at lg, where the header also carries the tab row. The menu
               and the accessible name always carry the full name. */}
-          <span className={cn(compact ? "hidden" : "sm:hidden", "lg:inline xl:hidden")}>
+          <span className={"sm:hidden lg:inline xl:hidden"}>
             {current.shortLabel}
           </span>
           <span className="hidden sm:inline lg:hidden xl:inline">{current.label}</span>

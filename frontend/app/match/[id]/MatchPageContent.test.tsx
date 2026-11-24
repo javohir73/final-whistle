@@ -34,11 +34,6 @@ jest.mock("@/lib/session", () => {
   const actual = jest.requireActual("@/lib/session");
   return { ...actual, getOrCreateDeviceId: jest.fn(), pingDailyActivity: jest.fn() };
 });
-// PremiumMarkets reads useAuth() unconditionally; billing stays off here, so
-// it renders nothing -- this mock only stands in for a real <AuthProvider>.
-jest.mock("@/components/AuthProvider", () => ({
-  useAuth: () => ({ user: null, loading: false, openSignIn: jest.fn() }),
-}));
 
 const mockGet = getMatchServer as jest.MockedFunction<typeof getMatchServer>;
 const mockSummaryServer = getMatchSummaryServer as jest.MockedFunction<typeof getMatchSummaryServer>;
@@ -127,7 +122,22 @@ function mine(picked = false): LeagueTipsMineResponse {
   };
 }
 
+const marketsPayload = {
+  match_id: 205,
+  model_version: "poisson-elo-v0.6",
+  markets: {
+    one_x_two: { home_win: 0.1385, draw: 0.2592, away_win: 0.6023 },
+    totals: [{ line: 2.5, over: 0.5642, under: 0.4358 }],
+    btts: { yes: 0.4852, no: 0.5148 },
+    correct_score: [{ home: 0, away: 2, prob: 0.1231 }],
+    asian_handicap: [{ line: -0.5, home: 0.14, push: 0, away: 0.86 }],
+  },
+  disclaimer: "Not betting advice.",
+};
+
 const fetchMock = jest.fn();
+const marketsCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => String(url).includes("/markets"));
 
 async function renderPage(competition: CompetitionId = "epl", id = "205") {
   return render(await renderMatchDetailPage(Promise.resolve({ id }), competition));
@@ -144,7 +154,10 @@ beforeEach(() => {
   mockLineups.mockResolvedValue({ available: false, message: null, home: null, away: null, fetched_at: null });
   mockDevice.mockReturnValue("8b1c5d2e-1f3a-4c5b-9d6e-7f8a9b0c1d2e");
   mockMine.mockResolvedValue(mine());
-  fetchMock.mockResolvedValue({ ok: true, json: async () => prediction });
+  fetchMock.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () => (String(url).includes("/markets") ? marketsPayload : prediction),
+  }));
   (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
 });
 afterEach(() => {
@@ -180,8 +193,9 @@ describe("an open fixture, not picked", () => {
     await waitFor(() => expect(mockMine).toHaveBeenCalled());
     expect(container.textContent).not.toMatch(MODEL_NUMBERS);
     expect(container.querySelector("#forecast")).toBeNull();
-    // Hidden means not even fetched.
+    // Hidden means not even fetched, and the markets card is not rendered.
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByText("Full match markets")).not.toBeInTheDocument();
   });
 
   it("server-renders no model numbers into the markup", async () => {
@@ -214,6 +228,10 @@ describe("an open fixture with a locked pick", () => {
     for (let i = 1; i < order.length; i += 1) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+    // Locked pick: the free markets card appears, fetched for this fixture.
+    expect(await screen.findByText("Full match markets")).toBeInTheDocument();
+    expect(marketsCalls().map(([url]) => url)).toEqual(["/backend-api/api/matches/205/markets"]);
+    expect(container.textContent).not.toMatch(/premium|members/i);
     // The pick in the hero is final.
     expect(await within(container.querySelector("#pick") as HTMLElement).findByText(/Locked\./)).toBeInTheDocument();
   });
@@ -235,7 +253,8 @@ describe("a finished match", () => {
     // Model 0–2 vs result 1–2: right result.
     expect(within(call).getByText("Right result · 2 points")).toBeInTheDocument();
     expect(container.querySelector("#pick")).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled(); // public: sent by the server
+    // The call itself is public: sent by the server, never fetched here.
+    expect(fetchMock.mock.calls.filter(([url]) => !String(url).includes("/markets"))).toEqual([]);
   });
 
   it("adds the viewer's own graded pick when there is one", async () => {
@@ -263,6 +282,8 @@ describe("other competitions", () => {
     const call = screen.getByRole("region", { name: "The model’s call" });
     expect(within(call).getByText("Medium confidence.")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Where they stand" })).not.toBeInTheDocument();
+    // No pick game: the call is open, so the free markets card shows too.
+    expect(await screen.findByText("Full match markets")).toBeInTheDocument();
   });
 
   it("renders the pending view when the prediction is not generated yet", async () => {

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Instrument_Sans } from "next/font/google";
 import "./globals.css";
-import { APP_NAME, BILLING_ENABLED, SITE_URL } from "@/lib/constants";
+import { APP_NAME, SITE_URL } from "@/lib/constants";
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { HideOnEmbed } from "@/components/HideOnEmbed";
@@ -72,7 +72,6 @@ export const viewport: Viewport = {
 const FOOTER_LINKS = [
   { href: "/about", label: "How the model works" },
   { href: "/methodology", label: "Methodology" },
-  ...(BILLING_ENABLED ? [{ href: "/premium", label: "Premium" }] : []),
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
 ];
