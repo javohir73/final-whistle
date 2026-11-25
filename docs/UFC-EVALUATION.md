@@ -1,6 +1,6 @@
 # UFC prediction evaluation
 
-Generated 2026-11-25 from commit 96aba0f. Aggregate numbers only.
+Generated 2026-11-25 from commit 04b63a8. Aggregate numbers only.
 
 ## Summary
 
@@ -10,11 +10,13 @@ Generated 2026-11-25 from commit 96aba0f. Aggregate numbers only.
 
 ## Protocol
 
-Every number below is walk-forward: a fight is predicted from information that existed before it, and nothing from the held-out years is used to choose a setting. Elo (k, first year of history, idle decay) is tuned by log loss on fights from 2018 to 2021. The form model's training window (3, 5 or 8 years) and regularisation strength (0.1, 1 or 10) are chosen by log loss on 2021, trained on the years before it. For each held-out year T from 2022 to 2026, the form model is fitted on the chosen window of years ending 31 December of T-1 and predicts every fight in T. Elo predictions use only fights that started earlier. The method pick for year T comes from the finishing methods of the ten years before T, by weight class and scheduled rounds. Only finished fights with a winner are scored or used as training labels; draws and no contests stay in the rating history but are never scored. 2026 is a partial year: it covers fights up to 2026-11-21.
+Every number below is walk-forward: a fight is predicted from information that existed before it, and nothing from the held-out years is used to choose a setting. The grid ranges and the fallback method shares, however, were informed by an earlier exploratory look at the same years, so the held-out result is not fully blind. Elo (k, first year of history, idle decay) is tuned by log loss on fights from 2018 to 2021. The form model's training window (3, 5 or 8 years) and regularisation strength (0.1, 1 or 10) are chosen by log loss on 2021, trained on the years before it. For each held-out year T from 2022 to 2026, the form model is fitted on the chosen window of years ending 31 December of T-1 and predicts every fight in T. Elo predictions use only fights that started earlier. The method pick for year T comes from the finishing methods of the ten years before T, by weight class and scheduled rounds. Only finished fights with a winner are scored or used as training labels; draws and no contests stay in the rating history but are never scored. 2026 is a partial year: it covers fights up to 2026-11-21.
 
 The fighter listed first by the feed won more often than half of the time, so the models must not see listing order. Every form-model input changes sign when the two fighters swap, and the model has no intercept. The swap check below rebuilds the whole history with every fight's two fighters swapped, recomputes the Elo ratings and features from it, refits the form model and re-scores it.
 
 The market is the de-vigged moneyline from `ufc_odds_snapshots`: per source the latest valid price taken at or before the scheduled start, averaged over sources. Sources whose name contains "Live" are left out because their prices are in-play. For backfilled history the snapshot time is the bout's scheduled time, so this approximates the closing line. Prices exist almost only from mid-2019.
+
+In 2026 market prices are available only for part of the year, which is why 129 of that year's 561 scored fights are priced.
 
 ## Data
 

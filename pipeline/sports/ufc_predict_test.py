@@ -545,6 +545,9 @@ def test_workflow_predicts_after_results():
     i_results = next(i for i, r in enumerate(runs) if "ufc_results" in r)
     i_predict = next(i for i, r in enumerate(runs) if "ufc_predict --generate --grade" in r)
     assert i_predict == i_results + 1 and steps[i_predict]["continue-on-error"] is True
+    assert steps[i_predict]["timeout-minutes"] == 10
+    env = steps[i_predict]["env"]
+    assert env["PYTHONPATH"] == "backend:." and "DATABASE_URL" in env
 
 
 def test_public_model_setting_defaults_to_none():
@@ -598,3 +601,14 @@ def test_ratings_below_a_hundredth_are_not_rewritten(db_session):
     p = UfcParams(EloParams(k=80, history_from=1993, decay=0.2), _form())
     assert generate(db_session, p, now=NOW).ratings_updated == 2
     assert generate(db_session, p, now=NOW + timedelta(minutes=1)).ratings_updated == 0
+
+
+def test_bout_with_only_locked_at_is_still_graded(db_session):
+    # Pins that grading uses lock_time (locked_at alone is a lock), not scheduled_utc IS NOT NULL.
+    built = build(db_session, DONE)
+    bout = built.bouts[0]
+    bout.scheduled_utc = None
+    bout.locked_at = T
+    db_session.flush()
+    add_row(db_session, bout, T - timedelta(hours=1), 0.7)
+    assert grade(db_session) == 1

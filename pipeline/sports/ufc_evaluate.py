@@ -468,6 +468,17 @@ def _summary(p: dict) -> list[str]:
     return lines
 
 
+def _partial_price_note(p: dict) -> list[str]:
+    """One sentence on how much of the latest year is priced, from the payload's own numbers."""
+    year = p["last_year"]
+    priced = p["market"]["by_year"].get(year)
+    scored = p["models"][p["elo_params"]["version"]]["by_year"].get(year)
+    if not priced or not scored:
+        return []
+    return ["", f"In {year} market prices are available only for part of the year, which is why "
+                f"{priced['market']['n']:,} of that year's {scored['n']:,} scored fights are priced."]
+
+
 def render_report(payload: dict) -> str:
     p, c = payload, payload["counts"]
     elo_v, form_v = (p["elo_params"]["version"], FORM_VERSION)
@@ -485,7 +496,9 @@ def render_report(payload: dict) -> str:
         "## Protocol",
         "",
         f"Every number below is walk-forward: a fight is predicted from information that existed before it, "
-        f"and nothing from the held-out years is used to choose a setting. Elo (k, first year of history, idle "
+        f"and nothing from the held-out years is used to choose a setting. The grid ranges and the fallback "
+        f"method shares, however, were informed by an earlier exploratory look at the same years, so the "
+        f"held-out result is not fully blind. Elo (k, first year of history, idle "
         f"decay) is tuned by log loss on fights from {tl} to {th}. The form model's training window "
         f"(3, 5 or 8 years) and regularisation strength (0.1, 1 or 10) are chosen by log loss on {p['validation_year']}, "
         f"trained on the years before it. For each held-out year T from {first} to {p['last_year']}, the form model is "
@@ -504,6 +517,7 @@ def render_report(payload: dict) -> str:
         "at or before the scheduled start, averaged over sources. Sources whose name contains \"Live\" "
         "are left out because their prices are in-play. For backfilled history the snapshot time is the "
         "bout's scheduled time, so this approximates the closing line. Prices exist almost only from mid-2019.",
+        *_partial_price_note(p),
         "",
         "## Data",
         "",

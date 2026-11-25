@@ -142,7 +142,12 @@ def test_run_end_to_end_without_writing(db_session, tmp_path):
     assert payload["swap"]["max_abs_diff"] < 1e-6
     report = render_report(payload)
     assert "GATE ufc-elo-v0.1:" in report and "GATE ufc-form-v0.2:" in report and "sqlite" not in report
-    assert "—" not in report
+    assert "—" not in report and "not fully blind" in report
+    ly = payload["last_year"]
+    if payload["market"]["by_year"].get(ly):
+        n_p = payload["market"]["by_year"][ly]["market"]["n"]
+        n_s = payload["models"][payload["elo_params"]["version"]]["by_year"][ly]["n"]
+        assert f"{n_p:,} of that year's {n_s:,} scored fights are priced" in report
     assert load_params(tmp_path / "p.json").form is not None
 
 

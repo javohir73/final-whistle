@@ -197,3 +197,34 @@ def test_layoff_diff_is_a_minus_b():
     assert s.a.layoff_days == 365 and s.b.layoff_days == 31
     assert s.x["layoff_diff"] == pytest.approx(math.log1p(365) - math.log1p(31))
     assert s.x["layoff_diff"] > 0
+
+
+def _target(bout_id, when, a, b):
+    return BoutRecord(
+        bout_id=bout_id, when=when, fighter_a=a, fighter_b=b, winner=None, method=None,
+        weight_class="Lightweight", scheduled_rounds=3, end_round=None, end_clock=None,
+        stats_a=None, stats_b=None, finished=False)
+
+
+def test_targets_never_change_history_or_each_other():
+    # fighters: A=1 B=2 C=3 D=4. Targets sit at the same time as a history bout, share a
+    # fighter with each other, and one sits before later history bouts.
+    h = history([
+        ("2019-01-01", "A", "B", "a", "decision"),
+        ("2019-06-01", "B", "C", "b", "ko_tko"),
+        ("2019-09-01", "C", "D", "a", "decision"),
+    ])
+    noon = datetime(2019, 6, 1, 3, 0, tzinfo=timezone.utc)  # same instant as the second history bout
+    t_same_1 = _target(91, noon, 1, 3)
+    t_same_2 = _target(92, noon, 1, 4)  # shares fighter A with t_same_1
+    t_before = _target(93, datetime(2019, 3, 1, tzinfo=timezone.utc), 2, 4)
+    base = snapshots(h, P)
+    together = snapshots(h, P, [t_same_1, t_same_2, t_before])
+    assert {k: together[k] for k in base} == base
+    for t in (t_same_1, t_same_2, t_before):
+        alone = snapshots(h, P, [t])
+        assert alone[t.bout_id] == together[t.bout_id]
+        assert {k: alone[k] for k in base} == base
+    # and the targets are not vacuous: the pre-history target sees only the first bout
+    assert together[93].a.ufc_fights == 1 and together[93].b.ufc_fights == 0
+    assert together[91].a.ufc_fights == 1 and together[91].b.ufc_fights == 0  # same-time bouts stay hidden
