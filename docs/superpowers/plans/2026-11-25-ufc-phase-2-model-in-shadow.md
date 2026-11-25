@@ -200,7 +200,7 @@ Feature values (`d` is a − b; `m_x` is 1 when the value is missing for that fi
 def test_profile_differences():
     # fighters A dob 1990-01-01 reach 76 height 72; B dob 1995-01-01 reach 70 height 71; one bout 2020-01-01
     x = snapshots(h, P)[1].x
-    assert x["age_diff"] == pytest.approx(-5.0, abs=0.01) and x["reach_diff"] == 6.0 and x["height_diff"] == 1.0
+    assert x["age_diff"] == pytest.approx(5.0, abs=0.01) and x["reach_diff"] == 6.0 and x["height_diff"] == 1.0
     assert x["age_missing"] == x["reach_missing"] == x["height_missing"] == 0.0
 
 def test_missing_profile_is_neutral_with_an_indicator():   # B has no dob → age_diff 0.0, age_missing 1.0; mirrored bout → -1.0
