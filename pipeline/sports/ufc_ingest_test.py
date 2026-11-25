@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from app.models import UfcBout, UfcEvent, UfcFighter
@@ -14,7 +14,7 @@ from pipeline.sports.ufc_ingest import (
     upsert_event,
     upsert_fighter,
 )
-from pipeline.sports.ufc_provider import BoutCard, EventCard, FighterProfile, FighterRef
+from pipeline.sports.ufc_provider import BoutCard, BoutOutcome, EventCard, FighterProfile, FighterRef
 from pipeline.sports.ufc_recorded import RecordedUfcProvider
 
 RAW = Path(__file__).parent / "testdata" / "ufc" / "raw"
@@ -416,3 +416,81 @@ def test_ingest_main_exit_codes(monkeypatch):
     assert run(IngestSummary(events=1, failed=2)) == 0
     assert run(IngestSummary(events=0, failed=0)) == 0
     assert run(IngestSummary(events=2, failed=0)) == 0
+
+
+class _OutcomeProvider:
+    """Serves one card and a fixed outcome; records fetch_outcome calls."""
+    name = "espn"
+
+    def __init__(self, card, outcome): self.card, self.outcome, self.outcome_calls = card, outcome, []
+    def list_event_ids(self, start, end): return [self.card.provider_id]
+    def fetch_event(self, event_id): return self.card
+    def fetch_outcome(self, event_id, bout): self.outcome_calls.append(bout.provider_id); return self.outcome
+    def fetch_stats(self, event_id, bout): return {}
+    def fetch_odds(self, event_id, bout): return []
+    def fetch_fighter(self, fighter_id): return None
+
+
+PRE = BoutOutcome("pre", None, None, None, None, None)
+LATER = T0 + timedelta(hours=1)
+_WINDOW = (date(2026, 12, 1), date(2026, 12, 31))
+
+
+def _feed_cancel(db, when=T0):  # ingest the card, then mark b1 as the results job does
+    upsert_event(db, "espn", _card(_bout(when=when)), now=NOW)
+    db.commit()
+    row = current_bout(db, "espn", "b1")
+    row.status, row.method_detail = "cancelled", "cancelled by feed"
+    db.commit()
+    return row
+
+
+def test_feed_cancelled_bout_returns_when_the_feed_says_pre(db_session):
+    _feed_cancel(db_session)
+    p = _OutcomeProvider(_card(_bout(when=LATER)), PRE)
+    summary = ingest_window(db_session, p, date(2026, 12, 1), date(2026, 12, 31), now=NOW)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, row.method_detail, _utc(row.scheduled_utc)) == ("scheduled", None, LATER)
+    assert summary.bouts_reinstated == 1 and p.outcome_calls == ["b1"]
+
+
+def test_feed_cancelled_bout_stays_cancelled_while_the_feed_says_cancelled(db_session):
+    _feed_cancel(db_session)
+    ingest_window(db_session, _OutcomeProvider(_card(_bout()), BoutOutcome("cancelled", None, None, None, None, None)),
+                  date(2026, 12, 1), date(2026, 12, 31), now=NOW)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, row.method_detail) == ("cancelled", "cancelled by feed")
+
+
+def test_none_outcome_leaves_it_cancelled(db_session):
+    _feed_cancel(db_session)
+    p = _OutcomeProvider(_card(_bout()), None)
+    summary = ingest_window(db_session, p, *_WINDOW, now=NOW)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, row.method_detail) == ("cancelled", "cancelled by feed")
+    assert p.outcome_calls == ["b1"] and summary.bouts_reinstated == 0
+
+
+def test_past_feed_cancelled_bout_is_not_rechecked(db_session):
+    _feed_cancel(db_session)
+    p = _OutcomeProvider(_card(_bout(when=NOW - timedelta(hours=1))), PRE)
+    ingest_window(db_session, p, date(2026, 11, 1), date(2026, 12, 31), now=NOW)
+    assert p.outcome_calls == [] and current_bout(db_session, "espn", "b1").status == "cancelled"
+
+
+def test_locked_feed_cancelled_bout_is_not_reinstated(db_session):
+    row = _feed_cancel(db_session)
+    row.locked_at = NOW
+    db_session.commit()
+    p = _OutcomeProvider(_card(_bout()), PRE)
+    ingest_window(db_session, p, *_WINDOW, now=NOW)
+    assert p.outcome_calls == [] and current_bout(db_session, "espn", "b1").status == "cancelled"
+
+
+def test_new_opponent_on_a_feed_cancelled_bout_is_a_new_revision(db_session):
+    _feed_cancel(db_session)
+    p = _OutcomeProvider(_card(_bout(b=("3", None))), PRE)
+    ingest_window(db_session, p, *_WINDOW, now=NOW)
+    old, new = db_session.query(UfcBout).order_by(UfcBout.revision).all()
+    assert (old.status, old.method_detail, new.status, new.revision) == ("cancelled", "cancelled by feed", "scheduled", 1)
+    assert p.outcome_calls == []

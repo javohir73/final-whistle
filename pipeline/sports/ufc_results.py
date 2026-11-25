@@ -5,11 +5,15 @@ provider about bouts that should have started (and recently finished bouts whose
 stats ESPN posts late), applies the outcome, then stores stats and odds. A
 finished result is never reopened or blanked: only another final outcome that
 carries a method may change it. A provider answer of None means "not trustworthy
-yet" and is simply skipped. A "cancelled" outcome (the feed's cancelled or
-postponed bout) cancels a scheduled or live row and marks it with
-`method_detail = FEED_CANCELLED`, which card ingest reads so it does not
-reinstate the bout just because the card still lists it. One bout failing is counted and rolled back; the
-rest carry on, committing per bout.
+yet" and is simply skipped. A "cancelled" outcome (the feed's cancelled
+bout; a postponed bout reads as "pre" and is left scheduled) cancels a
+scheduled or live row and marks it with `method_detail = FEED_CANCELLED`, which
+card ingest reads so it does not reinstate the bout just because the card still
+lists it; ingest returns it to "scheduled" only when the feed itself says "pre"
+again. One bout failing is counted and rolled back; the rest carry on,
+committing per bout. `bouts_failed` counts failures of due (results) bouts
+only and drives the exit code, so a quiet day with a failed odds or profile
+step stays green.
 """
 from __future__ import annotations
 
@@ -59,6 +63,7 @@ class ResultsSummary:
     odds: int = 0
     profiles: int = 0
     failed: int = 0
+    bouts_failed: int = 0  # failures of due (results) bouts only
 
 
 def apply_outcome(
@@ -352,6 +357,8 @@ def refresh_results(
             log.warning("bout %s: results failed, skipping: %s", bout_id, type(exc).__name__)
             log.debug("bout %s: results failure detail: %s", bout_id, exc)
             summary.failed += 1
+            if results:
+                summary.bouts_failed += 1
 
     try:
         stale = db.scalars(
@@ -396,8 +403,9 @@ def refresh_results(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Exit 1 when nothing succeeded: failures and no bout checked, or every
-    checked bout failed."""
+    """Exit 1 only when a due bout failed and none succeeded (`bouts_failed > 0`
+    and `bouts_failed >= checked`). Odds, roll-up and profile failures never
+    turn a quiet day red; they show in the `failed` count of the log line."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--provider", default=None, help="provider name (default: settings.ufc_provider)")
@@ -416,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
         summary.checked, summary.finished, summary.stats, summary.odds, summary.profiles,
         summary.failed,
     )
-    return 1 if summary.failed > 0 and summary.failed >= summary.checked else 0
+    return 1 if summary.bouts_failed > 0 and summary.bouts_failed >= summary.checked else 0
 
 
 if __name__ == "__main__":
