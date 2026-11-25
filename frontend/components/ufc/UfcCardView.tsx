@@ -22,6 +22,7 @@ import type { UfcEventDetail, UfcEventSummary } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
 import { BoutPickStatus, hasPickSlot } from "./BoutPickStatus";
 import { BoutRow } from "./BoutRow";
+import { EventBanner } from "./EventBanner";
 import { UfcPicksProvider } from "./UfcPicksProvider";
 import { UfcPicksRailCard } from "./UfcPicksRailCard";
 
@@ -67,6 +68,7 @@ function UfcCard({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEven
   const date = eyebrowDay(event, tz);
   const others = (upcoming ?? []).filter((e) => e.slug !== event.slug).slice(0, 3);
   const segments = event.segments ?? [];
+  const mainBout = mainId == null ? null : segments.flatMap((s) => s.bouts ?? []).find((b) => b.id === mainId) ?? null;
 
   return (
     <>
@@ -77,6 +79,7 @@ function UfcCard({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEven
       />
       <PageLayout>
         <Main>
+          {mainBout && <EventBanner bout={mainBout} title={event.name} date={date} />}
           {segments.length === 0 ? (
             <Card pad>
               <Note>The fights for this card have not been announced yet.</Note>
