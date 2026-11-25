@@ -547,3 +547,30 @@ def test_detail_query_counts_are_bounded(client):
     db.close()
     eight = _count(c, engine, "/api/ufc/fighters/busy-bee")
     assert two == eight and eight <= 6
+
+
+# ---- task 2 review fixes ----
+def test_huge_offset_and_ids_are_clean_4xx_in_the_envelope(client):
+    c, _, _ = _seeded(client)
+    for url in (
+        "/api/ufc/events?when=past&offset=100000000000000000000",
+        "/api/ufc/events?when=past&limit=0",
+        "/api/ufc/bouts/100000000000000000000",
+        "/api/ufc/bouts/0",
+    ):
+        r = c.get(url)
+        assert 400 <= r.status_code < 500, url
+        assert "code" in r.json()["error"], url
+
+
+def test_undated_finished_card_sorts_last_and_is_not_next(client):
+    c, Session, _ = client
+    db = Session()
+    now = datetime.now(timezone.utc)
+    _event(db, "undated-finished", "finished")
+    _event(db, "dated-finished", "finished", now - timedelta(days=3), now - timedelta(days=3))
+    db.commit()
+    db.close()
+    r = c.get("/api/ufc/events", params={"when": "past"})
+    assert _slugs(r) == ["dated-finished", "undated-finished"]
+    assert c.get("/api/ufc/events/next").json()["slug"] == "dated-finished"
