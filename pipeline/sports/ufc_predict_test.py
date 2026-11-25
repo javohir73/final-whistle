@@ -6,7 +6,7 @@ import math
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
 from ml.sports.ufc.elo import EloParams
@@ -17,7 +17,7 @@ from ml.sports.ufc.params import UfcParams
 from pipeline.sports.ufc_history import load_history
 from pipeline.sports.ufc_ingest import _utc
 import pipeline.sports.ufc_predict as mod
-from pipeline.sports.ufc_predict import _write_prediction, generate, grade, lock_time, main
+from pipeline.sports.ufc_predict import _write_prediction, generate, grade, grade_summary, lock_time, main
 from pipeline.sports.ufc_testkit import build
 
 NOW = datetime(2026, 12, 1, tzinfo=timezone.utc)
@@ -394,3 +394,75 @@ def test_main_returns_nonzero_only_when_a_step_raises(monkeypatch):
     def raising(db): raise RuntimeError("x")
     monkeypatch.setattr(mod, "generate", raising)
     assert main(["--generate", "--grade"]) == 1 and FakeDb.rolled == 1
+
+
+# ---- reconcile, query bound, tie-break ------------------------------------
+
+def test_overturned_winner_regrades_the_same_row_in_place(db_session):
+    built = build(db_session, DONE)
+    bout = built.bouts[0]
+    add_row(db_session, bout, T - timedelta(days=1), 0.7)
+    assert grade(db_session) == 1
+    before = results(db_session)[0]
+    rid, pid = before.id, before.prediction_id
+    bout.winner = "b"
+    db_session.flush()
+    s = grade_summary(db_session, now=T + timedelta(days=1))
+    after = results(db_session)
+    assert s.regraded == 1 and s.removed == 0 and s.written == 0 and len(after) == 1
+    r = after[0]
+    assert (r.id, r.prediction_id) == (rid, pid)
+    assert r.prob_assigned == pytest.approx(0.3) and r.winner_correct is False
+    assert r.brier == pytest.approx(0.49) and r.log_loss == pytest.approx(-math.log(0.3))
+    assert _utc(r.evaluated_at) == T + timedelta(days=1)
+    again = grade_summary(db_session, now=T + timedelta(days=2))
+    assert (again.regraded, again.removed, again.written) == (0, 0, 0)
+
+
+def test_result_removed_when_bout_no_longer_qualifies(db_session):
+    built = build(db_session, DONE)
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.7)
+    grade(db_session)
+    built.bouts[0].winner = None
+    db_session.flush()
+    s = grade_summary(db_session, now=T + timedelta(days=1))
+    assert s.removed == 1 and results(db_session) == []
+    assert grade_summary(db_session, now=T + timedelta(days=2)).removed == 0
+
+
+def test_bouts_older_than_thirty_days_are_not_reconciled(db_session):
+    built = build(db_session, DONE)
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.7)
+    grade(db_session)
+    built.bouts[0].winner = "b"
+    db_session.flush()
+    s = grade_summary(db_session, now=T + timedelta(days=31))
+    assert s.regraded == 0 and results(db_session)[0].prob_assigned == pytest.approx(0.7)
+
+
+def test_grade_query_count_does_not_grow_with_history(db_session):
+    rows = [(f"2025-{1 + i // 28:02d}-{1 + i % 28:02d}", f"H{i}", f"I{i}", "a", "decision") for i in range(50)]
+    rows += [("2026-12-05T18:00", "A", "B", "a", "decision"), ("2026-12-06T18:00", "C", "D", "b", "decision")]
+    built = build(db_session, rows)
+    for b in built.bouts[-2:]:
+        add_row(db_session, b, b.scheduled_utc - timedelta(days=1), 0.6)
+    db_session.commit()
+    seen = []
+    engine = db_session.get_bind()
+    listener = lambda conn, cur, stmt, *a: seen.append(stmt)
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        assert grade(db_session) == 2
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    # 1 reconcile + 1 bout select + 2 loads + 2 inserts + savepoints/commit; none depends on the 50 old bouts
+    assert len(seen) <= 12, len(seen)
+
+
+def test_identical_created_at_higher_id_counts(db_session):
+    built = build(db_session, DONE)
+    at = T - timedelta(days=1)
+    add_row(db_session, built.bouts[0], at, 0.6)
+    later = add_row(db_session, built.bouts[0], at, 0.8)
+    assert grade(db_session) == 1
+    assert results(db_session)[0].prediction_id == later.id

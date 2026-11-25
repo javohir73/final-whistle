@@ -194,47 +194,119 @@ def _predict_bout(db, bout, form, snaps, fighters, tables, history, now) -> tupl
 
 
 LOG_LOSS_FLOOR = 1e-15
+RECONCILE_DAYS = 30
+
+
+@dataclass
+class GradeSummary:
+    written: int = 0
+    regraded: int = 0
+    removed: int = 0
+    failed: int = 0
+
+
+def _scores(bout: UfcBout, row: UfcPrediction) -> tuple[float, bool, float, float]:
+    p = row.p_a if bout.winner == "a" else row.p_b
+    return p, p > 0.5, -math.log(max(LOG_LOSS_FLOOR, p)), (1 - p) ** 2
+
+
+def _qualifies(bout: UfcBout) -> bool:
+    return bout.status == "finished" and bout.winner in ("a", "b")
+
+
+def _reconcile(db: Session, now: datetime, summary: GradeSummary) -> None:
+    """Re-score recent result rows against the bout's current winner (results can be overturned)."""
+    cutoff = now - timedelta(days=RECONCILE_DAYS)
+    rows = db.execute(
+        select(UfcPredictionResult, UfcBout, UfcPrediction)
+        .join(UfcBout, UfcBout.id == UfcPredictionResult.bout_id)
+        .join(UfcPrediction, UfcPrediction.id == UfcPredictionResult.prediction_id)
+        .where(UfcBout.scheduled_utc >= cutoff)
+        .order_by(UfcPredictionResult.id)
+    ).all()
+    for result, bout, pred in rows:
+        try:
+            with db.begin_nested():
+                if not _qualifies(bout):
+                    db.delete(result)
+                    summary.removed += 1
+                    continue
+                p, correct, loss, brier = _scores(bout, pred)
+                if (result.winner_correct != correct or abs(result.prob_assigned - p) > 1e-12
+                        or abs(result.log_loss - loss) > 1e-12 or abs(result.brier - brier) > 1e-12):
+                    result.prob_assigned, result.winner_correct = p, correct
+                    result.log_loss, result.brier, result.evaluated_at = loss, brier, now
+                    summary.regraded += 1
+        except Exception as exc:  # noqa: BLE001 - one row must not stop the rest
+            summary.failed += 1
+            log.warning("ufc predict: a result failed to reconcile (%s)", type(exc).__name__)
+
+
+def grade_summary(db: Session, now: datetime | None = None) -> GradeSummary:
+    """Reconcile recent result rows, then grade bouts whose counting prediction has no result."""
+    now = _utc(now) if now else datetime.now(timezone.utc)
+    summary = GradeSummary()
+    _reconcile(db, now, summary)
+    db.flush()
+
+    ungraded = (
+        select(UfcPrediction.id).where(
+            UfcPrediction.bout_id == UfcBout.id,
+            ~select(UfcPredictionResult.id).where(
+                UfcPredictionResult.bout_id == UfcPrediction.bout_id,
+                UfcPredictionResult.model_version == UfcPrediction.model_version,
+            ).exists(),
+        ).exists()
+    )
+    bouts = db.scalars(
+        select(UfcBout).where(UfcBout.status == "finished", UfcBout.winner.in_(("a", "b")), ungraded)
+        .order_by(UfcBout.id)
+    ).all()
+    if bouts:
+        ids = [b.id for b in bouts]
+        preds: dict[int, list[UfcPrediction]] = {}
+        for row in db.scalars(select(UfcPrediction).where(UfcPrediction.bout_id.in_(ids))):
+            preds.setdefault(row.bout_id, []).append(row)
+        done: dict[int, set[str]] = {}
+        for bout_id, version in db.execute(
+            select(UfcPredictionResult.bout_id, UfcPredictionResult.model_version)
+            .where(UfcPredictionResult.bout_id.in_(ids))
+        ):
+            done.setdefault(bout_id, set()).add(version)
+        for bout in bouts:
+            try:
+                with db.begin_nested():
+                    summary.written += _grade_bout(db, bout, preds.get(bout.id, []), done.get(bout.id, set()))
+            except Exception as exc:  # noqa: BLE001 - one bout must not stop the rest
+                summary.failed += 1
+                log.warning("ufc predict: a bout failed (%s)", type(exc).__name__)
+    db.commit()
+    log.info("ufc predict: %d result rows written, %d regraded, %d removed, %d failed",
+             summary.written, summary.regraded, summary.removed, summary.failed)
+    return summary
 
 
 def grade(db: Session) -> int:
-    """Write a result row for each finished bout's counting prediction; returns rows written."""
-    bouts = db.scalars(
-        select(UfcBout).where(UfcBout.status == "finished", UfcBout.winner.in_(("a", "b")))
-        .order_by(UfcBout.id)
-    ).all()
-    written = failed = 0
-    for bout in bouts:
-        try:
-            with db.begin_nested():
-                written += _grade_bout(db, bout)
-        except Exception as exc:  # noqa: BLE001 - one bout must not stop the rest
-            failed += 1
-            log.warning("ufc predict: a bout failed (%s)", type(exc).__name__)
-    db.commit()
-    log.info("ufc predict: %d result rows written, %d failed", written, failed)
-    return written
+    """Run `grade_summary`; returns the number of result rows written."""
+    return grade_summary(db).written
 
 
-def _grade_bout(db: Session, bout: UfcBout) -> int:
+def _grade_bout(db: Session, bout: UfcBout, rows: list[UfcPrediction], graded: set[str]) -> int:
     lock = lock_time(bout)
     if lock is None:
         return 0
-    graded = set(db.scalars(
-        select(UfcPredictionResult.model_version).where(UfcPredictionResult.bout_id == bout.id)
-    ))
     counting: dict[str, UfcPrediction] = {}
-    for row in db.scalars(select(UfcPrediction).where(UfcPrediction.bout_id == bout.id)):
+    for row in rows:
         if row.model_version in graded or _utc(row.created_at) > lock:
             continue
         best = counting.get(row.model_version)
         if best is None or (_utc(row.created_at), row.id) > (_utc(best.created_at), best.id):
             counting[row.model_version] = row
     for version, row in counting.items():
-        p = row.p_a if bout.winner == "a" else row.p_b
+        p, correct, loss, brier = _scores(bout, row)
         db.add(UfcPredictionResult(
             prediction_id=row.id, bout_id=bout.id, model_version=version,
-            winner_correct=p > 0.5, prob_assigned=p,
-            log_loss=-math.log(min(1.0, max(LOG_LOSS_FLOOR, p))), brier=(1 - p) ** 2,
+            winner_correct=correct, prob_assigned=p, log_loss=loss, brier=brier,
         ))
     return len(counting)
 
