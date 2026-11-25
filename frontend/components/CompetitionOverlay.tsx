@@ -38,7 +38,7 @@ export function CompetitionOverlay({
     if (id === active) return;
     // Written now rather than left to the navigation, so the provider's URL
     // sync sees no change and the switch is counted once, as "switcher".
-    // UFC is not remembered (no picks game; see canRemember).
+    // UFC is not remembered as the default competition (see canRemember).
     if (canRemember(id)) writeCompetitionCookie(id);
     trackEvent("competition_switch", { from: active, to: id, source: "switcher" });
   };

@@ -111,7 +111,7 @@ function UfcCard({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEven
             })
           )}
         </Main>
-        <Rail aria-label="Other cards">
+        <Rail aria-label="About this card">
           <UfcPicksRailCard event={event} />
           {others.length > 0 && (
             <Card pad>

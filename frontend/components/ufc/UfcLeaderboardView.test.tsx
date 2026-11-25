@@ -42,7 +42,8 @@ const summaryFor = (handle: string | null, points: number, winner_method: number
 beforeEach(() => {
   (useAuth as jest.Mock).mockReturnValue({ user: null, loading: false, openSignIn });
   (getOrCreateDeviceId as jest.Mock).mockReturnValue("dev-1");
-  (getUfcPicksSummary as jest.Mock).mockResolvedValue(summaryFor(null, 0, 0));
+  // Never answers unless a test says so: a late answer in a synchronous test would update outside act().
+  (getUfcPicksSummary as jest.Mock).mockReturnValue(new Promise(() => {}));
 });
 afterEach(() => jest.clearAllMocks());
 
@@ -74,10 +75,10 @@ it("ranks players in payload order and marks the viewer and the model", async ()
   expect(screen.getByRole("columnheader", { name: "Winner and method" })).toBeInTheDocument();
   expect(rows[2].className).toContain("bg-brand-soft");
   expect(rows[1].className).not.toContain("bg-brand-soft");
-  expect(screen.getByText("You are 3 of 3.")).toBeInTheDocument();
+  expect(screen.getByText("You are 3 of 4.")).toBeInTheDocument();
 });
 
-it("counts the viewer's place among players only when the model ranks above them", async () => {
+it("agrees with the table when the model ranks first: the row's own rank, of the rows shown", async () => {
   (getUfcPicksSummary as jest.Mock).mockResolvedValue(summaryFor("SwiftStriker42", 4, 0));
   const b = board({
     participant_count: 2,
@@ -88,8 +89,8 @@ it("counts the viewer's place among players only when the model ranks above them
     ],
   });
   render(<UfcLeaderboardView board={b} scope={card} {...props} />);
-  expect(await screen.findByText("You are 2 of 2.")).toBeInTheDocument();
-  expect(screen.queryByText(/of 3/)).toBeNull();
+  expect(await screen.findByText("You are 3 of 3.")).toBeInTheDocument();
+  expect(rowsOf().map((r) => cell(r, 0).textContent)).toEqual(["1", "2", "3"]);
 });
 
 it("says nobody is you when two players share your handle and totals", async () => {

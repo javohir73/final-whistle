@@ -156,6 +156,8 @@ describe("ufcDisplay", () => {
     expect(fighterHref("x")).toBe("/ufc/fighter/x");
     expect(NOT_AFFILIATED).toBe("FinalWhistle is not affiliated with the UFC.");
     expect(ABOUT_NOTE).toMatch(/^Upcoming UFC cards, with results and fighter records to follow/);
+    expect(ABOUT_NOTE).toMatch(/Pick the winner of each fight, and how they win\.$/);
+    expect(ABOUT_NOTE).not.toMatch(/\bcoming\b/i);
     expect(ABOUT_NOTE).not.toMatch(/every UFC event/i);
   });
   it("adds the year to a date only when it is not the current year in the viewer's zone", () => {

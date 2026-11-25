@@ -7,7 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useClock } from "@/components/match/clock";
 import { Card, CardHead, GhostButton, Note, TextLink } from "@/components/ui";
 import { boutHref, isTba } from "@/lib/ufcDisplay";
-import { UFC_SCORING } from "@/lib/ufcPicks";
+import { pickOpenByClock, UFC_SCORING } from "@/lib/ufcPicks";
 import type { UfcEventDetail } from "@/lib/ufcTypes";
 import { boutIsOpen } from "./BoutPickStatus";
 import { useUfcPicks } from "./UfcPicksProvider";
@@ -35,6 +35,10 @@ export function UfcPicksRailCard({ event }: { event: UfcEventDetail }) {
       } else if (boutIsOpen(b, mine, now)) pickable += 1;
     }
   }
+  // Without the picks, the card's own fights say whether anything can still be picked (the same for every visitor).
+  const anyPickable = data
+    ? pickable > 0
+    : bouts.some((b) => b.status !== "cancelled" && !isTba(b.fighter_a) && !isTba(b.fighter_b) && (now ? pickOpenByClock(b, now) : b.status === "scheduled" && b.scheduled_utc != null));
   const changed = data?.changed_picks ?? [];
   const played = data != null && picked > 0;
 
@@ -53,7 +57,7 @@ export function UfcPicksRailCard({ event }: { event: UfcEventDetail }) {
           )}
         </>
       ) : (
-        <Note className="mt-4">Pick the winner of each fight, and how they win.</Note>
+        anyPickable && <Note className="mt-4">Pick the winner of each fight, and how they win.</Note>
       )}
       <Note className="mt-1">{UFC_SCORING}</Note>
       {picks?.status === "no-device" && (

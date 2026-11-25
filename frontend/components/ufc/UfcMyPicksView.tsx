@@ -26,7 +26,7 @@ import { getUfcPicksSummary, UFC_SCORING } from "@/lib/ufcPicks";
 import { boutHref, eventHref, mainEventId } from "@/lib/ufcDisplay";
 import type { UfcEventDetail, UfcMyBout, UfcPicksSummaryResponse } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
-import { BoutPickStatus } from "./BoutPickStatus";
+import { BoutPickStatus, hasPickSlot } from "./BoutPickStatus";
 import { BoutRow } from "./BoutRow";
 import { UfcPicksProvider, useUfcPicks } from "./UfcPicksProvider";
 
@@ -92,7 +92,7 @@ function NextCardFoot({ event }: { event: UfcEventDetail }) {
   if (t.picked === 0) {
     return (
       <CardFoot>
-        <Note>You have not picked any fights yet.</Note>
+        <Note>You have not picked any fights on this card yet.</Note>
         <Button href={eventHref(slug)}>Pick the next card</Button>
       </CardFoot>
     );
@@ -113,6 +113,7 @@ function NextCardFoot({ event }: { event: UfcEventDetail }) {
 
 type Card = UfcPicksSummaryResponse["cards"][number];
 
+/** One row of the other-cards lists (Coming up, Past cards). */
 function PastCard({ card }: { card: Card }) {
   return (
     <li className={`${CARD_X} flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line-soft py-4`}>
@@ -170,6 +171,14 @@ function Inner({ event }: { event: UfcEventDetail }) {
   const others = [...(summary.data?.cards ?? [])]
     .filter((c) => c.slug !== event.slug)
     .sort((a, b) => (b.first_bout_utc ?? "").localeCompare(a.first_bout_utc ?? ""));
+  // Cards that start after this one are still to come; earlier ones, and any with no date, are past.
+  const startsAfter = (c: Card) => {
+    const next = Date.parse(event.first_bout_utc ?? "");
+    const at = Date.parse(c.first_bout_utc ?? "");
+    return !Number.isNaN(next) && !Number.isNaN(at) && at > next;
+  };
+  const comingUp = others.filter(startsAfter).reverse();
+  const pastCards = others.filter((c) => !startsAfter(c));
   const overall = summary.data?.totals;
   // The invite goes only to a visitor with picks to keep (never to blocked storage or a first visit).
   const hasPlayed = (data?.totals.picked ?? 0) > 0 || others.length > 0;
@@ -198,7 +207,13 @@ function Inner({ event }: { event: UfcEventDetail }) {
                 tz={tz}
                 isMainEvent={b.id === mainId}
                 showTime
-                right={b.status === "cancelled" ? cancelledRight(data?.bouts.find((m) => m.bout_id === b.id)) : <BoutPickStatus bout={b} now={now} />}
+                right={
+                  b.status === "cancelled"
+                    ? cancelledRight(data?.bouts.find((m) => m.bout_id === b.id))
+                    : hasPickSlot(b)
+                      ? <BoutPickStatus bout={b} now={now} />
+                      : undefined
+                }
               />
             ))}
             <NextCardFoot event={event} />
@@ -211,11 +226,21 @@ function Inner({ event }: { event: UfcEventDetail }) {
               <GhostButton className="mt-3" onClick={() => setAttempt((n) => n + 1)} aria-label="Try again to load your other cards">Try again</GhostButton>
             </Card>
           )}
-          {summary.status !== "error" && summary.data && others.length > 0 && (
+          {summary.status !== "error" && summary.data && comingUp.length > 0 && (
+            <Card flush aria-label="Coming up">
+              <CardHead title="Coming up" className={`${CARD_X} py-4`} />
+              <ul>
+                {comingUp.map((c) => (
+                  <PastCard key={c.slug} card={c} />
+                ))}
+              </ul>
+            </Card>
+          )}
+          {summary.status !== "error" && summary.data && pastCards.length > 0 && (
             <Card flush aria-label="Past cards">
               <CardHead title="Past cards" className={`${CARD_X} py-4`} />
               <ul>
-                {others.map((c) => (
+                {pastCards.map((c) => (
                   <PastCard key={c.slug} card={c} />
                 ))}
               </ul>

@@ -105,6 +105,6 @@ it("is titled for picks", () => {
   expect(String(metadata.title)).toMatch(/My picks/);
 });
 
-it("sends a crafted ?competition=ufc to the UFC section, which has no picks game", async () => {
-  await expect(play({ competition: "ufc" })).rejects.toThrow("NEXT_REDIRECT /ufc");
+it("sends ?competition=ufc to the UFC picks page", async () => {
+  await expect(play({ competition: "ufc" })).rejects.toThrow("NEXT_REDIRECT /ufc/picks");
 });

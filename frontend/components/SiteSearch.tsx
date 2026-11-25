@@ -53,8 +53,8 @@ const LIVE_FOOTBALL = (Object.values(COMPETITIONS) as Array<(typeof COMPETITIONS
   (c) => c.sport === "football" && c.enabled && !c.archived,
 );
 
-/** UFC's own pages, straight from its nav tabs (Card, Events): it has no
- *  picks, leaderboard, bracket or model record to offer. */
+/** UFC's own pages, straight from its nav tabs (Card, Events, My picks, Leaderboard):
+ *  it has no bracket or model record to offer. */
 function ufcOwnPages(current: CompetitionId): SearchItem[] {
   return navTabsFor(current).map((t) => ({
     kind: "page" as const,

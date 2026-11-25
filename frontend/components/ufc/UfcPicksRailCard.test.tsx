@@ -184,3 +184,12 @@ it("is not shown for a card with no fights", async () => {
   await act(async () => {});
   expect(container).toBeEmptyDOMElement();
 });
+
+it("does not invite a pick when no fight on the card can still be picked", async () => {
+  mockMine(mineFor(UPCOMING_EVENT));
+  jest.setSystemTime(new Date("2026-12-06T00:00:00Z")); // every part of the card has started
+  view();
+  await screen.findByText("A free account keeps your picks across devices.");
+  expect(screen.queryByText("Pick the winner of each fight, and how they win.")).toBeNull();
+  expect(screen.getByText("Winner and method 5 points, winner 2.")).toBeInTheDocument();
+});

@@ -65,7 +65,6 @@ export function UfcLeaderboardView({
   }
 
   const entries = board?.entries ?? [];
-  const players = entries.filter((e) => !e.is_model);
   const mine = findViewerRow(entries, scope, summary);
   // The year a card's board counts in is the UTC year of its first fight.
   const cardYear = board?.event?.first_bout_utc ? new Date(board.event.first_bout_utc).getUTCFullYear() : null;
@@ -102,8 +101,8 @@ export function UfcLeaderboardView({
             </Card>
           ) : (
             <>
-              {mine && board ? (
-                <p className="font-semibold text-ink">{`You are ${players.indexOf(mine) + 1} of ${board.participant_count}.`}</p>
+              {mine ? (
+                <p className="font-semibold text-ink">{`You are ${mine.rank} of ${entries.length}.`}</p>
               ) : null}
               <Card flush>
                 <TableScroll>

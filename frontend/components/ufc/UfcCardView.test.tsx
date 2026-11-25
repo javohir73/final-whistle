@@ -86,7 +86,7 @@ it("does not repeat the segment's time on every fight", () => {
 
 it("labels the rail and links to all cards", () => {
   render(<UfcCardView event={UPCOMING_EVENT} upcoming={UPCOMING_LIST} />);
-  expect(screen.getByRole("complementary", { name: "Other cards" })).toBeInTheDocument();
+  expect(screen.getByRole("complementary", { name: "About this card" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "All cards" })).toHaveAttribute("href", "/ufc/events");
 });
 
@@ -122,6 +122,14 @@ it("names both months when the days straddle a month end", () => {
   expect(screen.getByText("UFC · Thu 31 Dec – Fri 1 Jan")).toBeInTheDocument();
 });
 
+const channels: { port1: { close(): void }; port2: { close(): void } }[] = [];
+afterAll(() => {
+  channels.forEach((c) => {
+    c.port1.close();
+    c.port2.close();
+  });
+});
+
 describe("pick status", () => {
   const [main] = UPCOMING_EVENT.segments[0].bouts;
   const [prelimA, prelimB] = UPCOMING_EVENT.segments[1].bouts;
@@ -133,9 +141,17 @@ describe("pick status", () => {
 
   it("renders nothing about the player on the server, the same HTML for everyone", () => {
     mockMine(mineFor(UPCOMING_EVENT, { [main.id]: { pick: pick() } }));
-    // jsdom has no MessageChannel or TextEncoder, which the server renderer wants.
+    // jsdom has no MessageChannel or TextEncoder, which the server renderer wants. The channels are
+    // closed in afterAll: an open port keeps the jest worker alive.
     const g = global as unknown as Record<string, unknown>;
-    g.MessageChannel ??= require("worker_threads").MessageChannel;
+    const WorkerChannel = require("worker_threads").MessageChannel;
+    g.MessageChannel = class {
+      constructor() {
+        const c = new WorkerChannel();
+        channels.push(c);
+        return c;
+      }
+    };
     g.TextEncoder ??= require("util").TextEncoder;
     const { renderToString } = require("react-dom/server") as typeof import("react-dom/server");
     const html = renderToString(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
@@ -198,7 +214,7 @@ describe("pick status", () => {
     }));
     render(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
     const notice = await screen.findByText(/doesn't count because the fight changed/);
-    expect(screen.getByRole("complementary", { name: "Other cards" })).toContainElement(notice);
+    expect(screen.getByRole("complementary", { name: "About this card" })).toContainElement(notice);
     expect(section("Main card").parentElement?.firstElementChild).toBe(section("Main card"));
     expect(screen.getByRole("link", { name: "Pick the new fight" })).toHaveAttribute("href", "/ufc/fight/9#pick");
   });
@@ -206,7 +222,7 @@ describe("pick status", () => {
   it("puts the rail card above the other cards", async () => {
     mockMine(mineFor(UPCOMING_EVENT));
     render(<UfcCardView event={UPCOMING_EVENT} upcoming={UPCOMING_LIST} />);
-    const rail = screen.getByRole("complementary", { name: "Other cards" });
+    const rail = screen.getByRole("complementary", { name: "About this card" });
     const heads = within(rail).getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(heads.slice(0, 2)).toEqual(["Your picks", "Upcoming cards"]);
     await screen.findByText("A free account keeps your picks across devices.");

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useClock } from "@/components/match/clock";
 import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
-import { Button, CheckIcon, Chip, Segmented, TextLink } from "@/components/ui";
+import { Button, CheckIcon, Chip, GhostButton, Segmented, TextLink } from "@/components/ui";
 import { ApiError } from "@/lib/session";
 import {
   agreementLine,
@@ -185,7 +185,7 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
       <Shell>
         <div className="mt-4 flex flex-col items-center gap-3">
           <p className="text-notes text-muted">Picks are unavailable right now.</p>
-          <Button onClick={picks.retry}>Retry</Button>
+          <Button onClick={picks.retry}>Try again</Button>
         </div>
       </Shell>
     );
@@ -209,7 +209,22 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
     );
   }
   // The card's list does not carry this fight (a changed fight is left out): keep any explanation, else say nothing.
-  if (!my) return note ? <Shell>{note}</Shell> : null;
+  const voided = picks.data?.changed_picks.find((c) => c.bout_id === bout.id);
+  if (!my) {
+    if (voided) {
+      return (
+        <Shell>
+          <p className="mt-3 text-notes font-medium text-ink">Your pick doesn&apos;t count because the fight changed.</p>
+          {voided.replaced_by_id != null && (
+            <TextLink href={`${boutHref(voided.replaced_by_id)}#pick`} className="mt-2">
+              Pick the new fight
+            </TextLink>
+          )}
+        </Shell>
+      );
+    }
+    return note ? <Shell>{note}</Shell> : null;
+  }
   if (status === "finished") return note ? <Shell>{note}</Shell> : null;
   if (status === "cancelled") {
     return (
@@ -233,7 +248,9 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
       <Shell>
         {!blocked && (
           <p className="mt-3 text-notes text-muted">
-            Picks closed when this part of the card started. You didn&apos;t pick this one.
+            {status === "scheduled" && my.picks_open && !lockIso
+              ? "Picks open once the time is set."
+              : "Picks closed when this part of the card started. You didn't pick this one."}
           </p>
         )}
         {note}
@@ -384,11 +401,12 @@ function SignInInvite() {
   const { user, loading, openSignIn } = useAuth();
   if (user || loading) return null;
   return (
-    <p className="mt-4">
-      <TextLink onClick={() => openSignIn()} className="min-h-[44px]">
-        Sign in to keep your picks across devices
-      </TextLink>
-    </p>
+    <div className="mt-4">
+      <p className="text-notes text-muted">A free account keeps your picks across devices.</p>
+      <GhostButton onClick={() => openSignIn()} className="mt-2">
+        Sign in
+      </GhostButton>
+    </div>
   );
 }
 

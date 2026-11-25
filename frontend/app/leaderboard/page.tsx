@@ -28,8 +28,8 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
   const raw = (await searchParams)?.competition;
   const competition =
     parseCompetition(Array.isArray(raw) ? raw[0] : raw) ?? (await readServerCompetition());
-  // UFC has no leaderboard (a crafted ?competition=ufc, or an old cookie).
-  if (competition === "ufc") redirect("/ufc");
+  // UFC's leaderboard lives under /ufc (a ?competition=ufc link, or an old cookie).
+  if (competition === "ufc") redirect("/ufc/leaderboard");
   const [initialRows, nrlTipsheet] = await Promise.all([
     competition === "wc26" ? getLeaderboardServer().catch(() => null) : null,
     competition === "nrl" ? getNrlTipsheetServer().catch(() => null) : null,

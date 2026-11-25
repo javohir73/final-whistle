@@ -64,7 +64,7 @@ describe("loading and unavailable", () => {
     const net = mockNetwork({ mineAnswers: ["network", ok(mine())] });
     renderPick();
     expect(await screen.findByText("Picks are unavailable right now.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("button", { name: "Pick a winner and how they win" })).toBeDisabled();
     expect(net.calls.mine).toBe(2);
   });
@@ -159,7 +159,8 @@ describe("open and not picked", () => {
     await choose("Shara Magomedov", "Decision");
     fireEvent.click(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" }));
     await screen.findByRole("status");
-    expect(screen.getByRole("button", { name: "Sign in to keep your picks across devices" })).toBeInTheDocument();
+    expect(screen.getByText("A free account keeps your picks across devices.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
   it("offers the next open fight, else my picks", async () => {
@@ -261,6 +262,36 @@ describe("already picked, locked, finished", () => {
     mockNetwork({ mineAnswers: [ok(mine([myBout({ locks_at: "2026-12-05T17:00:00Z" })]))] });
     renderPick();
     expect(await screen.findByText("Picks close Sat 5 Dec, 5:00 pm GMT")).toBeInTheDocument();
+  });
+
+  it("says picks open once the time is set for a scheduled fight with no time, not that it closed", async () => {
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ locks_at: null })]))] });
+    renderPick({ ...BOUT, scheduled_utc: null });
+    expect(await screen.findByText("Picks open once the time is set.")).toBeInTheDocument();
+    expect(screen.queryByText(/Picks closed when/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Israel Adesanya" })).toBeNull();
+  });
+
+  it("explains a pick on this fight that the changed fight voided, linking to the new fight", async () => {
+    mockNetwork({
+      mineAnswers: [ok(mine([], {
+        changed_picks: [{ bout_id: 7, fighter_a: "Israel Adesanya", fighter_b: "Shara Magomedov", pick: PENDING_PICK, replaced_by_id: 9 }],
+      }))],
+    });
+    renderPick();
+    expect(await screen.findByText("Your pick doesn't count because the fight changed.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pick the new fight" })).toHaveAttribute("href", "/ufc/fight/9#pick");
+  });
+
+  it("explains a changed fight without a link when there is no replacement yet", async () => {
+    mockNetwork({
+      mineAnswers: [ok(mine([], {
+        changed_picks: [{ bout_id: 7, fighter_a: "Israel Adesanya", fighter_b: "Shara Magomedov", pick: PENDING_PICK, replaced_by_id: null }],
+      }))],
+    });
+    renderPick();
+    expect(await screen.findByText("Your pick doesn't count because the fight changed.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Pick the new fight" })).toBeNull();
   });
 
   it("says the fight closed without the player when it is scheduled past its lock", async () => {

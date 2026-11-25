@@ -121,21 +121,21 @@ it("renders the same shell before anything about the player is known", () => {
   expect(screen.getByText(`Pick the winner of every fight on ${UPCOMING_EVENT.name}, and how they win.`)).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "How it works" })).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("Loading your picks");
-  expect(screen.queryByText("You have not picked any fights yet.")).toBeNull();
+  expect(screen.queryByText("You have not picked any fights on this card yet.")).toBeNull();
   expect(screen.queryByRole("link", { name: /^Pick the winner of/ })).toBeNull();
   // the band's name is just the card name; its link sits outside the heading
   expect(screen.getByRole("heading", { level: 2, name: UPCOMING_EVENT.name })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Open the card" })).toHaveAttribute("href", `/ufc/event/${NEXT}`);
   expect(screen.getByRole("link", { name: /Israel Adesanya v Shara Magomedov/ })).toHaveAttribute("href", `/ufc/fight/${MAIN_ID}`);
   // each row reserves its pick slot before the picks arrive, so the list does not grow
-  expect(screen.getAllByTestId("pick-slot")).toHaveLength(4);
+  expect(screen.getAllByTestId("pick-slot")).toHaveLength(3); // not the placeholder, not the cancelled fight
   expect(screen.queryByText("Sign in")).toBeNull();
 });
 
 it("gives a player who has never played the whole first screen", async () => {
   mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([], none) });
   open();
-  expect(await screen.findByText("You have not picked any fights yet.")).toBeInTheDocument();
+  expect(await screen.findByText("You have not picked any fights on this card yet.")).toBeInTheDocument();
   expect(screen.getByText("UFC")).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 1, name: "My picks" })).toBeInTheDocument();
   expect(screen.getByText(`Pick the winner of every fight on ${UPCOMING_EVENT.name}, and how they win.`)).toBeInTheDocument();
@@ -168,7 +168,7 @@ it("shows open picks with no result and no zeros", async () => {
   });
   open();
   expect(await screen.findByText("You: Shara Magomedov, decision")).toBeInTheDocument();
-  expect(screen.queryByText("You have not picked any fights yet.")).toBeNull();
+  expect(screen.queryByText("You have not picked any fights on this card yet.")).toBeNull();
   expect(screen.queryByText(/points from/)).toBeNull();
   expect(screen.getByText("1 pick · 0 scored")).toBeInTheDocument();
   expect(screen.queryByText("Past cards")).toBeNull();
@@ -268,6 +268,37 @@ it("lists past cards as one row each, with the server's totals, and no per-card 
   expect(calls.filter((u) => u.includes("/picks/mine"))).toHaveLength(1);
 });
 
+const UPCOMING_ROW = { slug: "ufc-335-2026-12-12", name: "UFC 335", first_bout_utc: "2026-12-12T22:00:00Z",
+  picked: 2, graded: 0, points: 0, winner_method: 0 };
+
+it("lists a card after the next one under Coming up, not under Past cards", async () => {
+  mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([SUMMARY_NEXT, UPCOMING_ROW, PAST_ROW], none) });
+  open();
+  const coming = await screen.findByRole("region", { name: "Coming up" });
+  expect(within(coming).getByRole("link", { name: "UFC 335" })).toHaveAttribute("href", "/ufc/event/ufc-335-2026-12-12");
+  expect(within(coming).getByText("2 picks · 0 scored")).toBeInTheDocument();
+  expect(within(coming).queryByText(FINISHED_EVENT.name)).toBeNull();
+  const past = screen.getByRole("region", { name: "Past cards" });
+  expect(within(past).getByRole("link", { name: FINISHED_EVENT.name })).toBeInTheDocument();
+  expect(within(past).queryByText("UFC 335")).toBeNull();
+});
+
+it("omits Coming up when no other card is later, and Past cards when none is earlier", async () => {
+  mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([UPCOMING_ROW], none) });
+  open();
+  await screen.findByRole("region", { name: "Coming up" });
+  expect(screen.queryByRole("region", { name: "Past cards" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Past cards" })).toBeNull();
+});
+
+it("puts a card with no date under Past cards", async () => {
+  mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([{ ...PAST_ROW, first_bout_utc: null }], none) });
+  open();
+  const past = await screen.findByRole("region", { name: "Past cards" });
+  expect(within(past).getByRole("link", { name: FINISHED_EVENT.name })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Coming up" })).toBeNull();
+});
+
 it("uses the server's totals even if they disagree with anything else", async () => {
   mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([{ ...PAST_ROW, points: 99, graded: 8 }], none) });
   open();
@@ -280,7 +311,7 @@ it("counts picks on a past card where nothing is scored, without guessing why", 
     mine: { [NEXT]: nextCard() },
     summary: summaryOf([
       row({ picked: 2 }),
-      row({ slug: OLD, name: "UFC 300", picked: 1, first_bout_utc: "2026-12-19T22:00:00Z" }),
+      row({ slug: OLD, name: "UFC 300", picked: 1, first_bout_utc: "2026-10-10T22:00:00Z" }),
     ], none),
   });
   open();
@@ -299,7 +330,7 @@ it.each([
   open();
   expect(await screen.findByText("We could not load your other cards.")).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 1, name: "My picks" })).toBeInTheDocument();
-  expect(screen.getByText("You have not picked any fights yet.")).toBeInTheDocument();
+  expect(screen.getByText("You have not picked any fights on this card yet.")).toBeInTheDocument();
   mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([PAST_ROW], none) });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again to load your other cards" }));
@@ -316,13 +347,13 @@ it.each([
   mockApi({ mine: { [NEXT]: reply }, summary: summaryOf([], none) });
   open();
   expect(await screen.findByText("We could not load your picks.")).toBeInTheDocument();
-  expect(screen.queryByText("You have not picked any fights yet.")).toBeNull();
+  expect(screen.queryByText("You have not picked any fights on this card yet.")).toBeNull();
   expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([], none) });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again to load your picks" }));
   });
-  expect(await screen.findByText("You have not picked any fights yet.")).toBeInTheDocument();
+  expect(await screen.findByText("You have not picked any fights on this card yet.")).toBeInTheDocument();
 });
 
 it("ignores a payload for another card", async () => {
@@ -334,7 +365,7 @@ it("ignores a payload for another card", async () => {
 it("refetches when the player's identity changes (sign-in claim)", async () => {
   mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([], none) });
   open();
-  await screen.findByText("You have not picked any fights yet.");
+  await screen.findByText("You have not picked any fights on this card yet.");
   expect(screen.queryByRole("heading", { name: "Past cards" })).toBeNull();
   mockApi({
     mine: { [NEXT]: withPicks({ [MAIN_ID]: pick() }, { handle: "SwiftStriker42" }) },
@@ -375,7 +406,7 @@ it("closes a pick the viewer's clock says has started", async () => {
   jest.setSystemTime(new Date("2026-12-05T16:00:00Z"));
   mockApi({ mine: { [NEXT]: nextCard() }, summary: summaryOf([], none) });
   open();
-  await screen.findByText("You have not picked any fights yet.");
+  await screen.findByText("You have not picked any fights on this card yet.");
   expect(screen.getAllByText("Picks closed").length).toBe(2);
   expect(screen.getAllByRole("link", { name: /^Pick the winner of/ })).toHaveLength(1);
 });
