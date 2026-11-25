@@ -1,7 +1,6 @@
 # backend/tests/test_billing_api.py
-"""Checkout/portal sessions: env-gate 503, auth 401, mocked Stripe 200s,
-plan->price selection, no double-subscribe, portal needs a customer."""
-from datetime import datetime, timedelta, timezone
+"""Billing: checkout-session is retired (410), portal needs a customer and a
+subscription row, Stripe errors stay inside the error contract."""
 
 import pytest
 import stripe
@@ -10,12 +9,32 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import billing as billing_api
 from app.config import settings
 from app.db import Base, get_db
 from app.main import app
 from app.models import Subscription
 
 ALLOWED_ORIGIN = "http://localhost:3000"
+
+
+RETIRED_BODY = {"code": "premium_retired",
+                "message": "FinalWhistle Premium has been retired. Everything on the site is free."}
+
+
+@pytest.fixture
+def stripe_untouched(monkeypatch):
+    """Arm the stripe module so any attribute access from a retired endpoint fails."""
+    class _Tripwire:
+        def __getattr__(self, name):
+            raise AssertionError(f"retired endpoint touched stripe.{name}")
+
+    monkeypatch.setattr(billing_api, "stripe", _Tripwire())
+
+
+def _assert_retired(r):
+    assert r.status_code == 410
+    assert r.json()["error"] == RETIRED_BODY
 
 
 @pytest.fixture
@@ -54,120 +73,19 @@ def _register(client, email="buyer@example.com"):
     return r.json()
 
 
-def test_checkout_503_when_billing_disabled(client):
+def test_checkout_session_is_retired_when_billing_on_and_signed_in(
+        client, billing_on, stripe_untouched):
     _register(client)
-    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
-    assert r.status_code == 503
-    assert r.json()["error"]["code"] == "billing_disabled"
+    _assert_retired(client.post("/api/billing/checkout-session", json={"plan": "monthly"}))
 
 
-def test_checkout_requires_auth(client, billing_on):
-    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
-    assert r.status_code == 401
-
-
-def test_checkout_creates_session_with_selected_price(client, billing_on, monkeypatch):
+def test_checkout_session_is_retired_when_billing_off(client, stripe_untouched):
     _register(client)
-    captured = {}
-
-    def fake_create(**kwargs):
-        captured.update(kwargs)
-        return type("S", (), {"url": "https://checkout.stripe.test/sess_123"})()
-
-    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
-    r = client.post("/api/billing/checkout-session", json={"plan": "annual"})
-    assert r.status_code == 200
-    assert r.json() == {"url": "https://checkout.stripe.test/sess_123"}
-    assert captured["line_items"] == [{"price": "price_a", "quantity": 1}]
-    assert captured["mode"] == "subscription"
-    assert captured["subscription_data"]["trial_period_days"] == 7
-    assert captured["client_reference_id"]  # binds the session to our user id
+    _assert_retired(client.post("/api/billing/checkout-session", json={"plan": "monthly"}))
 
 
-def test_checkout_carries_safe_competition_return_context(client, billing_on, monkeypatch):
-    _register(client)
-    captured = {}
-
-    def fake_create(**kwargs):
-        captured.update(kwargs)
-        return type("S", (), {"url": "https://checkout.stripe.test/context"})()
-
-    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
-    r = client.post("/api/billing/checkout-session", json={
-        "plan": "monthly",
-        "competition": "laliga",
-        "return_to": "/football/laliga/match/8",
-    })
-
-    assert r.status_code == 200
-    assert "competition=laliga" in captured["success_url"]
-    assert "returnTo=%2Ffootball%2Flaliga%2Fmatch%2F8" in captured["success_url"]
-    assert "competition=laliga" in captured["cancel_url"]
-
-
-@pytest.mark.parametrize("return_to", [
-    "https://evil.example/steal",
-    "/\\evil.example/steal",
-    "/%5C%5Cevil.example/steal",
-])
-def test_checkout_drops_an_unsafe_return_path(
-    client, billing_on, monkeypatch, return_to,
-):
-    _register(client)
-    captured = {}
-
-    def fake_create(**kwargs):
-        captured.update(kwargs)
-        return type("S", (), {"url": "https://checkout.stripe.test/context"})()
-
-    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
-    r = client.post("/api/billing/checkout-session", json={
-        "plan": "monthly",
-        "competition": "epl",
-        "return_to": return_to,
-    })
-
-    assert r.status_code == 200
-    assert "evil.example" not in captured["success_url"]
-
-
-def test_checkout_reuses_customer_and_skips_trial_for_lapsed_subscriber(
-        client, billing_on, monkeypatch):
-    """A lapsed (not currently premium) subscriber re-checking out must not get a
-    second free trial, and must reuse their existing Stripe customer rather than
-    creating a duplicate one. `had_subscription` is what marks them as returning
-    — the mere existence of the row no longer does, since setup-intent writes one
-    for first-timers too."""
-    user = _register(client)
-    db = client.sessionmaker()
-    db.add(Subscription(user_id=user["id"], status="canceled", plan="monthly",
-                        stripe_customer_id="cus_9", stripe_subscription_id="sub_old",
-                        had_subscription=True,
-                        current_period_end=datetime.now(timezone.utc) - timedelta(days=30)))
-    db.commit(); db.close()
-    captured = {}
-
-    def fake_create(**kwargs):
-        captured.update(kwargs)
-        return type("S", (), {"url": "https://checkout.stripe.test/sess_456"})()
-
-    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(fake_create))
-    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
-    assert r.status_code == 200
-    assert "trial_period_days" not in captured["subscription_data"]
-    assert captured["customer"] == "cus_9"
-    assert "customer_email" not in captured
-
-
-def test_checkout_409_when_already_premium(client, billing_on):
-    user = _register(client)
-    db = client.sessionmaker()
-    db.add(Subscription(user_id=user["id"], status="active", plan="monthly",
-                        current_period_end=datetime.now(timezone.utc) + timedelta(days=20)))
-    db.commit(); db.close()
-    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
-    assert r.status_code == 409
-    assert r.json()["error"]["code"] == "already_subscribed"
+def test_checkout_session_is_retired_when_signed_out(client, billing_on, stripe_untouched):
+    _assert_retired(client.post("/api/billing/checkout-session", json={"plan": "monthly"}))
 
 
 def test_portal_404_without_customer(client, billing_on):
@@ -175,21 +93,6 @@ def test_portal_404_without_customer(client, billing_on):
     r = client.post("/api/billing/portal-session")
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "no_subscription"
-
-
-def test_checkout_503_when_stripe_errors(client, billing_on, monkeypatch):
-    """A bad price ID, an expired key or a Stripe outage must stay inside this
-    app's {"error":{code,message}} contract — main.py has no catch-all handler,
-    so an unguarded StripeError would surface as a bare Starlette 500."""
-    _register(client)
-
-    def boom(**kwargs):
-        raise stripe.StripeError("boom")
-
-    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(boom))
-    r = client.post("/api/billing/checkout-session", json={"plan": "monthly"})
-    assert r.status_code == 503
-    assert r.json()["error"]["code"] == "billing_unavailable"
 
 
 def test_portal_503_when_stripe_errors(client, billing_on, monkeypatch):
@@ -217,6 +120,7 @@ def test_portal_returns_url(client, billing_on, monkeypatch):
 
     def fake_create(**kwargs):
         assert kwargs["customer"] == "cus_9"
+        assert kwargs["return_url"] == f"{settings.public_base_url}/"
         return type("S", (), {"url": "https://portal.stripe.test/p_1"})()
 
     monkeypatch.setattr(stripe.billing_portal.Session, "create", staticmethod(fake_create))

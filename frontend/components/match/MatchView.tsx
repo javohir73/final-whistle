@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { GoalMarkets } from "@/components/GoalMarkets";
 import { MatchLineups } from "@/components/MatchLineups";
-import { PremiumMarkets } from "@/components/PremiumMarkets";
+import { MatchMarkets } from "@/components/MatchMarkets";
 import { useMatchLive } from "@/components/match/MatchLiveProvider";
 import { MatchHero, type HeroTeam } from "@/components/match/MatchHero";
 import { MatchPick } from "@/components/match/MatchPick";
@@ -155,7 +155,7 @@ export function MatchView(props: MatchViewProps) {
           </div>
         )}
         {showDetail && (
-          <PremiumMarkets matchId={matchId} home={home} away={away} competition={competition} returnTo={footballMatchHref(competition, matchId)} />
+          <MatchMarkets matchId={matchId} home={home} away={away} />
         )}
         {stand}
       </>

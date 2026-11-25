@@ -76,7 +76,7 @@ export function AccountMenu({
         <MenuItem href={links.picks}>{links.picksLabel}</MenuItem>
         {recordHref && <MenuItem href={recordHref}>Model record</MenuItem>}
         <MenuSeparator />
-        {BILLING_ENABLED && user.premium && (
+        {BILLING_ENABLED && (user.premium || (!!user.premium_status && user.premium_status !== "canceled")) && (
           <MenuItem keepOpen onSelect={() => void onManageSubscription()}>
             Manage subscription
           </MenuItem>

@@ -97,9 +97,15 @@ describe("sitemap", () => {
   it("lists the cross-competition surfaces", async () => {
     global.fetch = mockApi({}) as unknown as typeof fetch;
     const urls = (await sitemap()).map((e) => e.url);
-    for (const p of ["", "/leaderboard", "/play", "/premium", "/about", "/methodology"]) {
+    for (const p of ["", "/leaderboard", "/play", "/about", "/methodology"]) {
       expect(urls).toContain(`${SITE}${p}`);
     }
+  });
+
+  it("does not list /premium: the page is retired and redirects home", async () => {
+    global.fetch = mockApi({}) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls).not.toContain(`${SITE}/premium`);
   });
 
   it("lists the /football hub (it used to 404)", async () => {

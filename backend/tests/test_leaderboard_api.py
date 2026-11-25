@@ -274,13 +274,11 @@ def test_join_assigns_rank_immediately(env):
     assert row["total_points"] == 3
 
 
-def test_leaderboard_marks_premium_supporters(env):
-    """A public bracket owned by a subscribed (active) user gets premium=True;
-    everyone else on the board defaults to False."""
+def test_leaderboard_rows_have_no_premium_flag(env):
+    """Premium is retired: even a subscribed player's row carries no badge key."""
     client, SessionF = env
     db = SessionF()
     _add_player(db, "leader@example.com", "Leader")
-    _add_player(db, "free@example.com", "Free Player")
     db.commit()
     recompute_scores(db)
 
@@ -289,6 +287,6 @@ def test_leaderboard_marks_premium_supporters(env):
     db.commit()
     db.close()
 
-    rows = {r["display_name"]: r for r in client.get("/api/leaderboard").json()}
-    assert rows["Leader"]["premium"] is True
-    assert rows["Free Player"]["premium"] is False
+    (row,) = client.get("/api/leaderboard").json()
+    assert row["display_name"] == "Leader"
+    assert "premium" not in row

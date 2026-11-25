@@ -1,3 +1,5 @@
+> Retired 2026-11-25: Premium was removed and everything is free. Kept for history.
+
 # FinalWhistle Premium — fan subscription tier
 
 Status: approved design (2026-08-11)
