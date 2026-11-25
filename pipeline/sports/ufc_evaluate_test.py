@@ -157,3 +157,37 @@ def test_cli_writes_the_report(tmp_path):
     assert main(["--db", url, "--out", str(out)]) == 0
     text = out.read_text()
     assert out.exists() and url not in text and str(tmp_path) not in text
+
+
+def test_swap_check_detects_a_feature_that_is_not_antisymmetric(db_session, monkeypatch):
+    import ml.sports.ufc.features as features
+
+    _synthetic(db_session)
+    real = features._features
+
+    def lopsided(b, fa, fb):
+        x = real(b, fa, fb)
+        x["elo_diff"] += 30.0  # a bonus for whoever is listed first, so listing order leaks in
+        return x
+
+    monkeypatch.setattr(features, "_features", lopsided)
+    payload = run(db_session, first_holdout=2022, tune_years=(2017, 2019), validation_year=2020)
+    assert payload["swap"]["max_abs_diff"] > 0.01
+
+
+def test_swap_history_swaps_sides_winner_and_stats():
+    from pipeline.sports.ufc_evaluate import swap_history
+
+    h = make_history([("2020-01-01", "A", "B", "a", "decision", {"stats_a": (10, 1), "stats_b": (5, 0)}),
+                      ("2020-02-01", "A", "C", None, "draw")])
+    s = swap_history(h)
+    b0, s0 = h.bouts[0], s.bouts[0]
+    assert (s0.fighter_a, s0.fighter_b, s0.winner) == (b0.fighter_b, b0.fighter_a, "b")
+    assert (s0.stats_a, s0.stats_b) == (b0.stats_b, b0.stats_a)
+    assert s.bouts[1].winner is None and s.fighters == h.fighters
+
+
+@pytest.mark.parametrize("kwargs", [{"tune_years": (2018, 2022)}, {"validation_year": 2022}])
+def test_run_refuses_settings_that_reach_the_held_out_years(db_session, kwargs):
+    with pytest.raises(ValueError, match="held-out"):
+        run(db_session, first_holdout=2022, **kwargs)

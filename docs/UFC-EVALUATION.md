@@ -1,6 +1,6 @@
 # UFC prediction evaluation
 
-Generated 2026-11-25 from commit 7af547f. Aggregate numbers only.
+Generated 2026-11-25 from commit 96aba0f. Aggregate numbers only.
 
 ## Summary
 
@@ -12,7 +12,7 @@ Generated 2026-11-25 from commit 7af547f. Aggregate numbers only.
 
 Every number below is walk-forward: a fight is predicted from information that existed before it, and nothing from the held-out years is used to choose a setting. Elo (k, first year of history, idle decay) is tuned by log loss on fights from 2018 to 2021. The form model's training window (3, 5 or 8 years) and regularisation strength (0.1, 1 or 10) are chosen by log loss on 2021, trained on the years before it. For each held-out year T from 2022 to 2026, the form model is fitted on the chosen window of years ending 31 December of T-1 and predicts every fight in T. Elo predictions use only fights that started earlier. The method pick for year T comes from the finishing methods of the ten years before T, by weight class and scheduled rounds. Only finished fights with a winner are scored or used as training labels; draws and no contests stay in the rating history but are never scored. 2026 is a partial year: it covers fights up to 2026-11-21.
 
-The fighter listed first by the feed won more often than half of the time, so the models must not see listing order. Every form-model input changes sign when the two fighters swap, and the model has no intercept. The swap check below refits and re-scores the form model with every fight's two fighters swapped.
+The fighter listed first by the feed won more often than half of the time, so the models must not see listing order. Every form-model input changes sign when the two fighters swap, and the model has no intercept. The swap check below rebuilds the whole history with every fight's two fighters swapped, recomputes the Elo ratings and features from it, refits the form model and re-scores it.
 
 The market is the de-vigged moneyline from `ufc_odds_snapshots`: per source the latest valid price taken at or before the scheduled start, averaged over sources. Sources whose name contains "Live" are left out because their prices are in-play. For backfilled history the snapshot time is the bout's scheduled time, so this approximates the closing line. Prices exist almost only from mid-2019.
 
@@ -27,6 +27,7 @@ The market is the de-vigged moneyline from `ufc_odds_snapshots`: per source the 
 
 - Elo (ufc-elo-v0.1): k 100, history from 2010, idle decay 0.2 per year.
 - Form (ufc-form-v0.2): training window 3 years, regularisation C 0.1.
+- The committed parameter file was fitted on the 3 years from 2023-11-25 to 2026-11-25 (1,721 scored bouts). That production fit has no held-out score of its own; the results below come from the per-year walk-forward fits.
 
 ## Results by model
 
@@ -56,7 +57,7 @@ The market is the de-vigged moneyline from `ufc_odds_snapshots`: per source the 
 
 ### Baselines
 
-The coin flip says 50% every time; its accuracy is shown as 50.0% by convention. "Higher rating at 50/50" says 50% but is scored on whether the fighter with the higher pre-fight Elo rating won (equal ratings count as wrong). Both have Brier 0.25 and log loss 0.6931.
+The coin flip says 50% every time; its accuracy is shown as 50.0% by convention. "Higher rating at 50/50" says 50% but is scored on whether the fighter with the higher pre-fight Elo rating won (equal ratings count as wrong), so its accuracy equals Elo's by construction. Both have Brier 0.25 and log loss 0.6931.
 
 **coin flip**
 
@@ -82,7 +83,7 @@ The coin flip says 50% every time; its accuracy is shown as 50.0% by convention.
 
 ### Swap check
 
-With every fight's fighters swapped (inputs negated, labels flipped, model refitted), the form model's pooled result is accuracy 62.2%, Brier 0.2299, log loss 0.6514 on 2,800 fights. The largest difference between any fight's probability and one minus its swapped probability is 7.75e-13.
+The history was rebuilt with every fight's fighters, winner and per-side stats swapped, and the ratings, features and form model were recomputed from it. The form model's pooled result is accuracy 62.2%, Brier 0.2299, log loss 0.6514 on 2,800 fights. The largest difference between any fight's probability and one minus its swapped probability is 9.24e-14.
 
 ## Against the market
 

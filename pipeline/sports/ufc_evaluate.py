@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import UfcBout, UfcOddsSnapshot
 from ml.sports.ufc.elo import EloParams, elo_probs
-from ml.sports.ufc.features import Snapshot, flip, snapshots
+from ml.sports.ufc.features import Snapshot, snapshots
 from ml.sports.ufc.history import BoutRecord, History
 from ml.sports.ufc.methods import METHODS, method_pick, method_table
 from ml.sports.ufc.model import FORM_VERSION, FormParams, fit_form, predict_form
@@ -203,12 +203,22 @@ def tune_elo(history: History, tune_years: tuple[int, int]) -> EloParams:
 
 def _fit(
     bouts: Sequence[BoutRecord], snaps: Mapping[int, Snapshot], c: float, first: date, last: date,
-    *, swapped: bool = False,
 ) -> FormParams:
-    sign = -1.0 if swapped else 1.0
-    xs = [{k: sign * v for k, v in snaps[b.bout_id].x.items()} for b in bouts]
-    ys = [1 - _won(b) if swapped else _won(b) for b in bouts]
-    return fit_form(xs, ys, c, train_from=first, train_to=last, fitted_on=last)
+    xs = [snaps[b.bout_id].x for b in bouts]
+    return fit_form(xs, [_won(b) for b in bouts], c, train_from=first, train_to=last, fitted_on=last)
+
+
+def swap_history(history: History) -> History:
+    """The same history with every bout's fighters a and b exchanged: ids, winner
+    and per-side stats all swap. Features and Elo must be recomputed from it."""
+    swapped = tuple(
+        replace(
+            b, fighter_a=b.fighter_b, fighter_b=b.fighter_a,
+            winner={"a": "b", "b": "a"}.get(b.winner), stats_a=b.stats_b, stats_b=b.stats_a,
+        )
+        for b in history.bouts
+    )
+    return History(bouts=swapped, fighters=history.fighters)
 
 
 def _window(scored: Sequence[BoutRecord], first_year: int, last_year: int) -> list[BoutRecord]:
@@ -268,11 +278,18 @@ def run(
     params_path: Path | None = None,
     now: datetime | None = None,
 ) -> dict:
+    if tune_years[1] >= first_holdout or validation_year >= first_holdout:
+        raise ValueError(
+            f"tuning years {tune_years} and validation year {validation_year} must end before "
+            f"the first held-out year {first_holdout}"
+        )
     now = now or datetime.now(timezone.utc)
     history = load_history(db)
     scored = _scored(history)
     elo = tune_elo(history, tune_years)
     snaps = snapshots(history, elo)
+    swapped_scored = {b.bout_id: b for b in _scored(swap_history(history))}
+    snaps_sw = snapshots(swap_history(history), elo)
     window, c = choose_form_settings(history, snaps, validation_year)
     last_year = max(b.when.year for b in scored)
     years = list(range(first_holdout, last_year + 1))
@@ -300,7 +317,7 @@ def run(
         held.append(year)
         first, last = date(year - window, 1, 1), date(year - 1, 12, 31)
         model = _fit(train, snaps, c, first, last)
-        model_sw = _fit(train, snaps, c, first, last, swapped=True)
+        model_sw = _fit([swapped_scored[b.bout_id] for b in train], snaps_sw, c, first, last)
         table = method_table(history.bouts, datetime(year - 10, 1, 1, tzinfo=timezone.utc),
                              datetime(year, 1, 1, tzinfo=timezone.utc))
         train_sizes[year] = len(train)
@@ -309,8 +326,9 @@ def run(
             p = {elo_v: snap.p_elo, form_v: predict_form(model, snap.x)}
             for m in names:
                 pairs[m].setdefault(year, []).append((p[m], won))
-            p_sw = predict_form(model_sw, flip(snap).x)
-            swapped_pairs.setdefault(year, []).append((p_sw, 1 - won))
+            b_sw = swapped_scored[b.bout_id]
+            p_sw = predict_form(model_sw, snaps_sw[b.bout_id].x)
+            swapped_pairs.setdefault(year, []).append((p_sw, _won(b_sw)))
             max_diff = max(max_diff, abs(p[form_v] - (1.0 - p_sw)))
             base_pairs.setdefault(year, []).append((0.5, won))
             higher_a = snap.a.rating > snap.b.rating
@@ -479,7 +497,8 @@ def render_report(payload: dict) -> str:
         "",
         "The fighter listed first by the feed won more often than half of the time, so the models must not see "
         "listing order. Every form-model input changes sign when the two fighters swap, and the model has no "
-        "intercept. The swap check below refits and re-scores the form model with every fight's two fighters swapped.",
+        "intercept. The swap check below rebuilds the whole history with every fight's two fighters swapped, "
+        "recomputes the Elo ratings and features from it, refits the form model and re-scores it.",
         "",
         "The market is the de-vigged moneyline from `ufc_odds_snapshots`: per source the latest valid price taken "
         "at or before the scheduled start, averaged over sources. Sources whose name contains \"Live\" "
@@ -498,6 +517,12 @@ def render_report(payload: dict) -> str:
         "",
         f"- Elo ({elo_v}): k {ep['k']:g}, history from {ep['history_from']}, idle decay {ep['decay']:g} per year.",
         f"- Form ({form_v}): training window {fs['window_years']} years, regularisation C {fs['c']:g}.",
+        *(
+            [f"- The committed parameter file was fitted on the {fs['window_years']} years from {p['fitted']['train_from']} "
+             f"to {p['fitted']['train_to']} ({p['fitted']['n_bouts']:,} scored bouts). That production fit has no "
+             "held-out score of its own; the results below come from the per-year walk-forward fits."]
+            if "fitted" in p else []
+        ),
         "",
         "## Results by model",
         "",
@@ -512,14 +537,15 @@ def render_report(payload: dict) -> str:
     out += ["### Baselines", "",
             "The coin flip says 50% every time; its accuracy is shown as 50.0% by convention. "
             "\"Higher rating at 50/50\" says 50% but is scored on whether the fighter with the higher "
-            "pre-fight Elo rating won (equal ratings count as wrong). Both have Brier 0.25 and log loss 0.6931.", ""]
+            "pre-fight Elo rating won (equal ratings count as wrong), so its accuracy equals Elo's by construction. Both have Brier 0.25 and "
+            "log loss 0.6931.", ""]
     for label, b in p["baselines"].items():
         out += [f"**{label}**", ""] + _table(b["by_year"], b["pooled"])
     sw = p["swap"]["pooled"]
     out += [
         "### Swap check", "",
-        f"With every fight's fighters swapped (inputs negated, labels flipped, model refitted), the form model's "
-        f"pooled result is accuracy {_pct(sw['accuracy'])}, Brier {sw['brier']:.4f}, log loss {sw['log_loss']:.4f} "
+        f"The history was rebuilt with every fight's fighters, winner and per-side stats swapped, and the ratings, "
+        f"features and form model were recomputed from it. The form model's pooled result is accuracy {_pct(sw['accuracy'])}, Brier {sw['brier']:.4f}, log loss {sw['log_loss']:.4f} "
         f"on {sw['n']:,} fights. The largest difference between any fight's probability and one minus its "
         f"swapped probability is {p['swap']['max_abs_diff']:.2e}.", "",
         "## Against the market", "",
