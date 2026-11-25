@@ -27,7 +27,7 @@ export const isFighterSlug = (s: string): boolean => FIGHTER_SLUG.test(s);
 export const isBoutId = (s: string): boolean => BOUT_ID.test(s) && Number(s) <= INT32_MAX;
 
 export const ABOUT_NOTE =
-  "Upcoming UFC cards, with results and fighter records to follow, and times in your local time. Predictions and a picks game are coming to these pages.";
+  "Upcoming UFC cards, with results and fighter records to follow, and times in your local time. Pick the winner of each fight, and how they win.";
 export const NOT_AFFILIATED = "FinalWhistle is not affiliated with the UFC.";
 
 const num = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n);

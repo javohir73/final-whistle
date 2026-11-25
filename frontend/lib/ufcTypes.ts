@@ -30,6 +30,19 @@ export interface UfcResult {
   end_clock: string | null;
 }
 
+export type UfcPickMethod = "ko_tko" | "submission" | "decision";
+
+/** The model's call on a fight. Absent (null) is normal, never an error. */
+export interface UfcModelCall {
+  model_version: string;
+  winner: "a" | "b" | null;
+  p_a: number;
+  p_b: number;
+  method: UfcPickMethod | null;
+  method_probs: Partial<Record<UfcPickMethod, number>> | null;
+  reasons: string[];
+}
+
 export interface UfcBoutSummary {
   id: number;
   card_order: number | null;
@@ -41,6 +54,9 @@ export interface UfcBoutSummary {
   fighter_a: UfcFighterMini;
   fighter_b: UfcFighterMini;
   result: UfcResult | null;
+  /** The model's public call; null (the usual case today) when there is none to show.
+   *  Optional so an older API still type-checks. */
+  model?: UfcModelCall | null;
 }
 
 export interface UfcSegment {
@@ -122,4 +138,83 @@ export interface UfcFighterDetail {
   stance: string | null;
   record: UfcRecord | null;
   bouts: UfcFighterBout[];
+}
+
+// ---- Picks game (`/api/ufc/picks/...`) ----
+
+export interface UfcPick {
+  winner: "a" | "b";
+  method: UfcPickMethod | null;
+  created_at: string;
+  state: "pending" | "graded" | "void";
+  points: number | null;
+  winner_correct: boolean | null;
+  method_correct: boolean | null;
+}
+
+export interface UfcMyBout {
+  bout_id: number;
+  status: UfcBoutStatus;
+  fighter_a: string;
+  fighter_b: string;
+  locks_at: string | null;
+  picks_open: boolean;
+  pick: UfcPick | null;
+  model: UfcModelCall | null;
+}
+
+export interface UfcChangedPick {
+  bout_id: number;
+  fighter_a: string;
+  fighter_b: string;
+  pick: UfcPick;
+  replaced_by_id: number | null;
+}
+
+export interface UfcPicksTotals {
+  picked: number;
+  graded: number;
+  points: number;
+  winner_method: number;
+}
+
+export interface UfcMyPicksResponse {
+  event: { slug: string; name: string; first_bout_utc: string | null };
+  handle: string | null;
+  bouts: UfcMyBout[];
+  changed_picks: UfcChangedPick[];
+  totals: UfcPicksTotals;
+  disclaimer: string;
+}
+
+export interface UfcPickSubmitResponse {
+  ok: true;
+  handle: string;
+  bout_id: number;
+  pick: UfcPick;
+  model: UfcModelCall | null;
+  disclaimer: string;
+}
+
+export interface UfcPicksSummaryResponse {
+  handle: string | null;
+  cards: (UfcPicksTotals & { slug: string; name: string; first_bout_utc: string | null })[];
+  totals: UfcPicksTotals;
+}
+
+export interface UfcLeaderboardEntry {
+  rank: number;
+  handle: string;
+  points: number;
+  winner_method: number;
+  graded: number;
+  is_model: boolean;
+}
+
+export interface UfcLeaderboardResponse {
+  scope: "card" | "year";
+  event: { slug: string; name: string; first_bout_utc: string | null } | null;
+  year: number | null;
+  participant_count: number;
+  entries: UfcLeaderboardEntry[];
 }

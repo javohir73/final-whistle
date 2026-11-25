@@ -58,8 +58,8 @@ export default async function PlayPage({ searchParams }: PlayPageProps) {
   const links = competitionLinks(competition);
 
   if (competition === "nrl") redirect(links.picks);
-  // UFC has no picks game (a crafted ?competition=ufc, or an old cookie).
-  if (competition === "ufc") redirect(links.home);
+  // UFC's picks live under /ufc (a ?competition=ufc link, or an old cookie).
+  if (competition === "ufc") redirect("/ufc/picks");
 
   if (competition === "wc26") {
     const [tournament, odds] = await Promise.all([

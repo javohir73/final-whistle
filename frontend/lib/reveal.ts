@@ -35,7 +35,7 @@ export interface RevealDecision {
 }
 
 /** Which pick game a competition's fixtures belong to, or null for none. */
-export type PickGame = "league_tips" | "nrl_tips" | "wc_outcome";
+export type PickGame = "league_tips" | "nrl_tips" | "wc_outcome" | "ufc_picks";
 
 /** One source of truth with /play and the match page (ACTIVE_LEAGUES): the
  *  scored scoreline game for club leagues, NRL winner tips, the World Cup's
@@ -45,6 +45,8 @@ export function pickGameFor(competition: CompetitionId | string): PickGame | nul
   if (ACTIVE_LEAGUES.includes(competition)) return "league_tips";
   if (competition === "nrl") return "nrl_tips";
   if (competition === "wc26") return "wc_outcome";
+  // UFC: winner-and-method picks; a generic public page hides the call by default.
+  if (competition === "ufc") return "ufc_picks";
   return null;
 }
 

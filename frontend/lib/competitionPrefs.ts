@@ -47,10 +47,9 @@ export function competitionForCountry(country: string | null | undefined): Compe
   return code === "AU" || code === "NZ" ? "nrl" : DEFAULT_COMPETITION;
 }
 
-/** Whether a competition may be written to the fw_comp cookie. UFC has no
- *  picks game or leaderboard yet, and "/", "/play" and "/leaderboard" open on
- *  the remembered competition, so remembering UFC would strand a visitor on
- *  pages that redirect them away. */
+/** Whether a competition may be written to the fw_comp cookie. UFC is never
+ *  the remembered default: "/" opens on the remembered competition and has no
+ *  UFC home, and "/play" and "/leaderboard" would only redirect into /ufc. */
 export function canRemember(id: CompetitionId): boolean {
   return COMPETITIONS[id].sport !== "ufc";
 }

@@ -78,8 +78,8 @@ it("is titled as the leaderboard, competition-neutral, not a bracket board", () 
   }
 });
 
-it("sends UFC (a crafted query or an old cookie) to the UFC section, which has no leaderboard", async () => {
-  await expect(render({ competition: "ufc" })).rejects.toThrow("NEXT_REDIRECT /ufc");
+it("sends UFC (a query or an old cookie) to the UFC leaderboard", async () => {
+  await expect(render({ competition: "ufc" })).rejects.toThrow("NEXT_REDIRECT /ufc/leaderboard");
   mockResolved.mockResolvedValue("ufc");
-  await expect(render()).rejects.toThrow("NEXT_REDIRECT /ufc");
+  await expect(render()).rejects.toThrow("NEXT_REDIRECT /ufc/leaderboard");
 });

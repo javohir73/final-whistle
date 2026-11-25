@@ -178,3 +178,14 @@ it("hides placeholder measurements", () => {
   expect(screen.queryByText("--")).toBeNull();
   expect(screen.queryByText("0″")).toBeNull();
 });
+
+it("caps the facts list so labels and values read as pairs", () => {
+  const { container } = render(<UfcFighterView fighter={FIGHTER} />);
+  expect(container.querySelector("dl")?.className).toMatch(/max-w-\[/);
+});
+
+it("styles each row's date as a link, with its accessible name unchanged", () => {
+  render(<UfcFighterView fighter={FIGHTER} />);
+  const link = screen.getByRole("link", { name: "Sun 7 Feb 2027 fight details" });
+  expect(link.className).toContain("text-brand");
+});

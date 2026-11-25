@@ -116,3 +116,9 @@ describe("canRevealModelPublicly", () => {
     expect(canRevealModelPublicly("ucl", "scheduled", FUTURE, NOW)).toBe(true);
   });
 });
+
+it("gives UFC its own pick game and hides open UFC fights from public surfaces", () => {
+  expect(pickGameFor("ufc")).toBe("ufc_picks");
+  expect(canRevealModelPublicly("ufc", "scheduled", "2099-01-01T00:00:00Z")).toBe(false);
+  expect(canRevealModelPublicly("ufc", "finished", "2020-01-01T00:00:00Z")).toBe(true);
+});

@@ -209,9 +209,9 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
       { from: 5, to: 8, label: "Finals (5–8)", tone: "europa" },
     ],
   },
-  // UFC is read-only in this slice: event cards, fights and fighters, with no
-  // picks game, leaderboard or standings, so hasTips is false and the
-  // registry's "Rankings" term is vocabulary only.
+  // UFC: event cards, fights and fighters, plus a picks game (winner and
+  // method) with its own My picks and Leaderboard pages. There are no
+  // standings, so the registry's "Rankings" term is vocabulary only.
   ufc: {
     id: "ufc",
     sport: "ufc",
@@ -223,7 +223,7 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
     format: "cards",
     hasBracket: false,
     hasGroups: false,
-    hasTips: false,
+    hasTips: true,
     enabled: true,
     archived: false,
     recordPath: null,
@@ -320,8 +320,7 @@ export function tableTabLabel(id: CompetitionId): "Table" | "Ladder" | "Groups" 
 export function competitionLinks(id: CompetitionId): CompetitionLinks {
   const c = COMPETITIONS[id];
   const base = c.basePath;
-  // UFC has no picks game or leaderboard yet, so "My picks" and Leaderboard
-  // point at the football hubs (the account menu reads `picks`), and both
+  // UFC has its own picks and leaderboard pages; it has no table, so both
   // list slots are the events page.
   if (c.sport === "ufc") {
     return {
@@ -329,9 +328,9 @@ export function competitionLinks(id: CompetitionId): CompetitionLinks {
       fixtures: `${base}/events`,
       table: `${base}/events`,
       tableLabel: "Events",
-      picks: "/play",
+      picks: "/ufc/picks",
       picksLabel: "My picks",
-      leaderboard: "/leaderboard",
+      leaderboard: "/ufc/leaderboard",
       bracket: null,
     };
   }
@@ -356,7 +355,7 @@ function buildNavTabs(id: CompetitionId): readonly NavTab[] {
   const nrl = c.sport === "nrl";
   const links = competitionLinks(id);
   // UFC reuses the "matches" and "table" tab ids (NavIcon keys on them) for
-  // its Card and Events tabs, and has no picks or leaderboard tabs.
+  // its Card and Events tabs, then the shared "mypicks" and "leaderboard" ids.
   if (c.sport === "ufc") {
     return [
       {
@@ -367,6 +366,8 @@ function buildNavTabs(id: CompetitionId): readonly NavTab[] {
         activePrefixes: [`${base}/event`, `${base}/fight`, `${base}/fighter`],
       },
       { id: "table", label: "Events", href: links.table, activePrefixes: [links.table] },
+      { id: "mypicks", label: links.picksLabel, href: links.picks, activePrefixes: [links.picks] },
+      { id: "leaderboard", label: "Leaderboard", href: links.leaderboard, activePrefixes: [links.leaderboard] },
     ];
   }
   const tabs: NavTab[] = [

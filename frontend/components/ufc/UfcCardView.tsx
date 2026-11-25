@@ -4,6 +4,7 @@
  *  card, prelims) with a band and a row per fight, and a rail with the other
  *  upcoming cards. */
 import { Fragment } from "react";
+import { useClock } from "@/components/match/clock";
 import {
   Card,
   CardHead,
@@ -15,11 +16,14 @@ import {
   Rail,
   TextLink,
 } from "@/components/ui";
-import { kickoffDate } from "@/lib/datetime";
+import { dayKey, kickoffDate } from "@/lib/datetime";
 import { ABOUT_NOTE, eventHref, eventStatusNote, mainEventId, segmentStartText, segmentTitle } from "@/lib/ufcDisplay";
 import type { UfcEventDetail, UfcEventSummary } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
+import { BoutPickStatus, hasPickSlot } from "./BoutPickStatus";
 import { BoutRow } from "./BoutRow";
+import { UfcPicksProvider } from "./UfcPicksProvider";
+import { UfcPicksRailCard } from "./UfcPicksRailCard";
 
 function safe(fn: () => string): string | null {
   try {
@@ -29,10 +33,38 @@ function safe(fn: () => string): string | null {
   }
 }
 
+/** "Sat 12 Dec", or "Sat 12 – Sun 13 Dec" when the card's first fight and its main card fall on
+ *  different local days. */
+function eyebrowDay(event: UfcEventDetail, tz: string): string | null {
+  const first = event.first_bout_utc;
+  if (!first) return null;
+  const start = safe(() => kickoffDate(first, tz));
+  if (!start) return null;
+  const mainIso = (event.segments ?? []).find((s) => s.key === "main")?.scheduled_utc ?? null;
+  if (!mainIso) return start;
+  const range = safe(() => {
+    if (dayKey(mainIso, tz) === dayKey(first, tz)) return start;
+    const end = kickoffDate(mainIso, tz);
+    const [, , m1] = start.split(" ");
+    const [, , m2] = end.split(" ");
+    return m1 === m2 ? `${start.replace(` ${m1}`, "")} – ${end}` : `${start} – ${end}`;
+  });
+  return range ?? start;
+}
+
 export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEventSummary[] }) {
+  return (
+    <UfcPicksProvider eventSlug={event.slug}>
+      <UfcCard event={event} upcoming={upcoming} />
+    </UfcPicksProvider>
+  );
+}
+
+function UfcCard({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEventSummary[] }) {
   const { tz } = useTimezone();
+  const now = useClock();
   const mainId = mainEventId(event);
-  const date = event.first_bout_utc ? safe(() => kickoffDate(event.first_bout_utc!, tz)) : null;
+  const date = eyebrowDay(event, tz);
   const others = (upcoming ?? []).filter((e) => e.slug !== event.slug).slice(0, 3);
   const segments = event.segments ?? [];
 
@@ -65,7 +97,13 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
                   </DayBand>
                   {seg.bouts.map((b) => (
                     <Fragment key={b.id}>
-                      <BoutRow bout={b} tz={tz} isMainEvent={b.id === mainId} showTime={false} />
+                      <BoutRow
+                        bout={b}
+                        tz={tz}
+                        isMainEvent={b.id === mainId}
+                        showTime={false}
+                        right={hasPickSlot(b) ? <BoutPickStatus bout={b} now={now} /> : undefined}
+                      />
                     </Fragment>
                   ))}
                 </Card>
@@ -73,7 +111,8 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
             })
           )}
         </Main>
-        <Rail aria-label="Other cards">
+        <Rail aria-label="About this card">
+          <UfcPicksRailCard event={event} />
           {others.length > 0 && (
             <Card pad>
               <CardHead title="Upcoming cards" />
