@@ -22,7 +22,7 @@ from app.api import (
     markets, market_record, match_picks, matches, model_record, movers, nrl_intel, nrl_live, nrl_players, nrl_tips,
     premium_markets,
     nrl_user_tips, predictions, prob_history, retention, sports, teams, tournaments,
-    research, ufc,
+    research, ufc, ufc_picks,
 )
 from app.config import settings
 from app.cache import cache
@@ -49,6 +49,9 @@ if settings.sentry_dsn:
 # response keyed on one device's own state). NOT /leaderboard or /share,
 # which stay on the public 60s-cache path (no device_id in either).
 _LEAGUE_TIPS_NO_STORE_RE = re.compile(r"^/api/leagues/[^/]+/tips/(submit|mine|summary)$")
+# UFC picks: the same per-player rule. NOT /api/ufc/picks/leaderboard, which
+# stays on the public 60s-cache path.
+_UFC_PICKS_NO_STORE_RE = re.compile(r"^/api/ufc/picks/(submit|mine|summary)$")
 
 app = FastAPI(title=settings.app_name)
 
@@ -102,6 +105,7 @@ async def cache_control(request: Request, call_next):
         or path.startswith("/api/nrl/tips/mine")
         or path.startswith("/api/nrl/tips/summary")
         or _LEAGUE_TIPS_NO_STORE_RE.match(path)
+        or _UFC_PICKS_NO_STORE_RE.match(path)
     ):
         response.headers["Cache-Control"] = "no-store"
     elif path.startswith("/api/knockout/bracket") or path == "/api/matches/upcoming" or (
@@ -319,6 +323,7 @@ app.include_router(nrl_intel.router)
 app.include_router(nrl_tips.router)
 app.include_router(nrl_user_tips.router)
 app.include_router(ufc.router)
+app.include_router(ufc_picks.router)
 app.include_router(league_score_predictions.router)
 app.include_router(movers.router)
 app.include_router(intel.router)

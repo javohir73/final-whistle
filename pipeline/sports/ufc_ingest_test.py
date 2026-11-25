@@ -494,3 +494,159 @@ def test_new_opponent_on_a_feed_cancelled_bout_is_a_new_revision(db_session):
     old, new = db_session.query(UfcBout).order_by(UfcBout.revision).all()
     assert (old.status, old.method_detail, new.status, new.revision) == ("cancelled", "cancelled by feed", "scheduled", 1)
     assert p.outcome_calls == []
+
+
+def test_a_passed_start_locks_the_bout_and_stops_time_moves(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1))), now=T0 + timedelta(minutes=5))
+    row = current_bout(db_session, "espn", "b1")
+    assert (_utc(row.locked_at), _utc(row.scheduled_utc), row.status) == (T0, T0, "scheduled")
+
+
+def test_the_lock_applies_at_exactly_the_start(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1))), now=T0)
+    row = current_bout(db_session, "espn", "b1")
+    assert (_utc(row.locked_at), _utc(row.scheduled_utc)) == (T0, T0)
+
+
+def test_a_time_moved_before_the_start_still_moves(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1))), now=T0 - timedelta(hours=1))
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.locked_at, _utc(row.scheduled_utc)) == (None, T0 + timedelta(hours=1))
+    upsert_event(db_session, "espn", _card(_bout(when=T0 - timedelta(hours=3))), now=T0 - timedelta(hours=4))
+    assert _utc(current_bout(db_session, "espn", "b1").scheduled_utc) == T0 - timedelta(hours=3)
+
+
+def test_a_naive_stored_start_is_still_compared_in_utc(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    row.scheduled_utc = T0.replace(tzinfo=None)  # as SQLite hands it back
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=2))), now=T0 + timedelta(seconds=1))
+    assert (_utc(row.locked_at), _utc(row.scheduled_utc)) == (T0, T0)
+
+
+def test_a_passed_start_with_a_changed_opponent_still_makes_a_new_revision(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(b=("3", None), when=T0)), now=T0 + timedelta(minutes=5), summary=summary)
+    assert summary.bouts_changed == 1
+
+
+def test_a_bout_swept_after_its_start_comes_back_scheduled_and_locked_when_it_reappears_later(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=10))
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("cancelled", T0, T0)
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(days=7)),
+                                           _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=20), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("scheduled", T0, T0)
+    assert summary.bouts_reinstated == 1
+
+
+def test_a_bout_swept_before_its_start_can_still_return_with_a_new_time(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=2))
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    assert current_bout(db_session, "espn", "b1").locked_at is None
+    later = T0 + timedelta(days=7)
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=later), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(hours=1), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, row.locked_at, _utc(row.scheduled_utc)) == ("scheduled", None, later)
+    assert summary.bouts_reinstated == 1
+
+
+def test_a_bout_swept_before_its_start_comes_back_scheduled_and_locked_if_it_returns_after_that_start(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=2))
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(hours=1))
+    assert current_bout(db_session, "espn", "b1").locked_at is None
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(days=7)),
+                                           _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=10), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("scheduled", T0, T0)
+    assert summary.bouts_reinstated == 1
+
+
+def test_a_naive_stored_start_is_stamped_when_the_sweep_cancels_after_it(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    row.scheduled_utc = T0.replace(tzinfo=None)  # as SQLite hands it back
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=1))
+    assert (row.status, _utc(row.locked_at)) == ("cancelled", T0)
+
+
+def test_a_swept_bout_that_returns_after_its_start_keeps_its_time_and_lock_at_twelve_hours(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=10))
+    assert current_bout(db_session, "espn", "b1").status == "cancelled"
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1)),
+                                           _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(hours=12), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("scheduled", T0, T0)
+    assert row.method_detail is None and row.replaced_by_id is None
+    assert summary.bouts_reinstated == 1 and summary.bouts_new == 0
+
+
+def test_a_feed_cancelled_locked_bout_still_does_not_come_back_from_the_card(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    row.status, row.method_detail, row.locked_at = "cancelled", "cancelled by feed", T0
+    db_session.commit()
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(days=7))),
+                 now=T0 + timedelta(hours=12), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("cancelled", T0, T0)
+    assert summary.bouts_reinstated == 0
+
+
+def test_a_feed_that_flips_back_to_an_earlier_pairing_logs_one_warning_with_a_count(db_session, caplog):
+    import logging
+
+    for opponent in ("2", "3"):
+        upsert_event(db_session, "espn", _card(_bout(b=(opponent, None))), now=NOW)
+        db_session.commit()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="pipeline.sports.ufc_ingest"):
+        upsert_event(db_session, "espn", _card(_bout(b=("2", None))), now=NOW)
+    warned = [r for r in caplog.records if "repeats an earlier fighter pairing" in r.getMessage()]
+    assert len(warned) == 1 and "(3 revisions)" in warned[0].getMessage()
+    assert "TBA" not in warned[0].getMessage()
+    row = current_bout(db_session, "espn", "b1")
+    assert row.revision == 2 and row.status == "scheduled"  # behaviour unchanged
+
+
+def test_a_new_opponent_alone_logs_no_pairing_warning(db_session, caplog):
+    import logging
+
+    upsert_event(db_session, "espn", _card(_bout()), now=NOW)
+    db_session.commit()
+    with caplog.at_level(logging.WARNING, logger="pipeline.sports.ufc_ingest"):
+        upsert_event(db_session, "espn", _card(_bout(b=("3", None))), now=NOW)
+    assert not [r for r in caplog.records if "earlier fighter pairing" in r.getMessage()]

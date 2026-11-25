@@ -25,10 +25,11 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
+from app.ufc_rules import RECONCILE_DAYS, lock_expr, lock_time  # noqa: F401  (both names stay importable from here)
 from ml.sports.ufc.elo import EloParams, final_ratings
 from ml.sports.ufc.features import snapshots
 from ml.sports.ufc.history import FighterInfo, History
@@ -55,12 +56,6 @@ class GenerateSummary:
     locked_skipped: int = 0
     ratings_updated: int = 0
     failed: int = 0
-
-
-def lock_time(bout: UfcBout) -> datetime | None:
-    """The earlier of `locked_at` and `scheduled_utc`; whichever is set; else None."""
-    times = [t for t in (_utc(bout.locked_at), _utc(bout.scheduled_utc)) if t is not None]
-    return min(times) if times else None
 
 
 def _is_open(bout: UfcBout, now: datetime) -> bool:
@@ -202,7 +197,6 @@ def _predict_bout(db, bout, form, snaps, fighters, tables, history, now) -> tupl
 
 
 LOG_LOSS_FLOOR = 1e-15
-RECONCILE_DAYS = 30
 
 
 @dataclass
@@ -263,12 +257,7 @@ def grade_summary(db: Session, now: datetime | None = None) -> GradeSummary:
     # Only a selector: a prediction counts as ungraded when it was made at or before the
     # lock (the earlier of locked_at and scheduled_utc), so bouts that can never be graded
     # are not re-read on every run. `_grade_bout` stays the authority for the counting row.
-    lock = case(
-        (and_(UfcBout.locked_at.is_not(None), UfcBout.scheduled_utc.is_not(None),
-              UfcBout.locked_at < UfcBout.scheduled_utc), UfcBout.locked_at),
-        (UfcBout.scheduled_utc.is_not(None), UfcBout.scheduled_utc),
-        else_=UfcBout.locked_at,
-    )
+    lock = lock_expr()
     ungraded = (
         select(UfcPrediction.id).where(
             UfcPrediction.bout_id == UfcBout.id,

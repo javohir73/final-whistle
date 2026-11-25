@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # UFC data source for the pipeline/sports UFC ingest. Only "espn" exists.
     ufc_provider: str = "espn"
-    # Which UFC model version is shown to visitors; empty means none. Nothing reads it yet (phase 4).
+    # Which UFC model version is shown to visitors; empty means none. Read by app/ufc_model.py, which shows the call only once a fight is locked.
     ufc_public_model: str = ""
 
     # Which provider serves /api/internal/refresh-live: "football_data" (default,

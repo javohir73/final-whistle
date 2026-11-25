@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthOut(BaseModel):
@@ -611,6 +611,16 @@ class UfcResultOut(BaseModel):
     end_clock: str | None
 
 
+class UfcModelCallOut(BaseModel):
+    model_version: str
+    winner: Literal["a", "b"] | None
+    p_a: float
+    p_b: float
+    method: Literal["ko_tko", "submission", "decision"] | None
+    method_probs: dict[str, float] | None
+    reasons: list[str]
+
+
 class UfcBoutSummaryOut(BaseModel):
     id: int
     card_order: int | None
@@ -622,6 +632,7 @@ class UfcBoutSummaryOut(BaseModel):
     fighter_a: UfcFighterMiniOut
     fighter_b: UfcFighterMiniOut
     result: UfcResultOut | None
+    model: UfcModelCallOut | None = None
 
 
 class UfcSegmentOut(BaseModel):
@@ -740,3 +751,97 @@ class UfcFighterDetailOut(BaseModel):
     stance: str | None
     record: UfcRecordOut | None
     bouts: list[UfcFighterBoutOut]
+
+
+class UfcPickSubmitIn(BaseModel):
+    device_id: str
+    bout_id: int = Field(ge=1, le=2**31 - 1)  # the bout id column is a 32-bit integer
+    winner: str
+    method: str | None = None
+
+
+class UfcPickOut(BaseModel):
+    winner: Literal["a", "b"]
+    method: Literal["ko_tko", "submission", "decision"] | None
+    created_at: datetime
+    state: Literal["pending", "graded", "void"]
+    points: int | None
+    winner_correct: bool | None
+    method_correct: bool | None
+
+
+class UfcPickSubmitOut(BaseModel):
+    ok: bool
+    handle: str
+    bout_id: int
+    pick: UfcPickOut
+    model: UfcModelCallOut | None
+    disclaimer: str
+
+
+class UfcMyBoutOut(BaseModel):
+    bout_id: int
+    status: str
+    fighter_a: str
+    fighter_b: str
+    locks_at: datetime | None
+    picks_open: bool
+    pick: UfcPickOut | None
+    model: UfcModelCallOut | None
+
+
+class UfcChangedPickOut(BaseModel):
+    bout_id: int
+    fighter_a: str
+    fighter_b: str
+    pick: UfcPickOut
+    replaced_by_id: int | None
+
+
+class UfcPicksTotalsOut(BaseModel):
+    picked: int
+    graded: int
+    points: int
+    winner_method: int
+
+
+class UfcMyPicksOut(BaseModel):
+    event: UfcEventRefOut
+    handle: str | None
+    bouts: list[UfcMyBoutOut]
+    changed_picks: list[UfcChangedPickOut]
+    totals: UfcPicksTotalsOut
+    disclaimer: str
+
+
+class UfcPicksCardOut(BaseModel):
+    slug: str
+    name: str
+    first_bout_utc: datetime | None
+    picked: int
+    graded: int
+    points: int
+    winner_method: int
+
+
+class UfcPicksSummaryOut(BaseModel):
+    handle: str | None
+    cards: list[UfcPicksCardOut]
+    totals: UfcPicksTotalsOut
+
+
+class UfcLeaderboardEntryOut(BaseModel):
+    rank: int
+    handle: str
+    points: int
+    winner_method: int
+    graded: int
+    is_model: bool
+
+
+class UfcLeaderboardOut(BaseModel):
+    scope: Literal["card", "year"]
+    event: UfcEventRefOut | None
+    year: int | None
+    participant_count: int
+    entries: list[UfcLeaderboardEntryOut]

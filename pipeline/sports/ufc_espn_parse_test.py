@@ -300,3 +300,23 @@ def test_int_is_capped_at_the_postgres_integer_range():
     assert _int(-(2**31)) is None
     assert _int(2**31 - 1) == 2**31 - 1
     assert _int(-(2**31 - 1)) == -(2**31 - 1)
+
+
+@pytest.mark.parametrize("height,reach", [(0, 0), (-1, 0.0), (0.0, -3)])
+def test_parse_fighter_treats_non_positive_measurements_as_unknown(height, reach):
+    p = parse_fighter({"id": 1, "fullName": "Opponent TBA", "height": height, "reach": reach})
+    assert (p.height_in, p.reach_in) == (None, None)
+
+
+def test_parse_fighter_keeps_real_measurements():
+    p = parse_fighter({"id": 1, "fullName": "X Y", "height": 75, "reach": 80})
+    assert (p.height_in, p.reach_in) == (75.0, 80.0)
+
+
+@pytest.mark.parametrize("stance", ["--", "-", " ", ""])
+def test_parse_fighter_treats_a_stance_without_letters_as_unknown(stance):
+    assert parse_fighter({"id": 1, "fullName": "X Y", "stance": {"text": stance}}).stance is None
+
+
+def test_parse_fighter_keeps_a_real_stance():
+    assert parse_fighter({"id": 1, "fullName": "X Y", "stance": {"text": "Orthodox"}}).stance == "Orthodox"

@@ -1,7 +1,8 @@
 """Public UFC card API: GET /api/ufc/events, /events/next, /events/{slug}.
 
-Read-only and public. No model fields (probabilities, odds, ratings, picks)
-are exposed until phase 4. Times are always sent with the UTC zone attached
+Read-only and public. Model fields appear only through
+`ufc_model.public_calls` (the model's call, once a fight is locked and a public
+model is set); no odds, ratings or player picks are exposed. Times are always sent with the UTC zone attached
 (in-memory SQLite returns timezone-aware columns naive; Postgres does not).
 
 A fighter's record is derived from stored finished card bouts in ONE grouped
@@ -19,6 +20,8 @@ from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.ufc_model import public_calls
+from app.ufc_rules import is_placeholder_name
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter
 from app.schemas import (
     UfcBoutDetailOut,
@@ -229,6 +232,11 @@ def _detail(db: Session, event: UfcEvent) -> UfcEventDetailOut:
                 bouts=[bout_summary(b, minis) for b in members],
             )
         )
+    names = {i: m.name for i, m in minis.items()}
+    calls = public_calls(db, bouts, names, datetime.now(timezone.utc))
+    for seg in segments:
+        for out in seg.bouts:
+            out.model = calls.get(out.id)
     segments.sort(
         key=lambda s: (
             s.key != "main",
@@ -328,9 +336,24 @@ def age_on(born: date | None, when: datetime) -> int | None:
     return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
 
 
+def _measure(value: float | None) -> float | None:
+    """Stored zeros (older rows) mean unknown."""
+    return value if value is not None and value > 0 else None
+
+
+def _stance(value: str | None) -> str | None:
+    """A stance with no letter ("--") means unknown."""
+    if value is None or not any(ch.isalpha() for ch in value):
+        return None
+    return value.strip()
+
+
 def _tape_side(f: UfcFighter, when: datetime) -> UfcTapeSideOut:
     return UfcTapeSideOut(
-        age=age_on(f.date_of_birth, when), height_in=f.height_in, reach_in=f.reach_in, stance=f.stance
+        age=age_on(f.date_of_birth, when),
+        height_in=_measure(f.height_in),
+        reach_in=_measure(f.reach_in),
+        stance=_stance(f.stance),
     )
 
 
@@ -381,6 +404,9 @@ def bout_detail(bout_id: int, db: Session = Depends(get_db)):
 
     key = bout.segment or "other"
     summary = bout_summary(bout, minis)
+    summary.model = public_calls(
+        db, [bout], {i: m.name for i, m in minis.items()}, now
+    ).get(bout.id)
     return UfcBoutDetailOut(
         **summary.model_dump(),
         event=UfcEventRefOut(
@@ -425,7 +451,7 @@ def fighter_detail(
     sort first, then newest start time, then newest id (no database-specific
     NULL ordering)."""
     fighter = db.execute(select(UfcFighter).where(UfcFighter.slug == slug)).scalar_one_or_none()
-    if fighter is None:
+    if fighter is None or is_placeholder_name(fighter.name):
         raise HTTPException(
             status_code=404,
             detail={"code": "not_found", "message": "No UFC fighter with that name"},
@@ -493,9 +519,9 @@ def fighter_detail(
         country=fighter.country,
         date_of_birth=fighter.date_of_birth,
         age=age_on(fighter.date_of_birth, now),
-        height_in=fighter.height_in,
-        reach_in=fighter.reach_in,
-        stance=fighter.stance,
+        height_in=_measure(fighter.height_in),
+        reach_in=_measure(fighter.reach_in),
+        stance=_stance(fighter.stance),
         record=records_for(db, [fighter.id]).get(fighter.id),
         bouts=out,
     )

@@ -326,8 +326,26 @@ def _keys(o):
             yield from _keys(v)
 
 
-def test_no_model_odds_or_pick_fields(client):
+def test_no_model_odds_or_pick_fields(client, monkeypatch):
+    from app.config import settings
+    from app.models import UfcPrediction
+
     c, Session, _ = _seeded(client)
+    # Arm the guard: a public model and a counting call on every open bout, so a model
+    # field that leaked for an open fight would show up below.
+    monkeypatch.setattr(settings, "ufc_public_model", "ufc-form-v0.2")
+    secret = "Reason text that only a leak could show."
+    db = Session()
+    open_bouts = db.query(UfcBout).join(UfcEvent, UfcEvent.id == UfcBout.event_id).filter(
+        UfcEvent.slug == ADESANYA, UfcBout.status == "scheduled").all()
+    assert len(open_bouts) >= 2
+    for b in open_bouts:
+        db.add(UfcPrediction(
+            bout_id=b.id, model_version="ufc-form-v0.2", p_a=0.61, p_b=0.39,
+            method_probs={"ko_tko": 0.2, "submission": 0.1, "decision": 0.7}, reasons=[secret],
+            is_shadow=True, created_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+    db.commit()
+    db.close()
     banned = {"p_a", "p_b", "prediction", "predictions", "odds", "moneyline_a",
               "moneyline_b", "pick", "picks", "rating"}
     for url, params in (
@@ -337,7 +355,9 @@ def test_no_model_odds_or_pick_fields(client):
         (f"/api/ufc/bouts/{_bout_id(Session, ADESANYA, 3)}", {}),
         ("/api/ufc/fighters/jiri-prochazka", {}), ("/api/ufc/fighters/navajo-stirling", {}),
     ):
-        assert not banned & set(_keys(c.get(url, params=params).json())), url
+        r = c.get(url, params=params)
+        assert not banned & set(_keys(r.json())), url
+        assert secret not in r.text and "0.61" not in r.text, url
 
 
 def test_feed_marker_matches_the_pipeline():
@@ -595,10 +615,11 @@ def test_malformed_slugs_are_4xx_in_the_envelope_on_both_endpoints(client):
 def test_every_seeded_slug_resolves(client):
     c, Session, _ = _seeded(client)
     db = Session()
-    fighters = [f.slug for f in db.query(UfcFighter)]
+    fighters = [f.slug for f in db.query(UfcFighter) if f.name != "TBA"]
     events = [e.slug for e in db.query(UfcEvent).filter_by(is_card=True)]
     db.close()
     assert all(c.get(f"/api/ufc/fighters/{s}").status_code == 200 for s in fighters)
+    assert c.get("/api/ufc/fighters/tba-5300001").status_code == 404
     assert all(c.get(f"/api/ufc/events/{s}").status_code == 200 for s in events)
 
 
@@ -623,3 +644,35 @@ def test_live_bout_past_the_grace_window_is_dropped_but_the_boundary_is_kept(cli
     db.close()
     d = c.get("/api/ufc/fighters/grace-gary").json()
     assert [b["event"]["slug"] for b in d["bouts"]] == ["edge-card"]
+
+
+# ---- data quality: impossible measurements and placeholder fighters ----
+def test_tape_and_fighter_hide_impossible_measurements(client):
+    c, Session, _ = client
+    db = Session()
+    now = datetime.now(timezone.utc) + timedelta(days=5)
+    a = _fighter(db, "Real Fighter", height_in=70, reach_in=72, stance="Orthodox")
+    b = _fighter(db, "Opponent Q", height_in=0, reach_in=0, stance="--")
+    ev = _event(db, "ufc-dq-card", "scheduled", now, now)
+    bt = _bout(db, ev, a, b, status="scheduled", scheduled_utc=now, card_order=1)
+    db.commit()
+    bout_id, slug = bt.id, b.slug
+    db.close()
+    tape = c.get(f"/api/ufc/bouts/{bout_id}").json()["tape"]
+    assert (tape["a"]["height_in"], tape["a"]["reach_in"], tape["a"]["stance"]) == (70, 72, "Orthodox")
+    assert (tape["b"]["height_in"], tape["b"]["reach_in"], tape["b"]["stance"]) == (None, None, None)
+    body = c.get(f"/api/ufc/fighters/{slug}").json()
+    assert (body["height_in"], body["reach_in"], body["stance"]) == (None, None, None)
+
+
+@pytest.mark.parametrize("name", ["TBA", "Opponent TBA"])
+def test_fighter_detail_is_404_for_a_placeholder(client, name):
+    c, Session, _ = client
+    db = Session()
+    f = _fighter(db, name, slug=slugify(name) + "-9")
+    db.commit()
+    slug = f.slug
+    db.close()
+    r = c.get(f"/api/ufc/fighters/{slug}")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+    assert r.json()["error"]["message"] == "No UFC fighter with that name"
