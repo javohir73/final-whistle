@@ -25,8 +25,8 @@ it("shows a photo for the fighter who has one and the tile for the other", () =>
 it("renders the dark band with the eyebrow, vs, country and record pills", () => {
   const { container } = render(<FightHero bout={SCHEDULED_BOUT} tz="UTC" />);
   const band = container.querySelector("section") as HTMLElement;
-  expect(band.className).toContain("bg-[#0f1a15]");
-  expect(screen.getByText("UFC · Sat 5 Dec · Main card")).toHaveClass("text-[#c8f169]");
+  expect(band.className).toContain("bg-ufc-band");
+  expect(screen.getByText("UFC · Sat 5 Dec · Main card")).toHaveClass("text-ufc-lime");
   expect(screen.getByText("vs")).toBeInTheDocument();
   expect(screen.getByText("New Zealand")).toBeInTheDocument();
   expect(screen.getByText("24-6-0")).toBeInTheDocument();

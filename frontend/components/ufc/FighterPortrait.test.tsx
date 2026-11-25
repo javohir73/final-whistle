@@ -28,7 +28,7 @@ it("shows a hidden tile with initials, weight class and no credit when there is 
   const tile = container.querySelector("[aria-hidden='true']") as HTMLElement;
   expect(tile).toHaveTextContent("SM");
   expect(tile).toHaveTextContent("Middleweight");
-  expect(tile.querySelector(".bg-\\[\\#c8f169\\]")).not.toBeNull();
+  expect(tile.querySelector(".bg-ufc-lime")).not.toBeNull();
 });
 
 it("leaves the weight class out when unknown, and always tiles a TBA fighter", () => {

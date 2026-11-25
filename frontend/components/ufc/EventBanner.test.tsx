@@ -17,7 +17,7 @@ const title = UPCOMING_EVENT.name;
 it("shows the date, the card title, both fighters and a link to the fight", () => {
   render(<EventBanner bout={main} title={title} date="Sun 6 Dec" />);
   const band = screen.getByRole("region", { name: "Main event" });
-  expect(band.className).toContain("bg-[#0f1a15]");
+  expect(band.className).toContain("bg-ufc-band");
   expect(screen.getByText("Main event · Sun 6 Dec")).toBeInTheDocument();
   expect(screen.getByText(title)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Israel Adesanya" })).toHaveAttribute("href", "/ufc/fighter/israel-adesanya-4285679");

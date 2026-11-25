@@ -1,14 +1,15 @@
 import { fighterInitials, isTba } from "@/lib/ufcDisplay";
 import { fighterPhoto, photoCredit } from "@/lib/ufcFighterPhotos";
 
-/** Colours of the dark band the portraits sit on (ink-green). Muted text is #b9c7bf or lighter:
- *  4.5:1+ on both the band and the tile, including the 11px credit lines. */
+/** Colours of the dark band the portraits sit on (ink-green; the hex values live in tailwind.config.ts as `ufc.*`).
+ *  Muted text is the lightest tint that still reads as secondary: 4.5:1+ on the band and the tile,
+ *  including the 11px credit lines. */
 export const BAND = {
-  bg: "bg-[#0f1a15]",
-  text: "text-[#f6f5f1]",
-  muted: "text-[#b9c7bf]",
-  lime: "text-[#c8f169]",
-  tile: "bg-[#22342a]",
+  bg: "bg-ufc-band",
+  text: "text-ufc-ink",
+  muted: "text-ufc-muted",
+  lime: "text-ufc-lime",
+  tile: "bg-ufc-tile",
 } as const;
 
 type Size = "hero" | "banner";
@@ -68,7 +69,7 @@ export function FighterPortrait({
                 {weightClass}
               </span>
             )}
-            <span className="absolute inset-x-0 bottom-0 h-1 bg-[#c8f169]" />
+            <span className="absolute inset-x-0 bottom-0 h-1 bg-ufc-lime" />
           </div>
         )}
       </div>

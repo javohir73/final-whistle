@@ -49,7 +49,7 @@ export function EventBanner({ bout, title, date }: { bout: UfcBoutSummary; title
       <Link
         href={boutHref(bout.id)}
         aria-label={`${open ? "Pick the main event" : "View the main event"}: ${versus}`}
-        className="mt-5 inline-flex min-h-[44px] items-center rounded-full bg-[#c8f169] px-6 text-sm font-semibold text-[#0f1a15] no-underline hover:bg-[#d6f68a]"
+        className="mt-5 inline-flex min-h-[44px] items-center rounded-full bg-ufc-lime px-6 text-sm font-semibold text-ufc-band no-underline hover:bg-ufc-lime-hover"
       >
         {open ? "Pick the main event" : "View the main event"}
       </Link>

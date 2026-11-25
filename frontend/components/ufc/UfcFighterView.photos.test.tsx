@@ -14,7 +14,7 @@ jest.mock("@/lib/ufcFighterPhotos", () => ({
 it("puts the photo, name, country, record and tape facts in the dark band", () => {
   const { container } = render(<UfcFighterView fighter={FIGHTER} />);
   const band = container.querySelector("section") as HTMLElement;
-  expect(band.className).toContain("bg-[#0f1a15]");
+  expect(band.className).toContain("bg-ufc-band");
   expect(band).toContainElement(screen.getByRole("img", { name: "Jiří Procházka" }));
   expect(screen.getByRole("img", { name: "Jiří Procházka" })).toHaveAttribute("src", PHOTO.src);
   expect(band).toContainElement(screen.getByRole("heading", { level: 1, name: "Jiří Procházka" }));

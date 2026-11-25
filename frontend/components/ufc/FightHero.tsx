@@ -78,7 +78,7 @@ function Centre({ bout, tz, eyebrow }: { bout: UfcBoutDetail; tz: string; eyebro
   let main: ReactNode;
   if (bout.status === "finished") {
     main = (
-      <ResultBox className="!bg-[#c8f169] !text-[#0f1a15]">{bout.result ? resultBoxText(bout.result) : "–"}</ResultBox>
+      <ResultBox className="!bg-ufc-lime !text-ufc-band">{bout.result ? resultBoxText(bout.result) : "–"}</ResultBox>
     );
   } else if (bout.status === "live") main = <div className={big}>Live</div>;
   else if (bout.status === "cancelled") main = <div className={big}>Cancelled</div>;
