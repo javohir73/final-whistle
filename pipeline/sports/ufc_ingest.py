@@ -174,6 +174,15 @@ def _bout_values(card: BoutCard) -> dict:
     }
 
 
+def lock_if_started(row: UfcBout, now: datetime) -> None:
+    """Stamp `locked_at = scheduled_utc` when `now` has reached the stored start and the
+    row is not locked yet, so a bout cancelled after its start can never come back
+    open. A row with no stored start gets no stamp."""
+    start = _utc(row.scheduled_utc)
+    if row.locked_at is None and start is not None and _utc(now) >= start:
+        row.locked_at = row.scheduled_utc
+
+
 def _apply_bout(
     db: Session, provider: str, event: UfcEvent, card: BoutCard, summary: IngestSummary, now: datetime
 ) -> None:
@@ -282,6 +291,7 @@ def upsert_event(
         select(UfcBout).where(UfcBout.event_id == event.id, UfcBout.status == "scheduled")
     ):
         if row.provider_bout_id not in on_card:
+            lock_if_started(row, now)
             row.status = "cancelled"
             summary.bouts_cancelled += 1
     db.flush()

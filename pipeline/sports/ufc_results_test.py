@@ -650,3 +650,50 @@ def test_due_bout_failure_counts_as_a_bout_failure(db_session):
     provider = FailingOutcomeProvider(RAW, fail_bout="b1")
     summary = refresh_results(db_session, provider, now=AFTER_CARD)
     assert (summary.checked, summary.bouts_failed) == (1, 1)
+
+
+class _PreProvider:
+    name = "espn"
+
+    def fetch_outcome(self, event_id, bout):
+        return BoutOutcome("pre", None, None, None, None, None)
+
+
+def _reinstate(db, bout, new_start, now):
+    from pipeline.sports.ufc_ingest import IngestSummary, reinstate_feed_cancelled
+
+    card = EventCard(
+        provider_id="e1", name="UFC Test Night", first_bout_utc=new_start, last_bout_utc=new_start,
+        venue="Arena", is_card=True,
+        bouts=(BoutCard(
+            provider_id="b1", card_order=1, segment="main", segment_label="Main Card",
+            weight_class="Lightweight", scheduled_rounds=3, scheduled_utc=new_start,
+            fighter_a=FighterRef("b1-a", "A b1"), fighter_b=FighterRef("b1-b", "B b1"),
+        ),),
+    )
+    return reinstate_feed_cancelled(db, _PreProvider(), card, now, IngestSummary())
+
+
+def test_feed_cancel_after_the_start_locks_and_does_not_come_back(db_session):
+    (bout,) = _bare_bout(db_session)
+    assert apply_outcome(db_session, bout, CANCELLED, now=T0 + timedelta(minutes=10)) is True
+    assert _utc(bout.locked_at) == T0
+    later = T0 + timedelta(days=7)
+    assert _reinstate(db_session, bout, later, T0 + timedelta(minutes=20)) == 0
+    assert (bout.status, _utc(bout.scheduled_utc)) == ("cancelled", T0)
+
+
+def test_feed_cancel_before_the_start_can_still_return(db_session):
+    (bout,) = _bare_bout(db_session)
+    assert apply_outcome(db_session, bout, CANCELLED, now=T0 - timedelta(hours=2)) is True
+    assert bout.locked_at is None
+    later = T0 + timedelta(days=7)
+    assert _reinstate(db_session, bout, later, T0 - timedelta(hours=1)) == 1
+    assert (bout.status, bout.locked_at, _utc(bout.scheduled_utc)) == ("scheduled", None, later)
+
+
+def test_feed_cancel_without_a_stored_start_gets_no_stamp(db_session):
+    (bout,) = _bare_bout(db_session)
+    bout.scheduled_utc = None
+    assert apply_outcome(db_session, bout, CANCELLED, now=T0 + timedelta(hours=1)) is True
+    assert bout.locked_at is None

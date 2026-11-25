@@ -535,3 +535,35 @@ def test_a_passed_start_with_a_changed_opponent_still_makes_a_new_revision(db_se
     summary = IngestSummary()
     upsert_event(db_session, "espn", _card(_bout(b=("3", None), when=T0)), now=T0 + timedelta(minutes=5), summary=summary)
     assert summary.bouts_changed == 1
+
+
+def test_a_bout_swept_after_its_start_stays_locked_when_it_reappears_later(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=10))
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("cancelled", T0, T0)
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(days=7)),
+                                           _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=20), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("cancelled", T0, T0)
+    assert summary.bouts_reinstated == 0
+
+
+def test_a_bout_swept_before_its_start_can_still_return_with_a_new_time(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=2))
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    assert current_bout(db_session, "espn", "b1").locked_at is None
+    later = T0 + timedelta(days=7)
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=later), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(hours=1), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, row.locked_at, _utc(row.scheduled_utc)) == ("scheduled", None, later)
+    assert summary.bouts_reinstated == 1

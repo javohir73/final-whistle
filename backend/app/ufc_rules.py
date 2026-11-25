@@ -1,6 +1,7 @@
 """UFC rules shared by the API and the picks game. Plain module: no imports from the API layer."""
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -121,6 +122,9 @@ def model_pick(p_a: float, method_probs: dict | None) -> tuple[str | None, str |
         return None, None
     best: str | None = None
     for key in METHOD_TIE_ORDER:
-        if method_probs and key in method_probs and (best is None or method_probs[key] > method_probs[best]):
+        value = method_probs.get(key) if method_probs else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            continue  # a malformed stored value is skipped, never raised on
+        if best is None or value > method_probs[best]:
             best = key
     return side, best

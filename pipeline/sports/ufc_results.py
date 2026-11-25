@@ -26,7 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter, UfcOddsSnapshot
-from pipeline.sports.ufc_ingest import FEED_CANCELLED, _clip, _utc, upsert_fighter
+from pipeline.sports.ufc_ingest import FEED_CANCELLED, _clip, _utc, lock_if_started, upsert_fighter
 from pipeline.sports.ufc_provider import (
     BoutCard,
     BoutOutcome,
@@ -71,17 +71,18 @@ def apply_outcome(
 ) -> bool:
     """Apply a provider outcome to a bout row; True if the row changed. A
     cancelled outcome sets a scheduled or live row to "cancelled" with
-    `method_detail = FEED_CANCELLED`; finished, cancelled and changed rows are
-    never touched by it. Text is clipped to the column lengths."""
+    `method_detail = FEED_CANCELLED` (stamping `locked_at` first when the start
+    has passed); finished, cancelled and changed rows are never touched by it. Text is clipped to the column lengths."""
     if bout.status in _UNTOUCHABLE or outcome.state == "pre":
         return False
+    now = now or datetime.now(timezone.utc)
     if outcome.state == "cancelled":
         if bout.status not in ("scheduled", "live"):
             return False
+        lock_if_started(bout, now)  # a fight cancelled after its start stays locked if it returns
         bout.status = "cancelled"
         bout.method_detail = FEED_CANCELLED
         return True
-    now = now or datetime.now(timezone.utc)
     changed = False
 
     def lock() -> bool:

@@ -166,3 +166,12 @@ def test_model_pick():
     assert model_pick(0.7, None) == ("a", None)
     assert model_pick(0.7, {}) == ("a", None)
     assert model_pick(0.7, {"other": 0.9}) == ("a", None)
+
+
+def test_model_pick_skips_malformed_method_probabilities():
+    nan, inf = float("nan"), float("inf")
+    assert model_pick(0.7, {"ko_tko": None, "submission": "0.9", "decision": nan}) == ("a", None)
+    assert model_pick(0.7, {"ko_tko": True, "submission": inf, "decision": -inf}) == ("a", None)
+    assert model_pick(0.7, {"ko_tko": 0.3, "submission": None, "decision": "x"}) == ("a", "ko_tko")
+    assert model_pick(0.7, {"ko_tko": nan, "submission": 0.2, "decision": 0.1}) == ("a", "submission")
+    assert model_pick(0.3, {"ko_tko": 1, "submission": 0, "decision": 0}) == ("b", "ko_tko")
