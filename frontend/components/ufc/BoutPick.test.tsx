@@ -423,11 +423,32 @@ describe("submit failures", () => {
   });
 
   it("re-fetches after an unclear failure and keeps the choice when nothing was stored", async () => {
-    const net = await submitWith(apiError(500, "http_500", "boom"), [ok(mine())]);
+    const net = await submitWith(apiError(500, "http_500", "boom"), [ok(mine()), ok(mine())]);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't save your pick. Check your connection and try again.");
     await waitFor(() => expect(net.calls.mine).toBe(2));
-    expect(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" })).toBeEnabled());
     expect(screen.queryByText(/Locked\./)).toBeNull();
+  });
+
+  it("holds the choices and the commit button while the re-fetch after an unclear failure runs", async () => {
+    let release: () => void = () => {};
+    const net = mockNetwork({ mineAnswers: [ok(mine()), ok(mine())], submitAnswers: [apiError(503, "http_503", "boom")] });
+    const real = net.fetch.getMockImplementation()!;
+    net.fetch.mockImplementation((url: string, init?: RequestInit) =>
+      String(url).includes("/picks/mine") && net.calls.mine >= 1
+        ? new Promise((r) => { release = () => r(real(url, init)); })
+        : real(url, init));
+    renderPick();
+    await screen.findByRole("group", { name: "Pick a winner" });
+    await choose("Shara Magomedov", "Decision");
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Shara Magomedov" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "KO/TKO" })).toBeDisabled();
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Shara Magomedov" })).toBeEnabled();
   });
 
   it.each([

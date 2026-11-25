@@ -24,13 +24,12 @@ import { cn } from "@/lib/utils";
 import { useUfcPicks, type UfcPicksState } from "./UfcPicksProvider";
 
 const SAVE_FAILED = "Couldn't save your pick. Check your connection and try again.";
-/** Server refusals after which the fight can no longer take this pick: drop the controls for good. */
-/** Developer-facing refusals: the player sees the generic copy, never the server's text. */
+/** A 408 or a 5xx: the pick may or may not have been stored. */
 const isAmbiguous = (err: ApiError) => err.status === 408 || err.status >= 500;
+/** Developer-facing refusals: the player sees the generic copy, never the server's text. */
 const isDeveloperError = (err: ApiError) =>
-  ["bout_not_found", "forbidden_origin", "invalid_device_id", "bad_pick"].includes(err.code) ||
-  err.code.startsWith("http_") ||
-  err.code === "request_timeout";
+  ["bout_not_found", "forbidden_origin", "invalid_device_id", "bad_pick"].includes(err.code) || err.code.startsWith("http_");
+/** Server refusals after which the fight can no longer take this pick: drop the controls for good. */
 const FINAL_CODES = new Set(["pick_finalized", "fight_locked", "opponent_tba", "fight_cancelled", "fight_changed"]);
 
 /** The pick, inside the fight hero under a hairline (`#pick`, the target of every "Pick winner").
@@ -68,6 +67,9 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
   const [blocked, setBlocked] = useState(false);
   // A server-accepted answer, kept in case the card's list does not carry this fight.
   const [accepted, setAccepted] = useState<{ pick: UfcPick; model: UfcModelCall | null } | null>(null);
+  // After an unclear failure the page re-reads the picks; until that settles nobody can submit again.
+  const [checking, setChecking] = useState<{ data: UfcPicksState["data"]; status: UfcPicksState["status"] } | null>(null);
+  const sawLoading = useRef(false);
   const lockedRef = useRef<HTMLParagraphElement>(null);
   const focusLocked = useRef(false);
 
@@ -80,6 +82,18 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
     setBlocked(false);
     setMessage(null);
   }, [identityVersion]);
+
+  useEffect(() => {
+    if (!checking) return;
+    if (picks.status === "loading") {
+      sawLoading.current = true;
+      return;
+    }
+    if (sawLoading.current || picks.data !== checking.data || picks.status !== checking.status) {
+      sawLoading.current = false;
+      setChecking(null);
+    }
+  }, [checking, picks.status, picks.data]);
 
   const my = picks.myBout(bout.id);
   // The server's list wins; a locally kept accepted answer is only for a fight the list does not carry.
@@ -120,6 +134,8 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
           setBlocked(true);
           picks.retry(); // show what the server really holds
         } else if (isAmbiguous(err)) {
+          setChecking({ data: picks.data, status: picks.status });
+          sawLoading.current = false;
           picks.retry(); // the pick may have been stored: look before offering the controls again
         }
       } else {
@@ -243,7 +259,7 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
             key={side}
             type="button"
             aria-pressed={winner === side}
-            disabled={pending}
+            disabled={pending || checking != null}
             onClick={() => setWinner(side)}
             className={cn(
               "flex min-h-[64px] min-w-0 items-center justify-center gap-1.5 rounded-[14px] border px-3 py-3 text-center text-base font-semibold leading-tight transition-colors disabled:cursor-not-allowed",
@@ -259,7 +275,7 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
         <p aria-hidden="true" className="text-notes text-muted">
           How they win
         </p>
-        <fieldset disabled={pending} className="m-0 min-w-0 max-w-full border-0 p-0">
+        <fieldset disabled={pending || checking != null} className="m-0 min-w-0 max-w-full border-0 p-0">
           <Segmented
             label="How they win"
             className="max-w-full [&>button]:px-3 min-[400px]:[&>button]:px-5"
@@ -272,7 +288,7 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
         </fieldset>
       </div>
       <div className="mt-6">
-        <Button wide disabled={!ready || pending} aria-describedby="pick-rules" onClick={lockIn}>
+        <Button wide disabled={!ready || pending || checking != null} aria-describedby="pick-rules" onClick={lockIn}>
           {pending
             ? "Locking in…"
             : winner && method

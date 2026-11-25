@@ -80,7 +80,8 @@ export function BoutPickStatus({ bout, now }: { bout: UfcBoutSummary; now: Date 
     );
   }
   if (bout.status === "scheduled") {
-    return slot(bout.scheduled_utc && mine ? <Line>Picks closed</Line> : null);
+    // A scheduled fight the server did not list is closed to this player too: the slot is never an empty hole.
+    return slot(bout.scheduled_utc ? <Line>Picks closed</Line> : null);
   }
   return slot(call ? <Line>{modelLine(bout, call)}</Line> : null);
 }

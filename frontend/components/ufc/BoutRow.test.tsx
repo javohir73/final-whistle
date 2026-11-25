@@ -199,4 +199,10 @@ describe("right slot", () => {
     render(<BoutRow bout={{ ...main, status: "live" }} tz="UTC" isMainEvent />);
     expect(screen.getByText("Live").className).toContain("max-[370px]:min-w-[58px]");
   });
+
+  it("narrows the time box to the 58px centre under 370px, and keeps the row's label", () => {
+    render(<BoutRow bout={main} tz="Australia/Sydney" isMainEvent />);
+    expect(screen.getByText("5:00 am").className).toContain("max-[370px]:min-w-[58px]");
+    expect(screen.getByRole("link", { name: "Israel Adesanya v Shara Magomedov, 5:00 am" })).toBeInTheDocument();
+  });
 });

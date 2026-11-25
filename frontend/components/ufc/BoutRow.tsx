@@ -50,7 +50,6 @@ export function BoutRow({
 
   let sideA = side(a);
   let sideB = side(b);
-  let kickoff: string | undefined;
   let centre: ReactNode;
   let right: ReactNode;
   let label: string;
@@ -77,7 +76,8 @@ export function BoutRow({
       break;
     default:
       if (showTime) {
-        kickoff = localTime(bout.scheduled_utc, tz) ?? "TBC";
+        const kickoff = localTime(bout.scheduled_utc, tz) ?? "TBC";
+        centre = <KickoffBox className={CENTRE_BOX}>{kickoff}</KickoffBox>;
         label = `${versus}, ${kickoff}`;
       } else {
         centre = (
@@ -96,7 +96,6 @@ export function BoutRow({
       leftOnPhone
       home={sideA}
       away={sideB}
-      kickoff={kickoff}
       centre={centre}
       right={rightSlot !== undefined ? rightSlot : right}
       label={label}

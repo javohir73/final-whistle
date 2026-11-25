@@ -221,3 +221,11 @@ it("opens by the server answer when the clock is not known yet", async () => {
   view(main, null);
   expect(await screen.findByRole("link", { name: /^Pick the winner of/ })).toBeInTheDocument();
 });
+
+it("says picks are closed on a scheduled fight the server did not list, so the slot is never empty", async () => {
+  const listed = mineFor(UPCOMING_EVENT);
+  mockMine({ ...listed, bouts: listed.bouts.filter((b) => b.bout_id !== main.id) });
+  view(main);
+  expect(await screen.findByText("Picks closed")).toBeInTheDocument();
+  expect(screen.queryByRole("link")).toBeNull();
+});

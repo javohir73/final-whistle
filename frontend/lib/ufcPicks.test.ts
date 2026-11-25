@@ -207,3 +207,11 @@ describe("what a caller receives on failure", () => {
     expect(err).not.toBeInstanceOf(ApiError);
   });
 });
+
+describe("a model call with partial method probabilities", () => {
+  it("never prints undefined or NaN", () => {
+    const partial = call({ method_probs: { decision: 0.7 } });
+    const text = [modelLine(BOUT, partial), agreementLine(BOUT, PICK_B_DEC, partial), agreementLine(BOUT, PICK_A_SUB, partial)].join(" ");
+    expect(text).not.toMatch(/undefined|NaN/);
+  });
+});

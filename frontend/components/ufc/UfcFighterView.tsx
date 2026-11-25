@@ -16,7 +16,6 @@ import {
   TextLink,
   Th,
 } from "@/components/ui";
-import Link from "next/link";
 import {
   boutHref,
   dateWithYear,
@@ -102,7 +101,7 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
           <Card pad aria-labelledby="fighter-facts">
             <CardHead id="fighter-facts" title="Fighter facts" />
             {facts.length > 0 ? (
-              <dl className="mt-2">
+              <dl className="mt-2 max-w-[550px]">
                 {facts.map((f) => (
                   <div
                     key={f.label}
@@ -137,10 +136,10 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
                       return (
                       <tr key={b.id}>
                         <Td align="left">
-                          <Link href={boutHref(b.id)} className="text-ink no-underline underline-offset-[3px] hover:underline">
+                          <TextLink href={boutHref(b.id)} className="font-normal">
                             {fightDate(b, tz)}
                             <span className="sr-only"> fight details</span>
-                          </Link>
+                          </TextLink>
                         </Td>
                         <Td align="left" className="whitespace-normal break-words">
                           {isTba(b.opponent) ? (

@@ -39,7 +39,7 @@ export interface UfcModelCall {
   p_a: number;
   p_b: number;
   method: UfcPickMethod | null;
-  method_probs: Record<UfcPickMethod, number> | null;
+  method_probs: Partial<Record<UfcPickMethod, number>> | null;
   reasons: string[];
 }
 
