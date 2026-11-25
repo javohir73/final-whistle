@@ -191,6 +191,16 @@ def _upcoming_order():
     )
 
 
+def _past_order():
+    """Newest first, undated cards last (NULL placement differs between
+    SQLite and Postgres, so it is explicit)."""
+    return (
+        case((UfcEvent.first_bout_utc.is_(None), 1), else_=0),
+        UfcEvent.first_bout_utc.desc(),
+        UfcEvent.id.desc(),
+    )
+
+
 def _detail(db: Session, event: UfcEvent) -> UfcEventDetailOut:
     bouts = (
         db.execute(
@@ -232,7 +242,7 @@ def _detail(db: Session, event: UfcEvent) -> UfcEventDetailOut:
 def list_events(
     when: Literal["upcoming", "past"],
     limit: int = Query(20, ge=1, le=50),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=10_000),
     db: Session = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
@@ -242,7 +252,7 @@ def list_events(
         stmt = (
             select(UfcEvent)
             .where(_past_where(now))
-            .order_by(UfcEvent.first_bout_utc.desc(), UfcEvent.id.desc())
+            .order_by(*_past_order())
         )
     events = db.execute(stmt.limit(limit).offset(offset)).scalars().all()
     if not events:
@@ -279,7 +289,7 @@ def next_event(db: Session = Depends(get_db)):
         event = db.execute(
             select(UfcEvent)
             .where(UfcEvent.is_card.is_(True), UfcEvent.status == "finished")
-            .order_by(UfcEvent.first_bout_utc.desc(), UfcEvent.id.desc())
+            .order_by(*_past_order())
             .limit(1)
         ).scalar_one_or_none()
     if event is None:
