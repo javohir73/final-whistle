@@ -4,7 +4,7 @@ import { UfcFightView } from "@/components/ufc/UfcFightView";
 import { Button, EmptyState, PageHead } from "@/components/ui";
 import { getUfcBoutServer } from "@/lib/api";
 import { APP_NAME } from "@/lib/constants";
-import { isBoutId, resultLine } from "@/lib/ufcDisplay";
+import { isBoutId, isTba, resultLine } from "@/lib/ufcDisplay";
 import type { UfcBoutDetail } from "@/lib/ufcTypes";
 
 export const revalidate = 120;
@@ -20,13 +20,16 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const bout = await getUfcBoutServer(id).catch(() => null);
   if (!bout) return fallback;
   const line = resultLine(bout);
-  const rounds = bout.scheduled_rounds ? ` over ${bout.scheduled_rounds} rounds` : "";
+  const rounds = bout.scheduled_rounds ? ` over ${bout.scheduled_rounds} ${bout.scheduled_rounds === 1 ? "round" : "rounds"}` : "";
+  const placeholder = isTba(bout.fighter_a) || isTba(bout.fighter_b);
   const description =
     bout.status === "cancelled"
       ? "This fight was cancelled."
       : bout.status === "finished" && line
         ? `${line}. Fight stats and the tale of the tape.`
-        : `${bout.weight_class ? `${bout.weight_class} fight` : "UFC fight"}${rounds}. The tale of the tape now, the result and fight stats once it is over.`;
+        : placeholder
+          ? `UFC fight. ${bout.event.name}.`
+          : `${bout.weight_class ? `${bout.weight_class} fight` : "UFC fight"}${rounds}. The tale of the tape now, the result and fight stats once it is over.`;
   return {
     title: `${bout.fighter_a.name} v ${bout.fighter_b.name} — ${bout.event.name} | ${APP_NAME}`,
     description,

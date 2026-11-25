@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { DECISION_BOUT, KO_BOUT, SCHEDULED_BOUT } from "@/components/ufc/fixtures.testutil";
+import { DECISION_BOUT, KO_BOUT, PLACEHOLDER_BOUT, SCHEDULED_BOUT } from "@/components/ufc/fixtures.testutil";
 import { getUfcBoutServer } from "@/lib/api";
 import FightPage, { generateMetadata, generateStaticParams, revalidate } from "./page";
 
@@ -78,4 +78,16 @@ it("does not invent a weight class", async () => {
   expect(d).not.toMatch(/confirmed/);
   mockBout.mockResolvedValue({ ...SCHEDULED_BOUT, weight_class: null, scheduled_rounds: null });
   expect(((await generateMetadata(params("1"))).description as string)).toMatch(/^UFC fight\. /);
+});
+
+it("says 1 round, not 1 rounds", async () => {
+  mockBout.mockResolvedValue({ ...SCHEDULED_BOUT, scheduled_rounds: 1 });
+  expect(((await generateMetadata(params("1"))).description as string)).toMatch(/ over 1 round\./);
+});
+
+it("promises no tale of the tape for a fight with a placeholder fighter", async () => {
+  mockBout.mockResolvedValue({ ...PLACEHOLDER_BOUT });
+  const d = (await generateMetadata(params("1"))).description as string;
+  expect(d).toBe("UFC fight. UFC Fight Night: Adesanya vs Magomedov.");
+  expect(d).not.toMatch(/tale of the tape/i);
 });

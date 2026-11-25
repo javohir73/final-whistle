@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { kickoffTimeLower } from "@/components/match/matchPageData";
 import { Card, ResultBox } from "@/components/ui";
@@ -62,7 +63,7 @@ function Centre({ bout, tz }: { bout: UfcBoutDetail; tz: string }) {
 }
 
 /** The fight hero: both fighters either side of the start time or the result. */
-export function FightHero({ bout, tz }: { bout: UfcBoutDetail; tz: string }) {
+export function FightHero({ bout, tz, children }: { bout: UfcBoutDetail; tz: string; children?: ReactNode }) {
   const date = bout.scheduled_utc ? safe(() => kickoffDate(bout.scheduled_utc as string, tz)) : null;
   const eyebrow = ["UFC", date, segmentTitle(bout.segment.label)].filter(Boolean).join(" · ");
   const finished = bout.status === "finished";
@@ -84,6 +85,7 @@ export function FightHero({ bout, tz }: { bout: UfcBoutDetail; tz: string }) {
       </div>
       <p className="mt-5 text-notes text-muted">{boutSubLine(bout, false)}</p>
       {line && <p className="mt-2 text-base font-semibold text-ink">{line}</p>}
+      {children}
     </Card>
   );
 }
