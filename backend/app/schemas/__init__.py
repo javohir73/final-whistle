@@ -3,6 +3,7 @@ that the frontend consumes."""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -580,3 +581,68 @@ class MarketsOut(BaseModel):
     # a usable clock; otherwise the payload is the frozen pre-match markets.
     is_live: bool = False
     live: LiveMarketsStateOut | None = None
+# ---- UFC (public, read-only; no model fields until phase 4) ----
+class UfcRecordOut(BaseModel):
+    wins: int
+    losses: int
+    draws: int
+    no_contests: int
+
+
+class UfcFighterMiniOut(BaseModel):
+    slug: str
+    name: str
+    country: str | None
+    record: UfcRecordOut | None
+
+
+class UfcMainEventOut(BaseModel):
+    fighter_a: UfcFighterMiniOut
+    fighter_b: UfcFighterMiniOut
+
+
+class UfcResultOut(BaseModel):
+    winner: Literal["a", "b"] | None
+    method: str | None
+    method_detail: str | None
+    end_round: int | None
+    end_clock: str | None
+
+
+class UfcBoutSummaryOut(BaseModel):
+    id: int
+    card_order: int | None
+    weight_class: str | None
+    scheduled_rounds: int | None
+    is_title: bool | None
+    scheduled_utc: datetime | None
+    status: str
+    fighter_a: UfcFighterMiniOut
+    fighter_b: UfcFighterMiniOut
+    result: UfcResultOut | None
+
+
+class UfcSegmentOut(BaseModel):
+    key: str
+    label: str
+    scheduled_utc: datetime | None
+    bouts: list[UfcBoutSummaryOut]
+
+
+class UfcEventSummaryOut(BaseModel):
+    slug: str
+    name: str
+    status: str
+    first_bout_utc: datetime | None
+    last_bout_utc: datetime | None
+    venue: str | None
+    bout_count: int
+    main_event: UfcMainEventOut | None
+
+
+class UfcEventDetailOut(UfcEventSummaryOut):
+    segments: list[UfcSegmentOut]
+
+
+class UfcEventsOut(BaseModel):
+    events: list[UfcEventSummaryOut]
