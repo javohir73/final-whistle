@@ -326,8 +326,26 @@ def _keys(o):
             yield from _keys(v)
 
 
-def test_no_model_odds_or_pick_fields(client):
+def test_no_model_odds_or_pick_fields(client, monkeypatch):
+    from app.config import settings
+    from app.models import UfcPrediction
+
     c, Session, _ = _seeded(client)
+    # Arm the guard: a public model and a counting call on every open bout, so a model
+    # field that leaked for an open fight would show up below.
+    monkeypatch.setattr(settings, "ufc_public_model", "ufc-form-v0.2")
+    secret = "Reason text that only a leak could show."
+    db = Session()
+    open_bouts = db.query(UfcBout).join(UfcEvent, UfcEvent.id == UfcBout.event_id).filter(
+        UfcEvent.slug == ADESANYA, UfcBout.status == "scheduled").all()
+    assert len(open_bouts) >= 2
+    for b in open_bouts:
+        db.add(UfcPrediction(
+            bout_id=b.id, model_version="ufc-form-v0.2", p_a=0.61, p_b=0.39,
+            method_probs={"ko_tko": 0.2, "submission": 0.1, "decision": 0.7}, reasons=[secret],
+            is_shadow=True, created_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+    db.commit()
+    db.close()
     banned = {"p_a", "p_b", "prediction", "predictions", "odds", "moneyline_a",
               "moneyline_b", "pick", "picks", "rating"}
     for url, params in (
@@ -337,7 +355,9 @@ def test_no_model_odds_or_pick_fields(client):
         (f"/api/ufc/bouts/{_bout_id(Session, ADESANYA, 3)}", {}),
         ("/api/ufc/fighters/jiri-prochazka", {}), ("/api/ufc/fighters/navajo-stirling", {}),
     ):
-        assert not banned & set(_keys(c.get(url, params=params).json())), url
+        r = c.get(url, params=params)
+        assert not banned & set(_keys(r.json())), url
+        assert secret not in r.text and "0.61" not in r.text, url
 
 
 def test_feed_marker_matches_the_pipeline():

@@ -448,3 +448,23 @@ def test_an_overturned_result_found_by_the_results_step_voids_the_pick_end_to_en
     grade_picks(db_session, now=later)
     p = picks(db_session)[0]
     assert (p.points, p.winner_correct, p.method_correct) == (None, None, None) and p.graded_at is not None
+
+
+def test_importing_the_grading_step_does_not_import_the_model_code():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import pipeline.sports.ufc_picks; "
+        "sys.exit(1 if any(m == 'ml.sports.ufc.model' or m.startswith('ml.sports.ufc.model.') for m in sys.modules) else 0)"
+    )
+    env = {"PYTHONPATH": f"{ROOT}:{ROOT / 'backend'}", "PATH": "/usr/bin:/bin"}
+    done = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-500:]
+
+
+def test_the_reconcile_window_is_one_constant_importable_from_each_place():
+    from app.ufc_rules import RECONCILE_DAYS
+    from pipeline.sports import ufc_predict
+
+    assert ufc_predict.RECONCILE_DAYS == RECONCILE_DAYS == mod.RECONCILE_DAYS == 30

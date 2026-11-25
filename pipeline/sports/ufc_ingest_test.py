@@ -624,3 +624,29 @@ def test_a_feed_cancelled_locked_bout_still_does_not_come_back_from_the_card(db_
     row = current_bout(db_session, "espn", "b1")
     assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("cancelled", T0, T0)
     assert summary.bouts_reinstated == 0
+
+
+def test_a_feed_that_flips_back_to_an_earlier_pairing_logs_one_warning_with_a_count(db_session, caplog):
+    import logging
+
+    for opponent in ("2", "3"):
+        upsert_event(db_session, "espn", _card(_bout(b=(opponent, None))), now=NOW)
+        db_session.commit()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="pipeline.sports.ufc_ingest"):
+        upsert_event(db_session, "espn", _card(_bout(b=("2", None))), now=NOW)
+    warned = [r for r in caplog.records if "repeats an earlier fighter pairing" in r.getMessage()]
+    assert len(warned) == 1 and "(3 revisions)" in warned[0].getMessage()
+    assert "TBA" not in warned[0].getMessage()
+    row = current_bout(db_session, "espn", "b1")
+    assert row.revision == 2 and row.status == "scheduled"  # behaviour unchanged
+
+
+def test_a_new_opponent_alone_logs_no_pairing_warning(db_session, caplog):
+    import logging
+
+    upsert_event(db_session, "espn", _card(_bout()), now=NOW)
+    db_session.commit()
+    with caplog.at_level(logging.WARNING, logger="pipeline.sports.ufc_ingest"):
+        upsert_event(db_session, "espn", _card(_bout(b=("3", None))), now=NOW)
+    assert not [r for r in caplog.records if "earlier fighter pairing" in r.getMessage()]

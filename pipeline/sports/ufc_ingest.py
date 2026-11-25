@@ -253,6 +253,19 @@ def _apply_bout(
             current.status = "changed"
         successor = new_row(current.revision + 1)
         current.replaced_by_id = successor.id
+        pairs = [
+            {r.fighter_a_id, r.fighter_b_id}
+            for r in db.scalars(
+                select(UfcBout).where(
+                    UfcBout.provider == provider, UfcBout.provider_bout_id == card.provider_id
+                )
+            )
+        ]
+        if pairs.count({a.id, b.id}) > 1:  # the feed flipped back to an earlier pairing
+            log.warning(
+                "bout %s: a new revision repeats an earlier fighter pairing (%d revisions)",
+                card.provider_id, len(pairs),
+            )
         summary.bouts_changed += 1
     elif not same_pair:
         log.warning(
