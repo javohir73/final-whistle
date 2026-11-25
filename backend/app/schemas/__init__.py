@@ -2,7 +2,8 @@
 that the frontend consumes."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -362,11 +363,6 @@ class UserOut(BaseModel):
     # Whether the email has been confirmed. Non-blocking (an in-app banner
     # prompts verification); defaults False so older clients ignore it harmlessly.
     email_verified: bool = False
-    # FinalWhistle Premium entitlement. Defaults False so older cached clients
-    # ignore it harmlessly. premium_status is the raw Stripe status (None when
-    # no subscription) — the frontend uses it for the past-due payment banner.
-    premium: bool = False
-    premium_status: str | None = None
 
 
 # ---- WC26 retention bridge (post-final "what's next" email capture) ----
@@ -587,8 +583,160 @@ class MarketsOut(BaseModel):
     live: LiveMarketsStateOut | None = None
 
 
-# ---- Billing (FinalWhistle Premium) ----
-class BillingUrlOut(BaseModel):
-    url: str
+# ---- UFC (public, read-only; no model fields until phase 4) ----
+class UfcRecordOut(BaseModel):
+    wins: int
+    losses: int
+    draws: int
+    no_contests: int
 
 
+class UfcFighterMiniOut(BaseModel):
+    slug: str
+    name: str
+    country: str | None
+    record: UfcRecordOut | None
+
+
+class UfcMainEventOut(BaseModel):
+    fighter_a: UfcFighterMiniOut
+    fighter_b: UfcFighterMiniOut
+
+
+class UfcResultOut(BaseModel):
+    winner: Literal["a", "b"] | None
+    method: str | None
+    method_detail: str | None
+    end_round: int | None
+    end_clock: str | None
+
+
+class UfcBoutSummaryOut(BaseModel):
+    id: int
+    card_order: int | None
+    weight_class: str | None
+    scheduled_rounds: int | None
+    is_title: bool | None
+    scheduled_utc: datetime | None
+    status: str
+    fighter_a: UfcFighterMiniOut
+    fighter_b: UfcFighterMiniOut
+    result: UfcResultOut | None
+
+
+class UfcSegmentOut(BaseModel):
+    key: str
+    label: str
+    scheduled_utc: datetime | None
+    bouts: list[UfcBoutSummaryOut]
+
+
+class UfcEventSummaryOut(BaseModel):
+    slug: str
+    name: str
+    status: str
+    first_bout_utc: datetime | None
+    last_bout_utc: datetime | None
+    venue: str | None
+    bout_count: int
+    main_event: UfcMainEventOut | None
+
+
+class UfcEventDetailOut(UfcEventSummaryOut):
+    segments: list[UfcSegmentOut]
+
+
+class UfcEventsOut(BaseModel):
+    events: list[UfcEventSummaryOut]
+
+
+class UfcEventRefOut(BaseModel):
+    slug: str
+    name: str
+    first_bout_utc: datetime | None
+
+
+class UfcSegmentRefOut(BaseModel):
+    key: str
+    label: str
+
+
+class UfcTapeSideOut(BaseModel):
+    age: int | None
+    height_in: float | None
+    reach_in: float | None
+    stance: str | None
+
+
+class UfcTapeOut(BaseModel):
+    a: UfcTapeSideOut
+    b: UfcTapeSideOut
+
+
+class UfcStatLineOut(BaseModel):
+    knockdowns: int | None
+    sig_strikes_landed: int | None
+    sig_strikes_attempted: int | None
+    total_strikes_landed: int | None
+    total_strikes_attempted: int | None
+    takedowns_landed: int | None
+    takedowns_attempted: int | None
+    submission_attempts: int | None
+    reversals: int | None
+    control_seconds: int | None
+
+
+class UfcStatsOut(BaseModel):
+    a: UfcStatLineOut
+    b: UfcStatLineOut
+
+
+class UfcJudgesOut(BaseModel):
+    a: list[int]
+    b: list[int]
+
+
+class UfcBoutDetailOut(UfcBoutSummaryOut):
+    event: UfcEventRefOut
+    segment: UfcSegmentRefOut
+    tape: UfcTapeOut
+    stats: UfcStatsOut | None
+    judges: UfcJudgesOut | None
+
+
+class UfcOpponentOut(BaseModel):
+    slug: str
+    name: str
+    country: str | None
+
+
+class UfcFighterEventOut(BaseModel):
+    slug: str
+    name: str
+    date: datetime | None
+
+
+class UfcFighterBoutOut(BaseModel):
+    id: int
+    event: UfcFighterEventOut
+    opponent: UfcOpponentOut
+    outcome: Literal["win", "loss", "draw", "no_contest"] | None
+    method: str | None
+    end_round: int | None
+    end_clock: str | None
+    weight_class: str | None
+    status: str
+    scheduled_utc: datetime | None
+
+
+class UfcFighterDetailOut(BaseModel):
+    slug: str
+    name: str
+    country: str | None
+    date_of_birth: date | None
+    age: int | None
+    height_in: float | None
+    reach_in: float | None
+    stance: str | None
+    record: UfcRecordOut | None
+    bouts: list[UfcFighterBoutOut]

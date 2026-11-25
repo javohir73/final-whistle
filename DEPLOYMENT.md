@@ -51,40 +51,21 @@ no-ops. The matches board shows a LIVE badge + running score and minute.
 |---|---|---|---|
 | `NEXT_PUBLIC_API_URL` | ✅ | `https://pitchprophet-api.onrender.com` | Backend base URL. Must be set for all environments (Production/Preview). |
 
-### Premium (retired 2026-11-25)
+### Premium (removed)
 
-FinalWhistle Premium was removed. Everything on the site is free, including the
-full match markets panel.
+FinalWhistle Premium and all billing code were removed. Everything on the site
+is free. The `subscriptions` and `billing_events` tables remain in the database
+unused. `/premium` redirects to the home page.
 
-- The three sign-up endpoints (checkout session, setup intent and subscribe)
-  answer HTTP 410 with the code `premium_retired`.
-- `/premium` redirects to the home page.
-- `POST /api/billing/webhook` and `POST /api/billing/portal-session` still
-  work, so people who already subscribed keep their record and can manage the
-  subscription.
-- These variables matter only while existing subscribers remain, for the portal
-  and the webhook:
+These variables are no longer read and can be deleted:
 
-| Variable | Where | Meaning |
-|---|---|---|
-| `STRIPE_SECRET_KEY` | Render (backend) | Stripe secret key. |
-| `STRIPE_WEBHOOK_SECRET` | Render (backend) | Signing secret for `/api/billing/webhook`. |
-| `STRIPE_PRICE_MONTHLY` | Render (backend) | Monthly price ID. Required for billing to stay on (portal and webhook). |
-| `STRIPE_PRICE_ANNUAL` | Render (backend) | Annual price ID. Used to label existing plans. |
-| `NEXT_PUBLIC_BILLING_ENABLED` | Vercel (frontend) | `"true"` shows "Manage subscription" in the account menu for subscribers. |
+- On the API host: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+  `STRIPE_PRICE_MONTHLY` and `STRIPE_PRICE_ANNUAL`.
+- On the frontend host: `NEXT_PUBLIC_BILLING_ENABLED` and
+  `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
 
-- The portal and webhook endpoints work only when all four backend variables
-  are set. Without them, billing is off.
-- Keep the Stripe webhook registered at `<backend origin>/api/billing/webhook`
-  for the events `checkout.session.completed`,
-  `customer.subscription.created`, `customer.subscription.updated`,
-  `customer.subscription.deleted` and `invoice.payment_failed` while any
-  subscription remains.
-- `NEXT_PUBLIC_BILLING_ENABLED` is inlined at build time, so changing it needs
-  a frontend redeploy.
-- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is no longer read. It can be deleted.
-- Cancelling existing subscriptions is done in the Stripe dashboard. That is
-  the owner's decision.
+The Stripe webhook registration pointing at `/api/billing/webhook` can also be
+deleted, since that endpoint no longer exists.
 
 ---
 

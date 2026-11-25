@@ -7,10 +7,15 @@ swaps a fighter on a scheduled bout we keep the old row (status "changed",
 against the old pairing stay explainable. Bouts that vanish from a card become
 "cancelled", never deleted. Live and finished bouts are never rewritten here;
 results, stats and odds belong to the live poller. A bout the results run
-cancelled because the feed reported it cancelled or postponed carries
-`method_detail == FEED_CANCELLED`; such a row stays cancelled even though the
-card still lists it (a bout dropped from the card by this module is a
-different case and is reinstated when it returns).
+cancelled because the feed reported it cancelled carries
+`method_detail == FEED_CANCELLED`; `upsert_event` leaves such a row cancelled
+even though the card still lists it (a bout dropped from the card by this
+module is a different case and is reinstated when it returns). A postponed
+bout is not cancelled by the feed at all. `reinstate_feed_cancelled` is the way
+back for a feed-cancelled bout: when it is still unlocked, has the same
+fighters and a future start, and the provider now says its state is "pre", it
+returns to "scheduled" with the card's current fields. `ingest_window` calls
+it per event; `upsert_event` stays database-only.
 
 Feed text is clipped (`_clip`) to the model's column lengths where it is
 assigned: SQLite ignores String(n) but Postgres rejects an over-long value.
@@ -268,6 +273,45 @@ def upsert_event(
     return event
 
 
+def reinstate_feed_cancelled(
+    db: Session, provider: UfcProvider, card: EventCard, now: datetime, summary: IngestSummary
+) -> int:
+    """Return feed-cancelled bouts the feed now reports as "pre" to "scheduled";
+    the number of rows returned. Only an unlocked row with the same fighter
+    pair and a card start later than `now` is asked about. Does not commit."""
+    now = _utc(now)
+    returned = 0
+    for bout in card.bouts:
+        current = current_bout(db, provider.name, bout.provider_id)
+        if (
+            current is None
+            or current.status != "cancelled"
+            or current.method_detail != FEED_CANCELLED
+            or current.locked_at is not None
+        ):
+            continue
+        fighters = {
+            f.provider_fighter_id
+            for f in (db.get(UfcFighter, current.fighter_a_id), db.get(UfcFighter, current.fighter_b_id))
+        }
+        if fighters != {bout.fighter_a.provider_id, bout.fighter_b.provider_id}:
+            continue
+        start = _utc(bout.scheduled_utc)
+        if start is None or start <= now:
+            continue
+        outcome = provider.fetch_outcome(card.provider_id, bout)
+        if outcome is None or outcome.state != "pre":
+            continue
+        for f, v in _bout_values(bout).items():
+            setattr(current, f, v)
+        current.status = "scheduled"
+        current.method_detail = None
+        summary.bouts_reinstated += 1
+        returned += 1
+    db.flush()
+    return returned
+
+
 def _name_fighters(
     db: Session,
     provider: UfcProvider,
@@ -329,6 +373,9 @@ def ingest_window(
                 total.failed += 1
                 continue
             upsert_event(db, provider.name, card, now=now, summary=mine)
+            reinstate_feed_cancelled(
+                db, provider, card, _utc(now) or datetime.now(timezone.utc), mine
+            )
             budget -= _name_fighters(db, provider, card, budget, mine, now)
             db.commit()
         except Exception as exc:  # noqa: BLE001 - one bad event must never stop the rest

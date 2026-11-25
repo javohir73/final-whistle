@@ -1,11 +1,6 @@
-/** The header carries no Premium link, even with the billing flag on (the
- *  flag now only gates the account menu's "Manage subscription" item). */
+/** The header carries no Premium link, even for an old cached session that
+ *  still says `premium: true`. */
 import { render, screen } from "@testing-library/react";
-
-jest.mock("@/lib/constants", () => ({
-  ...jest.requireActual("@/lib/constants"),
-  BILLING_ENABLED: true,
-}));
 
 jest.mock("@/components/AuthProvider", () => ({
   useAuth: () => ({

@@ -1,11 +1,7 @@
-/** The footer carries no Premium link, even with the billing flag on. */
+/** The footer carries no Premium link. */
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import RootLayout from "./layout";
 
-jest.mock("@/lib/constants", () => ({
-  ...jest.requireActual("@/lib/constants"),
-  BILLING_ENABLED: true,
-}));
 jest.mock("@/lib/tournament", () => ({
   getTournament: jest.fn(async () => ({
     id: 1, name: "Premier League 2026-27", year: 2026, format: "league", has_brackets: false,

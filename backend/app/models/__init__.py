@@ -654,10 +654,9 @@ class EmailVerificationToken(Base):
 
 
 class Subscription(Base):
-    """FinalWhistle Premium subscription state — one row per user, written by
-    Stripe webhooks (plus a bounded /me self-heal). `status` uses Stripe's own
-    vocabulary (trialing/active/past_due/canceled/incomplete/...); entitlement
-    is derived in app.billing.is_premium, never stored."""
+    """Retired FinalWhistle Premium subscription state — one row per user. The
+    billing code is gone; the table is kept (unused) so no migration is needed.
+    `status` used Stripe's own vocabulary (trialing/active/past_due/...)."""
 
     __tablename__ = "subscriptions"
 
@@ -672,9 +671,8 @@ class Subscription(Base):
     status: Mapped[str] = mapped_column(String(40))
     plan: Mapped[str] = mapped_column(String(10))  # "monthly" | "annual"
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # "has ever held a Stripe subscription" — the trial guard reads this, not the
-    # row's existence (setup-intent writes a row just to hold the customer id)
-    # nor stripe_subscription_id (rebound over a subscriber's lifetime).
+    # Kept for history: this recorded "has ever held a Stripe subscription". The
+    # trial guard used to read it; that code is gone and nothing reads it now.
     had_subscription: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

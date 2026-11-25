@@ -6,6 +6,8 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from pipeline.sports.ufc_espn_parse import (
     normalise_method,
     parse_event,
@@ -269,10 +271,14 @@ def test_cancelled_status_parses_as_cancelled():
     assert (out.winner, out.method, out.method_detail) == (None, None, None)
 
 
-def test_postponed_status_parses_as_cancelled():
-    out = parse_outcome(_cancelled_status("STATUS_POSTPONED", state="pre", completed=None), None, None)
-    assert out.state == "cancelled"
-    assert (out.winner, out.method, out.method_detail) == (None, None, None)
+@pytest.mark.parametrize("state,completed", [("pre", None), ("post", False), ("post", None)])
+def test_postponed_status_is_not_a_cancellation(state, completed):
+    out = parse_outcome(_cancelled_status("STATUS_POSTPONED", state=state, completed=completed), None, None)
+    assert out == BoutOutcome("pre", None, None, None, None, None)
+
+
+def test_canceled_status_is_still_cancelled():
+    assert parse_outcome(_cancelled_status("STATUS_CANCELED"), None, None).state == "cancelled"
 
 
 def test_post_and_not_completed_parses_as_cancelled():

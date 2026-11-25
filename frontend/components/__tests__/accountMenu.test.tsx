@@ -18,7 +18,6 @@ const user: SessionUser = {
   email: "pat@example.com",
   display_name: "Pat",
   avatar_url: null,
-  premium: false,
 };
 
 const openAt = (path: string) => {
@@ -92,4 +91,15 @@ it("keeps the account actions after the navigation entries", () => {
     "Sign out",
     "Delete account",
   ]);
+});
+
+// Guard against the item being added back unconditionally (it was already hidden in tests
+// before the removal, since the billing flag was never set under Jest).
+it("has no Manage subscription item, even for an old cached premium session", () => {
+  const cached = { ...user, premium: true, premium_status: "active" } as SessionUser;
+  mockPath = "/";
+  render(<AccountMenu user={cached} onLogout={jest.fn()} onDeleteAccount={jest.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /account: pat/i }));
+  expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
+  expect(screen.queryByText(/manage subscription/i)).not.toBeInTheDocument();
 });

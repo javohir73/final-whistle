@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createPortalSession, type SessionUser } from "@/lib/session";
-import { BILLING_ENABLED } from "@/lib/constants";
+import type { SessionUser } from "@/lib/session";
 import { recordEngagement } from "@/lib/engagement";
 import { COMPETITIONS, competitionLinks } from "@/lib/sports";
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
@@ -38,15 +37,6 @@ export function AccountMenu({
   const links = competitionLinks(competition);
   const recordHref = COMPETITIONS[competition].recordPath;
 
-  const onManageSubscription = async () => {
-    try {
-      const { url } = await createPortalSession();
-      window.location.assign(url);
-    } catch {
-      /* nothing to break; the menu can be opened again */
-    }
-  };
-
   return (
     <>
       <Menu
@@ -76,11 +66,6 @@ export function AccountMenu({
         <MenuItem href={links.picks}>{links.picksLabel}</MenuItem>
         {recordHref && <MenuItem href={recordHref}>Model record</MenuItem>}
         <MenuSeparator />
-        {BILLING_ENABLED && (user.premium || (!!user.premium_status && user.premium_status !== "canceled")) && (
-          <MenuItem keepOpen onSelect={() => void onManageSubscription()}>
-            Manage subscription
-          </MenuItem>
-        )}
         <MenuItem onSelect={onLogout}>Sign out</MenuItem>
         <MenuItem tone="danger" onSelect={() => setDeleteOpen(true)}>
           Delete account
