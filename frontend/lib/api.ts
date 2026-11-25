@@ -42,6 +42,7 @@ import type {
   UfcEventDetail,
   UfcEventsResponse,
   UfcFighterDetail,
+  UfcLeaderboardResponse,
 } from "./ufcTypes";
 import type { CompetitionId } from "./sports";
 
@@ -268,6 +269,13 @@ export const getUfcEventsServer = (when: "upcoming" | "past", limit = 20, offset
   getServer<UfcEventsResponse>(`/api/ufc/events?when=${when}&limit=${limit}&offset=${offset}`, 300);
 export const getUfcBoutServer = (id: number | string) =>
   getServer<UfcBoutDetail>(`/api/ufc/bouts/${encodeURIComponent(String(id))}`, 120, [422]);
+/** Public and the same for every visitor, so it is cached; 422 is a bad scope (not found). */
+export const getUfcLeaderboardServer = (scope: { event: string } | { year: number }) =>
+  getServer<UfcLeaderboardResponse>(
+    `/api/ufc/picks/leaderboard?${"event" in scope ? `event=${encodeURIComponent(scope.event)}` : `year=${scope.year}`}`,
+    60,
+    [422],
+  );
 export const getUfcFighterServer = (slug: string) =>
   getServer<UfcFighterDetail>(`/api/ufc/fighters/${encodeURIComponent(slug)}`, 300, [422]);
 /** Wave 3 live layer: polled every 30s by the match page's shared provider

@@ -180,11 +180,13 @@ describe("matches around now", () => {
   });
 });
 
-it("gives UFC its own pages, Card and Events, in the page list and the empty-query list", () => {
+it("gives UFC its own pages, Card, Events, My picks and Leaderboard, in the page list and the empty-query list", () => {
   const own = [
     ["Card", "/ufc"],
     ["Events", "/ufc/events"],
+    ["My picks", "/ufc/picks"],
+    ["Leaderboard", "/ufc/leaderboard"],
   ];
   expect(pageItems("ufc").filter((p) => p.context === "UFC").map((p) => [p.label, p.href])).toEqual(own);
-  expect(goToItems("ufc").slice(0, 2).map((p) => [p.label, p.href])).toEqual(own);
+  expect(goToItems("ufc").slice(0, 4).map((p) => [p.label, p.href])).toEqual(own);
 });

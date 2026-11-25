@@ -1,5 +1,5 @@
 import {
-  getUfcBoutServer, getUfcEventServer, getUfcEventsServer, getUfcFighterServer, getUfcNextEventServer,
+  getUfcBoutServer, getUfcEventServer, getUfcEventsServer, getUfcFighterServer, getUfcLeaderboardServer, getUfcNextEventServer,
 } from "@/lib/api";
 
 const realFetch = global.fetch;
@@ -53,5 +53,20 @@ describe("UFC server fetchers", () => {
   ] as const)("%s still throws on 422", async (_n, call) => {
     mockFetch(422);
     await expect(call()).rejects.toThrow();
+  });
+
+  it("leaderboard asks for one card or one year, revalidates every 60s, and treats 404 and 422 as none", async () => {
+    const f = mockFetch(200, { entries: [] });
+    await getUfcLeaderboardServer({ event: "x" });
+    expect(f.mock.calls[0][0]).toMatch(/\/api\/ufc\/picks\/leaderboard\?event=x$/);
+    expect(f.mock.calls[0][1]).toEqual({ next: { revalidate: 60 } });
+    await getUfcLeaderboardServer({ year: 2026 });
+    expect(f.mock.calls[1][0]).toMatch(/\/api\/ufc\/picks\/leaderboard\?year=2026$/);
+    mockFetch(404);
+    await expect(getUfcLeaderboardServer({ event: "x" })).resolves.toBeNull();
+    mockFetch(422);
+    await expect(getUfcLeaderboardServer({ year: 1 })).resolves.toBeNull();
+    mockFetch(500);
+    await expect(getUfcLeaderboardServer({ year: 2026 })).rejects.toThrow();
   });
 });

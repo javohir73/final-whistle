@@ -170,7 +170,7 @@ describe("the shell tab template (navTabsFor), direction G", () => {
     expect(competitionsForSport("ufc").map((c) => c.id)).toEqual(["ufc"]);
     expect(COMPETITIONS.ufc).toMatchObject({
       format: "cards",
-      hasTips: false,
+      hasTips: true,
       logoSrc: null,
       archived: false,
       recordPath: null,
@@ -178,12 +178,17 @@ describe("the shell tab template (navTabsFor), direction G", () => {
     });
   });
 
-  it("gives UFC two tabs, Card and Events", () => {
+  it("gives UFC four tabs: Card, Events, My picks and Leaderboard", () => {
     expect(navTabsFor("ufc").map((t) => [t.id, t.label, t.href])).toEqual([
       ["matches", "Card", "/ufc"],
       ["table", "Events", "/ufc/events"],
+      ["mypicks", "My picks", "/ufc/picks"],
+      ["leaderboard", "Leaderboard", "/ufc/leaderboard"],
     ]);
-    const [card, events] = navTabsFor("ufc");
+    const [card, events, picks, board] = navTabsFor("ufc");
+    expect(isNavTabActive(picks, "/ufc/picks")).toBe(true);
+    expect(isNavTabActive(board, "/ufc/leaderboard")).toBe(true);
+    expect(isNavTabActive(card, "/ufc/picks")).toBe(false);
     for (const p of ["/ufc", "/ufc/event/x-2026-12-05", "/ufc/fight/1", "/ufc/fighter/jiri-prochazka"]) {
       expect(isNavTabActive(card, p)).toBe(true);
     }
@@ -195,9 +200,9 @@ describe("the shell tab template (navTabsFor), direction G", () => {
       fixtures: "/ufc/events",
       table: "/ufc/events",
       tableLabel: "Events",
-      picks: "/play",
+      picks: "/ufc/picks",
       picksLabel: "My picks",
-      leaderboard: "/leaderboard",
+      leaderboard: "/ufc/leaderboard",
       bracket: null,
     });
   });
