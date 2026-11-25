@@ -95,7 +95,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Cross-competition surfaces — they were never part of the WC26 move.
     // Not /tips (now a redirect to /play) and not the /match/:id or /team/:id
     // lookups (redirects too): a sitemap lists final URLs only.
-    ...["/leaderboard", "/play", "/premium"].map((p) => ({
+    ...["/leaderboard", "/play"].map((p) => ({
       url: `${SITE}${p}`,
       changeFrequency: "daily" as const,
       priority: 0.7,

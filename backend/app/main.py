@@ -98,13 +98,6 @@ async def cache_control(request: Request, call_next):
         # store uninvited — but the responses travel through Vercel's
         # /backend-api/* rewrite, so state it rather than lean on the default.
         or path.startswith("/api/billing")
-        # Premium markets (Task 7): entitlement-gated per-user content (401/403/200
-        # all vary by the caller's subscription). A shared cache keyed on this
-        # user-less URL could replay one caller's premium 200 to a free or
-        # anonymous caller for the TTL — the exact bypass the endpoint exists
-        # to prevent. NOT /v1/markets, which stays shared-cacheable below (its
-        # gate is a per-request API key, not per-session entitlement).
-        or (path.startswith("/api/matches/") and path.endswith("/markets"))
         # Beat-the-AI loop (Slice 2): device-keyed, per-caller like the routes
         # above -- /submit and /claim change state, /mine and /summary read
         # back one device's own tips. NOT /api/nrl/tips or /leaderboard, which

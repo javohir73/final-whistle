@@ -44,7 +44,7 @@ const row = () => within(screen.getByRole("navigation", { name: "Main" }));
 const rowLabels = () => row().getAllByRole("link").map((a) => a.textContent);
 const pill = (label: string) => screen.getByRole("button", { name: `Competition: ${label}` });
 
-it.each(["/", "/play", "/leaderboard", "/premium", "/methodology", "/football/epl", "/nrl"])(
+it.each(["/", "/play", "/leaderboard", "/methodology", "/football/epl", "/nrl"])(
   "shows the competition tabs and the competition pill on %s",
   (path) => {
     renderNav(path);

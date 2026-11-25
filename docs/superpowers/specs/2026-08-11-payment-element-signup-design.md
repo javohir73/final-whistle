@@ -1,3 +1,5 @@
+> Retired 2026-11-25: Premium was removed and everything is free. Kept for history.
+
 # Payment Element signup (in-page subscribe)
 
 Status: approved design (2026-08-11)

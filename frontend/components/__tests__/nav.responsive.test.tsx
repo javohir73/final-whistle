@@ -6,9 +6,7 @@
  *
  *  1. Every header item was shrink-0 and nothing dropped on small screens, so
  *     the brand wordmark (~100px) and the competition switcher's text label
- *     (~40px) held the nav above 440px no matter the viewport. Only reproduces
- *     with BILLING_ENABLED — the Premium link is the last ~76px — which is why
- *     it never showed up locally.
+ *     (~40px) held the nav above 440px no matter the viewport.
  *
  *  2. The header link row was `hidden sm:flex` while BottomNav was `sm:hidden`.
  *     That row needs ~450px on its own, so from 640px to 1023px the header
@@ -21,11 +19,6 @@
  */
 import { render, screen } from "@testing-library/react";
 import type { SessionUser } from "@/lib/session";
-
-jest.mock("@/lib/constants", () => ({
-  ...jest.requireActual("@/lib/constants"),
-  BILLING_ENABLED: true,
-}));
 
 const mockUseAuth = jest.fn();
 jest.mock("@/components/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
@@ -109,15 +102,5 @@ describe("small screens drop text, never controls", () => {
     expect(wordmark).toHaveClass("hidden", "sm:inline");
     // The mark itself never drops — that is the brand identity.
     expect(home.querySelector("svg")).toBeTruthy();
-  });
-
-  it("keeps the Premium link visible on mobile", () => {
-    // It contributes to the overflow, but the discovery work exists precisely
-    // to make Premium reachable — narrowing it is fine, hiding it is not.
-    mockPath = "/football/epl";
-    render(<SiteNav />);
-    const premium = screen.getByRole("link", { name: "Premium" });
-    expect(premium.className).not.toMatch(/:hidden/);
-    expect(premium.className).not.toMatch(/(^|\s)hidden(\s|$)/);
   });
 });
