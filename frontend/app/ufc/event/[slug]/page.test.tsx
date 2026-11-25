@@ -3,6 +3,11 @@ import UfcEventPage, { generateMetadata, generateStaticParams } from "./page";
 import { getUfcEventServer, getUfcEventsServer } from "@/lib/api";
 import { FINISHED_EVENT, UPCOMING_EVENT } from "@/components/ufc/fixtures.testutil";
 
+jest.mock("next/navigation", () => ({
+  notFound: jest.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
+}));
 jest.mock("@/lib/api");
 const mockEvent = getUfcEventServer as jest.MockedFunction<typeof getUfcEventServer>;
 const mockList = getUfcEventsServer as jest.MockedFunction<typeof getUfcEventsServer>;
@@ -12,7 +17,7 @@ beforeEach(() => {
   mockEvent.mockReset();
   mockList.mockReset();
   mockList.mockResolvedValue({ events: [] });
-  window.localStorage.setItem("pp:timezone", "Australia/Sydney");
+  window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "Australia/Sydney", confirmed: true }));
 });
 
 it("renders a finished card", async () => {
@@ -24,12 +29,13 @@ it("renders a finished card", async () => {
 
 it("404s an unknown card", async () => {
   mockEvent.mockResolvedValue(null);
-  await expect(UfcEventPage(params("no-such-card"))).rejects.toThrow();
+  await expect(UfcEventPage(params("no-such-card"))).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
 it("says the feed is down", async () => {
   mockEvent.mockRejectedValue(new Error("502"));
   render(await UfcEventPage(params("ufc-300")));
+  expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
   expect(screen.getByText("This card is unavailable right now")).toBeInTheDocument();
 });
 
@@ -50,6 +56,12 @@ describe("generateMetadata", () => {
   it("drops the main event when there is none", async () => {
     mockEvent.mockResolvedValue({ ...UPCOMING_EVENT, main_event: null, bout_count: 7 });
     expect((await generateMetadata(params("x"))).description).toBe("The full card: 7 fights, start times and results.");
+  });
+  it("says how many fights, never '0 fights'", async () => {
+    const g = async (e: object) => { mockEvent.mockResolvedValue({ ...UPCOMING_EVENT, ...e }); return (await generateMetadata(params("x"))).description; };
+    expect(await g({ main_event: null, bout_count: 0 })).toBe("The card is still being announced.");
+    expect(await g({ main_event: null, bout_count: 1 })).toBe("The full card: 1 fight, start times and results.");
+    expect(await g({ bout_count: 0 })).toMatch(/The card is still being announced\.$/);
   });
   it("falls back for an unknown or malformed slug", async () => {
     mockEvent.mockResolvedValue(null);

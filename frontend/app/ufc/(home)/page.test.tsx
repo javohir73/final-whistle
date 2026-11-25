@@ -11,7 +11,7 @@ beforeEach(() => {
   mockNext.mockReset();
   mockList.mockReset();
   mockList.mockResolvedValue({ events: UPCOMING_LIST });
-  window.localStorage.setItem("pp:timezone", "Australia/Sydney");
+  window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "Australia/Sydney", confirmed: true }));
 });
 
 it("renders the next card", async () => {
@@ -38,6 +38,7 @@ it("says there are no cards yet", async () => {
 it("says the feed is down", async () => {
   mockNext.mockRejectedValue(new Error("502"));
   render(await UfcHomePage());
+  expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
   expect(screen.getByText("Fight cards are unavailable right now")).toBeInTheDocument();
   expect(screen.getByText("We could not reach the fight feed. Try again in a minute.")).toBeInTheDocument();
 });

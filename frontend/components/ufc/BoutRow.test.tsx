@@ -9,7 +9,7 @@ const longName = UPCOMING_EVENT.segments[1].bouts[1];
 const [ko, , draw, noContest] = FINISHED_EVENT.segments[0].bouts;
 
 beforeEach(() => {
-  window.localStorage.setItem("pp:timezone", "Australia/Sydney");
+  window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "Australia/Sydney", confirmed: true }));
 });
 
 it("shows a scheduled fight with local time and the main-event line", () => {

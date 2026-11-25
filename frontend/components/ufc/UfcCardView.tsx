@@ -57,7 +57,12 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
                 <Card key={seg.key} flush aria-label={segmentTitle(seg.label)}>
                   <DayBand as="h2" className="flex justify-between gap-3">
                     <span>{segmentTitle(seg.label)}</span>
-                    {time && <span className="font-normal text-muted">{time}</span>}
+                    {time && (
+                      <span className="font-normal text-muted">
+                        <span className="sr-only">, starts </span>
+                        {time}
+                      </span>
+                    )}
                   </DayBand>
                   {seg.bouts.map((b) => (
                     <Fragment key={b.id}>

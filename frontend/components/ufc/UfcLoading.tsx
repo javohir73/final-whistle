@@ -1,7 +1,7 @@
 import { Skeleton, SkeletonScreen } from "@/components/Skeleton";
 
-/** Route skeleton for /ufc and /ufc/event/[slug]: head, two cards of three rows, a rail. */
-export default function UfcHomeLoading() {
+/** Shared skeleton for /ufc and /ufc/event/[slug]: head, two cards of three rows, a rail. */
+export function UfcLoading() {
   return (
     <SkeletonScreen label="Loading…">
       <Skeleton className="h-3 w-32 rounded" />

@@ -4,7 +4,7 @@ import { EMPTY_EVENT, FINISHED_EVENT, UPCOMING_EVENT, UPCOMING_LIST } from "./fi
 import { ABOUT_NOTE } from "@/lib/ufcDisplay";
 
 beforeEach(() => {
-  window.localStorage.setItem("pp:timezone", "Australia/Sydney");
+  window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "Australia/Sydney", confirmed: true }));
 });
 
 it("heads the card with its local day and main card time", () => {
@@ -17,8 +17,8 @@ it("heads the card with its local day and main card time", () => {
 it("groups fights by segment, main card first", () => {
   render(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
   const h2 = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-  expect(h2).toEqual(expect.arrayContaining(["Main card5:00 am", "Prelims2:00 am"]));
-  expect(h2.indexOf("Main card5:00 am")).toBeLessThan(h2.indexOf("Prelims2:00 am"));
+  expect(h2).toEqual(expect.arrayContaining(["Main card, starts 5:00 am", "Prelims, starts 2:00 am"]));
+  expect(h2.indexOf("Main card, starts 5:00 am")).toBeLessThan(h2.indexOf("Prelims, starts 2:00 am"));
   expect(screen.getByText("Middleweight · main event · 5 rounds")).toBeInTheDocument();
 });
 

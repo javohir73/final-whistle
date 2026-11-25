@@ -133,7 +133,11 @@ describe("ufcDisplay", () => {
     expect(isEventSlug("a".repeat(221))).toBe(false);
     expect(isBoutId("12")).toBe(true);
     expect(isBoutId("1e3")).toBe(false);
-    expect(isBoutId("1234567890")).toBe(false);
+    expect(isBoutId("2147483647")).toBe(true);
+    expect(isBoutId("2147483648")).toBe(false);
+    expect(isBoutId("1000000000")).toBe(true);
+    expect(isBoutId("0")).toBe(false);
+    expect(isBoutId("007")).toBe(false);
     expect(isFighterSlug("jiri-prochazka")).toBe(true);
     expect(isFighterSlug("Bad Slug!")).toBe(false);
   });
