@@ -114,7 +114,6 @@ describe("opened from the account menu", () => {
     email: "pat@example.com",
     display_name: "Pat",
     avatar_url: null,
-    premium: false,
   };
 
   it("returns focus to the account button after the menu item unmounts", async () => {

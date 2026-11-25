@@ -1,4 +1,4 @@
-/** MatchMarkets: every visitor (signed in or not, billing flag unset) gets the
+/** MatchMarkets: every visitor (signed in or not) gets the
  *  fetched market blocks; loading and fetch errors collapse quietly; switching
  *  fixtures never shows the previous fixture's numbers. */
 import { render, screen, waitFor } from "@testing-library/react";

@@ -7,7 +7,6 @@ import {
   login,
   getOrCreateDeviceId,
   pingDailyActivity,
-  createPortalSession,
   getMatchMarkets,
 } from "./session";
 
@@ -143,26 +142,11 @@ describe("pingDailyActivity", () => {
   });
 });
 
-describe("session client: markets and billing portal", () => {
+describe("session client: markets", () => {
   const realFetch = global.fetch;
   afterEach(() => {
     global.fetch = realFetch;
     jest.resetAllMocks();
-  });
-
-  it("posts to /api/billing/portal-session", async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ url: "https://billing.stripe.test/portal" }),
-    }) as unknown as typeof fetch;
-
-    const out = await createPortalSession();
-
-    expect(out.url).toBeDefined();
-    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(url).toBe("/backend-api/api/billing/portal-session");
-    expect(init.method).toBe("POST");
   });
 
   it("fetches the public markets for a match", async () => {

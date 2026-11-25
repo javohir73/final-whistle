@@ -363,11 +363,6 @@ class UserOut(BaseModel):
     # Whether the email has been confirmed. Non-blocking (an in-app banner
     # prompts verification); defaults False so older clients ignore it harmlessly.
     email_verified: bool = False
-    # FinalWhistle Premium entitlement. Defaults False so older cached clients
-    # ignore it harmlessly. premium_status is the raw Stripe status (None when
-    # no subscription) — the frontend uses it for the past-due payment banner.
-    premium: bool = False
-    premium_status: str | None = None
 
 
 # ---- WC26 retention bridge (post-final "what's next" email capture) ----
@@ -586,13 +581,6 @@ class MarketsOut(BaseModel):
     # a usable clock; otherwise the payload is the frozen pre-match markets.
     is_live: bool = False
     live: LiveMarketsStateOut | None = None
-
-
-# ---- Billing (FinalWhistle Premium) ----
-class BillingUrlOut(BaseModel):
-    url: str
-
-
 
 
 # ---- UFC (public, read-only; no model fields until phase 4) ----
