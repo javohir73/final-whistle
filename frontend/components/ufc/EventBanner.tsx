@@ -17,9 +17,8 @@ function Name({ fighter }: { fighter: UfcBoutSummary["fighter_a"] }) {
   );
 }
 
-/** The card's main event as a dark banner above the fight list: the date, the card's title, both
- *  fighters and a link to the fight page (where the pick is). `date` is the eyebrow day, or null. */
-export function EventBanner({ bout, title, date }: { bout: UfcBoutSummary; title: string; date: string | null }) {
+/** The card's main event as a dark banner above the fight list: the date, both fighters and a link to the fight page (where the pick is). `date` is the eyebrow day, or null. */
+export function EventBanner({ bout, date }: { bout: UfcBoutSummary; date: string | null }) {
   const open = bout.status === "scheduled";
   const versus = `${bout.fighter_a.name} v ${bout.fighter_b.name}`;
   return (
@@ -30,7 +29,6 @@ export function EventBanner({ bout, title, date }: { bout: UfcBoutSummary; title
       <p className={`text-notes font-semibold uppercase tracking-[0.08em] ${BAND.lime}`}>
         {["Main event", date].filter(Boolean).join(" · ")}
       </p>
-      <p className={`mt-1 font-display text-[20px] font-bold leading-tight tracking-[-0.02em] min-[900px]:text-[28px]`}>{title}</p>
       <div className="mx-auto mt-5 grid max-w-[560px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-x-3 min-[900px]:gap-x-6">
         {([bout.fighter_a, bout.fighter_b] as const).map((f, i) => (
           <div key={i} className="contents">

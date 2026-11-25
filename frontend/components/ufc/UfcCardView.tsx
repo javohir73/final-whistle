@@ -79,7 +79,7 @@ function UfcCard({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEven
       />
       <PageLayout>
         <Main>
-          {mainBout && <EventBanner bout={mainBout} title={event.name} date={date} />}
+          {mainBout && <EventBanner bout={mainBout} date={date} />}
           {segments.length === 0 ? (
             <Card pad>
               <Note>The fights for this card have not been announced yet.</Note>
