@@ -34,9 +34,10 @@ it.each(["Bad Slug!", "../etc", "Mateusz-Rębecki", "a".repeat(141)])("404s %p w
   expect(mockFighter).not.toHaveBeenCalled();
 });
 
-it("404s a slug the API rejects with a 4xx", async () => {
-  mockFighter.mockRejectedValue(new Error("API /api/ufc/fighters/x failed: 422"));
-  await expect(layout("x")).rejects.toThrow("NEXT_NOT_FOUND");
+it("lets the page decide when a 4xx is thrown (a proxy 403 must not 404 real fighters)", async () => {
+  mockFighter.mockRejectedValue(new Error("API /api/ufc/fighters/x failed: 403"));
+  await expect(layout("mateusz-rebecki")).resolves.toBe("fighter page");
+  expect(notFound).not.toHaveBeenCalled();
 });
 
 it("lets the page decide when the backend errors", async () => {

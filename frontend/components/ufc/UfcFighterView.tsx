@@ -42,17 +42,14 @@ function longDate(iso: string | null): string | null {
   return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(d);
 }
 
-/** A fight's day: its kickoff in the viewer's zone, or, with no kickoff time,
- *  the event's calendar date as is (shifting a bare date by zone would move it
- *  to the day before for viewers west of UTC). */
 function fightDate(b: UfcFighterBout, tz: string): string {
+  const iso = b.scheduled_utc ?? b.event.date;
+  if (!iso) return "TBC";
   try {
-    if (b.scheduled_utc) return kickoffDate(b.scheduled_utc, tz);
-    if (b.event.date) return kickoffDate(`${b.event.date.slice(0, 10)}T00:00:00Z`, "UTC");
+    return kickoffDate(iso, tz);
   } catch {
-    /* fall through */
+    return "TBC";
   }
-  return "TBC";
 }
 
 function resultChip(b: UfcFighterBout): ReactNode {
@@ -71,10 +68,8 @@ function resultChip(b: UfcFighterBout): ReactNode {
   }
 }
 
-/** The method line repeats a draw or no contest chip, so it only adds to a win or loss. */
 function methodLine(b: UfcFighterBout): string | null {
-  if (b.status !== "finished" || b.method === "draw" || b.method === "no_contest") return null;
-  return methodRoundText(b.method, b.end_round);
+  return b.status === "finished" ? methodRoundText(b.method, b.end_round) : null;
 }
 
 /** One fighter: head, known facts, and every fight we hold (upcoming first,
@@ -131,7 +126,9 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {fighter.bouts.map((b) => (
+                    {fighter.bouts.map((b) => {
+                      const method = methodLine(b);
+                      return (
                       <tr key={b.id}>
                         <Td align="left">{fightDate(b, tz)}</Td>
                         <Td align="left" className="whitespace-normal break-words">
@@ -143,13 +140,14 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
                         </Td>
                         <Td align="left">
                           {resultChip(b)}
-                          {methodLine(b) ? <div className="mt-1 text-notes text-muted">{methodLine(b)}</div> : null}
+                          {method ? <div className="mt-1 text-notes text-muted">{method}</div> : null}
                         </Td>
                         <Td align="left" className={`${EVENT_COLUMN} whitespace-normal`}>
                           <TextLink href={eventHref(b.event.slug)}>{b.event.name}</TextLink>
                         </Td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </Table>
               </TableScroll>

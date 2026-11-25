@@ -2,8 +2,11 @@ import { render, screen, within } from "@testing-library/react";
 import { UfcFighterView } from "./UfcFighterView";
 import { FIGHTER, FIGHTER_DRAW_NC, FIGHTER_NO_HISTORY } from "./fixtures.testutil";
 
+const setTz = (tz: string) =>
+  window.localStorage.setItem("pp:timezone", JSON.stringify({ tz, confirmed: true }));
+
 beforeEach(() => {
-  window.localStorage.setItem("pp:timezone", "Australia/Sydney");
+  setTz("Australia/Sydney");
 });
 
 it("heads the page with country and record", () => {
@@ -92,9 +95,19 @@ it("does not link a TBA opponent and covers live, cancelled and unconfirmed figh
   expect(within(rows[3]).getByText("Result to be confirmed")).toBeInTheDocument();
 });
 
-it("keeps a date-only fight on its own day in a western time zone", () => {
-  window.localStorage.setItem("pp:timezone", "America/Los_Angeles");
-  const bout = { ...FIGHTER.bouts[1], scheduled_utc: null };
+it("labels a fight with no time by the viewer's local day of the card", () => {
+  const bout = { ...FIGHTER.bouts[1], scheduled_utc: null, event: { ...FIGHTER.bouts[1].event, date: "2026-11-21T18:00:00Z" } };
+  setTz("Australia/Sydney");
+  const { unmount } = render(<UfcFighterView fighter={{ ...FIGHTER, bouts: [bout] }} />);
+  expect(screen.getByText("Sun 22 Nov")).toBeInTheDocument();
+  unmount();
+  setTz("America/Los_Angeles");
   render(<UfcFighterView fighter={{ ...FIGHTER, bouts: [bout] }} />);
   expect(screen.getByText("Sat 21 Nov")).toBeInTheDocument();
+});
+
+it("keeps the method and round line under a draw and a no contest", () => {
+  render(<UfcFighterView fighter={FIGHTER_DRAW_NC} />);
+  expect(screen.getByText("Draw · R3")).toBeInTheDocument();
+  expect(screen.getByText("No contest · R1")).toBeInTheDocument();
 });
