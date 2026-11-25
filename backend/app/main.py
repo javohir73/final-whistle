@@ -22,7 +22,7 @@ from app.api import (
     markets, market_record, match_picks, matches, model_record, movers, nrl_intel, nrl_live, nrl_players, nrl_tips,
     premium_markets,
     nrl_user_tips, predictions, prob_history, retention, sports, teams, tournaments,
-    research,
+    research, ufc,
 )
 from app.config import settings
 from app.cache import cache
@@ -324,6 +324,7 @@ app.include_router(nrl_players.router)
 app.include_router(nrl_intel.router)
 app.include_router(nrl_tips.router)
 app.include_router(nrl_user_tips.router)
+app.include_router(ufc.router)
 app.include_router(league_score_predictions.router)
 app.include_router(movers.router)
 app.include_router(intel.router)
