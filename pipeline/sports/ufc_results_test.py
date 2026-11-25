@@ -627,8 +627,26 @@ def test_results_main_exit_codes(monkeypatch):
         monkeypatch.setattr(ufc_results, "refresh_results", lambda db, provider: summary)
         return ufc_results.main([])
 
-    assert run(ResultsSummary(checked=3, failed=3)) == 1
-    assert run(ResultsSummary(checked=0, failed=1)) == 1
-    assert run(ResultsSummary(checked=3, failed=1)) == 0
+    assert run(ResultsSummary(checked=3, failed=3, bouts_failed=3)) == 1
+    assert run(ResultsSummary(checked=1, failed=4, bouts_failed=1)) == 1
+    assert run(ResultsSummary(checked=0, failed=1, bouts_failed=0)) == 0  # quiet day, a profile or odds step failed
+    assert run(ResultsSummary(checked=3, failed=5, bouts_failed=2)) == 0  # one due bout succeeded
     assert run(ResultsSummary(checked=0, failed=0)) == 0
-    assert run(ResultsSummary(checked=3, failed=0)) == 0
+
+
+def test_upcoming_odds_failure_is_not_a_bout_failure(db_session):
+    _bare_bout(db_session, when=AFTER_CARD + timedelta(days=2))
+
+    class OddsBoom(RecordedUfcProvider):
+        def fetch_odds(self, event_id, bout):
+            raise RuntimeError("boom")
+
+    summary = refresh_results(db_session, OddsBoom(RAW), now=AFTER_CARD)
+    assert (summary.failed, summary.bouts_failed, summary.checked) == (1, 0, 0)
+
+
+def test_due_bout_failure_counts_as_a_bout_failure(db_session):
+    _bare_bout(db_session, when=AFTER_CARD - timedelta(hours=1))
+    provider = FailingOutcomeProvider(RAW, fail_bout="b1")
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert (summary.checked, summary.bouts_failed) == (1, 1)

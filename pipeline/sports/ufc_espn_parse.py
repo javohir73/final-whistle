@@ -24,7 +24,7 @@ from pipeline.sports.ufc_provider import (
 log = logging.getLogger(__name__)
 
 _INT_MAX = 2**31 - 1
-_CANCELLED_NAMES = ("STATUS_CANCELED", "STATUS_POSTPONED")
+_CANCELLED_NAMES = ("STATUS_CANCELED",)
 _STATE = {"pre": "pre", "in": "live", "post": "final"}
 
 # ESPN stat name -> FighterBoutStats field. Everything else lands in `extra`.
@@ -217,9 +217,11 @@ def normalise_method(result: dict | None) -> str | None:
 def parse_outcome(
     status_doc: dict | None, winner_a: bool | None, winner_b: bool | None
 ) -> BoutOutcome | None:
-    """State is pre / live / final, or cancelled for a cancelled or postponed
-    bout (`type.name` STATUS_CANCELED / STATUS_POSTPONED, or state "post" with
-    `completed` false); a cancelled outcome carries no winner or method."""
+    """State is pre / live / final, or cancelled for a cancelled bout
+    (`type.name` STATUS_CANCELED, or state "post" with `completed` false); a
+    cancelled outcome carries no winner or method. A postponed bout
+    (STATUS_POSTPONED) is not cancelled: it reads as "pre" with nothing else,
+    whatever its state, because it is expected to be rescheduled."""
     if not isinstance(status_doc, dict):
         return None
     type_doc = _dict(status_doc.get("type"))
@@ -227,8 +229,10 @@ def parse_outcome(
     state = _STATE.get(raw_state) if isinstance(raw_state, str) else None
     if state is None:
         return None
-    # A cancelled or postponed bout reports state "post" with no result, which
-    # would otherwise read as a final with nothing recorded.
+    if type_doc.get("name") == "STATUS_POSTPONED":
+        return BoutOutcome("pre", None, None, None, None, None)
+    # A cancelled bout reports state "post" with no result, which would
+    # otherwise read as a final with nothing recorded.
     if type_doc.get("name") in _CANCELLED_NAMES or (
         raw_state == "post" and type_doc.get("completed") is False
     ):
