@@ -19,6 +19,7 @@ from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.ufc_rules import is_placeholder_name
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter
 from app.schemas import (
     UfcBoutDetailOut,
@@ -328,9 +329,24 @@ def age_on(born: date | None, when: datetime) -> int | None:
     return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
 
 
+def _measure(value: float | None) -> float | None:
+    """Stored zeros (older rows) mean unknown."""
+    return value if value is not None and value > 0 else None
+
+
+def _stance(value: str | None) -> str | None:
+    """A stance with no letter ("--") means unknown."""
+    if value is None or not any(ch.isalpha() for ch in value):
+        return None
+    return value.strip()
+
+
 def _tape_side(f: UfcFighter, when: datetime) -> UfcTapeSideOut:
     return UfcTapeSideOut(
-        age=age_on(f.date_of_birth, when), height_in=f.height_in, reach_in=f.reach_in, stance=f.stance
+        age=age_on(f.date_of_birth, when),
+        height_in=_measure(f.height_in),
+        reach_in=_measure(f.reach_in),
+        stance=_stance(f.stance),
     )
 
 
@@ -425,7 +441,7 @@ def fighter_detail(
     sort first, then newest start time, then newest id (no database-specific
     NULL ordering)."""
     fighter = db.execute(select(UfcFighter).where(UfcFighter.slug == slug)).scalar_one_or_none()
-    if fighter is None:
+    if fighter is None or is_placeholder_name(fighter.name):
         raise HTTPException(
             status_code=404,
             detail={"code": "not_found", "message": "No UFC fighter with that name"},
@@ -493,9 +509,9 @@ def fighter_detail(
         country=fighter.country,
         date_of_birth=fighter.date_of_birth,
         age=age_on(fighter.date_of_birth, now),
-        height_in=fighter.height_in,
-        reach_in=fighter.reach_in,
-        stance=fighter.stance,
+        height_in=_measure(fighter.height_in),
+        reach_in=_measure(fighter.reach_in),
+        stance=_stance(fighter.stance),
         record=records_for(db, [fighter.id]).get(fighter.id),
         bouts=out,
     )

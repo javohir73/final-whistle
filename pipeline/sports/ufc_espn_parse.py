@@ -307,6 +307,16 @@ def parse_odds(odds_doc: dict | None, fighter_a_id: str, fighter_b_id: str) -> l
     return lines
 
 
+def _positive(value: float | None) -> float | None:
+    """The feed sends 0 for an unknown measurement."""
+    return value if value is not None and value > 0 else None
+
+
+def _stance(value: str | None) -> str | None:
+    """The feed sends "--" for an unknown stance."""
+    return value if value and any(ch.isalpha() for ch in value) else None
+
+
 def parse_fighter(doc: dict | None) -> FighterProfile | None:
     if not isinstance(doc, dict) or doc.get("id") is None:
         return None
@@ -324,10 +334,10 @@ def parse_fighter(doc: dict | None) -> FighterProfile | None:
         provider_id=str(doc["id"]),
         name=name,
         date_of_birth=dob,
-        height_in=_float(doc.get("height")),
-        reach_in=_float(doc.get("reach")),
+        height_in=_positive(_float(doc.get("height"))),
+        reach_in=_positive(_float(doc.get("reach"))),
         weight_lb=_float(doc.get("weight")),
-        stance=_text(_dict(doc.get("stance")).get("text")),
+        stance=_stance(_text(_dict(doc.get("stance")).get("text"))),
         country=_text(doc.get("citizenship")),
         gender=_text(doc.get("gender")),
     )
