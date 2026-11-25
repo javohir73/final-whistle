@@ -654,10 +654,9 @@ class EmailVerificationToken(Base):
 
 
 class Subscription(Base):
-    """FinalWhistle Premium subscription state — one row per user, written by
-    Stripe webhooks (plus a bounded /me self-heal). `status` uses Stripe's own
-    vocabulary (trialing/active/past_due/canceled/incomplete/...); entitlement
-    is derived in app.billing.is_premium, never stored."""
+    """Retired FinalWhistle Premium subscription state — one row per user. The
+    billing code is gone; the table is kept (unused) so no migration is needed.
+    `status` used Stripe's own vocabulary (trialing/active/past_due/...)."""
 
     __tablename__ = "subscriptions"
 

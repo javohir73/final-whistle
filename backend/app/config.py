@@ -161,25 +161,6 @@ class Settings(BaseSettings):
     # comma-separated list of sandbox keys to require an X-API-Key header.
     api_keys_allowed: str = ""
 
-    # Billing (FinalWhistle Premium — docs/superpowers/specs/2026-08-11-premium-
-    # subscriptions-design.md). All empty by default => billing is OFF: endpoints
-    # 503, no UI renders, site behaves exactly as before. Prices are Stripe Price
-    # IDs — amounts live in Stripe, never in code.
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
-    stripe_price_monthly: str = ""
-    stripe_price_annual: str = ""
-
-    @property
-    def billing_enabled(self) -> bool:
-        """Billing needs the secret key, the webhook signing secret AND both
-        prices; anything less is OFF. The signing secret is not optional: without
-        it checkout still charges the card but every webhook fails verification
-        (400), so no Subscription row is ever written and the user gets nothing.
-        A 503 on checkout is the safe failure mode for a partial config."""
-        return bool(self.stripe_secret_key and self.stripe_webhook_secret
-                    and self.stripe_price_monthly and self.stripe_price_annual)
-
     @property
     def allowed_api_keys(self) -> set[str]:
         """Sandbox API keys admitted to /v1 (empty => gate disabled, /v1 public)."""
