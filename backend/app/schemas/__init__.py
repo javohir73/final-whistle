@@ -581,6 +581,8 @@ class MarketsOut(BaseModel):
     # a usable clock; otherwise the payload is the frozen pre-match markets.
     is_live: bool = False
     live: LiveMarketsStateOut | None = None
+
+
 # ---- UFC (public, read-only; no model fields until phase 4) ----
 class UfcRecordOut(BaseModel):
     wins: int
