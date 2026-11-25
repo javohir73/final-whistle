@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 logger = logging.getLogger(__name__)
 
 from app.api import (
-    activity, auth, billing as billing_api, brackets, bridge, groups, intel, internal, knockout, leaderboard,
+    activity, auth, brackets, bridge, groups, intel, internal, knockout, leaderboard,
     league_score_predictions,
     markets, market_record, match_picks, matches, model_record, movers, nrl_intel, nrl_live, nrl_players, nrl_tips,
     premium_markets,
@@ -93,11 +93,6 @@ async def cache_control(request: Request, call_next):
         or path.startswith("/api/research")
         or path.startswith("/api/brackets")
         or path.startswith("/api/match-picks")
-        # Billing: per-user by construction, and /setup-intent's body is a Stripe
-        # client secret. Every route here is a POST, which a shared cache won't
-        # store uninvited — but the responses travel through Vercel's
-        # /backend-api/* rewrite, so state it rather than lean on the default.
-        or path.startswith("/api/billing")
         # Beat-the-AI loop (Slice 2): device-keyed, per-caller like the routes
         # above -- /submit and /claim change state, /mine and /summary read
         # back one device's own tips. NOT /api/nrl/tips or /leaderboard, which
@@ -302,7 +297,6 @@ def provider_sample() -> dict:
 
 
 app.include_router(auth.router)
-app.include_router(billing_api.router)
 app.include_router(matches.router)
 app.include_router(predictions.router)
 app.include_router(teams.router)

@@ -58,11 +58,3 @@ services:
         sync: false # dashboard-managed so a Blueprint re-sync won't revert it. Code defaults to off; set "true" (with a live key set) in the dashboard to activate live updates.
       - key: PRESERVE_MATCH_STOP_STATUSES
         sync: false # rolling-deploy gate; leave unset/false until the tolerant frontend is verified, then enable
-      - key: STRIPE_SECRET_KEY
-        sync: false # FinalWhistle Premium; billing stays fully OFF (endpoints 503) unless all four STRIPE_* vars are set
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false # signing secret for /api/billing/webhook; required — without it webhooks fail verification and nothing is ever delivered
-      - key: STRIPE_PRICE_MONTHLY
-        sync: false # Stripe Price ID for the monthly plan (amounts live in Stripe, never in code)
-      - key: STRIPE_PRICE_ANNUAL
-        sync: false # Stripe Price ID for the annual plan

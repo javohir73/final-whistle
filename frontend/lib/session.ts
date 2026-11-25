@@ -21,13 +21,6 @@ export interface SessionUser {
   // Optional: a cached hint from before this field existed won't have it, so
   // `undefined` means "unknown" (don't show the verify banner until /me confirms).
   email_verified?: boolean;
-  // FinalWhistle Premium entitlement. Optional: a cached hint from before this
-  // field existed won't have it (undefined = unknown, treat as not premium).
-  premium?: boolean;
-  // Raw Stripe subscription status (null when no subscription) — drives the
-  // account menu's "Manage subscription" item for subscribers whose payment
-  // failed (past_due, unpaid, incomplete) but who are no longer premium.
-  premium_status?: string | null;
 }
 
 /** Error carrying the backend's {code,message} so callers can show friendly copy. */
@@ -282,10 +275,6 @@ export interface MatchMarketsPayload {
 
 export const getMatchMarkets = (matchId: number | string) =>
   request<MatchMarketsPayload>(`/api/matches/${matchId}/markets`);
-
-// ---- Billing (existing subscribers only) ----
-export const createPortalSession = () =>
-  request<{ url: string }>("/api/billing/portal-session", { method: "POST" });
 
 // ---- Anonymous device activity ping (D7/D14 retention cohorts) ----
 // A device id is NOT auth — it identifies a browser/install, not a person,
