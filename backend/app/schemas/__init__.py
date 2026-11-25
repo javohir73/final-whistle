@@ -777,3 +777,54 @@ class UfcPickSubmitOut(BaseModel):
     pick: UfcPickOut
     model: UfcModelCallOut | None
     disclaimer: str
+
+
+class UfcMyBoutOut(BaseModel):
+    bout_id: int
+    status: str
+    fighter_a: str
+    fighter_b: str
+    locks_at: datetime | None
+    picks_open: bool
+    pick: UfcPickOut | None
+    model: UfcModelCallOut | None
+
+
+class UfcChangedPickOut(BaseModel):
+    bout_id: int
+    fighter_a: str
+    fighter_b: str
+    pick: UfcPickOut
+    replaced_by_id: int | None
+
+
+class UfcPicksTotalsOut(BaseModel):
+    picked: int
+    graded: int
+    points: int
+    winner_method: int
+
+
+class UfcMyPicksOut(BaseModel):
+    event: UfcEventRefOut
+    handle: str | None
+    bouts: list[UfcMyBoutOut]
+    changed_picks: list[UfcChangedPickOut]
+    totals: UfcPicksTotalsOut
+    disclaimer: str
+
+
+class UfcPicksCardOut(BaseModel):
+    slug: str
+    name: str
+    first_bout_utc: datetime | None
+    picked: int
+    graded: int
+    points: int
+    winner_method: int
+
+
+class UfcPicksSummaryOut(BaseModel):
+    handle: str | None
+    cards: list[UfcPicksCardOut]
+    totals: UfcPicksTotalsOut
