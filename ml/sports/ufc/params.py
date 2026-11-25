@@ -1,0 +1,87 @@
+"""Parameter file for the UFC models (Elo section plus a fitted form section).
+
+Loading falls back per section so a missing or damaged file never breaks the
+pipeline. Elo: a missing or malformed `elo` section, or an unreadable file,
+gives `EloParams()` (k 60, history from 2016, no decay: the spike's best 2016
+setting). Form: `None` when the section is missing or malformed, when its
+`features` differ from `FEATURES` (a stale file), when the list lengths
+differ, or when any mean is not 0. There are no default form weights: without a
+fitted section the form model does not run and only Elo rows are written.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import asdict, dataclass
+from datetime import date
+from pathlib import Path
+
+from ml.sports.ufc.elo import EloParams
+from ml.sports.ufc.features import FEATURES
+from ml.sports.ufc.model import FormParams
+
+log = logging.getLogger(__name__)
+
+DEFAULT_PARAMS_FILE = Path(__file__).with_name("params.json")
+
+
+@dataclass(frozen=True)
+class UfcParams:
+    elo: EloParams
+    form: FormParams | None
+
+
+def _parse_elo(data: object) -> EloParams:
+    try:
+        d = data["elo"]  # type: ignore[index]
+        return EloParams(
+            version=str(d["version"]), k=float(d["k"]), history_from=int(d["history_from"]),
+            decay=float(d["decay"]), scale=float(d["scale"]), start=float(d["start"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return EloParams()
+
+
+def _parse_form(data: object) -> FormParams | None:
+    try:
+        d = data["form"]  # type: ignore[index]
+        features = tuple(d["features"])
+        if features != FEATURES:
+            return None
+        weights = tuple(float(v) for v in d["weights"])
+        means = tuple(float(v) for v in d["means"])
+        scales = tuple(float(v) for v in d["scales"])
+        if not (len(weights) == len(means) == len(scales) == len(features)):
+            return None
+        if any(m != 0 for m in means):
+            return None
+        return FormParams(
+            version=str(d["version"]), features=features, weights=weights, means=means,
+            scales=scales, c=float(d["c"]),
+            train_from=date.fromisoformat(d["train_from"]),
+            train_to=date.fromisoformat(d["train_to"]),
+            fitted_on=date.fromisoformat(d["fitted_on"]),
+            n_bouts=int(d["n_bouts"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def load_params(path: Path | None = None) -> UfcParams:
+    try:
+        data = json.loads((path or DEFAULT_PARAMS_FILE).read_text())
+    except (OSError, ValueError):
+        return UfcParams(EloParams(), None)
+    return UfcParams(_parse_elo(data), _parse_form(data))
+
+
+def save_params(params: UfcParams, path: Path | None = None) -> None:
+    out: dict[str, object] = {"elo": asdict(params.elo)}
+    if params.form is not None:
+        form = asdict(params.form)
+        for key in ("features", "weights", "means", "scales"):
+            form[key] = list(form[key])
+        for key in ("train_from", "train_to", "fitted_on"):
+            form[key] = form[key].isoformat()
+        out["form"] = form
+    (path or DEFAULT_PARAMS_FILE).write_text(json.dumps(out, indent=2) + "\n")

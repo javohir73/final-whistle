@@ -1,0 +1,10 @@
+{
+  "elo": {
+    "version": "ufc-elo-v0.1",
+    "k": 60.0,
+    "history_from": 2016,
+    "decay": 0.0,
+    "scale": 400.0,
+    "start": 1500.0
+  }
+}
