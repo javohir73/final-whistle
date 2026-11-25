@@ -2,8 +2,6 @@ import { render, screen } from "@testing-library/react";
 import { UfcFightView } from "./UfcFightView";
 import { DECISION_BOUT, KO_BOUT, SCHEDULED_BOUT } from "./fixtures.testutil";
 
-beforeEach(() => window.localStorage.setItem("pp:timezone", "Australia/Sydney"));
-
 it("shows a scheduled fight with the tape only", () => {
   render(<UfcFightView bout={SCHEDULED_BOUT} />);
   expect(screen.getByRole("link", { name: /UFC Fight Night: Adesanya vs Magomedov/ })).toHaveAttribute(
@@ -21,4 +19,10 @@ it("shows stats for a finished fight and judges only when set", () => {
   expect(screen.queryByText("Judges' scorecards")).toBeNull();
   rerender(<UfcFightView bout={DECISION_BOUT} />);
   expect(screen.getByText("Judges' scorecards")).toBeInTheDocument();
+});
+
+it("puts the back link in a nav with space before the hero", () => {
+  render(<UfcFightView bout={SCHEDULED_BOUT} />);
+  const link = screen.getByRole("link", { name: /UFC Fight Night/ });
+  expect(link.closest("nav")).toHaveClass("pb-5");
 });

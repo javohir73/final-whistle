@@ -14,7 +14,9 @@ export function UfcFightView({ bout }: { bout: UfcBoutDetail }) {
   const { tz } = useTimezone();
   return (
     <>
-      <BackLink href={eventHref(bout.event.slug)}>{bout.event.name}</BackLink>
+      <nav aria-label="Back" className="pb-5">
+        <BackLink href={eventHref(bout.event.slug)}>{bout.event.name}</BackLink>
+      </nav>
       <FightHero bout={bout} tz={tz} />
       <Main className="mx-auto mt-6 w-full max-w-[900px]">
         <TaleOfTheTape bout={bout} />

@@ -1,7 +1,7 @@
-import { Card, CardHead, Note, Table, TableScroll, Td } from "@/components/ui";
+import { Card, CardHead, Note } from "@/components/ui";
 import { controlTimeText } from "@/lib/ufcDisplay";
 import type { UfcBoutDetail } from "@/lib/ufcTypes";
-import { CompareTable, DASH, type CompareRow } from "./TaleOfTheTape";
+import { CompareTable, DASH, type CompareRow } from "./CompareTable";
 
 const known = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n);
 const count = (n: number | null) => (known(n) ? String(n) : DASH);
@@ -20,12 +20,12 @@ export function FightStatsCard({ bout }: { bout: UfcBoutDetail }) {
         { label: "Submission attempts", a: count(s.a.submission_attempts), b: count(s.b.submission_attempts) },
         { label: "Reversals", a: count(s.a.reversals), b: count(s.b.reversals) },
         { label: "Control time", a: controlTimeText(s.a.control_seconds), b: controlTimeText(s.b.control_seconds) },
-      ]
+      ].filter((r) => r.a !== DASH || r.b !== DASH)
     : [];
   return (
     <Card pad aria-label="Fight stats">
       <CardHead title="Fight stats" />
-      {s ? (
+      {rows.length > 0 ? (
         <div className="mt-2"><CompareTable bout={bout} rows={rows} /></div>
       ) : (
         <Note className="mt-3">Fight stats are not available yet.</Note>
@@ -38,24 +38,15 @@ export function JudgesCard({ bout }: { bout: UfcBoutDetail }) {
   const j = bout.judges;
   const n = j ? Math.min(j.a.length, j.b.length) : 0;
   if (!j || n === 0) return null;
+  const rows: CompareRow[] = Array.from({ length: n }, (_, i) => ({
+    label: `Judge ${i + 1}`,
+    a: String(j.a[i]),
+    b: String(j.b[i]),
+  }));
   return (
     <Card pad aria-label="Judges' scorecards">
       <CardHead title="Judges' scorecards" />
-      <p className="mt-1 text-notes text-muted">
-        {bout.fighter_a.name}–{bout.fighter_b.name}
-      </p>
-      <TableScroll>
-        <Table>
-          <tbody>
-            {Array.from({ length: n }, (_, i) => (
-              <tr key={i}>
-                <Td align="left" className="text-muted">{`Judge ${i + 1}`}</Td>
-                <Td align="right" className="font-semibold tabular-nums text-ink">{`${j.a[i]}–${j.b[i]}`}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </TableScroll>
+      <div className="mt-2"><CompareTable bout={bout} rows={rows} /></div>
     </Card>
   );
 }

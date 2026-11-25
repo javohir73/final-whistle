@@ -9,7 +9,6 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
 beforeEach(() => {
   mockBout.mockReset();
-  window.localStorage.setItem("pp:timezone", "Australia/Sydney");
 });
 
 it("has route settings", async () => {
@@ -58,4 +57,18 @@ it("falls back for an unknown or malformed fight", async () => {
   expect((await generateMetadata(params("abc"))).title).toBe("UFC fight — FinalWhistle");
   mockBout.mockRejectedValue(new Error("502"));
   expect((await generateMetadata(params("1"))).title).toBe("UFC fight — FinalWhistle");
+});
+
+it("does not promise a result for a cancelled fight", async () => {
+  mockBout.mockResolvedValue({ ...SCHEDULED_BOUT, status: "cancelled" });
+  expect((await generateMetadata(params("1"))).description).toBe("This fight was cancelled.");
+});
+
+it("does not invent a weight class", async () => {
+  mockBout.mockResolvedValue({ ...SCHEDULED_BOUT, weight_class: null });
+  const d = (await generateMetadata(params("1"))).description as string;
+  expect(d).toMatch(/^UFC fight over 5 rounds\./);
+  expect(d).not.toMatch(/confirmed/);
+  mockBout.mockResolvedValue({ ...SCHEDULED_BOUT, weight_class: null, scheduled_rounds: null });
+  expect(((await generateMetadata(params("1"))).description as string)).toMatch(/^UFC fight\. /);
 });

@@ -20,10 +20,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const bout = await getUfcBoutServer(id).catch(() => null);
   if (!bout) return fallback;
   const line = resultLine(bout);
+  const rounds = bout.scheduled_rounds ? ` over ${bout.scheduled_rounds} rounds` : "";
   const description =
-    bout.status === "finished" && line
-      ? `${line}. Fight stats and the tale of the tape.`
-      : `${bout.weight_class || "Weight class to be confirmed"} fight${bout.scheduled_rounds ? ` over ${bout.scheduled_rounds} rounds` : ""}. The tale of the tape now, the result and fight stats once it is over.`;
+    bout.status === "cancelled"
+      ? "This fight was cancelled."
+      : bout.status === "finished" && line
+        ? `${line}. Fight stats and the tale of the tape.`
+        : `${bout.weight_class ? `${bout.weight_class} fight` : "UFC fight"}${rounds}. The tale of the tape now, the result and fight stats once it is over.`;
   return {
     title: `${bout.fighter_a.name} v ${bout.fighter_b.name} — ${bout.event.name} | ${APP_NAME}`,
     description,

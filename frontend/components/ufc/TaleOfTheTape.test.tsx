@@ -3,8 +3,9 @@ import { TaleOfTheTape } from "./TaleOfTheTape";
 import { SCHEDULED_BOUT, UNKNOWN_TAPE_BOUT } from "./fixtures.testutil";
 
 const rowText = (label: string) => {
-  const row = screen.getByText(label, { selector: "th, td" }).closest("tr") as HTMLElement;
-  return within(row).getAllByRole("cell").map((c) => c.textContent);
+  const row = screen.getByRole("rowheader", { name: label }).closest("tr") as HTMLElement;
+  const cells = within(row).getAllByRole("cell").map((c) => c.textContent);
+  return [cells[0], label, cells[1]];
 };
 
 it("shows known values, dashes for one unknown side, and drops all-unknown rows", () => {
@@ -46,4 +47,10 @@ it("says so when nothing is known", () => {
 it("keeps the b side in the b column", () => {
   render(<TaleOfTheTape bout={{ ...SCHEDULED_BOUT, tape: { a: SCHEDULED_BOUT.tape.b, b: SCHEDULED_BOUT.tape.a } }} />);
   expect(rowText("Reach")).toEqual(["–", "Reach", "80″"]);
+});
+
+it("makes the label the row header of its values", () => {
+  render(<TaleOfTheTape bout={SCHEDULED_BOUT} />);
+  const cell = screen.getByText("6′ 4″");
+  expect(within(cell.closest("tr") as HTMLElement).getByRole("rowheader")).toHaveTextContent("Height");
 });
