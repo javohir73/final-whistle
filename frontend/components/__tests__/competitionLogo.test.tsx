@@ -68,4 +68,17 @@ describe("CompetitionLogo", () => {
     expect(image).toHaveAttribute("height", "72");
     expect(image).toHaveClass("object-cover", "object-center");
   });
+
+  it("draws UFC as a round text mark, since it has no logo file", () => {
+    const { container, rerender } = render(<CompetitionLogo competition="ufc" size={32} />);
+    const shell = container.querySelector('[data-competition-logo="ufc"]');
+    expect(shell?.querySelector("img[src]")).toBeNull();
+    expect(shell).toHaveTextContent("UFC");
+    expect(shell?.querySelector('[role="img"]')).toHaveAttribute("aria-label", "UFC");
+
+    rerender(<CompetitionLogo competition="ufc" size={32} decorative />);
+    const hidden = container.querySelector('[data-competition-logo="ufc"]');
+    expect(hidden?.querySelector('[role="img"]')).toBeNull();
+    expect(hidden?.querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
 });

@@ -11,6 +11,10 @@ jest.mock("@/lib/api", () => ({
   getNrlTipsheetServer: jest.fn(),
 }));
 jest.mock("@/lib/competitionServer", () => ({ readServerCompetition: jest.fn() }));
+const mockRedirect = jest.fn((url: string) => {
+  throw new Error(`NEXT_REDIRECT ${url}`);
+});
+jest.mock("next/navigation", () => ({ redirect: (url: string) => mockRedirect(url) }));
 // Owned by the play-loop track; this suite only checks what the page hands it.
 jest.mock("./LeaderboardClient", () => ({ LeaderboardClient: () => null }));
 
@@ -72,4 +76,10 @@ it("is titled as the leaderboard, competition-neutral, not a bracket board", () 
   for (const text of [String(metadata.title), String(metadata.description)]) {
     expect(text).not.toMatch(/bracket|world cup|wc26|premier league|nrl/i);
   }
+});
+
+it("sends UFC (a crafted query or an old cookie) to the UFC section, which has no leaderboard", async () => {
+  await expect(render({ competition: "ufc" })).rejects.toThrow("NEXT_REDIRECT /ufc");
+  mockResolved.mockResolvedValue("ufc");
+  await expect(render()).rejects.toThrow("NEXT_REDIRECT /ufc");
 });

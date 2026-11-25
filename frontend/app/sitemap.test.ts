@@ -73,7 +73,11 @@ describe("sitemap", () => {
     await sitemap();
 
     expect(fetchMock).toHaveBeenCalled();
-    for (const [url] of fetchMock.mock.calls) {
+    // UFC has no competition filter of its own; only the football/NRL calls
+    // are checked here.
+    const scoped = fetchMock.mock.calls.filter(([url]) => !String(url).includes("/api/ufc/"));
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const [url] of scoped) {
       expect(url).toMatch(/[?&]competition=/);
     }
   });
@@ -150,5 +154,70 @@ describe("sitemap", () => {
     global.fetch = mockApi({ epl: EMPTY }) as unknown as typeof fetch;
     const urls = (await sitemap()).map((e) => e.url);
     expect(urls.length).toBe(new Set(urls).size);
+  });
+
+  it("lists the UFC section and its upcoming cards", async () => {
+    global.fetch = jest.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.includes("/api/ufc/")
+            ? { events: [{ slug: "ufc-fight-night-adesanya-vs-magomedov-2026-12-05" }] }
+            : [],
+      } as Response),
+    ) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls).toEqual(
+      expect.arrayContaining([
+        `${SITE}/ufc`,
+        `${SITE}/ufc/events`,
+        `${SITE}/ufc/event/ufc-fight-night-adesanya-vs-magomedov-2026-12-05`,
+      ]),
+    );
+  });
+
+  it("caps UFC card entries at 20 and asks for no more", async () => {
+    const fetchMock = jest.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.includes("/api/ufc/")
+            ? { events: Array.from({ length: 25 }, (_, i) => ({ slug: `card-${i}` })) }
+            : [],
+      } as Response),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls.filter((u) => u.startsWith(`${SITE}/ufc/event/`))).toHaveLength(20);
+    const ufcCall = fetchMock.mock.calls.find(([u]) => String(u).includes("/api/ufc/events"));
+    expect(String(ufcCall?.[0])).toContain("limit=20");
+  });
+
+  it("still lists the UFC index pages when the UFC feed fails", async () => {
+    global.fetch = jest.fn((url: string) =>
+      url.includes("/api/ufc/")
+        ? Promise.reject(new Error("down"))
+        : Promise.resolve({ ok: true, json: async () => [] } as Response),
+    ) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls).toContain(`${SITE}/ufc`);
+    expect(urls).toContain(`${SITE}/ufc/events`);
+    expect(urls.some((u) => u.startsWith(`${SITE}/ufc/event/`))).toBe(false);
+  });
+});
+
+describe("UFC slugs", () => {
+  it("keeps only slugs that are valid card slugs", async () => {
+    global.fetch = jest.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.includes("/api/ufc/")
+            ? { events: [{ slug: "ufc-300-2024-04-13" }, { slug: "Bad Slug/../x" }, { slug: "UPPER" }, { slug: "a".repeat(221) }] }
+            : [],
+      } as Response),
+    ) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url).filter((u) => u.startsWith(`${SITE}/ufc/event/`));
+    expect(urls).toEqual([`${SITE}/ufc/event/ufc-300-2024-04-13`]);
   });
 });

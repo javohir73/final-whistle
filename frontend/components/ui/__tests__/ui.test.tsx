@@ -20,6 +20,7 @@ import {
   PageLayout,
   Main,
   Rail,
+  ResultBox,
   Segmented,
   Td,
   TextLink,
@@ -141,6 +142,40 @@ describe("FixtureRow", () => {
     expect(screen.getByRole("group", { name: "Newcastle 1–0 Arsenal" })).toBeInTheDocument();
     expect(screen.getByText("1–0")).toHaveClass("bg-ink", "text-white");
     expect(screen.getByText("Exact score")).toBeInTheDocument();
+  });
+
+  it("renders a plain side exactly as before: semibold name, no muted or struck classes", () => {
+    render(<FixtureRow home={home} away={away} kickoff="4:30 am" />);
+    const cls = screen.getByText("Newcastle").className;
+    expect(cls).toContain("font-semibold");
+    expect(cls).not.toContain("text-muted");
+    expect(cls).not.toContain("font-normal");
+    expect(cls).not.toContain("line-through");
+    expect(cls).toBe(
+      "min-w-0 break-words text-sm font-semibold leading-snug hyphens-auto min-[900px]:text-base underline-offset-[3px] group-hover/spine:underline text-right",
+    );
+  });
+
+  it("mutes a side's name", () => {
+    render(<FixtureRow home={{ ...home, muted: true }} away={away} kickoff="4:30 am" />);
+    const cls = screen.getByText("Newcastle").className;
+    expect(cls).toContain("font-normal");
+    expect(cls).toContain("text-muted");
+    expect(cls).not.toContain("font-semibold");
+    expect(screen.getByText("Arsenal").className).toContain("font-semibold");
+  });
+
+  it("strikes a side's name through", () => {
+    render(<FixtureRow home={home} away={{ ...away, struck: true }} kickoff="4:30 am" />);
+    const cls = screen.getByText("Arsenal").className;
+    expect(cls).toContain("line-through");
+    expect(cls).toContain("text-muted");
+  });
+
+  it("puts text in the ink result box", () => {
+    render(<ResultBox>KO R2</ResultBox>);
+    const box = screen.getByText("KO R2");
+    expect(box).toHaveClass("bg-ink", "text-white", "text-notes");
   });
 
   it("shows the You/Model pair with the user's score in brand", () => {

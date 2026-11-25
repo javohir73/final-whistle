@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import {
   SiteSearch,
   searchGroups,
+  goToItems,
   pageItems,
   nearestMatches,
   contextFor,
@@ -177,4 +178,13 @@ describe("matches around now", () => {
     expect(links[1]).toHaveTextContent("Full time 2–1");
     expect(matches.textContent).not.toMatch(/%|3–0|4–0|61|77/);
   });
+});
+
+it("gives UFC its own pages, Card and Events, in the page list and the empty-query list", () => {
+  const own = [
+    ["Card", "/ufc"],
+    ["Events", "/ufc/events"],
+  ];
+  expect(pageItems("ufc").filter((p) => p.context === "UFC").map((p) => [p.label, p.href])).toEqual(own);
+  expect(goToItems("ufc").slice(0, 2).map((p) => [p.label, p.href])).toEqual(own);
 });

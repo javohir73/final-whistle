@@ -4,7 +4,7 @@ import { CompetitionLogo } from "@/components/CompetitionLogo";
 import { useCompetitionScope } from "@/components/TournamentProvider";
 import { ChevronDownIcon, Menu, MenuItem, MenuLabel, MenuSeparator, PILL_CLASS } from "@/components/ui";
 import { COMPETITIONS, type Competition, type CompetitionId } from "@/lib/sports";
-import { writeCompetitionCookie } from "@/lib/competitionPrefs";
+import { canRemember, writeCompetitionCookie } from "@/lib/competitionPrefs";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 const SECTIONS: Array<{ heading: string; includes: (c: Competition) => boolean }> = [
   { heading: "Football", includes: (c) => c.sport === "football" && !c.archived },
   { heading: "Rugby league", includes: (c) => c.sport === "nrl" && !c.archived },
+  { heading: "Mixed martial arts", includes: (c) => c.sport === "ufc" && !c.archived },
   { heading: "Past tournaments", includes: (c) => c.archived },
 ];
 
@@ -37,7 +38,8 @@ export function CompetitionOverlay({
     if (id === active) return;
     // Written now rather than left to the navigation, so the provider's URL
     // sync sees no change and the switch is counted once, as "switcher".
-    writeCompetitionCookie(id);
+    // UFC is not remembered (no picks game; see canRemember).
+    if (canRemember(id)) writeCompetitionCookie(id);
     trackEvent("competition_switch", { from: active, to: id, source: "switcher" });
   };
 

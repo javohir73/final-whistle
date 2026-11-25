@@ -161,6 +161,47 @@ describe("the shell tab template (navTabsFor), direction G", () => {
     expect(navTabsFor("nrl").map((t) => t.label)).toEqual(["Matches", "Ladder", "My tips", "Leaderboard"]);
   });
 
+  it("gives UFC its own namespace", () => {
+    expect(competitionInPathname("/ufc")).toBe("ufc");
+    expect(competitionInPathname("/ufc/fight/12")).toBe("ufc");
+    expect(competitionInPathname("/ufcx")).toBeNull();
+    expect(isWiredCompetition("ufc")).toBe(true);
+    expect(isWiredFootballCompetition("ufc")).toBe(false);
+    expect(competitionsForSport("ufc").map((c) => c.id)).toEqual(["ufc"]);
+    expect(COMPETITIONS.ufc).toMatchObject({
+      format: "cards",
+      hasTips: false,
+      logoSrc: null,
+      archived: false,
+      recordPath: null,
+      terms: { fixtures: "Fights", standings: "Rankings" },
+    });
+  });
+
+  it("gives UFC two tabs, Card and Events", () => {
+    expect(navTabsFor("ufc").map((t) => [t.id, t.label, t.href])).toEqual([
+      ["matches", "Card", "/ufc"],
+      ["table", "Events", "/ufc/events"],
+    ]);
+    const [card, events] = navTabsFor("ufc");
+    for (const p of ["/ufc", "/ufc/event/x-2026-12-05", "/ufc/fight/1", "/ufc/fighter/jiri-prochazka"]) {
+      expect(isNavTabActive(card, p)).toBe(true);
+    }
+    expect(isNavTabActive(card, "/ufc/events")).toBe(false);
+    expect(isNavTabActive(events, "/ufc/events")).toBe(true);
+    expect(tableTabLabel("ufc")).toBe("Events");
+    expect(competitionLinks("ufc")).toEqual({
+      home: "/ufc",
+      fixtures: "/ufc/events",
+      table: "/ufc/events",
+      tableLabel: "Events",
+      picks: "/play",
+      picksLabel: "My picks",
+      leaderboard: "/leaderboard",
+      bracket: null,
+    });
+  });
+
   it("keeps the World Cup's groups and bracket reachable", () => {
     expect(navTabsFor("wc26").map((t) => t.id)).toEqual(["matches", "table", "bracket", "mypicks", "leaderboard"]);
     expect(navTabsFor("wc26").map((t) => t.label)).toEqual(["Matches", "Groups", "Bracket", "My picks", "Leaderboard"]);
@@ -189,6 +230,7 @@ describe("the shell tab template (navTabsFor), direction G", () => {
       const table = navTabsFor(id).find((t) => t.id === "table")!.href;
       const c = COMPETITIONS[id];
       if (c.sport === "nrl") expect(table).toBe("/nrl/ladder");
+      else if (c.sport === "ufc") expect(table).toBe("/ufc/events");
       else expect(table.endsWith(c.hasGroups ? "/groups" : "/standings")).toBe(true);
       expect(competitionLinks(id).table).toBe(table);
     }

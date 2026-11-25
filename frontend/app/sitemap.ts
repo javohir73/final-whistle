@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/constants";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { isEventSlug } from "@/lib/ufcDisplay";
 
 const SITE = SITE_URL;
 const API = process.env.NEXT_PUBLIC_API_URL || "https://pitchprophet-api.onrender.com";
@@ -85,8 +86,45 @@ function nrlEntries(): MetadataRoute.Sitemap {
   }));
 }
 
+/** Most upcoming UFC cards listed (and requested). Fight and fighter pages are
+ *  not listed: only the section index, the events list and upcoming cards. */
+const UFC_SITEMAP_EVENTS = 20;
+
+async function ufcEntries(): Promise<MetadataRoute.Sitemap> {
+  let slugs: string[] = [];
+  try {
+    const res = await fetch(
+      `${API}/api/ufc/events?when=upcoming&limit=${UFC_SITEMAP_EVENTS}`,
+      { next: { revalidate: 3600 } },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { events?: unknown };
+      if (data && Array.isArray(data.events)) {
+        slugs = data.events
+          .map((e) => (e as { slug?: unknown } | null)?.slug)
+          .filter((s): s is string => typeof s === "string" && isEventSlug(s))
+          .slice(0, UFC_SITEMAP_EVENTS);
+      }
+    }
+  } catch {
+    slugs = [];
+  }
+  return [
+    { url: `${SITE}/ufc`, changeFrequency: "daily", priority: 0.8 },
+    { url: `${SITE}/ufc/events`, changeFrequency: "daily", priority: 0.6 },
+    ...slugs.map((slug) => ({
+      url: `${SITE}/ufc/event/${slug}`,
+      changeFrequency: "daily" as const,
+      priority: 0.6,
+    })),
+  ];
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const perCompetition = await Promise.all(FOOTBALL.map(competitionEntries));
+  const [perCompetition, ufc] = await Promise.all([
+    Promise.all(FOOTBALL.map(competitionEntries)),
+    ufcEntries(),
+  ]);
 
   const platform: MetadataRoute.Sitemap = [
     { url: SITE, changeFrequency: "daily", priority: 1 },
@@ -107,5 +145,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
   ];
 
-  return [...platform, ...perCompetition.flat(), ...nrlEntries()];
+  return [...platform, ...perCompetition.flat(), ...nrlEntries(), ...ufc];
 }

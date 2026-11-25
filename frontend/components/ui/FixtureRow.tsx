@@ -26,7 +26,14 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-export type FixtureSide = { name: string; crest?: ReactNode };
+export type FixtureSide = {
+  name: string;
+  crest?: ReactNode;
+  /** The loser: normal weight, muted. */
+  muted?: boolean;
+  /** Called off: struck through and muted. Say why in text elsewhere. */
+  struck?: boolean;
+};
 
 export type FixtureRowProps = {
   home: FixtureSide;
@@ -63,6 +70,11 @@ export function KickoffBox({ children, className }: { children: ReactNode; class
   return <span className={cn(BOX, "bg-chip text-notes text-ink", className)}>{children}</span>;
 }
 
+/** The ink box with text instead of a score, e.g. "KO R2". */
+export function ResultBox({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={cn(BOX, "bg-ink text-notes text-white", className)}>{children}</span>;
+}
+
 export function ScoreBox({
   home,
   away,
@@ -78,6 +90,13 @@ export function ScoreBox({
     </span>
   );
 }
+
+const sideName = (side: FixtureSide) =>
+  cn(
+    NAME,
+    side.muted && "font-normal text-muted",
+    side.struck && "line-through text-muted",
+  );
 
 export function FixtureRow({
   home,
@@ -111,11 +130,11 @@ export function FixtureRow({
 
   const spineContent = (
     <>
-      <span className={cn(NAME, "text-right")}>{home.name}</span>
+      <span className={cn(sideName(home), "text-right")}>{home.name}</span>
       <span className="flex items-center justify-center">{home.crest}</span>
       {middle}
       <span className="flex items-center justify-center">{away.crest}</span>
-      <span className={NAME}>{away.name}</span>
+      <span className={sideName(away)}>{away.name}</span>
     </>
   );
 

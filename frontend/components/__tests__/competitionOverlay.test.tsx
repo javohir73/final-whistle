@@ -76,13 +76,17 @@ describe("menu", () => {
       expect.arrayContaining(enabled.map((c) => c.basePath)),
     );
     expect(items).toHaveLength(enabled.length);
-    for (const item of items) expect(item.querySelector("img")).not.toBeNull();
+    // UFC has no logo file, so its mark is a text monogram, not an img; every other row has a real logo.
+    for (const item of items) {
+      expect(item.querySelector("[data-competition-logo]")).not.toBeNull();
+      if (item.getAttribute("href") !== "/ufc") expect(item.querySelector("img")).not.toBeNull();
+    }
   });
 
-  it("groups live football, rugby league and past tournaments", () => {
+  it("groups live football, rugby league, mixed martial arts and past tournaments", () => {
     const menu = openAt("/", "Premier League");
     const groups = within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"));
-    expect(groups).toEqual(["Football", "Rugby league", "Past tournaments"]);
+    expect(groups).toEqual(["Football", "Rugby league", "Mixed martial arts", "Past tournaments"]);
     const past = within(menu).getByRole("group", { name: "Past tournaments" });
     expect(within(past).getByRole("menuitem", { name: /World Cup 2026/ })).toHaveAttribute(
       "href",
@@ -113,6 +117,19 @@ it("records a switcher choice once, remembers it, and closes", () => {
     source: "switcher",
   });
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+});
+
+it("records choosing UFC but keeps the previous remembered competition", () => {
+  writeCompetitionCookie("nrl");
+  const menu = openAt("/football/epl", "Premier League");
+  fireEvent.click(within(menu).getByRole("menuitem", { name: /UFC/ }));
+  expect(readCompetitionCookie()).toBe("nrl");
+  expect(mockTrack).toHaveBeenCalledTimes(1);
+  expect(mockTrack).toHaveBeenCalledWith("competition_switch", {
+    from: "epl",
+    to: "ufc",
+    source: "switcher",
+  });
 });
 
 it("does not report re-choosing the current competition", () => {
