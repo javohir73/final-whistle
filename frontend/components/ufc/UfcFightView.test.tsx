@@ -47,8 +47,9 @@ it("puts the back link in a nav with space before the hero", async () => {
 });
 
 it("shows no model card and no gap without a call", async () => {
+  mockNetwork({ mineAnswers: [ok(mine())] });
   render(<UfcFightView bout={BOUT} />);
-  await screen.findByRole("button", { name: "Pick a winner and how they win" }).catch(() => null);
+  await screen.findByRole("button", { name: "Pick a winner and how they win" });
   expect(screen.queryByRole("region", { name: "The model's call" })).toBeNull();
   expect(document.getElementById("model-call")).toBeNull();
   expect(screen.queryByText(/model/i)).toBeNull();

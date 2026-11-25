@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { DECISION_BOUT, KO_BOUT, PLACEHOLDER_BOUT, SCHEDULED_BOUT } from "@/components/ufc/fixtures.testutil";
 import { getUfcBoutServer } from "@/lib/api";
 import FightPage, { generateMetadata, generateStaticParams, revalidate } from "./page";
@@ -25,6 +25,7 @@ it("renders the fight", async () => {
   mockBout.mockResolvedValue(KO_BOUT);
   render(await FightPage(params("1")));
   expect(screen.getByRole("heading", { level: 1, name: "Jiří Procházka v Navajo Stirling" })).toBeInTheDocument();
+  await act(async () => {}); // let the picks fetch settle inside act
 });
 
 it("404s a missing fight", async () => {

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useClock } from "@/components/match/clock";
+import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
 import { Button, CheckIcon, Chip, Segmented, TextLink } from "@/components/ui";
 import { ApiError } from "@/lib/session";
 import {
@@ -24,6 +25,12 @@ import { useUfcPicks, type UfcPicksState } from "./UfcPicksProvider";
 
 const SAVE_FAILED = "Couldn't save your pick. Check your connection and try again.";
 /** Server refusals after which the fight can no longer take this pick: drop the controls for good. */
+/** Developer-facing refusals: the player sees the generic copy, never the server's text. */
+const isAmbiguous = (err: ApiError) => err.status === 408 || err.status >= 500;
+const isDeveloperError = (err: ApiError) =>
+  ["bout_not_found", "forbidden_origin", "invalid_device_id", "bad_pick"].includes(err.code) ||
+  err.code.startsWith("http_") ||
+  err.code === "request_timeout";
 const FINAL_CODES = new Set(["pick_finalized", "fight_locked", "opponent_tba", "fight_cancelled", "fight_changed"]);
 
 /** The pick, inside the fight hero under a hairline (`#pick`, the target of every "Pick winner").
@@ -64,9 +71,20 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
   const lockedRef = useRef<HTMLParagraphElement>(null);
   const focusLocked = useRef(false);
 
+  // A sign-in claim can move this device's picks to an account: forget what this control only knew locally.
+  const identityVersion = useTipsIdentityVersion();
+  const firstIdentity = useRef(identityVersion);
+  useEffect(() => {
+    if (identityVersion === firstIdentity.current) return;
+    setAccepted(null);
+    setBlocked(false);
+    setMessage(null);
+  }, [identityVersion]);
+
   const my = picks.myBout(bout.id);
-  const pick = my?.pick ?? accepted?.pick ?? null;
-  const model = my?.model ?? accepted?.model ?? null;
+  // The server's list wins; a locally kept accepted answer is only for a fight the list does not carry.
+  const pick = my ? my.pick : accepted?.pick ?? null;
+  const model = my ? my.model : accepted?.model ?? null;
 
   useEffect(() => {
     if (!focusLocked.current || !pick || !lockedRef.current) return;
@@ -77,7 +95,7 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
 
   const status = my?.status ?? bout.status;
   const placeholder = isTba(bout.fighter_a) || isTba(bout.fighter_b);
-  const note = message ? (
+  const note = message && (!pick || blocked) ? (
     <p role="alert" className="mt-3 text-notes font-medium text-miss">
       {message}
     </p>
@@ -96,10 +114,13 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === "fight_locked") setMessage("Picks for this fight have closed.");
+        else if (isAmbiguous(err) || isDeveloperError(err)) setMessage(SAVE_FAILED);
         else setMessage(err.message || SAVE_FAILED);
         if (FINAL_CODES.has(err.code)) {
           setBlocked(true);
           picks.retry(); // show what the server really holds
+        } else if (isAmbiguous(err)) {
+          picks.retry(); // the pick may have been stored: look before offering the controls again
         }
       } else {
         setMessage(SAVE_FAILED);
@@ -119,12 +140,16 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
     );
   }
   if (picks.status === "loading") {
+    // Live, finished or cancelled: nothing while loading, for pickers and non-pickers alike.
     if (status !== "scheduled") return null;
     return (
       <Shell>
-        <div role="status" aria-label="Loading your pick…" className="mt-5 flex flex-col items-center gap-6">
+        {/* Roughly the open control's height (fighters, method, lock button, two lines) so little moves. */}
+        <div role="status" aria-label="Loading your pick…" className="mt-5 flex flex-col items-center gap-5">
           <div className="h-16 w-full rounded-[14px] bg-soft" />
+          <div className="h-[72px] w-full max-w-[320px] rounded-[14px] bg-soft" />
           <div className="h-14 w-full rounded-full bg-soft" />
+          <div className="h-10 w-full rounded-[14px] bg-soft" />
         </div>
       </Shell>
     );
@@ -167,18 +192,26 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
       </Shell>
     );
   }
-  if (!my) return null; // the card's list does not carry this fight: nothing true to say
-  if (status === "live" || status === "finished") return note ? <Shell>{note}</Shell> : null;
+  // The card's list does not carry this fight (a changed fight is left out): keep any explanation, else say nothing.
+  if (!my) return note ? <Shell>{note}</Shell> : null;
+  if (status === "finished") return note ? <Shell>{note}</Shell> : null;
   if (status === "cancelled") {
     return (
       <Shell>
-        <p className="mt-3 text-notes text-muted">This fight was cancelled.</p>
+        {!blocked && <p className="mt-3 text-notes text-muted">This fight was cancelled.</p>}
         {note}
       </Shell>
     );
   }
 
-  const open = !blocked && my.picks_open && now != null && pickOpenByClock({ ...bout, status }, now);
+  // The server's lock for this player's fight (earlier of locked_at and the start) beats the cached page's time.
+  const lockIso = my.locks_at ?? bout.scheduled_utc;
+  const open =
+    !blocked &&
+    status === "scheduled" &&
+    my.picks_open &&
+    now != null &&
+    pickOpenByClock({ ...bout, status, scheduled_utc: lockIso }, now);
   if (!open) {
     return (
       <Shell>
@@ -188,12 +221,12 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
           </p>
         )}
         {note}
+        <NextPick bout={bout} picks={picks} now={now} quiet />
       </Shell>
     );
   }
 
   const changed = picks.data?.changed_picks.find((c) => c.replaced_by_id === bout.id);
-  const lockIso = my.locks_at ?? bout.scheduled_utc;
   const ready = winner != null && method != null;
   const names = { a: bout.fighter_a.name, b: bout.fighter_b.name };
   return (
@@ -226,15 +259,17 @@ function PickBody({ bout, picks }: { bout: UfcBoutDetail; picks: UfcPicksState }
         <p aria-hidden="true" className="text-notes text-muted">
           How they win
         </p>
-        <Segmented
-          label="How they win"
-          className="max-w-full [&>button]:px-3 min-[400px]:[&>button]:px-5"
-          items={UFC_PICK_METHODS.map((m) => ({
-            label: methodLabel(m),
-            current: method === m,
-            onSelect: () => setMethod(m),
-          }))}
-        />
+        <fieldset disabled={pending} className="m-0 min-w-0 max-w-full border-0 p-0">
+          <Segmented
+            label="How they win"
+            className="max-w-full [&>button]:px-3 min-[400px]:[&>button]:px-5"
+            items={UFC_PICK_METHODS.map((m) => ({
+              label: methodLabel(m),
+              current: method === m,
+              onSelect: () => setMethod(m),
+            }))}
+          />
+        </fieldset>
       </div>
       <div className="mt-6">
         <Button wide disabled={!ready || pending} aria-describedby="pick-rules" onClick={lockIn}>
@@ -287,11 +322,11 @@ function PickView({
   lockedRef: React.RefObject<HTMLParagraphElement | null>;
 }) {
   const verdict = status === "finished" ? pickVerdict(pick) : null;
-  const unscored = status === "cancelled" || pick.state === "void";
+  const unscored = status === "cancelled" || (pick.state === "void" && status !== "finished");
   let line: string | null;
   if (status === "cancelled") line = "Cancelled. This pick won't be scored.";
-  else if (pick.state === "void") line = "Void. This pick won't be scored.";
   else if (status === "finished") line = verdict ? null : "Locked. Points land when the result is graded.";
+  else if (pick.state === "void") line = "Void. This pick won't be scored.";
   else if (status === "scheduled") {
     const agree = agreementLine(bout, pick, model);
     line = agree ? `Locked. ${agree}` : "Locked. Points land when the fight ends.";
@@ -342,7 +377,18 @@ function SignInInvite() {
 }
 
 /** "Next: X v Y" to the next fight this player can still pick, else "All picked. See my picks". */
-function NextPick({ bout, picks, now }: { bout: UfcBoutDetail; picks: UfcPicksState; now: Date | null }) {
+function NextPick({
+  bout,
+  picks,
+  now,
+  quiet,
+}: {
+  bout: UfcBoutDetail;
+  picks: UfcPicksState;
+  now: Date | null;
+  /** Closed without a pick: only lead on to a next fight, never "All picked". */
+  quiet?: boolean;
+}) {
   const next = picks.data?.bouts.find(
     (b) =>
       b.bout_id !== bout.id &&
@@ -350,6 +396,7 @@ function NextPick({ bout, picks, now }: { bout: UfcBoutDetail; picks: UfcPicksSt
       !b.pick &&
       (!b.locks_at || !now || Date.parse(b.locks_at) > now.getTime()),
   );
+  if (!next && quiet) return null;
   return (
     <div className="mt-6">
       {next ? (

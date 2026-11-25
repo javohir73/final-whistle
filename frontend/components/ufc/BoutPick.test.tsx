@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { announceTipsIdentityChanged } from "@/components/play/tipsIdentity";
 import { UfcPicksProvider } from "@/components/ufc/UfcPicksProvider";
 import type { UfcBoutDetail } from "@/lib/ufcTypes";
 import { BoutPick } from "./BoutPick";
@@ -222,14 +223,44 @@ describe("already picked, locked, finished", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Locked. Points land when the fight ends.");
   });
 
-  it("renders nothing for a live or finished fight the player did not pick", async () => {
-    for (const status of ["live", "finished"] as const) {
-      mockNetwork({ mineAnswers: [ok(mine([myBout({ status, picks_open: false })]))] });
-      const { container, unmount } = renderPick({ ...BOUT, status });
-      await waitFor(() => expect(screen.queryByRole("status", { name: "Loading your pick…" })).toBeNull());
-      expect(container).toBeEmptyDOMElement();
-      unmount();
-    }
+  it("renders nothing for a finished fight the player did not pick", async () => {
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ status: "finished", picks_open: false })]))] });
+    const { container } = renderPick({ ...BOUT, status: "finished" });
+    await ready();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("says a live fight is closed to a player who did not pick, and leads on to the next open fight", async () => {
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ status: "live", picks_open: false }), OTHER_OPEN_BOUT]))] });
+    renderPick({ ...BOUT, status: "live" });
+    expect(await screen.findByText("Picks closed when this part of the card started. You didn't pick this one.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next: Ian Machado Garry v Shavkat Rakhmonov" })).toHaveAttribute("href", "/ufc/fight/8#pick");
+  });
+
+  it("leads on to the next open fight when this one closed without a pick, and offers no link when none is open", async () => {
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ picks_open: false }), OTHER_OPEN_BOUT]))] });
+    const { unmount } = renderPick();
+    expect(await screen.findByRole("link", { name: /^Next: Ian Machado Garry/ })).toBeInTheDocument();
+    unmount();
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ picks_open: false })]))] });
+    renderPick();
+    await screen.findByText(/Picks closed when/);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("closes by the player's own lock time (locks_at), not the cached page's start time", async () => {
+    jest.useRealTimers();
+    jest.useFakeTimers().setSystemTime(new Date("2026-12-05T17:30:00Z"));
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ locks_at: "2026-12-05T17:00:00Z" })]))] });
+    renderPick(); // the cached page says 18:00
+    expect(await screen.findByText("Picks closed when this part of the card started. You didn't pick this one.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Israel Adesanya" })).toBeNull();
+  });
+
+  it("states the lock time from locks_at", async () => {
+    mockNetwork({ mineAnswers: [ok(mine([myBout({ locks_at: "2026-12-05T17:00:00Z" })]))] });
+    renderPick();
+    expect(await screen.findByText("Picks close Sat 5 Dec, 5:00 pm GMT")).toBeInTheDocument();
   });
 
   it("says the fight closed without the player when it is scheduled past its lock", async () => {
@@ -252,18 +283,21 @@ describe("already picked, locked, finished", () => {
     });
     renderPick({ ...BOUT, status: "finished" });
     expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(screen.getByText("Shara Magomedov").closest("div")).toHaveTextContent("Picked");
+    expect(screen.getByText("Israel Adesanya").closest("div")).not.toHaveTextContent("Picked");
     // the fighter the player did not pick is not marked as wrong
     expect(screen.queryByText(/wrong|incorrect/i)).toBeNull();
   });
 
-  it("says a void pick on a finished fight is not scored", async () => {
+  it("shows a void pick on a finished fight as a chip only", async () => {
     mockNetwork({
       mineAnswers: [ok(mine([myBout({
         status: "finished", picks_open: false, pick: { ...PENDING_PICK, state: "void" },
       })]))],
     });
     renderPick({ ...BOUT, status: "finished" });
-    expect(await screen.findByRole("status")).toHaveTextContent("Void. This pick won't be scored.");
+    expect(await screen.findByText("Void · no points")).toBeInTheDocument();
+    expect(screen.queryByText(/won't be scored/)).toBeNull();
   });
 
   it("says a pick on a cancelled fight will not be scored", async () => {
@@ -272,6 +306,7 @@ describe("already picked, locked, finished", () => {
     });
     renderPick({ ...BOUT, status: "cancelled" });
     expect(await screen.findByRole("status")).toHaveTextContent("Cancelled. This pick won't be scored.");
+    expect(screen.queryByText("Void · no points")).toBeNull();
   });
 
   it("says a cancelled fight was cancelled when nothing was picked", async () => {
@@ -327,6 +362,8 @@ describe("submit failures", () => {
     expect(screen.queryByRole("button", { name: /Lock in/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Israel Adesanya" })).toBeNull();
     expect(screen.getByText("Submission")).toBeInTheDocument(); // the stored pick, not the draft
+    expect(screen.getByText("Israel Adesanya").closest("div")).toHaveTextContent("Picked");
+    expect(screen.getByText("Shara Magomedov").closest("div")).not.toHaveTextContent("Picked");
   });
 
   it("closes when the server says the fight is locked", async () => {
@@ -347,6 +384,109 @@ describe("submit failures", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.queryByRole("button", { name: /Lock in/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Israel Adesanya" })).toBeNull();
+  });
+
+  it("keeps the server's explanation after fight_changed even though the re-fetch no longer lists the fight", async () => {
+    const net = await submitWith(
+      apiError(422, "fight_changed", "This fight has changed. Pick the new one on the card."),
+      [ok(mine()), ok(mine([OTHER_OPEN_BOUT]))],
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("This fight has changed. Pick the new one on the card.");
+    await waitFor(() => expect(net.calls.mine).toBe(2));
+    expect(screen.getByRole("alert")).toHaveTextContent("This fight has changed. Pick the new one on the card.");
+    expect(screen.getByRole("heading", { name: "Your pick" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lock in/ })).toBeNull();
+  });
+
+  it("says a cancelled fight was cancelled once, after the re-fetch too", async () => {
+    const net = await submitWith(
+      apiError(422, "fight_cancelled", "This fight was cancelled."),
+      [ok(mine()), ok(mine([myBout({ status: "cancelled", picks_open: false })]))],
+    );
+    await waitFor(() => expect(net.calls.mine).toBe(2));
+    await screen.findByRole("alert");
+    expect(screen.getAllByText("This fight was cancelled.")).toHaveLength(1);
+  });
+
+  it.each([
+    [408, "request_timeout"],
+    [503, "http_503"],
+  ])("re-fetches after an unclear %i, shows a pick that was stored, and shows nothing else as saved", async (status, code) => {
+    const net = await submitWith(
+      apiError(status, code, "raw server text"),
+      [ok(mine()), ok(mine([myBout({ pick: PENDING_PICK })]))],
+    );
+    await waitFor(() => expect(net.calls.mine).toBe(2));
+    expect(await screen.findByText("Locked. Points land when the fight ends.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Lock in/ })).toBeNull();
+  });
+
+  it("re-fetches after an unclear failure and keeps the choice when nothing was stored", async () => {
+    const net = await submitWith(apiError(500, "http_500", "boom"), [ok(mine())]);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't save your pick. Check your connection and try again.");
+    await waitFor(() => expect(net.calls.mine).toBe(2));
+    expect(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" })).toBeEnabled();
+    expect(screen.queryByText(/Locked\./)).toBeNull();
+  });
+
+  it.each([
+    [404, "bout_not_found"],
+    [403, "forbidden_origin"],
+    [422, "invalid_device_id"],
+    [422, "bad_pick"],
+    [400, "http_400"],
+  ])("shows the generic copy, not the developer text, for %i %s", async (status, code) => {
+    await submitWith(apiError(status, code, "raw developer text"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't save your pick. Check your connection and try again.");
+    expect(screen.queryByText(/raw developer text/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" })).toBeEnabled();
+  });
+
+  it("sends one request for a double click before the page re-renders", async () => {
+    const net = mockNetwork({ mineAnswers: [ok(mine())], submitAnswers: [ok(submitted())] });
+    renderPick();
+    await screen.findByRole("group", { name: "Pick a winner" });
+    await choose("Shara Magomedov", "Decision");
+    const lock = screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" });
+    await act(async () => {
+      fireEvent.click(lock);
+      fireEvent.click(lock);
+    });
+    expect(net.calls.submit).toHaveLength(1);
+  });
+
+  it("disables the method choice while the pick is being saved", async () => {
+    let release: () => void = () => {};
+    const net = mockNetwork({ mineAnswers: [ok(mine())], submitAnswers: [ok(submitted())] });
+    const real = net.fetch.getMockImplementation()!;
+    net.fetch.mockImplementation((url: string, init?: RequestInit) =>
+      String(url).includes("submit")
+        ? new Promise((r) => { release = () => r(real(url, init)); })
+        : real(url, init));
+    renderPick();
+    await screen.findByRole("group", { name: "Pick a winner" });
+    await choose("Shara Magomedov", "Decision");
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" }));
+    expect(screen.getByRole("button", { name: "KO/TKO" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Shara Magomedov" })).toBeDisabled();
+    await act(async () => { release(); });
+  });
+
+  it("forgets what it only knew locally after a sign-in claim", async () => {
+    mockNetwork({
+      mineAnswers: [ok(mine()), ok(mine())],
+      submitAnswers: [apiError(409, "pick_finalized", "You already picked this fight. A pick is final.")],
+    });
+    renderPick();
+    await screen.findByRole("group", { name: "Pick a winner" });
+    await choose("Shara Magomedov", "Decision");
+    fireEvent.click(screen.getByRole("button", { name: "Lock in Shara Magomedov by decision" }));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Israel Adesanya" })).toBeNull();
+    act(() => announceTipsIdentityChanged());
+    expect(await screen.findByRole("button", { name: "Israel Adesanya" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps the choice and the controls on a 429, and shows nothing as saved", async () => {
