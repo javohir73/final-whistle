@@ -9,6 +9,12 @@ import { FighterMark } from "./FighterMark";
  *  mid-word. With 98px it wraps between words; only a word wider than the column breaks. */
 const ROW_GUTTER = "max-[400px]:px-1.5";
 
+/** A word that fits its column must wrap to the next line whole. `hyphens: auto` (the shared row's
+ *  default) hyphenates a word that is merely late on a line, so "Mehemmedeli" broke mid-word at 375px
+ *  and 360px even though it fits a line of its own; with manual hyphenation only a word wider than
+ *  its column breaks (`break-words`). Under 400px the spine also gives up 2px between its columns. */
+const NAME_WRAP = "max-[400px]:[&>a]:gap-x-1 [&_span]:[hyphens:manual]";
+
 /** One fight on a card, on the shared fixture row. `showTime={false}` is for a
  *  card, where the segment band already gives the start and the feed repeats
  *  that start on every fight in the segment. */
@@ -17,11 +23,14 @@ export function BoutRow({
   tz,
   isMainEvent,
   showTime = true,
+  right: rightSlot,
 }: {
   bout: UfcBoutSummary;
   tz: string;
   isMainEvent: boolean;
   showTime?: boolean;
+  /** Replaces the right-hand slot (the "Cancelled" chip, or nothing). Absent: the row is as before. */
+  right?: ReactNode;
 }) {
   const a = bout.fighter_a;
   const b = bout.fighter_b;
@@ -82,9 +91,9 @@ export function BoutRow({
       away={sideB}
       kickoff={kickoff}
       centre={centre}
-      right={right}
+      right={rightSlot !== undefined ? rightSlot : right}
       label={label}
-      className={ROW_GUTTER}
+      className={`${ROW_GUTTER} ${NAME_WRAP}`}
     />
   );
 }

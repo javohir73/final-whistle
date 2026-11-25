@@ -2,12 +2,19 @@ import { render, screen } from "@testing-library/react";
 import UfcHomePage, { metadata } from "./page";
 import { getUfcEventsServer, getUfcNextEventServer } from "@/lib/api";
 import { UPCOMING_EVENT, UPCOMING_LIST } from "@/components/ufc/fixtures.testutil";
+import { mockMine } from "@/components/ufc/BoutPick.fixtures.testutil";
+
+// The card reads the viewer's picks after it mounts; these tests are about the server-rendered page.
+jest.mock("@/components/AuthProvider", () => ({
+  useAuth: () => ({ user: null, loading: false, openSignIn: jest.fn() }),
+}));
 
 jest.mock("@/lib/api");
 const mockNext = getUfcNextEventServer as jest.MockedFunction<typeof getUfcNextEventServer>;
 const mockList = getUfcEventsServer as jest.MockedFunction<typeof getUfcEventsServer>;
 
 beforeEach(() => {
+  mockMine("pending");
   mockNext.mockReset();
   mockList.mockReset();
   mockList.mockResolvedValue({ events: UPCOMING_LIST });
