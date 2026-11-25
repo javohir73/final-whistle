@@ -751,3 +751,29 @@ class UfcFighterDetailOut(BaseModel):
     stance: str | None
     record: UfcRecordOut | None
     bouts: list[UfcFighterBoutOut]
+
+
+class UfcPickSubmitIn(BaseModel):
+    device_id: str
+    bout_id: int
+    winner: str
+    method: str | None = None
+
+
+class UfcPickOut(BaseModel):
+    winner: Literal["a", "b"]
+    method: Literal["ko_tko", "submission", "decision"] | None
+    created_at: datetime
+    state: Literal["pending", "graded", "void"]
+    points: int | None
+    winner_correct: bool | None
+    method_correct: bool | None
+
+
+class UfcPickSubmitOut(BaseModel):
+    ok: bool
+    handle: str
+    bout_id: int
+    pick: UfcPickOut
+    model: UfcModelCallOut | None
+    disclaimer: str

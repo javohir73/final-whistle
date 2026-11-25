@@ -55,6 +55,7 @@ from app.models import (
     SportPrediction,
     SportTeam,
     TipPlayer,
+    UfcPick,
     UserTip,
 )
 from app.security import client_ip, hash_ip, require_same_origin, to_aware_utc
@@ -985,6 +986,18 @@ def claim_device_tips(
                 db.delete(pred)
             else:
                 pred.player_id = existing.id
+
+    # And for ufc_picks, keyed by bout: the account's own pick wins, the
+    # device's duplicate is deleted. No table-existence guard -- ufc_picks has
+    # been in production since UFC phase 1. Not counted into claimed_tips.
+    existing_pick_bout_ids = {
+        bid for (bid,) in db.query(UfcPick.bout_id).filter_by(player_id=existing.id).all()
+    }
+    for pick in db.query(UfcPick).filter_by(player_id=device_player.id).all():
+        if pick.bout_id in existing_pick_bout_ids:
+            db.delete(pick)
+        else:
+            pick.player_id = existing.id
 
     db.delete(device_player)
     db.commit()
