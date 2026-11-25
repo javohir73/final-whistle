@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import { getUfcEventsServer } from "@/lib/api";
 import { UfcEventList } from "@/components/ufc/UfcEventList";
 import { Card, CardHead, CARD_X, Note, PageHead } from "@/components/ui";
+import { APP_NAME } from "@/lib/constants";
 import type { UfcEventSummary } from "@/lib/ufcTypes";
 import { EVENTS_PAGE, MAX_OFFSET, offsetParam } from "./paging";
 
 export const metadata: Metadata = {
-  title: "UFC events: upcoming cards and results | FinalWhistle",
-  description: "Every upcoming UFC card and past results, with the main event and the number of fights.",
+  title: `UFC events: upcoming cards and results | ${APP_NAME}`,
+  description: "Upcoming UFC cards, and results once they are in, with the main event and the number of fights.",
 };
 
 const href = (up: number, past: number) => {

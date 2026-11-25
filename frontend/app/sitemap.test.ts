@@ -205,3 +205,19 @@ describe("sitemap", () => {
     expect(urls.some((u) => u.startsWith(`${SITE}/ufc/event/`))).toBe(false);
   });
 });
+
+describe("UFC slugs", () => {
+  it("keeps only slugs that are valid card slugs", async () => {
+    global.fetch = jest.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.includes("/api/ufc/")
+            ? { events: [{ slug: "ufc-300-2024-04-13" }, { slug: "Bad Slug/../x" }, { slug: "UPPER" }, { slug: "a".repeat(221) }] }
+            : [],
+      } as Response),
+    ) as unknown as typeof fetch;
+    const urls = (await sitemap()).map((e) => e.url).filter((u) => u.startsWith(`${SITE}/ufc/event/`));
+    expect(urls).toEqual([`${SITE}/ufc/event/ufc-300-2024-04-13`]);
+  });
+});

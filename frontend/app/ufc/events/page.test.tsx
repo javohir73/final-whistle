@@ -103,3 +103,9 @@ it("exports only what a Next.js page module may export", () => {
   const allowed = ["default", "metadata", "generateMetadata", "revalidate", "dynamic", "dynamicParams", "fetchCache", "runtime", "preferredRegion", "maxDuration", "viewport", "generateViewport", "generateStaticParams"];
   expect(Object.keys(pageModule).filter((k) => !allowed.includes(k))).toEqual([]);
 });
+
+it("takes its title from the app name", () => {
+  expect((pageModule as unknown as { metadata: { title: string } }).metadata.title).toBe(
+    "UFC events: upcoming cards and results | FinalWhistle",
+  );
+});

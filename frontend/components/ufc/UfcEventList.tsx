@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { Card, CardHead, CARD_X, Note, TextLink } from "@/components/ui";
-import { kickoffDate } from "@/lib/datetime";
 import { useTimezone } from "@/lib/useTimezone";
-import { eventHref } from "@/lib/ufcDisplay";
+import { dateWithYear, eventHref } from "@/lib/ufcDisplay";
 import type { UfcEventSummary } from "@/lib/ufcTypes";
 
 /** One list of cards (upcoming or results): name, local date, main event and
@@ -27,7 +26,7 @@ export function UfcEventList({
   const dateText = (iso: string | null) => {
     if (!iso) return "Date to be confirmed";
     try {
-      return kickoffDate(iso, tz);
+      return dateWithYear(iso, tz);
     } catch {
       return "Date to be confirmed";
     }

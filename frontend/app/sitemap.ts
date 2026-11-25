@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/constants";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
+import { isEventSlug } from "@/lib/ufcDisplay";
 
 const SITE = SITE_URL;
 const API = process.env.NEXT_PUBLIC_API_URL || "https://pitchprophet-api.onrender.com";
@@ -101,7 +102,7 @@ async function ufcEntries(): Promise<MetadataRoute.Sitemap> {
       if (data && Array.isArray(data.events)) {
         slugs = data.events
           .map((e) => (e as { slug?: unknown } | null)?.slug)
-          .filter((s): s is string => typeof s === "string" && s.length > 0)
+          .filter((s): s is string => typeof s === "string" && isEventSlug(s))
           .slice(0, UFC_SITEMAP_EVENTS);
       }
     }

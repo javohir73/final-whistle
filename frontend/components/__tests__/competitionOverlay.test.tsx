@@ -76,8 +76,11 @@ describe("menu", () => {
       expect.arrayContaining(enabled.map((c) => c.basePath)),
     );
     expect(items).toHaveLength(enabled.length);
-    // UFC has no logo file, so its mark is a text monogram, not an img.
-    for (const item of items) expect(item.querySelector("[data-competition-logo]")).not.toBeNull();
+    // UFC has no logo file, so its mark is a text monogram, not an img; every other row has a real logo.
+    for (const item of items) {
+      expect(item.querySelector("[data-competition-logo]")).not.toBeNull();
+      if (item.getAttribute("href") !== "/ufc") expect(item.querySelector("img")).not.toBeNull();
+    }
   });
 
   it("groups live football, rugby league, mixed martial arts and past tournaments", () => {

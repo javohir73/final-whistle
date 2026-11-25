@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { UfcEventList } from "./UfcEventList";
-import { EMPTY_EVENT, UPCOMING_EVENT, UPCOMING_LIST } from "./fixtures.testutil";
+import { EMPTY_EVENT, PAST_LIST, UPCOMING_EVENT, UPCOMING_LIST, freezeNow } from "./fixtures.testutil";
 import type { UfcEventSummary } from "@/lib/ufcTypes";
 
 beforeEach(() => window.localStorage.setItem("pp:timezone", JSON.stringify({ tz: "Australia/Sydney", confirmed: true })));
@@ -57,4 +57,18 @@ it("names the results paging links", () => {
   list(UPCOMING_LIST, { title: "Results", moreHref: "/a", backHref: "/b" });
   expect(screen.getByRole("link", { name: "Show more results" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Back to the start of results" })).toBeInTheDocument();
+});
+
+describe("year", () => {
+  afterEach(() => jest.useRealTimers());
+
+  it("is added only to a date that is not in the current year", () => {
+    freezeNow("2026-11-25T12:00:00Z");
+    list([
+      { ...PAST_LIST[1], first_bout_utc: "2019-12-05T20:00:00Z", main_event: null, bout_count: 3 },
+      { ...UPCOMING_LIST[0], main_event: null },
+    ]);
+    expect(screen.getByText("Fri 6 Dec 2019 · 3 fights")).toBeInTheDocument();
+    expect(screen.getByText("Sun 6 Dec · 4 fights")).toBeInTheDocument();
+  });
 });
