@@ -17,6 +17,10 @@ fighters and a future start, and the provider now says its state is "pre", it
 returns to "scheduled" with the card's current fields. `ingest_window` calls
 it per event; `upsert_event` stays database-only.
 
+A lock never reopens: when the ingest's clock reaches a scheduled bout's stored
+start, `upsert_event` stamps `locked_at = scheduled_utc` and stops moving that
+bout's time. A time moved before the start still moves.
+
 Feed text is clipped (`_clip`) to the model's column lengths where it is
 assigned: SQLite ignores String(n) but Postgres rejects an over-long value.
 
@@ -171,8 +175,13 @@ def _bout_values(card: BoutCard) -> dict:
 
 
 def _apply_bout(
-    db: Session, provider: str, event: UfcEvent, card: BoutCard, summary: IngestSummary
+    db: Session, provider: str, event: UfcEvent, card: BoutCard, summary: IngestSummary, now: datetime
 ) -> None:
+    """Write one bout of a card. `now` is the ingest's own clock: once it has reached
+    a scheduled bout's stored start, the bout is locked for good (`locked_at` is
+    stamped with that start) and the card's fields, its time included, are not
+    applied, so a later time can never reopen picks. A time moved before the start
+    still moves."""
     a = upsert_fighter(db, provider, card.fighter_a)
     b = upsert_fighter(db, provider, card.fighter_b)
     current = current_bout(db, provider, card.provider_id)
@@ -196,8 +205,12 @@ def _apply_bout(
     same_pair = {current.fighter_a_id, current.fighter_b_id} == {a.id, b.id}
     values = _bout_values(card)
     if same_pair and current.status == "scheduled" and current.locked_at is None:
-        for f, v in values.items():
-            setattr(current, f, v)
+        start = _utc(current.scheduled_utc)
+        if start is not None and _utc(now) >= start:
+            current.locked_at = current.scheduled_utc  # sticky: the start has passed
+        else:
+            for f, v in values.items():
+                setattr(current, f, v)
     elif same_pair and current.status == "cancelled" and current.method_detail == FEED_CANCELLED:
         log.info("bout %s was cancelled by the feed; not reinstating", card.provider_id)
     elif same_pair and current.status == "cancelled":
@@ -227,8 +240,10 @@ def upsert_event(
     now: datetime | None = None,
     summary: IngestSummary | None = None,
 ) -> UfcEvent:
-    """Write one card (event, fighters, bouts) without committing. `now` only
-    dates the slug of an event whose feed has no bout times.
+    """Write one card (event, fighters, bouts) without committing. `now` (the
+    ingest's clock) dates the slug of an event whose feed has no bout times and
+    decides when a scheduled bout locks: at or after its stored start it gets
+    `locked_at = scheduled_utc` and the card's fields are not applied.
 
     Once a bout is locked or no longer "scheduled", none of its card fields
     are updated (a cancelled, unlocked bout back on the card is reinstated,
@@ -256,7 +271,7 @@ def upsert_event(
     db.flush()
 
     for bout in card.bouts:
-        _apply_bout(db, provider, event, bout, summary)
+        _apply_bout(db, provider, event, bout, summary, now)
 
     if not card.bouts:
         log.warning("event %s (%s): card has no bouts; skipping cancellation sweep", card.provider_id, card.name)

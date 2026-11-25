@@ -494,3 +494,44 @@ def test_new_opponent_on_a_feed_cancelled_bout_is_a_new_revision(db_session):
     old, new = db_session.query(UfcBout).order_by(UfcBout.revision).all()
     assert (old.status, old.method_detail, new.status, new.revision) == ("cancelled", "cancelled by feed", "scheduled", 1)
     assert p.outcome_calls == []
+
+
+def test_a_passed_start_locks_the_bout_and_stops_time_moves(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1))), now=T0 + timedelta(minutes=5))
+    row = current_bout(db_session, "espn", "b1")
+    assert (_utc(row.locked_at), _utc(row.scheduled_utc), row.status) == (T0, T0, "scheduled")
+
+
+def test_the_lock_applies_at_exactly_the_start(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1))), now=T0)
+    row = current_bout(db_session, "espn", "b1")
+    assert (_utc(row.locked_at), _utc(row.scheduled_utc)) == (T0, T0)
+
+
+def test_a_time_moved_before_the_start_still_moves(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=1))), now=T0 - timedelta(hours=1))
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.locked_at, _utc(row.scheduled_utc)) == (None, T0 + timedelta(hours=1))
+    upsert_event(db_session, "espn", _card(_bout(when=T0 - timedelta(hours=3))), now=T0 - timedelta(hours=4))
+    assert _utc(current_bout(db_session, "espn", "b1").scheduled_utc) == T0 - timedelta(hours=3)
+
+
+def test_a_naive_stored_start_is_still_compared_in_utc(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    row.scheduled_utc = T0.replace(tzinfo=None)  # as SQLite hands it back
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(hours=2))), now=T0 + timedelta(seconds=1))
+    assert (_utc(row.locked_at), _utc(row.scheduled_utc)) == (T0, T0)
+
+
+def test_a_passed_start_with_a_changed_opponent_still_makes_a_new_revision(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0)), now=T0 - timedelta(days=1))
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(b=("3", None), when=T0)), now=T0 + timedelta(minutes=5), summary=summary)
+    assert summary.bouts_changed == 1

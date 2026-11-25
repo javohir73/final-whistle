@@ -612,3 +612,16 @@ def test_bout_with_only_locked_at_is_still_graded(db_session):
     db_session.flush()
     add_row(db_session, bout, T - timedelta(hours=1), 0.7)
     assert grade(db_session) == 1
+
+
+def test_lock_rule_comes_from_the_shared_rules():
+    from app import ufc_rules
+
+    assert mod.lock_time is ufc_rules.lock_time
+
+
+def test_method_tie_order_matches_the_method_model():
+    from app import ufc_rules
+    from ml.sports.ufc import methods
+
+    assert ufc_rules.METHOD_TIE_ORDER == methods._TIE_ORDER
