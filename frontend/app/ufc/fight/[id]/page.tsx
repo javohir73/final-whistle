@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { UfcFightView } from "@/components/ufc/UfcFightView";
-import { EmptyState } from "@/components/ui";
+import { Button, EmptyState, PageHead } from "@/components/ui";
 import { getUfcBoutServer } from "@/lib/api";
 import { APP_NAME } from "@/lib/constants";
 import { isBoutId, resultLine } from "@/lib/ufcDisplay";
@@ -41,9 +41,15 @@ export default async function FightPage({ params }: { params: Promise<{ id: stri
     bout = await getUfcBoutServer(id);
   } catch {
     return (
-      <EmptyState title="This fight is unavailable right now">
-        We could not reach the fight feed. Try again in a minute.
-      </EmptyState>
+      <>
+        <PageHead eyebrow="UFC" title="Fight" />
+        <EmptyState
+          title="This fight is unavailable right now"
+          actions={<Button href="/ufc">Go to the next card</Button>}
+        >
+          We could not reach the fight feed. Try again in a minute.
+        </EmptyState>
+      </>
     );
   }
   if (!bout) notFound();

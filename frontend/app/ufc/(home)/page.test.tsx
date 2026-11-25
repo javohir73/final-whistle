@@ -41,9 +41,11 @@ it("says the feed is down", async () => {
   expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
   expect(screen.getByText("Fight cards are unavailable right now")).toBeInTheDocument();
   expect(screen.getByText("We could not reach the fight feed. Try again in a minute.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "All cards" })).toHaveAttribute("href", "/ufc/events");
 });
 
 it("has honest metadata", () => {
-  expect(metadata.title).toBe("UFC fight cards and results — FinalWhistle");
+  expect(metadata.title).toBe("UFC fight cards — FinalWhistle");
+  expect(JSON.stringify(metadata)).not.toMatch(/result|record/i);
   expect(JSON.stringify(metadata)).not.toMatch(/official/i);
 });

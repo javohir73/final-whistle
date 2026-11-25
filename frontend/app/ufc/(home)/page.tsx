@@ -7,9 +7,9 @@ import { APP_NAME } from "@/lib/constants";
 export const revalidate = 120;
 
 export const metadata: Metadata = {
-  title: `UFC fight cards and results — ${APP_NAME}`,
+  title: `UFC fight cards — ${APP_NAME}`,
   description:
-    "The next UFC card fight by fight, with start times in your local time, results and fighter records.",
+    "The next UFC card fight by fight, with start times in your local time.",
 };
 
 export default async function UfcHomePage() {
@@ -22,7 +22,10 @@ export default async function UfcHomePage() {
     return (
       <>
         <PageHead eyebrow="UFC" title="UFC" />
-        <EmptyState title="Fight cards are unavailable right now">
+        <EmptyState
+          title="Fight cards are unavailable right now"
+          actions={<Button href="/ufc/events">All cards</Button>}
+        >
           We could not reach the fight feed. Try again in a minute.
         </EmptyState>
       </>

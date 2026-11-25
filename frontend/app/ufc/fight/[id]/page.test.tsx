@@ -3,6 +3,11 @@ import { DECISION_BOUT, KO_BOUT, SCHEDULED_BOUT } from "@/components/ufc/fixture
 import { getUfcBoutServer } from "@/lib/api";
 import FightPage, { generateMetadata, generateStaticParams, revalidate } from "./page";
 
+jest.mock("next/navigation", () => ({
+  notFound: jest.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
+}));
 jest.mock("@/lib/api", () => ({ getUfcBoutServer: jest.fn() }));
 const mockBout = getUfcBoutServer as jest.Mock;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -24,7 +29,7 @@ it("renders the fight", async () => {
 
 it("404s a missing fight", async () => {
   mockBout.mockResolvedValue(null);
-  await expect(FightPage(params("1"))).rejects.toThrow();
+  await expect(FightPage(params("1"))).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
 it("says the feed is down", async () => {
@@ -32,6 +37,8 @@ it("says the feed is down", async () => {
   render(await FightPage(params("1")));
   expect(screen.getByText("This fight is unavailable right now")).toBeInTheDocument();
   expect(screen.getByText("We could not reach the fight feed. Try again in a minute.")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Fight" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Go to the next card" })).toHaveAttribute("href", "/ufc");
 });
 
 it("describes a scheduled fight", async () => {
