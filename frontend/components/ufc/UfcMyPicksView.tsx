@@ -60,9 +60,8 @@ function cancelledRight(my: UfcMyBout | undefined): ReactNode {
   );
 }
 
-/** What is true about a card where no pick has been scored: counts only, never a promise. */
-const nothingScored = (picked: number, stillToCome: boolean) =>
-  `${plural(picked, "pick", "picks")} · ${stillToCome ? "none scored yet" : "none scored"}`;
+/** A count that is true at every moment: no promise about why nothing is scored. */
+const unscored = (picked: number) => `${plural(picked, "pick", "picks")} · 0 scored`;
 
 function NextCardFoot({ event }: { event: UfcEventDetail }) {
   const picks = useUfcPicks();
@@ -105,20 +104,16 @@ function NextCardFoot({ event }: { event: UfcEventDetail }) {
       </CardFoot>
     );
   }
-  const stillToCome = picks.data.bouts.some(
-    (b) => b.pick != null && b.pick.state === "pending" && b.status !== "finished" && b.status !== "cancelled",
-  );
   return (
     <CardFoot>
-      <Note>{nothingScored(t.picked, stillToCome)}</Note>
+      <Note>{unscored(t.picked)}</Note>
     </CardFoot>
   );
 }
 
 type Card = UfcPicksSummaryResponse["cards"][number];
 
-function PastCard({ card, now }: { card: Card; now: Date | null }) {
-  const upcoming = card.first_bout_utc != null && now != null && Date.parse(card.first_bout_utc) > now.getTime();
+function PastCard({ card }: { card: Card }) {
   return (
     <li className={`${CARD_X} flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line-soft py-4`}>
       <div className="min-w-0">
@@ -126,7 +121,7 @@ function PastCard({ card, now }: { card: Card; now: Date | null }) {
         <Note>
           {card.graded > 0
             ? `${plural(card.points, "point", "points")} · ${plural(card.graded, "scored fight", "scored fights")}`
-            : nothingScored(card.picked, upcoming)}
+            : unscored(card.picked)}
         </Note>
       </div>
       <TextLink href={`/ufc/leaderboard?event=${card.slug}`} aria-label={`Leaderboard for ${card.name}`}>
@@ -221,7 +216,7 @@ function Inner({ event }: { event: UfcEventDetail }) {
               <CardHead title="Past cards" className={`${CARD_X} py-4`} />
               <ul>
                 {others.map((c) => (
-                  <PastCard key={c.slug} card={c} now={now} />
+                  <PastCard key={c.slug} card={c} />
                 ))}
               </ul>
             </Card>

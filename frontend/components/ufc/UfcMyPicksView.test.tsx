@@ -170,7 +170,7 @@ it("shows open picks with no result and no zeros", async () => {
   expect(await screen.findByText("You: Shara Magomedov, decision")).toBeInTheDocument();
   expect(screen.queryByText("You have not picked any fights yet.")).toBeNull();
   expect(screen.queryByText(/points from/)).toBeNull();
-  expect(screen.getByText("1 pick · none scored yet")).toBeInTheDocument();
+  expect(screen.getByText("1 pick · 0 scored")).toBeInTheDocument();
   expect(screen.queryByText("Past cards")).toBeNull();
   expect(screen.queryByText(/^Model:/)).toBeNull();
 });
@@ -210,7 +210,7 @@ it("shows a late-void pick on a normally finished fight as void, and counts noth
   open(withStatus("finished", [MAIN_ID]));
   expect(await screen.findByText("Void · no points")).toBeInTheDocument();
   expect(screen.queryByText(/Missed/)).toBeNull();
-  expect(screen.getByText("1 pick · none scored")).toBeInTheDocument();
+  expect(screen.getByText("1 pick · 0 scored")).toBeInTheDocument();
   expect(screen.queryByText(/points from/)).toBeNull();
 });
 
@@ -274,7 +274,7 @@ it("uses the server's totals even if they disagree with anything else", async ()
   expect(await screen.findByText("99 points · 8 scored fights")).toBeInTheDocument();
 });
 
-it("tells the truth about a past card where nothing is scored, pending or void", async () => {
+it("counts picks on a past card where nothing is scored, without guessing why", async () => {
   const row = (over: object) => ({ ...PAST_ROW, points: 0, graded: 0, winner_method: 0, ...over });
   mockApi({
     mine: { [NEXT]: nextCard() },
@@ -284,9 +284,9 @@ it("tells the truth about a past card where nothing is scored, pending or void",
     ], none),
   });
   open();
-  expect(await screen.findByText("2 picks · none scored")).toBeInTheDocument();
-  expect(screen.getByText("1 pick · none scored yet")).toBeInTheDocument();
-  expect(screen.queryByText(/Not scored yet/)).toBeNull();
+  expect(await screen.findByText("2 picks · 0 scored")).toBeInTheDocument();
+  expect(screen.getByText("1 pick · 0 scored")).toBeInTheDocument();
+  expect(screen.queryByText(/none scored|not scored yet/i)).toBeNull();
   expect(screen.queryByText(/0 points/)).toBeNull();
 });
 
