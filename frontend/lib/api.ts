@@ -37,6 +37,12 @@ import type {
   TeamProfile,
   TournamentOdds,
 } from "./types";
+import type {
+  UfcBoutDetail,
+  UfcEventDetail,
+  UfcEventsResponse,
+  UfcFighterDetail,
+} from "./ufcTypes";
 import type { CompetitionId } from "./sports";
 
 /** Base URL for the backend. Required in production: a missing value used to
@@ -246,6 +252,18 @@ export const getNrlConditionalProjectionsServer = (season: number) =>
   getServer<NrlConditionalProjectionsResponse>(`/api/nrl/projections/conditional?season=${season}`, 300);
 export const getNrlProbHistoryServer = (id: number | string) =>
   getServer<NrlProbHistory>(`/api/nrl/matches/${id}/prob-history`, 300);
+/** Server-side UFC fetchers (ISR). Same `getServer` contract: null on 404,
+ *  throws on any other failure. */
+export const getUfcNextEventServer = () =>
+  getServer<UfcEventDetail>("/api/ufc/events/next", 120);
+export const getUfcEventServer = (slug: string) =>
+  getServer<UfcEventDetail>(`/api/ufc/events/${encodeURIComponent(slug)}`, 120);
+export const getUfcEventsServer = (when: "upcoming" | "past", limit = 20, offset = 0) =>
+  getServer<UfcEventsResponse>(`/api/ufc/events?when=${when}&limit=${limit}&offset=${offset}`, 300);
+export const getUfcBoutServer = (id: number | string) =>
+  getServer<UfcBoutDetail>(`/api/ufc/bouts/${encodeURIComponent(String(id))}`, 120);
+export const getUfcFighterServer = (slug: string) =>
+  getServer<UfcFighterDetail>(`/api/ufc/fighters/${encodeURIComponent(slug)}`, 300);
 /** Wave 3 live layer: polled every 30s by the match page's shared provider
  *  (a client island — browser calls go through the /backend-api rewrite,
  *  and no server-side live fetch is needed). */
