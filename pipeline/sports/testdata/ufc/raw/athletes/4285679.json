@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4285679?lang=en&region=us",
+ "id": "4285679",
+ "uid": "s:3301~a:4285679",
+ "guid": "d8b87175-656c-6805-bc26-64325a566122",
+ "firstName": "Israel",
+ "lastName": "Adesanya",
+ "fullName": "Israel Adesanya",
+ "displayName": "Israel Adesanya",
+ "nickname": "The Last Stylebender",
+ "shortName": "I. Adesanya",
+ "weight": 185.0,
+ "displayWeight": "185 lbs",
+ "height": 76.0,
+ "displayHeight": "6' 4\"",
+ "age": 37,
+ "dateOfBirth": "1989-07-22T07:00Z",
+ "gender": "MALE",
+ "citizenship": "Nigeria",
+ "citizenshipCountry": {
+  "alternateId": "390",
+  "abbreviation": "NGR",
+  "color": "#008753",
+  "alternateColor": "#992F24"
+ },
+ "slug": "israel-adesanya",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4285679/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 80.0,
+ "displayReach": "80\"",
+ "weightClass": {
+  "id": "972",
+  "text": "Middleweight",
+  "shortName": "Middleweight",
+  "slug": "middleweight"
+ },
+ "stance": {
+  "id": "80",
+  "text": "Switch"
+ }
+}

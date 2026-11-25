@@ -1,0 +1,49 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5110006?lang=en&region=us",
+ "id": "5110006",
+ "uid": "s:3301~a:5110006",
+ "guid": "06865ae8-8599-30d7-a021-8fa138ff0b33",
+ "firstName": "Elves",
+ "lastName": "Brener",
+ "fullName": "Elves Brener",
+ "displayName": "Elves Brener",
+ "shortName": "E. Brener",
+ "weight": 155.0,
+ "displayWeight": "155 lbs",
+ "height": 70.0,
+ "displayHeight": "5' 10\"",
+ "age": 29,
+ "dateOfBirth": "1997-09-27T07:00Z",
+ "gender": "MALE",
+ "citizenship": "Brazil",
+ "citizenshipCountry": {
+  "alternateId": "147",
+  "abbreviation": "BRA",
+  "color": "#FFDF00",
+  "alternateColor": "#002776"
+ },
+ "slug": "elves-brener",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/5110006/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 72.5,
+ "displayReach": "72.5\"",
+ "weightClass": {
+  "id": "986",
+  "text": "Lightweight",
+  "shortName": "Lightweight",
+  "slug": "lightweight"
+ },
+ "stance": {
+  "id": "75",
+  "text": "Orthodox"
+ }
+}

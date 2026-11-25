@@ -1,0 +1,50 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4905308?lang=en&region=us",
+ "id": "4905308",
+ "uid": "s:3301~a:4905308",
+ "guid": "09617c05-84b3-33bc-95ef-011e675b8146",
+ "firstName": "Abdul",
+ "lastName": "Hussein",
+ "fullName": "Abdul Hussein",
+ "displayName": "Abdul Hussein",
+ "nickname": "ABBA",
+ "shortName": "A. Hussein",
+ "weight": 135.5,
+ "displayWeight": "135.5 lbs",
+ "height": 65.0,
+ "displayHeight": "5' 5\"",
+ "age": 29,
+ "dateOfBirth": "1997-08-02T07:00Z",
+ "gender": "MALE",
+ "citizenship": "Finland",
+ "citizenshipCountry": {
+  "alternateId": "321",
+  "abbreviation": "FIN",
+  "color": "#002F6C",
+  "alternateColor": "#C8102D"
+ },
+ "slug": "abdul-hussein",
+ "linked": true,
+ "statistics": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/mma/athletes/4905308/statistics?lang=en&region=us"
+ },
+ "active": true,
+ "status": {
+  "id": "1",
+  "name": "Active",
+  "type": "active",
+  "abbreviation": "Active"
+ },
+ "reach": 67.0,
+ "displayReach": "67\"",
+ "weightClass": {
+  "id": "970",
+  "text": "Bantamweight",
+  "shortName": "Bantamweight",
+  "slug": "bantamweight"
+ },
+ "stance": {
+  "id": "75",
+  "text": "Orthodox"
+ }
+}

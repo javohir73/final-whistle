@@ -1779,3 +1779,200 @@ class ValidationMarketSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+# --- UFC (third sport) -------------------------------------------------------
+# Separate tables, not sport_* rows: a bout is two fighters with no home side,
+# so the team/match shape does not fit. Fighter "a"/"b" is the provider's
+# listing order and carries no meaning. Bout identity is
+# (provider, provider_bout_id, revision), never card position.
+
+
+class UfcFighter(Base):
+    """One fighter, keyed by the provider's id; `rating` is our own Elo."""
+    __tablename__ = "ufc_fighters"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_fighter_id", name="uq_ufc_fighter_provider_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_fighter_id: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(120))
+    slug: Mapped[str] = mapped_column(String(140), unique=True, index=True)
+    date_of_birth: Mapped[date | None] = mapped_column(Date)
+    height_in: Mapped[float | None] = mapped_column(Float)
+    reach_in: Mapped[float | None] = mapped_column(Float)
+    weight_lb: Mapped[float | None] = mapped_column(Float)
+    stance: Mapped[str | None] = mapped_column(String(20))
+    country: Mapped[str | None] = mapped_column(String(60))
+    gender: Mapped[str | None] = mapped_column(String(10))
+    rating: Mapped[float] = mapped_column(Float, default=1500.0)
+    profile_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UfcEvent(Base):
+    """One event (a numbered card, a Fight Night, or a non-card event)."""
+    __tablename__ = "ufc_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_event_id", name="uq_ufc_event_provider_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_event_id: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(220), unique=True, index=True)
+    first_bout_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_bout_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    venue: Mapped[str | None] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20), default="scheduled")  # scheduled|live|finished|cancelled
+    is_card: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UfcBout(Base):
+    """One fight between two fighters on an event. A re-made fight (opponent
+    swap) is a new row with revision + 1; the old row gets status "changed" and
+    `replaced_by_id` pointing at its successor."""
+    __tablename__ = "ufc_bouts"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "provider_bout_id", "revision", name="uq_ufc_bout_provider_id_revision"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("ufc_events.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_bout_id: Mapped[str] = mapped_column(String(40))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    card_order: Mapped[int | None] = mapped_column(Integer)
+    segment: Mapped[str | None] = mapped_column(String(20))
+    segment_label: Mapped[str | None] = mapped_column(String(40))
+    weight_class: Mapped[str | None] = mapped_column(String(60))
+    scheduled_rounds: Mapped[int | None] = mapped_column(Integer)
+    is_title: Mapped[bool | None] = mapped_column(Boolean)
+    fighter_a_id: Mapped[int] = mapped_column(ForeignKey("ufc_fighters.id"), index=True)
+    fighter_b_id: Mapped[int] = mapped_column(ForeignKey("ufc_fighters.id"), index=True)
+    scheduled_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="scheduled")  # scheduled|live|finished|cancelled|changed
+    winner: Mapped[str | None] = mapped_column(String(1))  # "a" | "b"
+    method: Mapped[str | None] = mapped_column(String(20))
+    method_detail: Mapped[str | None] = mapped_column(String(120))
+    end_round: Mapped[int | None] = mapped_column(Integer)
+    end_clock: Mapped[str | None] = mapped_column(String(8))
+    replaced_by_id: Mapped[int | None] = mapped_column(ForeignKey("ufc_bouts.id"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UfcBoutStat(Base):
+    """One fighter's fight statistics for one bout (two rows per bout)."""
+    __tablename__ = "ufc_bout_stats"
+    __table_args__ = (
+        UniqueConstraint("bout_id", "fighter_id", name="uq_ufc_bout_stat_bout_fighter"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bout_id: Mapped[int] = mapped_column(ForeignKey("ufc_bouts.id"), index=True)
+    fighter_id: Mapped[int] = mapped_column(ForeignKey("ufc_fighters.id"))
+    knockdowns: Mapped[int | None] = mapped_column(Integer)
+    sig_strikes_landed: Mapped[int | None] = mapped_column(Integer)
+    sig_strikes_attempted: Mapped[int | None] = mapped_column(Integer)
+    total_strikes_landed: Mapped[int | None] = mapped_column(Integer)
+    total_strikes_attempted: Mapped[int | None] = mapped_column(Integer)
+    takedowns_landed: Mapped[int | None] = mapped_column(Integer)
+    takedowns_attempted: Mapped[int | None] = mapped_column(Integer)
+    submission_attempts: Mapped[int | None] = mapped_column(Integer)
+    reversals: Mapped[int | None] = mapped_column(Integer)
+    control_seconds: Mapped[int | None] = mapped_column(Integer)
+    extra: Mapped[dict | None] = mapped_column(JSON)
+    judges: Mapped[dict | None] = mapped_column(JSON)
+
+
+class UfcOddsSnapshot(Base):
+    """One observation of a bout's American moneyline from one source. No
+    unique constraint: a price may return to an earlier value."""
+    __tablename__ = "ufc_odds_snapshots"
+    __table_args__ = (Index("ix_ufc_odds_snapshots_bout_source", "bout_id", "source"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bout_id: Mapped[int] = mapped_column(ForeignKey("ufc_bouts.id"), index=True)
+    source: Mapped[str] = mapped_column(String(40))
+    moneyline_a: Mapped[int] = mapped_column(Integer)
+    moneyline_b: Mapped[int] = mapped_column(Integer)
+    taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UfcPrediction(Base):
+    """One model's win probabilities for a bout (shadow-only until proven)."""
+    __tablename__ = "ufc_predictions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bout_id: Mapped[int] = mapped_column(ForeignKey("ufc_bouts.id"), index=True)
+    model_version: Mapped[str] = mapped_column(String(40))
+    p_a: Mapped[float] = mapped_column(Float)
+    p_b: Mapped[float] = mapped_column(Float)
+    method_probs: Mapped[dict | None] = mapped_column(JSON)
+    reasons: Mapped[list | None] = mapped_column(JSON)
+    is_shadow: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UfcPredictionResult(Base):
+    """The evaluated record of one prediction once its bout has finished."""
+    __tablename__ = "ufc_prediction_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prediction_id: Mapped[int] = mapped_column(ForeignKey("ufc_predictions.id"), unique=True)
+    bout_id: Mapped[int] = mapped_column(ForeignKey("ufc_bouts.id"), index=True)
+    model_version: Mapped[str] = mapped_column(String(40))
+    winner_correct: Mapped[bool] = mapped_column(Boolean)
+    prob_assigned: Mapped[float] = mapped_column(Float)
+    log_loss: Mapped[float] = mapped_column(Float)
+    brier: Mapped[float] = mapped_column(Float)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UfcPick(Base):
+    """One player's pick (winner, optional method) for one bout."""
+    __tablename__ = "ufc_picks"
+    __table_args__ = (UniqueConstraint("bout_id", "player_id", name="uq_ufc_pick_bout_player"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bout_id: Mapped[int] = mapped_column(ForeignKey("ufc_bouts.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("tip_players.id"), index=True)
+    winner: Mapped[str] = mapped_column(String(1))  # "a" | "b"
+    method: Mapped[str | None] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # No onupdate=func.now(): same reasoning as UserTip.updated_at -- it must
+    # track only pick changes, not the grading pass's own write.
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    points: Mapped[int | None] = mapped_column(Integer)
+    winner_correct: Mapped[bool | None] = mapped_column(Boolean)
+    method_correct: Mapped[bool | None] = mapped_column(Boolean)
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UfcLiveState(Base):
+    """Latest known live snapshot for one bout, upserted by the live poller.
+    No row means the bout has never been polled."""
+    __tablename__ = "ufc_live_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bout_id: Mapped[int] = mapped_column(ForeignKey("ufc_bouts.id"), unique=True, index=True)
+    state: Mapped[str] = mapped_column(String(10))  # pre | live | final
+    round: Mapped[int | None] = mapped_column(Integer)
+    clock: Mapped[str | None] = mapped_column(String(8))
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

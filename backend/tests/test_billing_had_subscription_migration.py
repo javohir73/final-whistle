@@ -21,7 +21,7 @@ from sqlalchemy import create_engine
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 BILLING_REVISION = "f110d3725491"
-HEAD_REVISION = "a9b4c7d2e601"
+HEAD_REVISION = "1f2e3d4c5b6a"
 
 
 def _scripts() -> ScriptDirectory:

@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # the fallback is delayed and must never be presented as an in-play feed.
     league_fixture_provider: str = "api_football"
 
+    # UFC data source for the pipeline/sports UFC ingest. Only "espn" exists.
+    ufc_provider: str = "espn"
+
     # Which provider serves /api/internal/refresh-live: "football_data" (default,
     # free tier → estimated minute) or "api_football" (real live minute).
     live_provider: str = "football_data"
