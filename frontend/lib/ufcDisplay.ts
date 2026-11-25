@@ -74,17 +74,13 @@ export function methodLabel(m: UfcMethod | null): string | null {
   return (m && METHOD_LABELS[m]) || null;
 }
 
-/** "Decision - Unanimous" -> "unanimous"; "Punch" -> "punch"; bare "Decision" -> null.
- *  An all-capitals detail is lower-cased whole; otherwise only the first letter
- *  is lowered, and only when the second is lower case, so "D'Arce choke" stays. */
+/** The feed's detail as given: "Decision - Unanimous" -> "Unanimous"; bare "Decision" -> null.
+ *  Only an all-capitals detail is lower-cased ("REAR NAKED CHOKE" -> "rear naked choke"). */
 export function methodDetailText(detail: string | null): string | null {
   if (!detail) return null;
   const t = detail.trim().replace(/^decision\b\s*(?:-\s*)?/i, "").trim();
   if (!t) return null;
-  if (t === t.toUpperCase()) return t.toLowerCase();
-  const second = t.charAt(1);
-  if (second !== "" && second !== second.toUpperCase()) return t.charAt(0).toLowerCase() + t.slice(1);
-  return t;
+  return /\p{L}/u.test(t) && t === t.toUpperCase() ? t.toLowerCase() : t;
 }
 
 export function resultBoxText(r: UfcResult): string {

@@ -26,7 +26,7 @@ it("does not link a TBA fighter", () => {
 it("prints the result line on a finished fight and marks the winner stored as b", () => {
   render(<FightHero bout={KO_BOUT} tz="UTC" />);
   expect(screen.getByText("KO R2")).toBeInTheDocument();
-  expect(screen.getByText("Navajo Stirling won by KO/TKO (punch), round 2, 4:58")).toBeInTheDocument();
+  expect(screen.getByText("Navajo Stirling won by KO/TKO (Punch), round 2, 4:58")).toBeInTheDocument();
   const winners = screen.getAllByText("Winner");
   expect(winners).toHaveLength(1);
   const sideB = screen.getByRole("link", { name: /Navajo Stirling/ }).closest("[data-side]");

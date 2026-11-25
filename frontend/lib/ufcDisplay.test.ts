@@ -49,17 +49,14 @@ describe("ufcDisplay", () => {
     expect(methodLabel(null)).toBeNull();
     expect(methodLabel("mystery" as never)).toBeNull();
   });
-  it("cleans method detail", () => {
-    expect(methodDetailText("Decision - Unanimous")).toBe("unanimous");
-    expect(methodDetailText("Punch")).toBe("punch");
-    expect(methodDetailText("Punches")).toBe("punches");
-    expect(methodDetailText("D'Arce choke")).toBe("D'Arce choke");
+  it("shows a method detail as the feed gives it", () => {
+    expect(methodDetailText("Rear Naked Choke")).toBe("Rear Naked Choke");
+    expect(methodDetailText("D'Arce Choke")).toBe("D'Arce Choke");
+    expect(methodDetailText("Punches")).toBe("Punches");
     expect(methodDetailText("REAR NAKED CHOKE")).toBe("rear naked choke");
-    expect(methodDetailText("Decision - Split")).toBe("split");
-    expect(methodDetailText("Kimura")).toBe("kimura");
-    expect(methodDetailText("UFC rule")).toBe("UFC rule");
-    expect(methodDetailText("Decision")).toBeNull();
     expect(methodDetailText("  ")).toBeNull();
+    expect(methodDetailText("Decision - Unanimous")).toBe("Unanimous");
+    expect(methodDetailText("Decision")).toBeNull();
     expect(methodDetailText(null)).toBeNull();
   });
   it.each([
@@ -76,10 +73,10 @@ describe("ufcDisplay", () => {
   ] as const)("boxes %o as %s", (r, text) => expect(resultBoxText(r)).toBe(text));
   it("writes result lines", () => {
     const [ko, dec, draw, nc] = FINISHED_EVENT.segments[0].bouts;
-    expect(resultLine(ko)).toBe("Navajo Stirling won by KO/TKO (punch), round 2, 4:58");
-    expect(resultLine(dec)).toBe("Kevin Vallejos won by decision (unanimous)");
-    expect(resultLine(draw)).toBe("Draw (majority), round 3, 5:00");
-    expect(resultLine(nc)).toBe("No contest (accidental eye poke), round 1, 2:10");
+    expect(resultLine(ko)).toBe("Navajo Stirling won by KO/TKO (Punch), round 2, 4:58");
+    expect(resultLine(dec)).toBe("Kevin Vallejos won by decision (Unanimous)");
+    expect(resultLine(draw)).toBe("Draw (Majority), round 3, 5:00");
+    expect(resultLine(nc)).toBe("No contest (Accidental eye poke), round 1, 2:10");
     expect(resultLine(UPCOMING_EVENT.segments[0].bouts[0])).toBeNull();
   });
   it("writes result lines for the other methods and gaps", () => {
@@ -90,7 +87,7 @@ describe("ufcDisplay", () => {
         result: result && { winner: "a", method: null, method_detail: null, end_round: null, end_clock: null, ...result },
       });
     expect(line({ method: "submission", method_detail: "Rear Naked Choke", end_round: 1, end_clock: "3:01" }))
-      .toBe("Jiří Procházka won by submission (rear Naked Choke), round 1, 3:01");
+      .toBe("Jiří Procházka won by submission (Rear Naked Choke), round 1, 3:01");
     expect(line({ method: "ko_tko", end_round: 2 })).toBe("Jiří Procházka won by KO/TKO, round 2");
     expect(line({ method: "dq", end_round: 1, end_clock: "0:30" })).toBe("Jiří Procházka won by disqualification, round 1, 0:30");
     expect(line({ method: "other" })).toBe("Jiří Procházka won");

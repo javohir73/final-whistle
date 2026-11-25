@@ -54,7 +54,7 @@ it("describes a scheduled fight", async () => {
 it("describes a finished fight", async () => {
   mockBout.mockResolvedValue(DECISION_BOUT);
   const m = await generateMetadata(params("1"));
-  expect(m.description).toBe("Kevin Vallejos won by decision (unanimous). Fight stats and the tale of the tape.");
+  expect(m.description).toBe("Kevin Vallejos won by decision (Unanimous). Fight stats and the tale of the tape.");
   expect(JSON.stringify(m)).not.toMatch(/official/i);
 });
 

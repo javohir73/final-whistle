@@ -39,7 +39,7 @@ it("boxes a knockout and mutes the loser", () => {
   expect(screen.getByText("Jiří Procházka").className).toContain("text-muted");
   expect(screen.getByText("Navajo Stirling").className).not.toContain("text-muted");
   expect(
-    screen.getByRole("link", { name: /Navajo Stirling won by KO\/TKO \(punch\), round 2, 4:58/ }),
+    screen.getByRole("link", { name: /Navajo Stirling won by KO\/TKO \(Punch\), round 2, 4:58/ }),
   ).toBeInTheDocument();
 });
 
