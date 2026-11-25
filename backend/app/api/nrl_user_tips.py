@@ -998,6 +998,10 @@ def claim_device_tips(
             db.delete(pick)
         else:
             pick.player_id = existing.id
+    # UfcPick has no relationship() to TipPlayer, so the unit of work will not
+    # order these writes before the tip_players DELETE below: flush them first
+    # or Postgres rejects the delete on the foreign key.
+    db.flush()
 
     db.delete(device_player)
     db.commit()
