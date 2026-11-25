@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -31,29 +32,42 @@ class UfcParams:
     form: FormParams | None
 
 
-def _parse_elo(data: object) -> EloParams:
+def _parse_elo(data: dict) -> EloParams:
     try:
-        d = data["elo"]  # type: ignore[index]
+        d = data["elo"]
         return EloParams(
             version=str(d["version"]), k=float(d["k"]), history_from=int(d["history_from"]),
             decay=float(d["decay"]), scale=float(d["scale"]), start=float(d["start"]),
         )
     except (KeyError, TypeError, ValueError):
+        log.warning("ufc params: elo section missing or malformed, using default Elo settings")
         return EloParams()
 
 
-def _parse_form(data: object) -> FormParams | None:
+def _parse_form(data: dict) -> FormParams | None:
+    if "form" not in data:
+        log.info("ufc params: no form section (expected until a model is fitted); form model off")
+        return None
     try:
-        d = data["form"]  # type: ignore[index]
+        d = data["form"]
         features = tuple(d["features"])
         if features != FEATURES:
+            log.warning("ufc params: form section is stale (features differ from FEATURES); form model off")
             return None
         weights = tuple(float(v) for v in d["weights"])
         means = tuple(float(v) for v in d["means"])
         scales = tuple(float(v) for v in d["scales"])
         if not (len(weights) == len(means) == len(scales) == len(features)):
+            log.warning("ufc params: form section list lengths differ from features; form model off")
             return None
         if any(m != 0 for m in means):
+            log.warning("ufc params: form section has a non-zero mean; form model off")
+            return None
+        if not all(math.isfinite(w) for w in weights):
+            log.warning("ufc params: form section has a non-finite weight; form model off")
+            return None
+        if not all(math.isfinite(sc) and sc > 0 for sc in scales):
+            log.warning("ufc params: form section has a scale that is not positive and finite; form model off")
             return None
         return FormParams(
             version=str(d["version"]), features=features, weights=weights, means=means,
@@ -64,13 +78,17 @@ def _parse_form(data: object) -> FormParams | None:
             n_bouts=int(d["n_bouts"]),
         )
     except (KeyError, TypeError, ValueError):
+        log.warning("ufc params: form section malformed; form model off")
         return None
 
 
 def load_params(path: Path | None = None) -> UfcParams:
     try:
         data = json.loads((path or DEFAULT_PARAMS_FILE).read_text())
+        if not isinstance(data, dict):
+            raise ValueError("top level is not an object")
     except (OSError, ValueError):
+        log.warning("ufc params: file unreadable or corrupt, using default Elo settings and no form model")
         return UfcParams(EloParams(), None)
     return UfcParams(_parse_elo(data), _parse_form(data))
 

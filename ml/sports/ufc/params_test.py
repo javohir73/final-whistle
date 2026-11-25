@@ -89,3 +89,92 @@ def test_corrupt_json_falls_back(tmp_path):
 
 def test_shipped_file_loads():
     assert load_params().elo.version == "ufc-elo-v0.1"
+
+
+# --- fallbacks are logged, never silent ---------------------------------------------------
+
+import logging  # noqa: E402
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def _loaded(tmp_path, caplog, form_edit=None, elo=None):
+    _write(tmp_path / "p.json", form_edit, elo)
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="ml.sports.ufc.params"):
+        return load_params(tmp_path / "p.json")
+
+
+def test_unreadable_file_warns(tmp_path, caplog):
+    with caplog.at_level(logging.DEBUG, logger="ml.sports.ufc.params"):
+        got = load_params(tmp_path / "nope.json")
+    assert got == UfcParams(EloParams(), None)
+    assert any("unreadable" in m for m in _warnings(caplog))
+
+
+def test_corrupt_json_warns(tmp_path, caplog):
+    (tmp_path / "p.json").write_text("{")
+    with caplog.at_level(logging.DEBUG, logger="ml.sports.ufc.params"):
+        load_params(tmp_path / "p.json")
+    assert any("unreadable" in m for m in _warnings(caplog))
+
+
+def test_malformed_elo_warns(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, elo={"k": "abc"})
+    assert got.elo == EloParams()
+    assert any("elo section malformed" in m for m in _warnings(caplog))
+
+
+def test_stale_features_warn(tmp_path, caplog):
+    def edit(f):
+        f["features"] = f["features"][:-1]
+    got = _loaded(tmp_path, caplog, edit)
+    assert got.form is None and got.elo.k == 42.0
+    assert any("stale" in m for m in _warnings(caplog))
+
+
+def test_length_mismatch_warns(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, lambda f: f.update(weights=f["weights"][:-1]))
+    assert got.form is None
+    assert any("length" in m for m in _warnings(caplog))
+
+
+def test_nonzero_mean_warns(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, lambda f: f["means"].__setitem__(0, 0.5))
+    assert got.form is None
+    assert any("mean" in m for m in _warnings(caplog))
+
+
+def test_malformed_form_warns(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, lambda f: f.update(train_from="not a date"))
+    assert got.form is None and got.elo.k == 42.0
+    assert any("form section malformed" in m for m in _warnings(caplog))
+
+
+def test_absent_form_does_not_warn(tmp_path, caplog):
+    p = tmp_path / "p.json"
+    save_params(UfcParams(EloParams(), None), p)
+    with caplog.at_level(logging.DEBUG, logger="ml.sports.ufc.params"):
+        got = load_params(p)
+    assert got.form is None
+    assert _warnings(caplog) == []
+
+
+def test_zero_scale_drops_form(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, lambda f: f["scales"].__setitem__(2, 0.0))
+    assert got.form is None and got.elo.k == 42.0
+    assert any("scale" in m for m in _warnings(caplog))
+
+
+def test_nan_weight_drops_form(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, lambda f: f["weights"].__setitem__(1, float("nan")))
+    assert got.form is None and got.elo.k == 42.0
+    assert any("weight" in m for m in _warnings(caplog))
+
+
+def test_infinite_scale_drops_form(tmp_path, caplog):
+    got = _loaded(tmp_path, caplog, lambda f: f["scales"].__setitem__(0, float("inf")))
+    assert got.form is None and got.elo.k == 42.0
+    assert any("scale" in m for m in _warnings(caplog))
