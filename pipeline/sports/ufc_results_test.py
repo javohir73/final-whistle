@@ -697,3 +697,12 @@ def test_feed_cancel_without_a_stored_start_gets_no_stamp(db_session):
     bout.scheduled_utc = None
     assert apply_outcome(db_session, bout, CANCELLED, now=T0 + timedelta(hours=1)) is True
     assert bout.locked_at is None
+
+
+def test_feed_cancelled_before_the_start_stays_locked_if_it_returns_after_that_start(db_session):
+    (bout,) = _bare_bout(db_session)
+    assert apply_outcome(db_session, bout, CANCELLED, now=T0 - timedelta(hours=2)) is True
+    assert bout.locked_at is None
+    later = T0 + timedelta(days=7)
+    assert _reinstate(db_session, bout, later, T0 + timedelta(minutes=10)) == 0
+    assert (bout.status, _utc(bout.locked_at), _utc(bout.scheduled_utc)) == ("cancelled", T0, T0)

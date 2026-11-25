@@ -72,7 +72,8 @@ def apply_outcome(
     """Apply a provider outcome to a bout row; True if the row changed. A
     cancelled outcome sets a scheduled or live row to "cancelled" with
     `method_detail = FEED_CANCELLED` (stamping `locked_at` first when the start
-    has passed); finished, cancelled and changed rows are never touched by it. Text is clipped to the column lengths."""
+    has passed); finished, cancelled and changed rows are never touched by it.
+    Text is clipped to the column lengths."""
     if bout.status in _UNTOUCHABLE or outcome.state == "pre":
         return False
     now = now or datetime.now(timezone.utc)

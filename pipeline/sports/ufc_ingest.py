@@ -19,7 +19,13 @@ it per event; `upsert_event` stays database-only.
 
 A lock never reopens: when the ingest's clock reaches a scheduled bout's stored
 start, `upsert_event` stamps `locked_at = scheduled_utc` and stops moving that
-bout's time. A time moved before the start still moves.
+bout's time. A time moved before the start still moves. A cancelled bout whose old
+start passed while it was away is stamped the same way and stays cancelled when it
+returns. When
+the opponent changes, the old row becomes "changed" and a new row is created with the
+card's time and no lock, even if the old start had passed: it is a different fight with
+a new id, picks on the old row are void, and a start already in the past locks the new
+row by its own time.
 
 Feed text is clipped (`_clip`) to the model's column lengths where it is
 assigned: SQLite ignores String(n) but Postgres rejects an over-long value.
@@ -223,6 +229,7 @@ def _apply_bout(
     elif same_pair and current.status == "cancelled" and current.method_detail == FEED_CANCELLED:
         log.info("bout %s was cancelled by the feed; not reinstating", card.provider_id)
     elif same_pair and current.status == "cancelled":
+        lock_if_started(current, now)  # its old start passed while it was away: stays locked
         if current.locked_at is None:
             for f, v in values.items():
                 setattr(current, f, v)
@@ -314,6 +321,9 @@ def reinstate_feed_cancelled(
             or current.method_detail != FEED_CANCELLED
             or current.locked_at is not None
         ):
+            continue
+        lock_if_started(current, now)  # its old start passed while it was away: stays locked
+        if current.locked_at is not None:
             continue
         fighters = {
             f.provider_fighter_id

@@ -567,3 +567,29 @@ def test_a_bout_swept_before_its_start_can_still_return_with_a_new_time(db_sessi
     row = current_bout(db_session, "espn", "b1")
     assert (row.status, row.locked_at, _utc(row.scheduled_utc)) == ("scheduled", None, later)
     assert summary.bouts_reinstated == 1
+
+
+def test_a_bout_swept_before_its_start_stays_locked_if_it_returns_after_that_start(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=2))
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(hours=1))
+    assert current_bout(db_session, "espn", "b1").locked_at is None
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", _card(_bout(when=T0 + timedelta(days=7)),
+                                           _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=10), summary=summary)
+    row = current_bout(db_session, "espn", "b1")
+    assert (row.status, _utc(row.locked_at), _utc(row.scheduled_utc)) == ("cancelled", T0, T0)
+    assert summary.bouts_reinstated == 0
+
+
+def test_a_naive_stored_start_is_stamped_when_the_sweep_cancels_after_it(db_session):
+    upsert_event(db_session, "espn", _card(_bout(when=T0), _bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 - timedelta(days=1))
+    db_session.commit()
+    row = current_bout(db_session, "espn", "b1")
+    row.scheduled_utc = T0.replace(tzinfo=None)  # as SQLite hands it back
+    upsert_event(db_session, "espn", _card(_bout("b2", ("5", None), ("6", None), order=2)),
+                 now=T0 + timedelta(minutes=1))
+    assert (row.status, _utc(row.locked_at)) == ("cancelled", T0)
