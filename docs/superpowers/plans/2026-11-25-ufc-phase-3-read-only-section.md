@@ -23,6 +23,8 @@
 - Python gate per task: `.venv/bin/python -m pytest <files> -p no:cacheprovider -o addopts="" -q`. Frontend gate per task: `cd frontend && npm run typecheck && npm run lint && npx jest <paths>`. The full suites run once, in Task 11.
 - Stage with explicit paths. Commit after each task with a conventional message (`feat(ufc): …` / `fix(ufc): …`), ending with the Co-Authored-By line your own harness specifies. Do not push.
 
+- API errors use the app's existing envelope: raise `HTTPException(404, detail={"code": ..., "message": ...})` and the global handler in `backend/app/main.py` rewrites it to `{"error": {"code": ..., "message": ...}}`. Tests and the frontend read `error.code`, never `detail.code`.
+
 ## Review Focus
 
 1. A card with zero bouts (the feed lists the event before its fights): the API returns `segments: []`, `bout_count: 0`, `main_event: null`, and the card page shows "The fights for this card have not been announced yet." instead of an empty box. (Tasks 2 and 7)
@@ -260,7 +262,7 @@ def test_next_is_the_soonest_upcoming_card(client):   assert c.get("/api/ufc/eve
 def test_next_falls_back_to_the_latest_result(client): # seed without the two future cards → PROCHAZKA
 def test_next_is_404_when_nothing_is_loaded(client):
     r = c.get("/api/ufc/events/next")
-    assert r.status_code == 404 and r.json()["detail"]["code"] == "no_events"
+    assert r.status_code == 404 and r.json()["error"]["code"] == "no_events"
 
 def test_card_segments_and_order(client):
     d = c.get(f"/api/ufc/events/{ADESANYA}").json()
@@ -292,7 +294,7 @@ def test_card_with_zero_bouts(client):
 def test_unknown_and_non_card_slugs_are_404(client):
     for slug in ("no-such-card", DWCS):
         r = c.get(f"/api/ufc/events/{slug}")
-        assert r.status_code == 404 and r.json()["detail"]["code"] == "not_found"
+        assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
 
 def test_card_query_count_does_not_grow_with_bouts(client):
     # count before_cursor_execute on the engine for GET ADESANYA (5 rows) and for a seeded 12-bout card
