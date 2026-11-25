@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { isViewerRow, rowClassName, rowKey } from "@/components/play/leaderboardRows";
+import { rowKey } from "@/components/play/leaderboardRows";
 import { useTipsIdentityVersion } from "@/components/play/tipsIdentity";
-import { reportViewerHandle, useViewerHandle } from "@/components/play/viewerHandle";
 import {
   Button,
   Card,
@@ -24,30 +23,34 @@ import {
   Th,
 } from "@/components/ui";
 import { boardHref, type UfcBoardScope } from "@/app/ufc/leaderboard/scope";
+import { cn } from "@/lib/utils";
 import { getOrCreateDeviceId } from "@/lib/session";
 import { getUfcPicksSummary, UFC_SCORING } from "@/lib/ufcPicks";
-import type { UfcLeaderboardEntry, UfcLeaderboardResponse } from "@/lib/ufcTypes";
+import type { UfcLeaderboardEntry, UfcLeaderboardResponse, UfcPicksSummaryResponse } from "@/lib/ufcTypes";
+import { findViewerRow } from "./ufcLeaderboardViewer";
 
 const RULE = `${UFC_SCORING} Ties go to more winner-and-method picks.`;
 
 /** /ufc/leaderboard for one card or one year. The board is public and the same for every
  *  visitor (rendered from the server payload, in the payload's order); the only per-visitor
- *  work is learning this device's handle after hydration, to mark its own row. `board` null
- *  with a card slug means the API does not know that card; with no slug there is no card yet. */
+ *  work is reading this device's own totals after hydration, to mark its own row when that is
+ *  certain (see `findViewerRow`). `board` null for a card scope means the API does not know
+ *  that card. `currentYear` comes from the server so server and client agree. */
 export function UfcLeaderboardView({
   board,
   scope,
   nextSlug,
+  currentYear,
 }: {
   board: UfcLeaderboardResponse | null;
   scope: UfcBoardScope;
   nextSlug: string | null;
+  currentYear: number;
 }) {
   const { user, loading } = useAuth();
-  const viewerHandle = useViewerHandle();
-  useViewerLookup();
+  const summary = useViewerSummary();
 
-  if (scope.kind === "card" && scope.slug !== null && board === null) {
+  if (scope.kind === "card" && board === null) {
     return (
       <>
         <PageHead eyebrow="UFC" title="Leaderboard" />
@@ -55,46 +58,34 @@ export function UfcLeaderboardView({
           title="That card is not on the leaderboard"
           actions={<Button href="/ufc/leaderboard">Leaderboard</Button>}
         >
-          Check the link, or open the board for the next card.
+          Check the link, or open the board for the year.
         </EmptyState>
       </>
     );
   }
 
-  const cardSlug = scope.kind === "card" ? (scope.slug ?? nextSlug) : nextSlug;
   const entries = board?.entries ?? [];
-  const mine = entries.find((e) => isViewerRow(e, viewerHandle));
-  // The year link is the card's own UTC year (the year its board counts in) while looking at a
-  // card, else the year being shown; `year=` is only spelled out when it is not the current one.
-  const thisYear = new Date().getUTCFullYear();
+  const players = entries.filter((e) => !e.is_model);
+  const mine = findViewerRow(entries, scope, summary);
+  // The year a card's board counts in is the UTC year of its first fight.
   const cardYear = board?.event?.first_bout_utc ? new Date(board.event.first_bout_utc).getUTCFullYear() : null;
-  const year = scope.kind === "year" ? scope.year : (cardYear ?? thisYear);
-  const yearHref = year === thisYear ? "/ufc/leaderboard?view=year" : boardHref({ kind: "year", year });
-  const sub = scope.kind === "year" ? String(scope.year) : (board?.event?.name ?? "The next card");
+  const year = scope.kind === "year" ? scope.year : (cardYear ?? currentYear);
+  const cardSlug = scope.kind === "card" ? scope.slug : nextSlug;
+  const sub = scope.kind === "year" ? String(scope.year) : (board?.event?.name ?? "");
+  const switchItems = [
+    ...(cardSlug
+      ? [{ label: "This card", href: boardHref({ kind: "card", slug: cardSlug }), current: scope.kind === "card" }]
+      : []),
+    { label: String(year), href: boardHref({ kind: "year", year }), current: scope.kind === "year" },
+  ];
 
   return (
     <>
       <PageHead
         eyebrow="UFC"
         title="Leaderboard"
-        sub={sub}
-        actions={
-          <Segmented
-            label="Show"
-            items={[
-              {
-                label: "This card",
-                href: boardHref({ kind: "card", slug: cardSlug }),
-                current: scope.kind === "card",
-              },
-              {
-                label: String(year),
-                href: yearHref,
-                current: scope.kind === "year",
-              },
-            ]}
-          />
-        }
+        sub={sub || undefined}
+        actions={switchItems.length > 1 ? <Segmented label="Show" items={switchItems} /> : null}
       />
       <PageLayout>
         <Main>
@@ -112,7 +103,7 @@ export function UfcLeaderboardView({
           ) : (
             <>
               {mine && board ? (
-                <p className="font-semibold text-ink">{`You are ${mine.rank} of ${board.participant_count}.`}</p>
+                <p className="font-semibold text-ink">{`You are ${players.indexOf(mine) + 1} of ${board.participant_count}.`}</p>
               ) : null}
               <Card flush>
                 <TableScroll>
@@ -129,9 +120,9 @@ export function UfcLeaderboardView({
                     </thead>
                     <tbody>
                       {entries.map((row) => (
-                        <tr key={`${rowKey(row)}:${row.rank}`} className={rowClassName(row, viewerHandle)}>
+                        <tr key={`${rowKey(row)}:${row.rank}`} className={cn(row === mine && "bg-brand-soft")}>
                           <Td pos>{row.rank}</Td>
-                          <PlayerName row={row} viewerHandle={viewerHandle} />
+                          <PlayerName row={row} you={row === mine} />
                           <Td pts>{row.points}</Td>
                           <Td>{row.winner_method}</Td>
                         </tr>
@@ -150,32 +141,42 @@ export function UfcLeaderboardView({
   );
 }
 
-/** Learns this device's handle (after hydration only) so its own row can be marked. A
- *  failed lookup or blocked storage simply means no row is marked. */
-function useViewerLookup() {
+/** This device's own per-card totals, read after hydration only. A failed lookup or blocked
+ *  storage leaves it null, and then no row is marked. */
+function useViewerSummary(): UfcPicksSummaryResponse | null {
   const identityVersion = useTipsIdentityVersion();
+  const [summary, setSummary] = useState<UfcPicksSummaryResponse | null>(null);
   useEffect(() => {
     const device = getOrCreateDeviceId();
     if (!device) return;
     let live = true;
     getUfcPicksSummary(device)
-      .then((s) => live && reportViewerHandle(s.handle))
-      .catch(() => {});
+      .then((s) => live && setSummary(s))
+      .catch(() => live && setSummary(null));
     return () => {
       live = false;
     };
   }, [identityVersion]);
+  return summary;
 }
 
 /** The handle cell. User-chosen text: rendered as text, wrapped anywhere, isolated for
  *  right-to-left handles. "Model" and "You" are words, not just colour. */
-function PlayerName({ row, viewerHandle }: { row: UfcLeaderboardEntry; viewerHandle: string | null }) {
+function PlayerName({ row, you }: { row: UfcLeaderboardEntry; you: boolean }) {
   return (
     <Td align="left" className="min-w-0 whitespace-normal font-semibold text-ink">
       <span className="inline-flex flex-wrap items-center gap-2">
         <bdi className={"[overflow-wrap:anywhere]"}>{row.handle}</bdi>
-        {row.is_model ? <Tag>Model</Tag> : null}
-        {isViewerRow(row, viewerHandle) ? <Tag className="bg-brand text-white">You</Tag> : null}
+        {row.is_model ? (
+          <Tag>
+            Model<span className="sr-only">, the site&apos;s model</span>
+          </Tag>
+        ) : null}
+        {you ? (
+          <Tag className="bg-brand text-white">
+            You<span className="sr-only">, you</span>
+          </Tag>
+        ) : null}
       </span>
     </Td>
   );

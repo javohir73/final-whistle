@@ -1,7 +1,7 @@
 import { isEventSlug } from "@/lib/ufcDisplay";
 
-/** Which board /ufc/leaderboard shows. A card with a null slug is "the next card". */
-export type UfcBoardScope = { kind: "card"; slug: string | null } | { kind: "year"; year: number };
+/** Which board /ufc/leaderboard shows: one card, or one UTC year (the default). */
+export type UfcBoardScope = { kind: "card"; slug: string } | { kind: "year"; year: number };
 
 type Param = string | string[] | undefined;
 
@@ -18,22 +18,21 @@ function validYear(raw: string | undefined): number | null {
 }
 
 /** URL parameters to a scope that is always safe to ask the API for. `view=year` wins over
- *  `event` (the API takes exactly one of the two); a bad year falls back to the current UTC
- *  year and a bad card slug to the next card, so a hand-typed value never errors. */
+ *  `event` (the API takes exactly one of the two); a bad year or a bad card slug falls back
+ *  to the current UTC year (also the default view), so a hand-typed value never errors. */
 export function parseBoardScope(
   sp: { event?: Param; view?: Param; year?: Param },
   now: Date,
 ): UfcBoardScope {
-  if (first(sp.view) === "year") {
-    const current = Math.min(MAX_BOARD_YEAR, Math.max(MIN_BOARD_YEAR, now.getUTCFullYear()));
-    return { kind: "year", year: validYear(first(sp.year)) ?? current };
-  }
+  const current = Math.min(MAX_BOARD_YEAR, Math.max(MIN_BOARD_YEAR, now.getUTCFullYear()));
+  if (first(sp.view) === "year") return { kind: "year", year: validYear(first(sp.year)) ?? current };
   const event = first(sp.event);
-  return { kind: "card", slug: event !== undefined && isEventSlug(event) ? event : null };
+  if (event !== undefined && isEventSlug(event)) return { kind: "card", slug: event };
+  return { kind: "year", year: current };
 }
 
-/** The URL of a board: the card (or the next card when null) or one year. */
+/** The URL of a board; a year link always names its year. */
 export function boardHref(scope: UfcBoardScope): string {
   if (scope.kind === "year") return `/ufc/leaderboard?view=year&year=${scope.year}`;
-  return scope.slug ? `/ufc/leaderboard?event=${scope.slug}` : "/ufc/leaderboard";
+  return `/ufc/leaderboard?event=${scope.slug}`;
 }

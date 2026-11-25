@@ -22,11 +22,13 @@ beforeEach(() => {
 });
 afterEach(() => jest.clearAllMocks());
 
-it("fetches the next card's board by default", async () => {
+const YEAR = new Date().getUTCFullYear();
+
+it("opens on the current year's board by default", async () => {
   render(await UfcLeaderboardPage({ searchParams: sp({}) }));
   expect(lb).toHaveBeenCalledTimes(1);
-  expect(lb).toHaveBeenCalledWith({ event: "ufc-next-2026-12-05" });
-  expect(shown()).toMatchObject({ scope: { kind: "card", slug: "ufc-next-2026-12-05" }, nextSlug: "ufc-next-2026-12-05" });
+  expect(lb).toHaveBeenCalledWith({ year: YEAR });
+  expect(shown()).toMatchObject({ scope: { kind: "year", year: YEAR }, nextSlug: "ufc-next-2026-12-05", currentYear: YEAR });
 });
 
 it("fetches the year board for ?view=year", async () => {
@@ -38,9 +40,7 @@ it("fetches the year board for ?view=year", async () => {
 it("never sends a bad year or both parameters to the API", async () => {
   render(await UfcLeaderboardPage({ searchParams: sp({ view: "year", year: "1850", event: "ufc-x-2026-01-01" }) }));
   const arg = lb.mock.calls[0][0];
-  expect(Object.keys(arg)).toEqual(["year"]);
-  expect(arg.year).toBeGreaterThanOrEqual(2020);
-  expect(arg.year).toBeLessThanOrEqual(2100);
+  expect(arg).toEqual({ year: YEAR });
 });
 
 it("asks for the card named in the URL, and passes a missing card on", async () => {
@@ -50,16 +50,18 @@ it("asks for the card named in the URL, and passes a missing card on", async () 
   expect(shown()).toMatchObject({ board: null, scope: { kind: "card", slug: "no-such-card" } });
 });
 
-it("falls back to the next card for a malformed card slug", async () => {
+it("falls back to the year for a malformed or over-long card slug", async () => {
   render(await UfcLeaderboardPage({ searchParams: sp({ event: "../etc/passwd" }) }));
-  expect(lb).toHaveBeenCalledWith({ event: "ufc-next-2026-12-05" });
+  expect(lb).toHaveBeenLastCalledWith({ year: YEAR });
+  render(await UfcLeaderboardPage({ searchParams: sp({ event: "a".repeat(300) }) }));
+  expect(lb).toHaveBeenLastCalledWith({ year: YEAR });
 });
 
-it("asks for no board when there is no next card", async () => {
+it("shows the year board with no switch to a card when there is no upcoming card", async () => {
   next.mockResolvedValue(null);
   render(await UfcLeaderboardPage({ searchParams: sp({}) }));
-  expect(lb).not.toHaveBeenCalled();
-  expect(shown()).toMatchObject({ board: null, scope: { kind: "card", slug: null }, nextSlug: null });
+  expect(lb).toHaveBeenCalledWith({ year: YEAR });
+  expect(shown()).toMatchObject({ scope: { kind: "year", year: YEAR }, nextSlug: null });
 });
 
 it("shows a readable state with a way out when the board cannot be fetched", async () => {
@@ -71,17 +73,10 @@ it("shows a readable state with a way out when the board cannot be fetched", asy
   expect(screen.getByRole("link", { name: "See the fight cards" })).toHaveAttribute("href", "/ufc");
 });
 
-it("shows the same state when the next card cannot be found out", async () => {
+it("still shows the board when the next card cannot be found out", async () => {
   next.mockRejectedValue(new Error("down"));
   render(await UfcLeaderboardPage({ searchParams: sp({}) }));
-  expect(screen.getByRole("link", { name: "Try again" })).toHaveAttribute("href", "/ufc/leaderboard");
-  expect(lb).not.toHaveBeenCalled();
-});
-
-it("still shows a year board when the next card cannot be found out", async () => {
-  next.mockRejectedValue(new Error("down"));
-  render(await UfcLeaderboardPage({ searchParams: sp({ view: "year", year: "2025" }) }));
-  expect(shown()).toMatchObject({ scope: { kind: "year", year: 2025 }, nextSlug: null });
+  expect(shown()).toMatchObject({ scope: { kind: "year", year: YEAR }, nextSlug: null });
 });
 
 it("has metadata without the word official", () => {
