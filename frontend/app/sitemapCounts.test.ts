@@ -38,6 +38,7 @@ it("gives every competition a non-zero share of the sitemap", async () => {
     expect([comp, n >= 3]).toEqual([comp, true]);
   }
   expect(nrl).toBeGreaterThanOrEqual(5);
+  expect(urls.filter((u) => u.startsWith(`${SITE}/ufc`)).length).toBeGreaterThanOrEqual(2);
 
   // WC26 no longer dominates: it is one competition among five.
   const football = Object.values(counts).reduce((a, b) => a + b, 0);
