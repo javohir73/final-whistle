@@ -49,3 +49,10 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONPATH: backend:.
         run: python -m pipeline.sports.ufc_results
+      - name: Predict and grade UFC bouts (shadow, idempotent)
+        # Additive layer: a model failure must not fail the data refresh.
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: backend:.
+        run: python -m pipeline.sports.ufc_predict --generate --grade

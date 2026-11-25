@@ -4,8 +4,10 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+import yaml
 from sqlalchemy import event, select
 
 from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
@@ -20,6 +22,8 @@ import pipeline.sports.ufc_predict as mod
 from pipeline.sports.ufc_predict import _write_prediction, generate, grade, grade_summary, lock_time, main
 from pipeline.sports.ufc_testkit import build
 
+ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = ROOT / ".github" / "workflows" / "ufc-refresh.yml"
 NOW = datetime(2026, 12, 1, tzinfo=timezone.utc)
 ELO_V, FORM_V = "ufc-elo-v0.1", "ufc-form-v0.2"
 
@@ -528,3 +532,32 @@ def test_reconcile_window_edge_is_exact(db_session):
     by_bout = {r.bout_id: r for r in results(db_session)}
     assert by_bout[built.bouts[0].id].prob_assigned == pytest.approx(0.3)
     assert by_bout[built.bouts[1].id].prob_assigned == pytest.approx(0.7)
+
+
+def test_workflow_predicts_after_results():
+    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["ufc-refresh"]["steps"]
+    runs = [s.get("run", "") for s in steps]
+    i_results = next(i for i, r in enumerate(runs) if "ufc_results" in r)
+    i_predict = next(i for i, r in enumerate(runs) if "ufc_predict --generate --grade" in r)
+    assert i_predict == i_results + 1 and steps[i_predict]["continue-on-error"] is True
+
+
+def test_public_model_setting_defaults_to_none():
+    from app.config import Settings
+    assert Settings(_env_file=None).ufc_public_model == ""
+
+
+def test_env_example_lists_the_setting():
+    assert "UFC_PUBLIC_MODEL=" in (ROOT / ".env.example").read_text()
+
+
+def test_generate_with_scheduled_bouts_and_no_finished_history(db_session):
+    # First production run: a card of scheduled bouts, nothing finished yet.
+    rows = [("2026-12-05T18:00", "A", "B", None, None), ("2026-12-05T19:00", "C", "D", None, None)]
+    build(db_session, rows)
+    s = generate(db_session, params, now=NOW)
+    preds = db_session.scalars(select(UfcPrediction)).all()
+    assert s.written == len(preds)
+    for r in preds:
+        assert r.is_shadow and r.p_a == pytest.approx(0.5) and r.model_version in (ELO_V, FORM_V)
+    assert generate(db_session, params, now=NOW).written == 0
