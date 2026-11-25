@@ -19,9 +19,14 @@ it per event; `upsert_event` stays database-only.
 
 A lock never reopens: when the ingest's clock reaches a scheduled bout's stored
 start, `upsert_event` stamps `locked_at = scheduled_utc` and stops moving that
-bout's time. A time moved before the start still moves. A cancelled bout whose old
-start passed while it was away is stamped the same way and stays cancelled when it
-returns. When
+bout's time. A time moved before the start still moves. A bout the sweep cancelled
+(it merely vanished from a snapshot) is stamped the same way when its start passed
+while it was away; when it returns after that start it comes back "scheduled" and
+LOCKED, with its stored `scheduled_utc` and `locked_at` untouched and none of the
+card's fields applied: picks stay closed, and the results step can finish it. A bout
+the FEED cancelled (`method_detail == FEED_CANCELLED`) stays cancelled when locked,
+and an unlocked cancelled bout with a future start is reinstated with the card's
+fields. When
 the opponent changes, the old row becomes "changed" and a new row is created with the
 card's time and no lock, even if the old start had passed: it is a different fight with
 a new id, picks on the old row are void, and a start already in the past locks the new
@@ -235,6 +240,12 @@ def _apply_bout(
                 setattr(current, f, v)
             current.status = "scheduled"
             summary.bouts_reinstated += 1
+        elif (start := _utc(current.scheduled_utc)) is not None and start <= _utc(now):
+            # Dropped from a snapshot (not cancelled by the feed) and back after its start: the
+            # fight happened, so it returns locked with its stored time and no card fields, and
+            # the results step can finish it.
+            current.status = "scheduled"
+            summary.bouts_reinstated += 1
         else:
             log.warning("bout %s is cancelled and locked; not reinstating", card.provider_id)
     elif not same_pair and current.status in ("scheduled", "cancelled"):
@@ -242,6 +253,19 @@ def _apply_bout(
             current.status = "changed"
         successor = new_row(current.revision + 1)
         current.replaced_by_id = successor.id
+        pairs = [
+            {r.fighter_a_id, r.fighter_b_id}
+            for r in db.scalars(
+                select(UfcBout).where(
+                    UfcBout.provider == provider, UfcBout.provider_bout_id == card.provider_id
+                )
+            )
+        ]
+        if pairs.count({a.id, b.id}) > 1:  # the feed flipped back to an earlier pairing
+            log.warning(
+                "bout %s: a new revision repeats an earlier fighter pairing (%d revisions)",
+                card.provider_id, len(pairs),
+            )
         summary.bouts_changed += 1
     elif not same_pair:
         log.warning(

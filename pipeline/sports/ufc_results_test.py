@@ -313,8 +313,9 @@ def test_finished_bout_without_stats_is_retried_for_three_days(db_session):
     bout.scheduled_utc = AFTER_CARD - timedelta(days=4)
     db_session.flush()
     provider.outcome_calls.clear()
-    refresh_results(db_session, provider, now=AFTER_CARD)
-    assert provider.outcome_calls == []
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    # No longer due for stats; only the outcome-only re-check (inside the 30 days) asks.
+    assert (summary.checked, summary.rechecked) == (0, 1) and _count(db_session, UfcBoutStat) == 0
 
 
 def test_winner_follows_the_stored_fighter_not_the_feed_order(db_session):
@@ -706,3 +707,302 @@ def test_feed_cancelled_before_the_start_stays_locked_if_it_returns_after_that_s
     later = T0 + timedelta(days=7)
     assert _reinstate(db_session, bout, later, T0 + timedelta(minutes=10)) == 0
     assert (bout.status, _utc(bout.locked_at), _utc(bout.scheduled_utc)) == ("cancelled", T0, T0)
+
+
+def test_a_swept_bout_that_came_back_locked_is_finished_by_the_results_step(db_session):
+    from pipeline.sports.ufc_ingest import IngestSummary, current_bout
+
+    _bare_bout(db_session, (("b1", "scheduled"), ("b2", "scheduled")))
+    db_session.commit()
+
+    def card(*bouts):
+        return EventCard(provider_id="e1", name="UFC Test Night", first_bout_utc=T0, last_bout_utc=T0,
+                         venue="Arena", is_card=True, bouts=tuple(bouts))
+
+    def card_bout(bid, order, when=T0):
+        return BoutCard(
+            provider_id=bid, card_order=order, segment="main", segment_label="Main Card",
+            weight_class="Lightweight", scheduled_rounds=3, scheduled_utc=when,
+            fighter_a=FighterRef(f"{bid}-a", f"A {bid}"), fighter_b=FighterRef(f"{bid}-b", f"B {bid}"),
+        )
+
+    upsert_event(db_session, "espn", card(card_bout("b2", 2)), now=T0 + timedelta(minutes=10))
+    assert _bout(db_session, "b1").status == "cancelled"
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", card(card_bout("b1", 1, T0 + timedelta(hours=11)), card_bout("b2", 2)),
+                 now=T0 + timedelta(hours=12), summary=summary)
+    db_session.commit()
+    bout = current_bout(db_session, "espn", "b1")
+    assert (bout.status, _utc(bout.locked_at), _utc(bout.scheduled_utc)) == ("scheduled", T0, T0)
+    assert summary.bouts_reinstated == 1
+
+    class Final(RecordedUfcProvider):
+        def fetch_outcome(self, event_id, b):
+            return KO if b.provider_id == "b1" else None
+
+    result = refresh_results(db_session, Final(RAW), now=T0 + timedelta(hours=13))
+    db_session.refresh(bout)
+    assert (bout.status, bout.winner, bout.method) == ("finished", "b", "ko_tko")
+    assert result.finished == 1
+
+
+# --- re-checking recently finished bouts (an overturned result must reach the picks) ---
+
+NO_CONTEST = BoutOutcome("final", 1, "1:00", None, "no_contest", "Overturned")
+WINNER_A = BoutOutcome("final", 2, "4:58", "a", "ko_tko", "Punch")
+
+
+class _OutcomeOnlyProvider(RecordedUfcProvider):
+    """Answers every outcome with `answers[bout id]` (an outcome, None or an exception) and
+    counts every call, so a test can see that stats and odds were never asked for."""
+
+    def __init__(self, answers):
+        super().__init__(RAW)
+        self.answers = answers
+        self.calls: list[tuple[str, str]] = []
+
+    def fetch_outcome(self, event_id, bout):
+        self.calls.append(("outcome", bout.provider_id))
+        answer = self.answers[bout.provider_id]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def fetch_stats(self, event_id, bout):
+        self.calls.append(("stats", bout.provider_id))
+        return {}
+
+    def fetch_odds(self, event_id, bout):
+        self.calls.append(("odds", bout.provider_id))
+        return []
+
+
+def _finished_with_stats(db, ids=("b1",), days=7, winner="a"):
+    """Finished bouts `days` old, each with both fighters' stats rows already stored."""
+    rows = _bare_bout(db, tuple((i, "finished") for i in ids), when=AFTER_CARD - timedelta(days=days))
+    for row in rows:
+        row.winner, row.method, row.locked_at = winner, "ko_tko", row.scheduled_utc
+        db.add(UfcBoutStat(bout_id=row.id, fighter_id=row.fighter_a_id))
+        db.add(UfcBoutStat(bout_id=row.id, fighter_id=row.fighter_b_id))
+    db.commit()
+    return rows
+
+
+def test_a_week_old_finished_bout_turned_no_contest_is_updated_without_stats_or_odds(db_session):
+    (bout,) = _finished_with_stats(db_session)
+    provider = _OutcomeOnlyProvider({"b1": NO_CONTEST})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    db_session.refresh(bout)
+    assert (bout.status, bout.winner, bout.method) == ("finished", None, "no_contest")
+    assert (summary.rechecked, summary.overturned, summary.checked, summary.failed) == (1, 1, 0, 0)
+    assert provider.calls == [("outcome", "b1")]
+    assert _count(db_session, UfcBoutStat) == 2 and _count(db_session, UfcOddsSnapshot) == 0
+
+
+def test_a_flipped_winner_is_applied_and_counted(db_session):
+    (bout,) = _finished_with_stats(db_session, winner="b")
+    summary = refresh_results(db_session, _OutcomeOnlyProvider({"b1": WINNER_A}), now=AFTER_CARD)
+    db_session.refresh(bout)
+    assert (bout.winner, bout.method) == ("a", "ko_tko") and summary.overturned == 1
+
+
+def test_a_bout_31_days_old_is_not_rechecked_and_29_days_is(db_session):
+    _finished_with_stats(db_session, ("old",), days=31)
+    _finished_with_stats(db_session, ("edge",), days=29)
+    provider = _OutcomeOnlyProvider({"old": NO_CONTEST, "edge": NO_CONTEST})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert provider.calls == [("outcome", "edge")] and summary.rechecked == 1
+
+
+def test_an_unchanged_result_writes_nothing_and_a_second_run_adds_no_rows(db_session):
+    (bout,) = _finished_with_stats(db_session, winner="a")
+    bout.method_detail, bout.end_round, bout.end_clock = "Punch", 2, "4:58"
+    db_session.commit()
+    provider = _OutcomeOnlyProvider({"b1": WINNER_A})
+    seen: list[str] = []
+    engine = db_session.get_bind()
+    listener = lambda conn, cur, stmt, *a: seen.append(stmt)
+    from sqlalchemy import event
+
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        first = refresh_results(db_session, provider, now=AFTER_CARD)
+        second = refresh_results(db_session, provider, now=AFTER_CARD)
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    assert (first.rechecked, first.overturned, second.rechecked, second.overturned) == (1, 0, 1, 0)
+    mine = ("ufc_bouts", "ufc_bout_stats", "ufc_odds_snapshots", "ufc_picks")
+    assert not [
+        s for s in seen
+        if s.lstrip().upper().startswith(("UPDATE", "INSERT")) and any(t in s for t in mine)
+    ]
+    assert (_count(db_session, UfcBoutStat), _count(db_session, UfcOddsSnapshot)) == (2, 0)
+    assert provider.calls == [("outcome", "b1")] * 2
+
+
+def test_a_later_final_with_no_winner_and_a_real_method_leaves_the_result_alone(db_session):
+    (bout,) = _finished_with_stats(db_session, winner="a")
+    summary = refresh_results(
+        db_session, _OutcomeOnlyProvider({"b1": BoutOutcome("final", 2, "4:58", None, "ko_tko", None)}),
+        now=AFTER_CARD,
+    )
+    db_session.refresh(bout)
+    assert (bout.winner, bout.method) == ("a", "ko_tko") and summary.overturned == 0
+
+
+def test_a_missing_or_failed_recheck_is_skipped_and_never_trips_the_exit_rule(db_session, monkeypatch):
+    from pipeline.sports import ufc_results
+
+    _finished_with_stats(db_session, ("b1", "b2", "b3"))
+    provider = _OutcomeOnlyProvider({"b1": RuntimeError("boom"), "b2": None, "b3": NO_CONTEST})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert (summary.rechecked, summary.overturned, summary.failed, summary.bouts_failed) == (3, 1, 1, 0)
+    assert (_bout(db_session, "b3").method, _bout(db_session, "b1").method) == ("no_contest", "ko_tko")
+
+    import app.db
+    import pipeline.sports.ufc_provider as prov
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+    monkeypatch.setattr(ufc_results, "refresh_results", lambda db, provider: summary)
+    assert ufc_results.main([]) == 0
+
+
+def test_rechecks_go_oldest_first_and_stop_at_the_cap(db_session, monkeypatch):
+    from pipeline.sports import ufc_results
+
+    _finished_with_stats(db_session, ("new",), days=2)
+    _finished_with_stats(db_session, ("old",), days=20)
+    _finished_with_stats(db_session, ("mid",), days=9)
+    monkeypatch.setattr(ufc_results, "RECHECK_CAP", 2)
+    provider = _OutcomeOnlyProvider({"new": NO_CONTEST, "old": NO_CONTEST, "mid": NO_CONTEST})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert [c[1] for c in provider.calls] == ["old", "mid"] and summary.rechecked == 2
+    assert ufc_results.RECHECK_CAP != 200
+
+
+def test_the_recheck_cap_is_200():
+    from pipeline.sports import ufc_results
+
+    assert ufc_results.RECHECK_CAP == 200
+
+
+def test_a_finished_bout_still_waiting_for_stats_is_fetched_once_not_twice(db_session):
+    (bout,) = _bare_bout(db_session, (("b1", "finished"),), when=AFTER_CARD - timedelta(days=1))
+    bout.winner, bout.method = "a", "ko_tko"
+    db_session.commit()
+    provider = _OutcomeOnlyProvider({"b1": WINNER_A})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD)
+    assert [c for c in provider.calls if c[0] == "outcome"] == [("outcome", "b1")]
+    assert (summary.checked, summary.rechecked) == (1, 0)
+
+
+def test_the_counts_line_carries_rechecked_and_overturned(monkeypatch, caplog):
+    import app.db
+    import pipeline.sports.ufc_provider as prov
+    from pipeline.sports import ufc_results
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+    monkeypatch.setattr(ufc_results, "refresh_results",
+                        lambda db, provider: ResultsSummary(checked=1, rechecked=4, overturned=1))
+    with caplog.at_level("INFO"):
+        assert ufc_results.main([]) == 0
+    assert any("rechecked=4 overturned=1" in r.getMessage() for r in caplog.records)
+
+
+# --- the re-check's time budget and failure streak ---
+
+class _Clock:
+    """A fake monotonic clock: each reading advances by `step` seconds."""
+
+    def __init__(self, step=0.0):
+        self.now, self.step = 0.0, step
+
+    def __call__(self):
+        value = self.now
+        self.now += self.step
+        return value
+
+
+def _ids(n):
+    return tuple(f"b{i}" for i in range(1, n + 1))
+
+
+def test_the_recheck_stops_when_its_time_budget_is_spent_and_leaves_the_rest(db_session):
+    _finished_with_stats(db_session, _ids(4))
+    provider = _OutcomeOnlyProvider({i: NO_CONTEST for i in _ids(4)})
+    # readings: start=0, then one per bout: 100 (ok), 200 (ok), 300 (over 240, stop)
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock(step=100))
+    assert [c[1] for c in provider.calls] == ["b1", "b2"]
+    assert (summary.rechecked, summary.recheck_stopped) == (2, "budget")
+    assert _bout(db_session, "b3").method == "ko_tko" and _bout(db_session, "b4").method == "ko_tko"
+
+
+def test_five_consecutive_missing_answers_stop_the_recheck(db_session):
+    _finished_with_stats(db_session, _ids(6))
+    answers = {i: None for i in _ids(5)}
+    answers["b6"] = NO_CONTEST
+    provider = _OutcomeOnlyProvider(answers)
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock())
+    assert [c[1] for c in provider.calls] == list(_ids(5))
+    assert (summary.rechecked, summary.recheck_skipped, summary.recheck_stopped) == (5, 5, "errors")
+    assert _bout(db_session, "b6").method == "ko_tko"
+
+
+def test_raised_errors_count_toward_the_streak_too(db_session):
+    _finished_with_stats(db_session, _ids(6))
+    provider = _OutcomeOnlyProvider({i: RuntimeError("boom") for i in _ids(6)})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock())
+    assert len(provider.calls) == 5
+    assert (summary.recheck_skipped, summary.failed, summary.bouts_failed, summary.recheck_stopped) == (5, 5, 0, "errors")
+
+
+def test_an_answer_between_failures_resets_the_streak(db_session):
+    _finished_with_stats(db_session, _ids(9))
+    answers = {i: None for i in _ids(9)}
+    answers["b5"] = WINNER_A  # an answer (unchanged here is fine; it is not None)
+    for i in ("b1",):
+        answers[i] = None
+    provider = _OutcomeOnlyProvider(answers)
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock())
+    # b1-b4 None (4), b5 answers (reset), b6-b9 None (4): never five in a row
+    assert len(provider.calls) == 9
+    assert (summary.recheck_skipped, summary.recheck_stopped) == (8, "none")
+
+
+def test_a_normal_run_reports_none_stopped_and_the_counts_line_carries_the_new_fields(db_session, monkeypatch, caplog):
+    _finished_with_stats(db_session, _ids(2))
+    summary = refresh_results(db_session, _OutcomeOnlyProvider({"b1": NO_CONTEST, "b2": WINNER_A}),
+                              now=AFTER_CARD, clock=_Clock())
+    assert (summary.rechecked, summary.recheck_skipped, summary.recheck_stopped) == (2, 0, "none")
+
+    import app.db
+    import pipeline.sports.ufc_provider as prov
+    from pipeline.sports import ufc_results
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+    monkeypatch.setattr(ufc_results, "refresh_results", lambda db, provider: ResultsSummary(
+        rechecked=7, overturned=1, recheck_skipped=5, recheck_stopped="errors"))
+    with caplog.at_level("INFO"):
+        ufc_results.main([])
+    assert any("recheck_skipped=5 recheck_stopped=errors" in r.getMessage() for r in caplog.records)
+
+
+def test_the_budget_is_240_seconds():
+    from pipeline.sports import ufc_results
+
+    assert ufc_results.RECHECK_BUDGET_SECONDS == 240 and ufc_results.RECHECK_MAX_MISSES == 5

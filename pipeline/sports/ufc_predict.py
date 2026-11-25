@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
-from app.ufc_rules import lock_expr, lock_time  # noqa: F401  (lock_time stays importable from here)
+from app.ufc_rules import RECONCILE_DAYS, lock_expr, lock_time  # noqa: F401  (both names stay importable from here)
 from ml.sports.ufc.elo import EloParams, final_ratings
 from ml.sports.ufc.features import snapshots
 from ml.sports.ufc.history import FighterInfo, History
@@ -197,7 +197,6 @@ def _predict_bout(db, bout, form, snaps, fighters, tables, history, now) -> tupl
 
 
 LOG_LOSS_FLOOR = 1e-15
-RECONCILE_DAYS = 30
 
 
 @dataclass

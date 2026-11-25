@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthOut(BaseModel):
@@ -755,7 +755,7 @@ class UfcFighterDetailOut(BaseModel):
 
 class UfcPickSubmitIn(BaseModel):
     device_id: str
-    bout_id: int
+    bout_id: int = Field(ge=1, le=2**31 - 1)  # the bout id column is a 32-bit integer
     winner: str
     method: str | None = None
 

@@ -182,3 +182,35 @@ def test_card_query_count_grows_by_at_most_one_with_calls(client, monkeypatch):
     _model_set(monkeypatch)
     assert count() <= without + 1
     assert _models(c)[0] is not None
+
+
+def test_a_locked_prelim_shows_its_call_while_the_open_main_event_shows_nothing(client, monkeypatch):
+    _model_set(monkeypatch)
+    c, Session, _ = client
+    db = Session()
+    now = datetime.now(timezone.utc)
+    pre_t, main_t = now - timedelta(hours=1), now + timedelta(hours=3)
+    ev = _event(db, SLUG, "scheduled", pre_t, main_t)
+    pre = _bout(db, ev, _fighter(db, "Prelim Alpha"), _fighter(db, "Prelim Bravo"), card_order=2,
+                segment="prelims1", segment_label="Prelims", scheduled_utc=pre_t, status="scheduled")
+    main = _bout(db, ev, _fighter(db, "Headline Charlie"), _fighter(db, "Headline Delta"), card_order=1,
+                 segment="main", segment_label="Main Card", scheduled_utc=main_t, status="scheduled")
+    _pred(db, pre, pre_t - timedelta(hours=2), p_a=0.63, reasons=["Prelim Alpha is five years younger."])
+    _pred(db, main, now - timedelta(hours=2), p_a=0.7123, method_probs={"ko_tko": 0.2111, "submission": 0.1, "decision": 0.6889},
+          reasons=["Headline Charlie has the longer reach."])
+    db.commit()
+
+    def by_id(payload):
+        return {b["id"]: b for s in payload["segments"] for b in s["bouts"]}
+
+    for path in (f"/api/ufc/events/{SLUG}", "/api/ufc/events/next"):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        bouts = by_id(r.json())
+        assert bouts[pre.id]["model"]["p_a"] == 0.63, path
+        assert bouts[main.id]["model"] is None, path
+        assert "longer reach" not in r.text and "0.7123" not in r.text and "0.2111" not in r.text, path
+    r_pre, r_main = c.get(f"/api/ufc/bouts/{pre.id}"), c.get(f"/api/ufc/bouts/{main.id}")
+    assert r_pre.json()["model"]["p_a"] == 0.63
+    assert r_main.json()["model"] is None
+    assert "longer reach" not in r_main.text and "0.7123" not in r_main.text and "0.2111" not in r_main.text

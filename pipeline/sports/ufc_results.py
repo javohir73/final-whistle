@@ -10,7 +10,11 @@ bout; a postponed bout reads as "pre" and is left scheduled) cancels a
 scheduled or live row and marks it with `method_detail = FEED_CANCELLED`, which
 card ingest reads so it does not reinstate the bout just because the card still
 lists it; ingest returns it to "scheduled" only when the feed itself says "pre"
-again. One bout failing is counted and rolled back; the rest carry on,
+again. Every run also re-checks finished bouts from the last RECONCILE_DAYS days for
+their outcome only (`recheck_finished`, oldest first, at most RECHECK_CAP): a result
+overturned days later (a no contest, a flipped winner) goes through `apply_outcome` and
+the picks step re-grades it; an unchanged result writes nothing, and a re-check that errors or
+returns nothing is skipped without counting against the exit rule. One bout failing is counted and rolled back; the rest carry on,
 committing per bout. `bouts_failed` counts failures of due (results) bouts
 only and drives the exit code, so a quiet day with a failed odds or profile
 step stays green.
@@ -19,13 +23,16 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter, UfcOddsSnapshot
+from app.ufc_rules import RECONCILE_DAYS
 from pipeline.sports.ufc_ingest import FEED_CANCELLED, _clip, _utc, lock_if_started, upsert_fighter
 from pipeline.sports.ufc_provider import (
     BoutCard,
@@ -53,6 +60,12 @@ PROFILE_HORIZON = timedelta(days=60)  # refresh_results only profiles fighters w
 # A scheduled or live bout older than this that the feed never finalised is
 # left alone rather than fetched twice a day for ever.
 RESULTS_LOOKBACK = timedelta(days=14)
+# Finished bouts from the last RECONCILE_DAYS get an outcome-only re-check each run, so a
+# result overturned days later (a no contest, a flipped winner) reaches the picks.
+RECHECK_WINDOW = timedelta(days=RECONCILE_DAYS)
+RECHECK_CAP = 200  # most bouts re-checked in one run, oldest first
+RECHECK_BUDGET_SECONDS = 240  # the re-check stops starting new bouts after this long
+RECHECK_MAX_MISSES = 5  # ... or after this many re-checks in a row with no outcome or an error
 
 
 @dataclass
@@ -64,6 +77,10 @@ class ResultsSummary:
     profiles: int = 0
     failed: int = 0
     bouts_failed: int = 0  # failures of due (results) bouts only
+    rechecked: int = 0    # finished bouts asked about again (outcome only)
+    overturned: int = 0   # of those, results that changed
+    recheck_skipped: int = 0  # re-checks that returned no outcome or raised
+    recheck_stopped: str = "none"  # "none", "budget" or "errors": why the re-check ended early
 
 
 def apply_outcome(
@@ -321,13 +338,60 @@ def _has_stats(db: Session, bout: UfcBout) -> bool:
     return db.scalar(select(UfcBoutStat.id).where(UfcBoutStat.bout_id == bout.id).limit(1)) is not None
 
 
+def recheck_finished(
+    db: Session, provider: UfcProvider, bout_ids: list[int], summary: ResultsSummary,
+    now: datetime,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Ask the provider again for the outcome of finished bouts (and nothing else: stats,
+    odds and profiles are never refetched). An unchanged result writes nothing; a changed
+    one goes through `apply_outcome`, which refuses a nonsense final. A provider error or
+    a missing outcome is skipped (an error counts in `failed`, never in `bouts_failed`,
+    so it cannot trip the exit rule for genuinely due bouts) and counts in `recheck_skipped`.
+    Stops starting new bouts after RECHECK_BUDGET_SECONDS on `clock`
+    (`recheck_stopped = "budget"`) or after RECHECK_MAX_MISSES skips in a row
+    (`"errors"`); the rest are left for the next run. Commits per bout."""
+    started, misses = clock(), 0
+    for bout_id in bout_ids:
+        if clock() - started >= RECHECK_BUDGET_SECONDS:
+            summary.recheck_stopped = "budget"
+            return
+        if misses >= RECHECK_MAX_MISSES:
+            summary.recheck_stopped = "errors"
+            return
+        bout = db.get(UfcBout, bout_id)
+        try:
+            summary.rechecked += 1
+            outcome = provider.fetch_outcome(
+                db.get(UfcEvent, bout.event_id).provider_event_id, bout_card(db, bout)
+            )
+            if outcome is None:
+                summary.recheck_skipped += 1
+                misses += 1
+                continue
+            misses = 0
+            before = (bout.winner, bout.method)
+            if apply_outcome(db, bout, outcome, now=now) and (bout.winner, bout.method) != before:
+                summary.overturned += 1
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 - one bad bout must never stop the rest
+            db.rollback()
+            log.warning("bout %s: result re-check failed, skipping: %s", bout_id, type(exc).__name__)
+            log.debug("bout %s: result re-check failure detail: %s", bout_id, exc)
+            summary.failed += 1
+            summary.recheck_skipped += 1
+            misses += 1
+
+
 def refresh_results(
-    db: Session, provider: UfcProvider, now: datetime | None = None
+    db: Session, provider: UfcProvider, now: datetime | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> ResultsSummary:
     now = _utc(now) or datetime.now(timezone.utc)
     summary = ResultsSummary()
     due: list[int] = []
     upcoming: list[int] = []
+    recent: list[tuple[datetime, int]] = []  # finished, inside the re-check window
     for bout in db.scalars(select(UfcBout).where(UfcBout.status.in_(("scheduled", "live", "finished")))):
         when = _utc(bout.scheduled_utc)
         if when is None:
@@ -335,6 +399,8 @@ def refresh_results(
         if bout.status == "finished":
             if now - STATS_GRACE <= when <= now and not _has_stats(db, bout):
                 due.append(bout.id)
+            elif now - RECHECK_WINDOW <= when <= now:
+                recent.append((when, bout.id))
         elif now - RESULTS_LOOKBACK <= when <= now:
             due.append(bout.id)
         elif bout.status == "scheduled" and now < when <= now + ODDS_HORIZON:
@@ -361,6 +427,8 @@ def refresh_results(
             summary.failed += 1
             if results:
                 summary.bouts_failed += 1
+
+    recheck_finished(db, provider, [i for _, i in sorted(recent)[:RECHECK_CAP]], summary, now, clock)
 
     try:
         stale = db.scalars(
@@ -422,9 +490,11 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         db.close()
     log.info(
-        "ufc results: checked=%d finished=%d stats=%d odds=%d profiles=%d failed=%d",
+        "ufc results: checked=%d finished=%d stats=%d odds=%d profiles=%d failed=%d "
+        "rechecked=%d overturned=%d recheck_skipped=%d recheck_stopped=%s",
         summary.checked, summary.finished, summary.stats, summary.odds, summary.profiles,
-        summary.failed,
+        summary.failed, summary.rechecked, summary.overturned, summary.recheck_skipped,
+        summary.recheck_stopped,
     )
     return 1 if summary.bouts_failed > 0 and summary.bouts_failed >= summary.checked else 0
 

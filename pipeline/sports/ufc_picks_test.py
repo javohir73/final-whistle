@@ -418,3 +418,53 @@ def test_workflow_grades_picks_after_predict_and_fails_the_run():
     assert i_picks == i_predict + 1 == len(steps) - 1
     assert "continue-on-error" not in step and step["timeout-minutes"] == 5
     assert step["env"] == {"DATABASE_URL": "${{ secrets.DATABASE_URL }}", "PYTHONPATH": "backend:."}
+
+
+def test_an_overturned_result_found_by_the_results_step_voids_the_pick_end_to_end(db_session):
+    from pipeline.sports.ufc_provider import BoutOutcome
+    from pipeline.sports.ufc_recorded import RecordedUfcProvider
+    from pipeline.sports.ufc_results import refresh_results
+
+    bout = seed(db_session, winner="a", method="ko_tko", status="finished",
+                start="2026-11-24T18:00", picks=(("a", "ko_tko"),))
+    from app.models import UfcBoutStat
+
+    db_session.add(UfcBoutStat(bout_id=bout.id, fighter_id=bout.fighter_a_id))
+    db_session.commit()
+    grade_picks(db_session, now=NOW)
+    assert picks(db_session)[0].points == 5
+
+    class Overturned(RecordedUfcProvider):
+        def fetch_outcome(self, event_id, b):
+            return BoutOutcome("final", 1, "1:00", None, "no_contest", "Overturned")
+
+    later = NOW + timedelta(days=7)
+    bout.scheduled_utc = later - timedelta(days=7)  # a week old at `later`, as in the live case
+    db_session.commit()
+    summary = refresh_results(db_session, Overturned(Path(__file__).parent / "testdata" / "ufc" / "raw"), now=later)
+    assert summary.overturned == 1
+    db_session.refresh(bout)
+    assert bout.method == "no_contest"
+    grade_picks(db_session, now=later)
+    p = picks(db_session)[0]
+    assert (p.points, p.winner_correct, p.method_correct) == (None, None, None) and p.graded_at is not None
+
+
+def test_importing_the_grading_step_does_not_import_the_model_code():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import pipeline.sports.ufc_picks; "
+        "sys.exit(1 if any(m == 'ml.sports.ufc.model' or m.startswith('ml.sports.ufc.model.') for m in sys.modules) else 0)"
+    )
+    env = {"PYTHONPATH": f"{ROOT}:{ROOT / 'backend'}", "PATH": "/usr/bin:/bin"}
+    done = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-500:]
+
+
+def test_the_reconcile_window_is_one_constant_importable_from_each_place():
+    from app.ufc_rules import RECONCILE_DAYS
+    from pipeline.sports import ufc_predict
+
+    assert ufc_predict.RECONCILE_DAYS == RECONCILE_DAYS == mod.RECONCILE_DAYS == 30

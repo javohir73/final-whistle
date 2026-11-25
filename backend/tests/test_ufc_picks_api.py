@@ -1174,3 +1174,15 @@ def test_leaderboard_query_count_does_not_grow_with_players(client, monkeypatch)
     monkeypatch.setattr(settings, "ufc_public_model", "")
     no_model = _count(engine, lambda: _lb(c, event=SLUG))
     assert no_model < small or no_model <= 3
+
+
+@pytest.mark.parametrize("bout_id", [0, -1, 2**31, 2**63])
+def test_an_out_of_range_bout_id_is_a_422_in_the_error_envelope_never_a_500(client, bout_id):
+    c, Session = client
+    _card(Session)
+    r = _submit(c, bout_id)
+    assert r.status_code == 422
+    body = r.json()
+    assert "detail" not in body and set(body) == {"error"} and set(body["error"]) == {"code", "message"}
+    assert body["error"]["code"] == "validation_error"
+    assert _stored(Session)[0] == []

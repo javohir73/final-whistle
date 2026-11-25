@@ -26,8 +26,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcPick
-from app.ufc_rules import PickScore, lock_time, score_pick, utc
-from pipeline.sports.ufc_predict import RECONCILE_DAYS
+from app.ufc_rules import RECONCILE_DAYS, PickScore, lock_time, score_pick, utc
 
 log = logging.getLogger(__name__)
 
