@@ -33,10 +33,28 @@ it("says 1 fight for a single fight", () => {
 
 it("offers Show more and Back to the start only when given", () => {
   const { unmount } = list(UPCOMING_LIST);
-  expect(screen.queryByRole("link", { name: "Show more" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Back to the start" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Show more upcoming cards" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Back to the start of upcoming cards" })).not.toBeInTheDocument();
   unmount();
   list(UPCOMING_LIST, { moreHref: "/ufc/events?up=20", backHref: "/ufc/events" });
-  expect(screen.getByRole("link", { name: "Show more" })).toHaveAttribute("href", "/ufc/events?up=20");
-  expect(screen.getByRole("link", { name: "Back to the start" })).toHaveAttribute("href", "/ufc/events");
+  expect(screen.getByRole("link", { name: "Show more upcoming cards" })).toHaveAttribute("href", "/ufc/events?up=20");
+  expect(screen.getByRole("link", { name: "Back to the start of upcoming cards" })).toHaveAttribute("href", "/ufc/events");
+});
+
+it("falls back to a placeholder date when the timestamp is unparseable", () => {
+  list([{ ...UPCOMING_LIST[0], first_bout_utc: "not a date" }]);
+  expect(screen.getByRole("link", { name: UPCOMING_LIST[0].name })).toBeInTheDocument();
+  expect(screen.getByText(/^Date to be confirmed · /)).toBeInTheDocument();
+});
+
+it("names each paging link by its list", () => {
+  list(UPCOMING_LIST, { moreHref: "/a", backHref: "/b" });
+  expect(screen.getByRole("link", { name: "Show more upcoming cards" })).toHaveAttribute("href", "/a");
+  expect(screen.getByRole("link", { name: "Back to the start of upcoming cards" })).toHaveAttribute("href", "/b");
+});
+
+it("names the results paging links", () => {
+  list(UPCOMING_LIST, { title: "Results", moreHref: "/a", backHref: "/b" });
+  expect(screen.getByRole("link", { name: "Show more results" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Back to the start of results" })).toBeInTheDocument();
 });

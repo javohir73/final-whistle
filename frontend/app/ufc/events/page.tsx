@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { getUfcEventsServer } from "@/lib/api";
 import { UfcEventList } from "@/components/ufc/UfcEventList";
 import { Card, CardHead, CARD_X, Note, PageHead } from "@/components/ui";
-import { NOT_AFFILIATED } from "@/lib/ufcDisplay";
 import type { UfcEventSummary } from "@/lib/ufcTypes";
 
 export const EVENTS_PAGE = 20;
@@ -83,7 +82,6 @@ export default async function EventsPage({
         {section("Upcoming", upcoming, "No upcoming cards are listed yet.", up, (o) => href(o, past))}
         {section("Results", results, "No results yet. Finished cards appear here.", past, (o) => href(up, o))}
       </div>
-      <Note className="mt-8">{NOT_AFFILIATED}</Note>
     </>
   );
 }

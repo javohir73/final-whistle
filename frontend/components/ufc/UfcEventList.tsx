@@ -23,9 +23,18 @@ export function UfcEventList({
   backHref: string | null;
 }) {
   const { tz } = useTimezone();
+  const what = title.toLowerCase() === "upcoming" ? "upcoming cards" : title.toLowerCase();
+  const dateText = (iso: string | null) => {
+    if (!iso) return "Date to be confirmed";
+    try {
+      return kickoffDate(iso, tz);
+    } catch {
+      return "Date to be confirmed";
+    }
+  };
   const note = (e: UfcEventSummary) =>
     [
-      e.first_bout_utc ? kickoffDate(e.first_bout_utc, tz) : "Date to be confirmed",
+      dateText(e.first_bout_utc),
       e.main_event ? `${e.main_event.fighter_a.name} v ${e.main_event.fighter_b.name}` : null,
       `${e.bout_count} ${e.bout_count === 1 ? "fight" : "fights"}`,
     ]
@@ -51,8 +60,8 @@ export function UfcEventList({
       )}
       {(moreHref || backHref) && (
         <div className={`${CARD_X} flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line-soft py-4`}>
-          {moreHref && <TextLink href={moreHref}>Show more</TextLink>}
-          {backHref && <TextLink href={backHref}>Back to the start</TextLink>}
+          {moreHref && <TextLink href={moreHref} aria-label={`Show more ${what}`}>Show more</TextLink>}
+          {backHref && <TextLink href={backHref} aria-label={`Back to the start of ${what}`}>Back to the start</TextLink>}
         </div>
       )}
     </Card>
