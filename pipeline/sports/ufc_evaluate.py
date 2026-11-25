@@ -74,15 +74,24 @@ def devig(ml_a: int, ml_b: int) -> float | None:
     return ia / (ia + ib)
 
 
+def _is_live_source(source: str) -> bool:
+    return "live" in source.lower()
+
+
 def market_probs(db: Session) -> dict[int, float]:
     """bout_id -> market P(a wins): per source the latest valid price taken at or
-    before the scheduled start, de-vigged, then the plain mean over sources."""
+    before the scheduled start, de-vigged, then the plain mean over sources.
+
+    Sources named "...Live..." (for example "ESPN Bet - Live Odds") are skipped. Backfilled
+    history stamps every snapshot with the scheduled time, but a live source holds in-play
+    prices that already reflect how the fight went, so including it would make the market
+    look better than any pre-fight price could be."""
     latest: dict[tuple[int, str], tuple[datetime, int, float]] = {}
     rows = db.execute(
         select(UfcOddsSnapshot, UfcBout.scheduled_utc).join(UfcBout, UfcBout.id == UfcOddsSnapshot.bout_id)
     )
     for snap, scheduled in rows:
-        if scheduled is None:
+        if scheduled is None or _is_live_source(snap.source):
             continue
         taken, start = _utc(snap.taken_at), _utc(scheduled)
         p = devig(snap.moneyline_a, snap.moneyline_b)
@@ -329,8 +338,10 @@ def run(
         by_year = {y: _d(score(pairs[m][y])) for y in held}
         pooled = score(pool(pairs[m]))
         ok, line = gate({y: by_year[y]["log_loss"] for y in held}, {y: by_year[y]["n"] for y in held}, pooled.brier)
+        called = [x for x in pool(pairs[m]) if x[0] != 0.5]
         models[m] = {
-            "by_year": by_year, "pooled": _d(pooled), "calibration": calibration(pool(pairs[m])),
+            "by_year": by_year, "pooled": _d(pooled),
+            "no_call": pooled.n - len(called), "accuracy_when_called": score(called).accuracy if called else None, "calibration": calibration(pool(pairs[m])),
             "picks": {"total": picks[m][0], "n": picks[m][1], "per_fight": picks[m][0] / picks[m][1]},
             "gate": {"ok": ok, "line": f"GATE {m}: {line}"},
         }
@@ -403,6 +414,7 @@ def _row(label: object, s: dict | None) -> str:
 
 
 _HEAD = "| Year | Fights | Accuracy | Brier | Log loss |\n|---|---|---|---|---|"
+_HEAD_SIDE = "| Predictor | Fights | Accuracy | Brier | Log loss |\n|---|---|---|---|---|"
 
 
 def _table(by_year: Mapping, pooled: dict | None) -> list[str]:
@@ -418,6 +430,26 @@ def _compare(label: str, a: float, b: float, name_a: str, name_b: str) -> str:
     return f"{name_a} and {name_b} have the same {label}."
 
 
+def _summary(p: dict) -> list[str]:
+    elo_v = p["elo_params"]["version"]
+    lines = []
+    for m in (elo_v, FORM_VERSION):
+        d = p["models"][m]["pooled"]
+        lines.append(
+            f"- {m}: {d['n']:,} held-out fights, accuracy {_pct(d['accuracy'])}, Brier {d['brier']:.4f}, "
+            f"log loss {d['log_loss']:.4f}. {p['models'][m]['gate']['line']}"
+        )
+    if p["market"]["n"]:
+        pm = p["market"]["pooled"]
+        lines.append(
+            f"- Market, on the {p['market']['n']:,} held-out fights with a price: accuracy "
+            f"{_pct(pm['market']['accuracy'])}, Brier {pm['market']['brier']:.4f}, log loss "
+            f"{pm['market']['log_loss']:.4f}. On the same fights the form model has accuracy "
+            f"{_pct(pm['form']['accuracy'])}, Brier {pm['form']['brier']:.4f}, log loss {pm['form']['log_loss']:.4f}."
+        )
+    return lines
+
+
 def render_report(payload: dict) -> str:
     p, c = payload, payload["counts"]
     elo_v, form_v = (p["elo_params"]["version"], FORM_VERSION)
@@ -427,6 +459,10 @@ def render_report(payload: dict) -> str:
         "# UFC prediction evaluation",
         "",
         f"Generated {p['generated']} from commit {p['commit']}. Aggregate numbers only.",
+        "",
+        "## Summary",
+        "",
+        *_summary(p),
         "",
         "## Protocol",
         "",
@@ -446,7 +482,8 @@ def render_report(payload: dict) -> str:
         "intercept. The swap check below refits and re-scores the form model with every fight's two fighters swapped.",
         "",
         "The market is the de-vigged moneyline from `ufc_odds_snapshots`: per source the latest valid price taken "
-        "at or before the scheduled start, averaged over sources. For backfilled history the snapshot time is the "
+        "at or before the scheduled start, averaged over sources. Sources whose name contains \"Live\" "
+        "are left out because their prices are in-play. For backfilled history the snapshot time is the "
         "bout's scheduled time, so this approximates the closing line. Prices exist almost only from mid-2019.",
         "",
         "## Data",
@@ -466,7 +503,12 @@ def render_report(payload: dict) -> str:
         "",
     ]
     for m in (elo_v, form_v):
-        out += [f"### {m}", ""] + _table(p["models"][m]["by_year"], p["models"][m]["pooled"])
+        mm = p["models"][m]
+        out += [f"### {m}", ""] + _table(mm["by_year"], mm["pooled"])
+        if mm["no_call"]:
+            out += [f"{mm['no_call']:,} of the {mm['pooled']['n']:,} fights have a probability of exactly 50% "
+                    f"(both fighters unrated) and count as wrong in the accuracy column. On the other "
+                    f"{mm['pooled']['n'] - mm['no_call']:,} fights accuracy is {_pct(mm['accuracy_when_called'])}.", ""]
     out += ["### Baselines", "",
             "The coin flip says 50% every time; its accuracy is shown as 50.0% by convention. "
             "\"Higher rating at 50/50\" says 50% but is scored on whether the fighter with the higher "
@@ -490,9 +532,9 @@ def render_report(payload: dict) -> str:
         out += [f"Fights with a market price among the held-out fights: {mk['n']:,}. All three rows below are "
                 "scored on those same fights.", ""]
         for y, r in mk["by_year"].items():
-            out += [f"**{y}**", "", _HEAD, _row("Market", r["market"]), _row("Elo", r["elo"]),
+            out += [f"**{y}**", "", _HEAD_SIDE, _row("Market", r["market"]), _row("Elo", r["elo"]),
                     _row("Form", r["form"]), ""]
-        out += ["**Pooled**", "", _HEAD, _row("Market", pooled["market"]), _row("Elo", pooled["elo"]),
+        out += ["**Pooled**", "", _HEAD_SIDE, _row("Market", pooled["market"]), _row("Elo", pooled["elo"]),
                 _row("Form", pooled["form"]), ""]
         out += [
             _compare("Brier", pooled["form"]["brier"], pooled["market"]["brier"], "The form model's", "the market's"),

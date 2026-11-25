@@ -39,6 +39,7 @@ def test_market_uses_latest_snapshot_before_start_averaged_over_sources(db_sessi
         ("DraftKings", 300, -400, t + timedelta(hours=1)),
         ("Other", 100, -100, t - timedelta(days=1)),
         ("Bad", 50, -200, t - timedelta(hours=1)),
+        ("ESPN Bet - Live Odds", -5000, 1500, t - timedelta(minutes=1)),
     ]:
         db_session.add(UfcOddsSnapshot(bout_id=bout.id, source=source, moneyline_a=a, moneyline_b=b, taken_at=at))
     db_session.flush()
