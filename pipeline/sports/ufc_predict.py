@@ -1,4 +1,4 @@
-"""Write shadow predictions for scheduled UFC bouts and refresh fighter ratings.
+"""Write shadow predictions for scheduled UFC bouts, refresh ratings, and grade them.
 
 Predictions are the record visitors' picks are later compared against, so this
 step is append-only and frozen at lock. A row is written only while
@@ -11,10 +11,15 @@ parameter changed); earlier rows are never edited. Every row carries the model's
 version constant from the code, never a value read from a file, and the form
 model runs only when the loaded parameters carry that same version.
 
+Grading scores, per bout and model version, the one row that counted: the latest
+created at or before the lock. A later row is never graded. Draws, no contests and
+every non-finished status are skipped, and a bout is graded once.
+
 Logging is counts only: the repository is public and bout details stay out of logs.
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import math
 from dataclasses import dataclass
@@ -23,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import UfcBout, UfcFighter, UfcPrediction
+from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
 from ml.sports.ufc.elo import EloParams, final_ratings
 from ml.sports.ufc.features import snapshots
 from ml.sports.ufc.history import FighterInfo, History
@@ -159,3 +164,70 @@ def generate(db: Session, params: UfcParams | None = None, now: datetime | None 
     log.info("ufc predict: %d candidates, %d rows written, %d locked, %d ratings updated",
              summary.candidates, summary.written, summary.locked_skipped, summary.ratings_updated)
     return summary
+
+
+LOG_LOSS_FLOOR = 1e-12
+
+
+def grade(db: Session) -> int:
+    """Write a result row for each finished bout's counting prediction; returns rows written."""
+    bouts = db.scalars(
+        select(UfcBout).where(UfcBout.status == "finished", UfcBout.winner.in_(("a", "b")))
+        .order_by(UfcBout.id)
+    ).all()
+    written = 0
+    for bout in bouts:
+        lock = lock_time(bout)
+        if lock is None:
+            continue
+        graded = set(db.scalars(
+            select(UfcPredictionResult.model_version).where(UfcPredictionResult.bout_id == bout.id)
+        ))
+        counting: dict[str, UfcPrediction] = {}
+        for row in db.scalars(select(UfcPrediction).where(UfcPrediction.bout_id == bout.id)):
+            if row.model_version in graded or _utc(row.created_at) > lock:
+                continue
+            best = counting.get(row.model_version)
+            if best is None or (_utc(row.created_at), row.id) > (_utc(best.created_at), best.id):
+                counting[row.model_version] = row
+        for version, row in counting.items():
+            p = row.p_a if bout.winner == "a" else row.p_b
+            db.add(UfcPredictionResult(
+                prediction_id=row.id, bout_id=bout.id, model_version=version,
+                winner_correct=p > 0.5, prob_assigned=p,
+                log_loss=-math.log(min(1.0, max(LOG_LOSS_FLOOR, p))), brier=(1 - p) ** 2,
+            ))
+            written += 1
+    db.commit()
+    log.info("ufc predict: %d result rows written", written)
+    return written
+
+
+def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--generate", action="store_true", help="write predictions for scheduled bouts")
+    ap.add_argument("--grade", action="store_true", help="grade finished bouts with predictions")
+    args = ap.parse_args(argv)
+    if not args.generate and not args.grade:
+        ap.error("pass --generate, --grade, or both")
+
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        for flag, step in ((args.generate, generate), (args.grade, grade)):
+            if not flag:
+                continue
+            try:
+                step(db)
+            except Exception as exc:  # noqa: BLE001 - one step failing must not stop the next
+                db.rollback()
+                log.error("ufc predict: %s failed (%s)", step.__name__, type(exc).__name__)
+    finally:
+        db.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

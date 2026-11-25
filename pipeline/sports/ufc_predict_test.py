@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from app.models import UfcBout, UfcFighter, UfcPrediction
+from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
 from ml.sports.ufc.elo import EloParams
 from ml.sports.ufc.features import FEATURES
 from ml.sports.ufc.methods import WINDOW_YEARS, method_table
@@ -16,7 +16,7 @@ from ml.sports.ufc.model import FORM_VERSION, FormParams
 from ml.sports.ufc.params import UfcParams
 from pipeline.sports.ufc_history import load_history
 from pipeline.sports.ufc_ingest import _utc
-from pipeline.sports.ufc_predict import generate, lock_time
+from pipeline.sports.ufc_predict import generate, grade, lock_time, main
 from pipeline.sports.ufc_testkit import build
 
 NOW = datetime(2026, 12, 1, tzinfo=timezone.utc)
@@ -215,3 +215,95 @@ def test_method_window_excludes_own_time_later_results_and_old_bouts(db_session)
     rows = rows_for(db_session, built.bouts[3])
     assert rows and all(r.method_probs == pytest.approx(expected, abs=1e-12) for r in rows)
     assert expected["decision"] > 0.47  # only the decision bout is counted
+
+
+# ---- grade ----------------------------------------------------------------
+
+T = datetime(2026, 12, 5, 18, 0, tzinfo=timezone.utc)
+DONE = [("2026-12-05T18:00", "A", "B", "a", "decision")]
+
+
+def add_row(db, bout, at, p_a, version=ELO_V):
+    row = UfcPrediction(
+        bout_id=bout.id, model_version=version, p_a=p_a, p_b=1 - p_a,
+        method_probs={}, reasons=[], is_shadow=True, created_at=at,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def results(db):
+    return db.scalars(select(UfcPredictionResult).order_by(UfcPredictionResult.id)).all()
+
+
+def test_grades_the_latest_row_at_or_before_lock(db_session):
+    built = build(db_session, DONE)
+    bout = built.bouts[0]
+    add_row(db_session, bout, T - timedelta(days=2), 0.6)
+    keep = add_row(db_session, bout, T - timedelta(days=1), 0.7)
+    add_row(db_session, bout, T + timedelta(hours=1), 0.9)
+    assert grade(db_session) == 1
+    r = results(db_session)[0]
+    assert r.prob_assigned == pytest.approx(0.7) and r.winner_correct is True
+    assert r.log_loss == pytest.approx(0.356675, abs=1e-6) and r.brier == pytest.approx(0.09)
+    assert r.prediction_id == keep.id
+
+
+def test_row_written_after_scheduled_start_never_counts(db_session):
+    built = build(db_session, [("2026-12-05T18:00", "A", "B", "a", "decision",
+                                {"locked_at": "2026-12-05T18:30:00"})])
+    add_row(db_session, built.bouts[0], T + timedelta(minutes=10), 0.8)
+    assert grade(db_session) == 0 and results(db_session) == []
+
+
+def test_each_model_is_graded_once(db_session):
+    built = build(db_session, DONE)
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.7, ELO_V)
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.4, FORM_V)
+    assert grade(db_session) == 2
+    assert {r.model_version for r in results(db_session)} == {ELO_V, FORM_V}
+    assert grade(db_session) == 0 and len(results(db_session)) == 2
+
+
+@pytest.mark.parametrize("status,winner", [
+    ("finished", None), ("finished", "draw"), ("no_contest", None), ("finished", "nc"),
+    ("cancelled", "a"), ("changed", "a"), ("live", "a"), ("scheduled", None),
+])
+def test_draw_no_contest_cancelled_changed_are_skipped(db_session, status, winner):
+    built = build(db_session, DONE)
+    bout = built.bouts[0]
+    bout.status, bout.winner = status, winner
+    add_row(db_session, bout, T - timedelta(days=1), 0.7)
+    db_session.flush()
+    assert grade(db_session) == 0 and results(db_session) == []
+
+
+def test_dq_win_is_graded(db_session):
+    built = build(db_session, [("2026-12-05T18:00", "A", "B", "b", "dq")])
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.7)
+    assert grade(db_session) == 1
+    r = results(db_session)[0]
+    assert r.prob_assigned == pytest.approx(0.3) and r.winner_correct is False
+    assert r.brier == pytest.approx(0.49)
+
+
+def test_coin_flip_call_is_not_correct(db_session):
+    built = build(db_session, DONE)
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.5)
+    assert grade(db_session) == 1
+    r = results(db_session)[0]
+    assert r.winner_correct is False and r.log_loss == pytest.approx(0.693147, abs=1e-6)
+
+
+def test_bout_without_any_time_is_not_graded(db_session):
+    built = build(db_session, DONE)
+    built.bouts[0].scheduled_utc = None
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.7)
+    db_session.flush()
+    assert grade(db_session) == 0
+
+
+def test_cli_requires_a_flag():
+    with pytest.raises(SystemExit):
+        main([])
