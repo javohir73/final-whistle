@@ -16,7 +16,8 @@ from ml.sports.ufc.model import FORM_VERSION, FormParams
 from ml.sports.ufc.params import UfcParams
 from pipeline.sports.ufc_history import load_history
 from pipeline.sports.ufc_ingest import _utc
-from pipeline.sports.ufc_predict import generate, grade, lock_time, main
+import pipeline.sports.ufc_predict as mod
+from pipeline.sports.ufc_predict import _write_prediction, generate, grade, lock_time, main
 from pipeline.sports.ufc_testkit import build
 
 NOW = datetime(2026, 12, 1, tzinfo=timezone.utc)
@@ -307,3 +308,89 @@ def test_bout_without_any_time_is_not_graded(db_session):
 def test_cli_requires_a_flag():
     with pytest.raises(SystemExit):
         main([])
+
+
+# ---- isolation, version guard, direct guard -------------------------------
+
+TWO_OPEN = [
+    ("2026-01-01", "A", "B", "a", "decision"),
+    ("2026-12-05T18:00", "A", "C", None, None),
+    ("2026-12-06T18:00", "B", "C", None, None),
+]
+
+
+def test_one_failing_candidate_does_not_stop_the_rest(db_session, monkeypatch, caplog):
+    built = build(db_session, TWO_OPEN)
+    real = mod.form_reasons
+    boom = built.bouts[1].id
+
+    def flaky(name_a, name_b, snap, contribs, p):
+        if snap.bout_id == boom:
+            raise ValueError("secret-row-detail")
+        return real(name_a, name_b, snap, contribs, p)
+
+    monkeypatch.setattr(mod, "form_reasons", flaky)
+    with caplog.at_level(logging.INFO):
+        s = generate(db_session, params, now=NOW)
+    assert s.failed == 1 and rows_for(db_session, built.bouts[1]) == []
+    assert len(rows_for(db_session, built.bouts[2])) == 2 and s.written == 2
+    assert built.fighters["A"].rating == 1540.0 and s.ratings_updated == 2
+    assert "ValueError" in caplog.text and "secret-row-detail" not in caplog.text
+
+
+def test_one_failing_bout_does_not_stop_grading(db_session, monkeypatch):
+    built = build(db_session, [
+        ("2026-12-05T18:00", "A", "B", "a", "decision"),
+        ("2026-12-06T18:00", "C", "D", "a", "decision"),
+    ])
+    for b in built.bouts:
+        add_row(db_session, b, b.scheduled_utc - timedelta(days=1), 0.7)
+    real = mod.lock_time
+    monkeypatch.setattr(mod, "lock_time", lambda b: (_ for _ in ()).throw(KeyError("x")) if b.id == built.bouts[0].id else real(b))
+    assert grade(db_session) == 1
+    assert [r.bout_id for r in results(db_session)] == [built.bouts[1].id]
+
+
+def test_elo_version_mismatch_writes_nothing(db_session, caplog):
+    built = build(db_session, BASE)
+    p = UfcParams(EloParams(k=80, history_from=1993, version="ufc-elo-v0.0"), _form())
+    with caplog.at_level(logging.WARNING):
+        s = generate(db_session, p, now=NOW)
+    assert count(db_session) == 0 and s.written == 0 and s.ratings_updated == 0
+    assert built.fighters["A"].rating == 1500.0  # column default, not the Elo update (1540)
+    warns = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warns) == 1 and "version" in warns[0].getMessage()
+    assert "Lightweight" not in warns[0].getMessage()
+
+
+def test_naive_now_is_accepted(db_session):
+    build(db_session, BASE)
+    s = generate(db_session, params, now=NOW.replace(tzinfo=None))
+    assert s.written == 2
+
+
+def test_write_guard_refuses_live_and_locked_bouts(db_session):
+    built = build(db_session, [
+        ("2026-12-05T18:00", "A", "B", None, None, {"status": "live"}),
+        ("2026-12-05T18:00", "C", "D", None, None),
+    ])
+    live, sched = built.bouts
+    assert _write_prediction(db_session, live, ELO_V, 0.6, {}, [], NOW) is False
+    late = _utc(sched.scheduled_utc) + timedelta(minutes=1)
+    assert _write_prediction(db_session, sched, ELO_V, 0.6, {}, [], late) is False
+    assert count(db_session) == 0
+
+
+def test_main_returns_nonzero_only_when_a_step_raises(monkeypatch):
+    class FakeDb:
+        rolled = 0
+        def rollback(self): FakeDb.rolled += 1
+        def close(self): pass
+    import app.db
+    monkeypatch.setattr(app.db, "SessionLocal", FakeDb)
+    monkeypatch.setattr(mod, "generate", lambda db: mod.GenerateSummary(failed=3))
+    monkeypatch.setattr(mod, "grade", lambda db: 0)
+    assert main(["--generate", "--grade"]) == 0 and FakeDb.rolled == 0
+    def raising(db): raise RuntimeError("x")
+    monkeypatch.setattr(mod, "generate", raising)
+    assert main(["--generate", "--grade"]) == 1 and FakeDb.rolled == 1

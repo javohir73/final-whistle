@@ -52,6 +52,7 @@ class GenerateSummary:
     written: int = 0
     locked_skipped: int = 0
     ratings_updated: int = 0
+    failed: int = 0
 
 
 def lock_time(bout: UfcBout) -> datetime | None:
@@ -104,8 +105,22 @@ def _usable(x, names) -> bool:
 
 def generate(db: Session, params: UfcParams | None = None, now: datetime | None = None) -> GenerateSummary:
     params = params or load_params()
-    now = now or datetime.now(timezone.utc)
+    now = _utc(now) if now else datetime.now(timezone.utc)
     summary = GenerateSummary()
+    if params.elo.version != ELO_VERSION:
+        # Rows would carry this code's label but come from other parameters.
+        log.warning("ufc predict: Elo parameters are version %s, code expects %s; nothing written",
+                    params.elo.version, ELO_VERSION)
+        return summary
+    try:
+        _generate(db, params, now, summary)
+    except Exception:
+        db.rollback()
+        raise
+    return summary
+
+
+def _generate(db: Session, params: UfcParams, now: datetime, summary: GenerateSummary) -> None:
     history = load_history(db)
 
     # Ratings: only fighters with an applied bout change.
@@ -141,32 +156,44 @@ def generate(db: Session, params: UfcParams | None = None, now: datetime | None 
         tables: dict[datetime, MethodTable] = {}
         skipped_form = 0
         for bout in candidates:
-            when = _utc(bout.scheduled_utc)
-            if when not in tables:  # [when - 10y, when): own result and same-time bouts never feed it
-                tables[when] = method_table(history.bouts, when - WINDOW, when)
-            mp = tables[when].probs(bout.weight_class, bout.scheduled_rounds)
-            snap = snaps[bout.id]
-            name_a, name_b = fighters[bout.fighter_a_id].name, fighters[bout.fighter_b_id].name
-            summary.written += _write_prediction(
-                db, bout, ELO_VERSION, snap.p_elo, mp, elo_reasons(name_a, name_b, snap, snap.p_elo), now
-            )
-            if form is None:
+            try:
+                with db.begin_nested():
+                    wrote, skipped = _predict_bout(db, bout, form, snaps, fighters, tables, history, now)
+            except Exception as exc:  # noqa: BLE001 - one bout must not stop the run
+                summary.failed += 1
+                log.warning("ufc predict: a bout failed (%s)", type(exc).__name__)
                 continue
-            if not _usable(snap.x, form.features):
-                skipped_form += 1
-                log.warning("ufc predict: a feature is missing or non-finite; form row skipped")
-                continue
-            p_a = predict_form(form, snap.x)
-            reasons = form_reasons(name_a, name_b, snap, contributions(form, snap.x), p_a)
-            summary.written += _write_prediction(db, bout, FORM_VERSION, p_a, mp, reasons, now)
+            summary.written += wrote
+            skipped_form += skipped
 
     db.commit()
-    log.info("ufc predict: %d candidates, %d rows written, %d locked, %d ratings updated",
-             summary.candidates, summary.written, summary.locked_skipped, summary.ratings_updated)
-    return summary
+    log.info("ufc predict: %d candidates, %d rows written, %d locked, %d ratings updated, %d failed",
+             summary.candidates, summary.written, summary.locked_skipped, summary.ratings_updated,
+             summary.failed)
 
 
-LOG_LOSS_FLOOR = 1e-12
+def _predict_bout(db, bout, form, snaps, fighters, tables, history, now) -> tuple[int, int]:
+    """Write both models' rows for one bout; returns (rows written, form rows skipped)."""
+    when = _utc(bout.scheduled_utc)
+    if when not in tables:  # [when - 10y, when): own result and same-time bouts never feed it
+        tables[when] = method_table(history.bouts, when - WINDOW, when)
+    mp = tables[when].probs(bout.weight_class, bout.scheduled_rounds)
+    snap = snaps[bout.id]
+    name_a, name_b = fighters[bout.fighter_a_id].name, fighters[bout.fighter_b_id].name
+    wrote = _write_prediction(
+        db, bout, ELO_VERSION, snap.p_elo, mp, elo_reasons(name_a, name_b, snap, snap.p_elo), now
+    )
+    if form is None:
+        return int(wrote), 0
+    if not _usable(snap.x, form.features):
+        log.warning("ufc predict: a feature is missing or non-finite; form row skipped")
+        return int(wrote), 1
+    p_a = predict_form(form, snap.x)
+    reasons = form_reasons(name_a, name_b, snap, contributions(form, snap.x), p_a)
+    return int(wrote) + int(_write_prediction(db, bout, FORM_VERSION, p_a, mp, reasons, now)), 0
+
+
+LOG_LOSS_FLOOR = 1e-15
 
 
 def grade(db: Session) -> int:
@@ -175,32 +202,41 @@ def grade(db: Session) -> int:
         select(UfcBout).where(UfcBout.status == "finished", UfcBout.winner.in_(("a", "b")))
         .order_by(UfcBout.id)
     ).all()
-    written = 0
+    written = failed = 0
     for bout in bouts:
-        lock = lock_time(bout)
-        if lock is None:
-            continue
-        graded = set(db.scalars(
-            select(UfcPredictionResult.model_version).where(UfcPredictionResult.bout_id == bout.id)
-        ))
-        counting: dict[str, UfcPrediction] = {}
-        for row in db.scalars(select(UfcPrediction).where(UfcPrediction.bout_id == bout.id)):
-            if row.model_version in graded or _utc(row.created_at) > lock:
-                continue
-            best = counting.get(row.model_version)
-            if best is None or (_utc(row.created_at), row.id) > (_utc(best.created_at), best.id):
-                counting[row.model_version] = row
-        for version, row in counting.items():
-            p = row.p_a if bout.winner == "a" else row.p_b
-            db.add(UfcPredictionResult(
-                prediction_id=row.id, bout_id=bout.id, model_version=version,
-                winner_correct=p > 0.5, prob_assigned=p,
-                log_loss=-math.log(min(1.0, max(LOG_LOSS_FLOOR, p))), brier=(1 - p) ** 2,
-            ))
-            written += 1
+        try:
+            with db.begin_nested():
+                written += _grade_bout(db, bout)
+        except Exception as exc:  # noqa: BLE001 - one bout must not stop the rest
+            failed += 1
+            log.warning("ufc predict: a bout failed (%s)", type(exc).__name__)
     db.commit()
-    log.info("ufc predict: %d result rows written", written)
+    log.info("ufc predict: %d result rows written, %d failed", written, failed)
     return written
+
+
+def _grade_bout(db: Session, bout: UfcBout) -> int:
+    lock = lock_time(bout)
+    if lock is None:
+        return 0
+    graded = set(db.scalars(
+        select(UfcPredictionResult.model_version).where(UfcPredictionResult.bout_id == bout.id)
+    ))
+    counting: dict[str, UfcPrediction] = {}
+    for row in db.scalars(select(UfcPrediction).where(UfcPrediction.bout_id == bout.id)):
+        if row.model_version in graded or _utc(row.created_at) > lock:
+            continue
+        best = counting.get(row.model_version)
+        if best is None or (_utc(row.created_at), row.id) > (_utc(best.created_at), best.id):
+            counting[row.model_version] = row
+    for version, row in counting.items():
+        p = row.p_a if bout.winner == "a" else row.p_b
+        db.add(UfcPredictionResult(
+            prediction_id=row.id, bout_id=bout.id, model_version=version,
+            winner_correct=p > 0.5, prob_assigned=p,
+            log_loss=-math.log(min(1.0, max(LOG_LOSS_FLOOR, p))), brier=(1 - p) ** 2,
+        ))
+    return len(counting)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     from app.db import SessionLocal
 
     db = SessionLocal()
+    code = 0
     try:
         for flag, step in ((args.generate, generate), (args.grade, grade)):
             if not flag:
@@ -224,9 +261,10 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:  # noqa: BLE001 - one step failing must not stop the next
                 db.rollback()
                 log.error("ufc predict: %s failed (%s)", step.__name__, type(exc).__name__)
+                code = 1
     finally:
         db.close()
-    return 0
+    return code
 
 
 if __name__ == "__main__":
