@@ -31,7 +31,7 @@ const href = (up: number, past: number) => {
 
 async function load(when: "upcoming" | "past", offset: number): Promise<UfcEventSummary[] | null> {
   try {
-    return (await getUfcEventsServer(when, EVENTS_PAGE + 1, offset)).events;
+    return (await getUfcEventsServer(when, EVENTS_PAGE + 1, offset))?.events ?? null;
   } catch {
     return null;
   }
