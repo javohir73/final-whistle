@@ -17,6 +17,13 @@ export const eventHref = (slug: string) => `/ufc/event/${slug}`;
 export const boutHref = (id: number) => `/ufc/fight/${id}`;
 export const fighterHref = (slug: string) => `/ufc/fighter/${slug}`;
 
+const EVENT_SLUG = /^[a-z0-9-]{1,220}$/;
+const FIGHTER_SLUG = /^[a-z0-9-]{1,140}$/;
+const BOUT_ID = /^\d{1,9}$/;
+export const isEventSlug = (s: string): boolean => EVENT_SLUG.test(s);
+export const isFighterSlug = (s: string): boolean => FIGHTER_SLUG.test(s);
+export const isBoutId = (s: string): boolean => BOUT_ID.test(s);
+
 export const ABOUT_NOTE =
   "Cards, results and fight stats for every UFC event, with times in your local time. Predictions and a picks game are coming to these pages.";
 export const NOT_AFFILIATED = "FinalWhistle is not affiliated with the UFC.";

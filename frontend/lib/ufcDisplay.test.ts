@@ -1,6 +1,6 @@
 import {
   ABOUT_NOTE, NOT_AFFILIATED, boutHref, boutSubLine, controlTimeText, eventHref, eventStatusNote,
-  fighterHref, fighterInitials, heightText, isTba, mainEventId, methodDetailText, methodLabel,
+  fighterHref, fighterInitials, heightText, isBoutId, isEventSlug, isFighterSlug, isTba, mainEventId, methodDetailText, methodLabel,
   methodRoundText, reachText, recordText, resultBoxText, resultLine, segmentTitle,
 } from "@/lib/ufcDisplay";
 import type { UfcBoutSummary, UfcResult } from "@/lib/ufcTypes";
@@ -124,5 +124,15 @@ describe("ufcDisplay", () => {
     expect(fighterHref("x")).toBe("/ufc/fighter/x");
     expect(NOT_AFFILIATED).toBe("FinalWhistle is not affiliated with the UFC.");
     expect(ABOUT_NOTE).toMatch(/^Cards, results and fight stats/);
+  });
+  it("guards route params", () => {
+    expect(isEventSlug("ufc-300-2024-04-13")).toBe(true);
+    expect(isEventSlug("../etc")).toBe(false);
+    expect(isEventSlug("a".repeat(221))).toBe(false);
+    expect(isBoutId("12")).toBe(true);
+    expect(isBoutId("1e3")).toBe(false);
+    expect(isBoutId("1234567890")).toBe(false);
+    expect(isFighterSlug("jiri-prochazka")).toBe(true);
+    expect(isFighterSlug("Bad Slug!")).toBe(false);
   });
 });
