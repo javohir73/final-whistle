@@ -30,10 +30,21 @@ interface Result {
   data: UfcMyPicksResponse | null;
 }
 
-/** Overlay picks saved here onto a payload read earlier, so an older read never drops them. */
-function withApplied(res: UfcMyPicksResponse, applied: Map<number, UfcPickSubmitResponse>): UfcMyPicksResponse {
+/** A pick saved on this page, and when (a tick of the provider's counter shared with read starts). */
+interface Applied {
+  sub: UfcPickSubmitResponse;
+  at: number;
+}
+
+/** Lay picks saved here over a read that was REQUESTED BEFORE they were saved (it may predate the
+ *  stored pick). A read requested after is the server's word: it drops the memory of that pick. */
+function withApplied(res: UfcMyPicksResponse, applied: Map<number, Applied>, readStart: number): UfcMyPicksResponse {
   let out = res;
-  applied.forEach((sub, boutId) => {
+  applied.forEach(({ sub, at }, boutId) => {
+    if (at < readStart) {
+      applied.delete(boutId);
+      return;
+    }
     const b = out.bouts.find((x) => x.bout_id === boutId);
     if (!b || b.pick) return;
     out = {
@@ -53,8 +64,15 @@ export function UfcPicksProvider({ eventSlug, children }: { eventSlug: string; c
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   // Picks saved on this page, per card: a read that was in flight when one was saved must not drop it.
-  const appliedRef = useRef<{ slug: string; picks: Map<number, UfcPickSubmitResponse> }>({ slug: eventSlug, picks: new Map() });
-  if (appliedRef.current.slug !== eventSlug) appliedRef.current = { slug: eventSlug, picks: new Map() };
+  const appliedRef = useRef<Map<number, Applied>>(new Map());
+  const tickRef = useRef(0);
+
+  // Another card or another player row (a sign-in claim): nothing remembered applies any more.
+  useEffect(() => {
+    const applied = appliedRef.current;
+    applied.clear();
+    return () => applied.clear();
+  }, [eventSlug, identityVersion]);
 
   useEffect(() => {
     const id = getOrCreateDeviceId();
@@ -66,10 +84,11 @@ export function UfcPicksProvider({ eventSlug, children }: { eventSlug: string; c
     let live = true;
     // The first load (or a retry from an error) shows "loading"; a refresh keeps what is shown.
     setResult((r) => (r && r.slug === eventSlug && r.status === "ready" ? r : { slug: eventSlug, status: "loading", data: r && r.slug === eventSlug ? r.data : null }));
+    const readStart = ++tickRef.current;
     getMyUfcPicks(id, eventSlug).then(
       (res) => {
         if (!live) return;
-        setResult({ slug: eventSlug, status: "ready", data: withApplied(res, appliedRef.current.picks) });
+        setResult({ slug: eventSlug, status: "ready", data: withApplied(res, appliedRef.current, readStart) });
         reportViewerHandle(res.handle);
       },
       () => {
@@ -90,10 +109,9 @@ export function UfcPicksProvider({ eventSlug, children }: { eventSlug: string; c
 
   const applySubmitted = useCallback((res: UfcPickSubmitResponse) => {
     reportViewerHandle(res.handle);
-    appliedRef.current.picks.set(res.bout_id, res);
-    const slug = appliedRef.current.slug;
+    appliedRef.current.set(res.bout_id, { sub: res, at: ++tickRef.current });
     setResult((r) => {
-      if (!r || r.slug !== slug || !r.data) return r;
+      if (!r || r.slug !== eventSlug || !r.data) return r;
       const had = r.data.bouts.find((b) => b.bout_id === res.bout_id);
       if (!had) return r;
       return {
@@ -106,7 +124,7 @@ export function UfcPicksProvider({ eventSlug, children }: { eventSlug: string; c
         },
       };
     });
-  }, []);
+  }, [eventSlug]);
 
   const value = useMemo<UfcPicksState>(
     () => ({

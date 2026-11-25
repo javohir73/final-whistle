@@ -221,3 +221,84 @@ it("a read that was in flight when a pick was saved never drops that pick", asyn
   expect(ctx!.myBout(1)!.picks_open).toBe(false);
   expect(ctx!.data!.totals.picked).toBe(1);
 });
+
+describe("a remembered pick yields to any later answer from the server", () => {
+  const unpicked = (): UfcMyPicksResponse => ({ ...PAYLOAD, totals: { picked: 0, graded: 0, points: 0, winner_method: 0 } });
+  const stored = (): UfcMyPicksResponse => ({
+    ...PAYLOAD,
+    bouts: [{ ...PAYLOAD.bouts[0], pick: PICK, picks_open: false }],
+    totals: { picked: 1, graded: 0, points: 0, winner_method: 0 },
+  });
+  const ready = async () => {
+    view();
+    await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("ready"));
+  };
+
+  it("(a) a read requested after the apply that returns the bout unpicked is shown as the server says", async () => {
+    await ready();
+    act(() => ctx!.applySubmitted(SUB()));
+    expect(ctx!.myBout(1)!.pick).not.toBeNull();
+    mine.mockResolvedValueOnce(unpicked());
+    act(() => ctx!.retry());
+    await waitFor(() => expect(ctx!.myBout(1)!.pick).toBeNull());
+    expect(ctx!.myBout(1)!.picks_open).toBe(true);
+    expect(ctx!.data!.totals.picked).toBe(0);
+    mine.mockResolvedValueOnce(unpicked());
+    act(() => ctx!.retry());
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(3));
+    expect(ctx!.myBout(1)!.pick).toBeNull(); // never resurrected
+  });
+
+  it("(b) a sign-in claim refetch that returns the bout unpicked is shown unpicked", async () => {
+    await ready();
+    act(() => ctx!.applySubmitted(SUB()));
+    mine.mockResolvedValueOnce(unpicked());
+    act(() => announceTipsIdentityChanged());
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ctx!.myBout(1)!.pick).toBeNull());
+  });
+
+  it("(b2) a read already in flight when the identity changes does not bring the old pick back", async () => {
+    await ready();
+    const d = deferred<UfcMyPicksResponse>();
+    mine.mockReturnValueOnce(d.promise);
+    act(() => ctx!.retry());
+    act(() => ctx!.applySubmitted(SUB()));
+    mine.mockResolvedValueOnce(unpicked());
+    act(() => announceTipsIdentityChanged());
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(3));
+    await act(async () => d.resolve(unpicked()));
+    await waitFor(() => expect(ctx!.myBout(1)!.pick).toBeNull());
+  });
+
+  it("(c) a read requested before the apply keeps the pick; the next read shows the server's pick once", async () => {
+    await ready();
+    const d = deferred<UfcMyPicksResponse>();
+    mine.mockReturnValueOnce(d.promise);
+    act(() => ctx!.retry());
+    act(() => ctx!.applySubmitted(SUB()));
+    await act(async () => d.resolve(unpicked()));
+    expect(ctx!.myBout(1)!.pick?.method).toBe("decision");
+    expect(ctx!.data!.totals.picked).toBe(1);
+    mine.mockResolvedValueOnce(stored());
+    act(() => ctx!.retry());
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(ctx!.myBout(1)!.picks_open).toBe(false));
+    expect(ctx!.myBout(1)!.pick?.method).toBe("decision");
+    expect(ctx!.data!.totals.picked).toBe(1);
+  });
+
+  it("(d) retry() after an apply is authoritative", async () => {
+    mine.mockRejectedValueOnce(new Error("x"));
+    view();
+    await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("error"));
+    mine.mockResolvedValueOnce(unpicked());
+    act(() => ctx!.retry());
+    await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("ready"));
+    act(() => ctx!.applySubmitted(SUB()));
+    mine.mockResolvedValueOnce(unpicked());
+    act(() => ctx!.retry());
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(ctx!.myBout(1)!.pick).toBeNull());
+  });
+});
