@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { Card, CardHead, Note } from "@/components/ui";
-import { heightText, reachText } from "@/lib/ufcDisplay";
+import { heightText, reachText, stanceText } from "@/lib/ufcDisplay";
 import type { UfcBoutDetail, UfcTapeSide } from "@/lib/ufcTypes";
 import { CompareTable, type CompareRow } from "./CompareTable";
 
 const age = (s: UfcTapeSide): string | null =>
   typeof s.age === "number" && Number.isFinite(s.age) ? String(Math.round(s.age)) : null;
-const stance = (s: UfcTapeSide): string | null => s.stance?.trim() || null;
 
 export function TaleOfTheTape({ bout }: { bout: UfcBoutDetail }) {
   const { a, b } = bout.tape;
@@ -14,7 +13,7 @@ export function TaleOfTheTape({ bout }: { bout: UfcBoutDetail }) {
     { label: "Age", a: age(a), b: age(b) },
     { label: "Height", a: heightText(a.height_in), b: heightText(b.height_in) },
     { label: "Reach", a: reachText(a.reach_in), b: reachText(b.reach_in) },
-    { label: "Stance", a: stance(a), b: stance(b) },
+    { label: "Stance", a: stanceText(a.stance), b: stanceText(b.stance) },
   ].filter((r) => r.a != null || r.b != null);
   const body: ReactNode =
     rows.length === 0 ? (

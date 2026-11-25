@@ -10,16 +10,16 @@ import {
   Note,
   PageHead,
   PageLayout,
-  Stat,
-  StatGrid,
   Table,
   TableScroll,
   Td,
   TextLink,
   Th,
 } from "@/components/ui";
-import { kickoffDate } from "@/lib/datetime";
+import Link from "next/link";
 import {
+  boutHref,
+  dateWithYear,
   eventHref,
   fighterHref,
   heightText,
@@ -27,6 +27,7 @@ import {
   methodRoundText,
   reachText,
   recordText,
+  stanceText,
 } from "@/lib/ufcDisplay";
 import type { UfcFighterBout, UfcFighterDetail } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
@@ -46,7 +47,7 @@ function fightDate(b: UfcFighterBout, tz: string): string {
   const iso = b.scheduled_utc ?? b.event.date;
   if (!iso) return "TBC";
   try {
-    return kickoffDate(iso, tz);
+    return dateWithYear(iso, tz);
   } catch {
     return "TBC";
   }
@@ -77,16 +78,15 @@ function methodLine(b: UfcFighterBout): string | null {
 export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
   const { tz } = useTimezone();
   const record = recordText(fighter.record);
-  const sub = [fighter.country, record ? `UFC record ${record}` : "No UFC fights on record yet"]
-    .filter(Boolean)
-    .join(" · ");
+  // A null record means "not loaded", never "no fights": say only what we know.
+  const sub = [fighter.country, record ? `UFC record ${record}` : null].filter(Boolean).join(" · ");
 
   const facts: { label: string; value: string }[] = [
-    { label: "Age", value: fighter.age != null ? String(fighter.age) : "" },
+    { label: "Age", value: fighter.age != null && fighter.age > 0 ? String(fighter.age) : "" },
     { label: "Born", value: longDate(fighter.date_of_birth) ?? "" },
     { label: "Height", value: heightText(fighter.height_in) ?? "" },
     { label: "Reach", value: reachText(fighter.reach_in) ?? "" },
-    { label: "Stance", value: fighter.stance?.trim() ?? "" },
+    { label: "Stance", value: stanceText(fighter.stance) ?? "" },
   ].filter((f) => f.value);
 
   return (
@@ -95,18 +95,24 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
         leading={<FighterMark name={fighter.name} size={48} decorative />}
         eyebrow="UFC fighter"
         title={fighter.name}
-        sub={sub}
+        sub={sub || undefined}
       />
       <PageLayout>
         <Main>
           <Card pad aria-labelledby="fighter-facts">
             <CardHead id="fighter-facts" title="Fighter facts" />
             {facts.length > 0 ? (
-              <StatGrid>
+              <dl className="mt-2">
                 {facts.map((f) => (
-                  <Stat key={f.label} value={f.value} label={f.label} />
+                  <div
+                    key={f.label}
+                    className="flex items-baseline justify-between gap-4 border-t border-line-soft py-3 first:border-t-0"
+                  >
+                    <dt className="text-muted">{f.label}</dt>
+                    <dd className="m-0 text-right font-semibold text-ink">{f.value}</dd>
+                  </div>
                 ))}
-              </StatGrid>
+              </dl>
             ) : (
               <Note className="mt-1.5">Height, reach and date of birth are not available yet.</Note>
             )}
@@ -130,13 +136,21 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
                       const method = methodLine(b);
                       return (
                       <tr key={b.id}>
-                        <Td align="left">{fightDate(b, tz)}</Td>
+                        <Td align="left">
+                          <Link href={boutHref(b.id)} className="text-ink no-underline underline-offset-[3px] hover:underline">
+                            {fightDate(b, tz)}
+                            <span className="sr-only"> fight details</span>
+                          </Link>
+                        </Td>
                         <Td align="left" className="whitespace-normal break-words">
                           {isTba(b.opponent) ? (
                             b.opponent.name
                           ) : (
                             <TextLink href={fighterHref(b.opponent.slug)}>{b.opponent.name}</TextLink>
                           )}
+                          <div className="mt-1 min-[900px]:hidden">
+                            <TextLink href={eventHref(b.event.slug)} className="font-normal">{b.event.name}</TextLink>
+                          </div>
                         </Td>
                         <Td align="left">
                           {resultChip(b)}
@@ -152,7 +166,7 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
                 </Table>
               </TableScroll>
             ) : (
-              <Note className="px-4 py-5 min-[900px]:px-7">No fights on record yet.</Note>
+              <Note className="px-4 py-5 min-[900px]:px-7">No fights to show yet.</Note>
             )}
           </Card>
         </Main>

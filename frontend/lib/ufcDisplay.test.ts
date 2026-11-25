@@ -1,10 +1,11 @@
 import {
   ABOUT_NOTE, NOT_AFFILIATED, boutHref, boutSubLine, controlTimeText, eventHref, eventStatusNote,
   fighterHref, fighterInitials, heightText, isBoutId, isEventSlug, isFighterSlug, isTba, mainEventId, methodDetailText, methodLabel,
-  methodRoundText, reachText, recordText, resultBoxText, resultLine, segmentTitle,
+  methodRoundText, reachText, recordText, resultBoxText, resultLine, segmentTitle, stanceText, dateWithYear,
+  localTime, segmentStartText,
 } from "@/lib/ufcDisplay";
 import type { UfcBoutSummary, UfcResult } from "@/lib/ufcTypes";
-import { EMPTY_EVENT, FINISHED_EVENT, UPCOMING_EVENT } from "@/components/ufc/fixtures.testutil";
+import { EMPTY_EVENT, FINISHED_EVENT, NEXT_DAY_EVENT, UPCOMING_EVENT } from "@/components/ufc/fixtures.testutil";
 
 describe("ufcDisplay", () => {
   it("makes initials", () => {
@@ -18,6 +19,23 @@ describe("ufcDisplay", () => {
     expect(fighterInitials("X")).toBe("X");
     expect(isTba({ name: "TBA" })).toBe(true);
     expect(isTba({ name: "Israel Adesanya" })).toBe(false);
+  });
+  it("treats every placeholder spelling as TBA", () => {
+    expect(isTba({ name: "Opponent TBA" })).toBe(true);
+    expect(isTba({ name: "  opponent   tba " })).toBe(true);
+    expect(isTba({ name: "Tba" })).toBe(true);
+    expect(isTba({ name: "Tbaker Smith" })).toBe(false);
+    expect(isTba({ name: "Opponent Tbasco" })).toBe(false);
+    expect(fighterInitials("Opponent TBA")).toBe("?");
+  });
+  it("ignores name suffixes when choosing the last initial", () => {
+    expect(fighterInitials("Michael Johnson Jr.")).toBe("MJ");
+    expect(fighterInitials("Tony Ferguson Jr")).toBe("TF");
+    expect(fighterInitials("Pat Barry Sr.")).toBe("PB");
+    expect(fighterInitials("Ray Allen III")).toBe("RA");
+    expect(fighterInitials("Ray Allen II")).toBe("RA");
+    expect(fighterInitials("Ray Allen IV")).toBe("RA");
+    expect(fighterInitials("Jon Jr")).toBe("JO");
   });
   it("prints records", () => {
     expect(recordText({ wins: 24, losses: 6, draws: 0, no_contests: 0 })).toBe("24-6-0");
@@ -34,6 +52,12 @@ describe("ufcDisplay", () => {
   it("cleans method detail", () => {
     expect(methodDetailText("Decision - Unanimous")).toBe("unanimous");
     expect(methodDetailText("Punch")).toBe("punch");
+    expect(methodDetailText("Punches")).toBe("punches");
+    expect(methodDetailText("D'Arce choke")).toBe("D'Arce choke");
+    expect(methodDetailText("REAR NAKED CHOKE")).toBe("rear naked choke");
+    expect(methodDetailText("Decision - Split")).toBe("split");
+    expect(methodDetailText("Kimura")).toBe("kimura");
+    expect(methodDetailText("UFC rule")).toBe("UFC rule");
     expect(methodDetailText("Decision")).toBeNull();
     expect(methodDetailText("  ")).toBeNull();
     expect(methodDetailText(null)).toBeNull();
@@ -66,7 +90,7 @@ describe("ufcDisplay", () => {
         result: result && { winner: "a", method: null, method_detail: null, end_round: null, end_clock: null, ...result },
       });
     expect(line({ method: "submission", method_detail: "Rear Naked Choke", end_round: 1, end_clock: "3:01" }))
-      .toBe("Jiří Procházka won by submission (rear naked choke), round 1, 3:01");
+      .toBe("Jiří Procházka won by submission (rear Naked Choke), round 1, 3:01");
     expect(line({ method: "ko_tko", end_round: 2 })).toBe("Jiří Procházka won by KO/TKO, round 2");
     expect(line({ method: "dq", end_round: 1, end_clock: "0:30" })).toBe("Jiří Procházka won by disqualification, round 1, 0:30");
     expect(line({ method: "other" })).toBe("Jiří Procházka won");
@@ -80,15 +104,23 @@ describe("ufcDisplay", () => {
   it("formats the tape", () => {
     expect(heightText(76)).toBe("6′ 4″"); expect(heightText(75)).toBe("6′ 3″"); expect(heightText(null)).toBeNull();
     expect(heightText(75.6)).toBe("6′ 4″"); expect(heightText(Number.NaN)).toBeNull();
+    expect(heightText(0)).toBeNull(); expect(heightText(-3)).toBeNull();
+    expect(reachText(0)).toBeNull(); expect(reachText(-1)).toBeNull();
     expect(reachText(80)).toBe("80″"); expect(reachText(74.5)).toBe("74.5″"); expect(reachText(null)).toBeNull();
     expect(controlTimeText(18)).toBe("0:18"); expect(controlTimeText(312)).toBe("5:12"); expect(controlTimeText(null)).toBe("–");
     expect(controlTimeText(Number.NaN)).toBe("–");
+  });
+  it("hides a stance with no letters", () => {
+    for (const v of ["--", "-", "", "  ", null]) expect(stanceText(v)).toBeNull();
+    expect(stanceText(" Orthodox ")).toBe("Orthodox");
+    expect(stanceText("Switch")).toBe("Switch");
   });
   it("titles segments and sub-lines", () => {
     expect(segmentTitle("Main Card")).toBe("Main card"); expect(segmentTitle("Early Prelims")).toBe("Early prelims");
     expect(segmentTitle("")).toBe("");
     const main = UPCOMING_EVENT.segments[0].bouts[0];
     expect(boutSubLine(main, true)).toBe("Middleweight · main event · 5 rounds");
+    expect(boutSubLine({ ...main, scheduled_rounds: 1 }, false)).toBe("Middleweight · 1 round");
     expect(boutSubLine({ ...main, is_title: true }, true)).toBe("Middleweight · title fight · 5 rounds");
     expect(boutSubLine({ ...main, weight_class: null, scheduled_rounds: null }, false)).toBe("Weight class to be confirmed");
     expect(mainEventId(UPCOMING_EVENT)).toBe(main.id);
@@ -106,12 +138,13 @@ describe("ufcDisplay", () => {
     expect(mainEventId(tie)).toBe(4);
   });
   it("states the card's status in local time", () => {
-    expect(eventStatusNote(UPCOMING_EVENT, "Australia/Sydney")).toBe("Main card starts 5:00 am. Times are in your local time.");
-    expect(eventStatusNote(UPCOMING_EVENT, "UTC")).toBe("Main card starts 6:00 pm. Times are in your local time.");
-    expect(eventStatusNote({ ...UPCOMING_EVENT, segments: [] }, "UTC")).toBe("Starts 3:00 pm. Times are in your local time.");
+    expect(eventStatusNote(UPCOMING_EVENT, "Australia/Sydney")).toBe("Main card starts Sun 6 Dec, 5:00 am. Times are in your local time.");
+    expect(eventStatusNote(UPCOMING_EVENT, "UTC")).toBe("Main card starts Sat 5 Dec, 6:00 pm. Times are in your local time.");
+    expect(eventStatusNote({ ...UPCOMING_EVENT, segments: [] }, "UTC")).toBe("Starts Sat 5 Dec, 3:00 pm. Times are in your local time.");
+    expect(eventStatusNote(NEXT_DAY_EVENT, "Europe/London")).toBe("Main card starts Sun 13 Dec, 2:00 am. Times are in your local time.");
     expect(eventStatusNote({ ...UPCOMING_EVENT, segments: [], first_bout_utc: null }, "UTC")).toBe("Start time to be confirmed.");
-    expect(eventStatusNote({ ...UPCOMING_EVENT, status: "live" }, "UTC")).toBe("Live now");
-    expect(eventStatusNote(FINISHED_EVENT, "UTC")).toBe("Finished");
+    expect(eventStatusNote({ ...UPCOMING_EVENT, status: "live" }, "UTC")).toBe("Live now.");
+    expect(eventStatusNote(FINISHED_EVENT, "UTC")).toBe("Finished.");
     expect(eventStatusNote({ ...UPCOMING_EVENT, status: "cancelled" }, "UTC")).toBe("This card was cancelled.");
     expect(eventStatusNote({ ...UPCOMING_EVENT, first_bout_utc: "garbage", segments: [] }, "UTC")).toBe("Start time to be confirmed.");
   });
@@ -125,7 +158,34 @@ describe("ufcDisplay", () => {
     expect(boutHref(7)).toBe("/ufc/fight/7");
     expect(fighterHref("x")).toBe("/ufc/fighter/x");
     expect(NOT_AFFILIATED).toBe("FinalWhistle is not affiliated with the UFC.");
-    expect(ABOUT_NOTE).toMatch(/^Cards, results and fight stats/);
+    expect(ABOUT_NOTE).toMatch(/^Upcoming UFC cards, with results and fighter records to follow/);
+    expect(ABOUT_NOTE).not.toMatch(/every UFC event/i);
+  });
+  it("adds the year to a date only when it is not the current year in the viewer's zone", () => {
+    const now = new Date("2026-11-25T12:00:00Z");
+    expect(dateWithYear("2026-12-05T18:00:00Z", "UTC", now)).toBe("Sat 5 Dec");
+    expect(dateWithYear("2019-12-05T18:00:00Z", "UTC", now)).toBe("Thu 5 Dec 2019");
+    expect(dateWithYear("2027-02-06T20:00:00Z", "UTC", now)).toBe("Sat 6 Feb 2027");
+    // 31 Dec 2026 23:30 UTC is already 2027 in Sydney, and "now" is 2027 there too.
+    expect(dateWithYear("2026-12-31T23:30:00Z", "Australia/Sydney", new Date("2027-01-02T00:00:00Z"))).toBe("Fri 1 Jan");
+    expect(dateWithYear("2026-12-31T23:30:00Z", "UTC", new Date("2027-01-02T00:00:00Z"))).toBe("Thu 31 Dec 2026");
+    expect(() => dateWithYear("garbage", "UTC", now)).toThrow();
+  });
+  it("has a total local time", () => {
+    expect(localTime("2026-12-05T18:00:00Z", "UTC")).toBe("6:00 pm");
+    expect(localTime("garbage", "UTC")).toBeNull();
+    expect(localTime(null, "UTC")).toBeNull();
+    expect(localTime("2026-12-05T18:00:00Z", "Not/AZone")).toBeNull();
+  });
+  it("shows the day of a segment only when it is not the card's day", () => {
+    const prelims = "2026-12-12T23:00:00Z";
+    const main = "2026-12-13T02:00:00Z";
+    expect(segmentStartText(main, prelims, "Europe/London")).toBe("Sun 13 Dec, 2:00 am");
+    expect(segmentStartText(prelims, prelims, "Europe/London")).toBe("11:00 pm");
+    expect(segmentStartText(main, prelims, "America/New_York")).toBe("9:00 pm");
+    expect(segmentStartText(main, null, "Europe/London")).toBe("2:00 am");
+    expect(segmentStartText(null, prelims, "UTC")).toBeNull();
+    expect(segmentStartText("garbage", prelims, "UTC")).toBeNull();
   });
   it("guards route params", () => {
     expect(isEventSlug("ufc-300-2024-04-13")).toBe(true);

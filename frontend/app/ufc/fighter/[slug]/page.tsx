@@ -21,10 +21,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const fighter = await getUfcFighterServer(slug).catch(() => null);
   if (!fighter) return unknown;
   const record = recordText(fighter.record);
-  const title = `${fighter.name} — UFC record and fights | ${APP_NAME}`;
+  const title = `${fighter.name} — UFC ${record ? "record and fights" : "fights"} | ${APP_NAME}`;
   const description = record
     ? `${fighter.name}'s UFC record (${record}) and every fight we hold, with results and fight stats.`
-    : `${fighter.name}'s UFC fights, upcoming and past.`;
+    : `${fighter.name}: UFC fights and fighter facts.`;
   return { title, description, openGraph: { title, description } };
 }
 

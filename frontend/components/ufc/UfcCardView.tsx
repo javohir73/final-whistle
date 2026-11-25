@@ -4,7 +4,6 @@
  *  card, prelims) with a band and a row per fight, and a rail with the other
  *  upcoming cards. */
 import { Fragment } from "react";
-import { kickoffTimeLower } from "@/components/match/matchPageData";
 import {
   Card,
   CardHead,
@@ -17,7 +16,7 @@ import {
   TextLink,
 } from "@/components/ui";
 import { kickoffDate } from "@/lib/datetime";
-import { ABOUT_NOTE, eventHref, eventStatusNote, mainEventId, segmentTitle } from "@/lib/ufcDisplay";
+import { ABOUT_NOTE, eventHref, eventStatusNote, mainEventId, segmentStartText, segmentTitle } from "@/lib/ufcDisplay";
 import type { UfcEventDetail, UfcEventSummary } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
 import { BoutRow } from "./BoutRow";
@@ -52,7 +51,7 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
             </Card>
           ) : (
             segments.map((seg) => {
-              const time = seg.scheduled_utc ? safe(() => kickoffTimeLower(seg.scheduled_utc!, tz)) : null;
+              const time = segmentStartText(seg.scheduled_utc, event.first_bout_utc, tz);
               return (
                 <Card key={seg.key} flush aria-label={segmentTitle(seg.label)}>
                   <DayBand as="h2" className="flex justify-between gap-3">
@@ -66,7 +65,7 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
                   </DayBand>
                   {seg.bouts.map((b) => (
                     <Fragment key={b.id}>
-                      <BoutRow bout={b} tz={tz} isMainEvent={b.id === mainId} />
+                      <BoutRow bout={b} tz={tz} isMainEvent={b.id === mainId} showTime={false} />
                     </Fragment>
                   ))}
                 </Card>
@@ -74,7 +73,7 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
             })
           )}
         </Main>
-        <Rail aria-label="More">
+        <Rail aria-label="Other cards">
           {others.length > 0 && (
             <Card pad>
               <CardHead title="Upcoming cards" />
@@ -93,6 +92,7 @@ export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcomi
                   );
                 })}
               </ul>
+              <TextLink href="/ufc/events" className="mt-4">All cards</TextLink>
             </Card>
           )}
           <Card pad>

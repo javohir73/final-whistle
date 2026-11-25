@@ -3,7 +3,7 @@
  *  is the page's call, never a 404. */
 import { notFound } from "next/navigation";
 import { getUfcFighterServer } from "@/lib/api";
-import { FIGHTER } from "@/components/ufc/fixtures.testutil";
+import { FIGHTER, FIGHTER_PLACEHOLDER } from "@/components/ufc/fixtures.testutil";
 import FighterLayout from "./layout";
 
 jest.mock("next/navigation", () => ({
@@ -44,4 +44,11 @@ it("lets the page decide when the backend errors", async () => {
   mockFighter.mockRejectedValue(new Error("API /api/ufc/fighters/x failed: 503"));
   await expect(layout("mateusz-rebecki")).resolves.toBe("fighter page");
   expect(notFound).not.toHaveBeenCalled();
+});
+
+it("404s a placeholder: it is not a page about a person", async () => {
+  mockFighter.mockResolvedValue(FIGHTER_PLACEHOLDER);
+  await expect(layout("opponent-tba")).rejects.toThrow("NEXT_NOT_FOUND");
+  mockFighter.mockResolvedValue({ ...FIGHTER_PLACEHOLDER, name: "TBA", slug: "tba-5300001" });
+  await expect(layout("tba-5300001")).rejects.toThrow("NEXT_NOT_FOUND");
 });

@@ -21,6 +21,7 @@ const ADESANYA = fighter("israel-adesanya-4285679", "Israel Adesanya", "New Zeal
 const MAGOMEDOV = fighter("shara-magomedov-4421784", "Shara Magomedov", "Russia");
 const HOLLOWAY = fighter("max-holloway-3022677", "Max Holloway", "United States", rec(26, 8));
 const TBA_FIGHTER = fighter("tba-5300001", "TBA");
+const OPPONENT_TBA = fighter("opponent-tba", "Opponent TBA");
 const TURNER = fighter("jalin-turner-4294226", "Jalin Turner", "United States", rec(15, 8));
 const GREEN = fighter("bobby-green-2970911", "Bobby Green", "United States", rec(33, 15, 0, 1));
 const REBECKI = fighter("mateusz-rebecki-4689965", "Mateusz Rębecki", "Poland", rec(20, 2));
@@ -291,3 +292,56 @@ export const FIGHTER_DRAW_NC: UfcFighterDetail = {
     },
   ],
 };
+
+/** A fight between two placeholders, as the feed serves one before the card is filled in:
+ *  height 0, reach 0 and stance "--". */
+export const PLACEHOLDER_BOUT: UfcBoutDetail = detailOf(
+  bout(15, TBA_FIGHTER, OPPONENT_TBA, { card_order: 9, weight_class: "Welterweight", scheduled_utc: MAIN_UPCOMING_UTC }),
+  UPCOMING_EVENT,
+  MAIN_SEGMENT,
+  { tape: { a: tape({ height_in: 0, reach_in: 0, stance: "--" }), b: tape({ height_in: 0, reach_in: 0, stance: "--" }) } },
+);
+
+/** A scheduled bout whose opponent is the "Opponent TBA" placeholder. */
+export const OPPONENT_TBA_BOUT: UfcBoutSummary = bout(402000001, HOLLOWAY, OPPONENT_TBA, {
+  card_order: 5, weight_class: "Lightweight", scheduled_utc: MAIN_UPCOMING_UTC,
+});
+
+/** A card whose prelims start on Saturday 12 Dec 23:00 UTC and whose main card starts on
+ *  Sunday 13 Dec 02:00 UTC: the main card falls on the next local day in London. */
+const NEXT_DAY_PRELIMS_UTC = "2026-12-12T23:00:00Z";
+const NEXT_DAY_MAIN_UTC = "2026-12-13T02:00:00Z";
+export const NEXT_DAY_EVENT: UfcEventDetail = {
+  slug: "ufc-fight-night-2026-12-12",
+  name: "UFC Fight Night: Next Day",
+  status: "scheduled",
+  first_bout_utc: NEXT_DAY_PRELIMS_UTC,
+  last_bout_utc: NEXT_DAY_MAIN_UTC,
+  venue: null,
+  bout_count: 2,
+  main_event: { fighter_a: HOLLOWAY, fighter_b: TURNER },
+  segments: [
+    { key: "main", label: "Main Card", scheduled_utc: NEXT_DAY_MAIN_UTC,
+      bouts: [bout(402000002, HOLLOWAY, TURNER, { card_order: 1, weight_class: "Lightweight", scheduled_utc: NEXT_DAY_MAIN_UTC })] },
+    { key: "prelims1", label: "Prelims", scheduled_utc: NEXT_DAY_PRELIMS_UTC,
+      bouts: [bout(402000003, HUSSEIN, BRENER, { card_order: 2, weight_class: "Bantamweight", scheduled_utc: NEXT_DAY_PRELIMS_UTC })] },
+  ],
+};
+
+/** A fighter page for a placeholder (not a person). */
+export const FIGHTER_PLACEHOLDER: UfcFighterDetail = {
+  slug: OPPONENT_TBA.slug, name: OPPONENT_TBA.name, country: null, date_of_birth: null, age: null,
+  height_in: 0, reach_in: 0, stance: "--", record: null, bouts: [],
+};
+
+/** Pins "now" (the Date constructor only; timers keep running) for tests that show a year only when it is not the current one. */
+export function freezeNow(iso: string): void {
+  jest.useFakeTimers({
+    now: new Date(iso),
+    doNotFake: [
+      "hrtime", "nextTick", "performance", "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame",
+      "requestIdleCallback", "cancelIdleCallback", "setImmediate", "clearImmediate", "setInterval",
+      "clearInterval", "setTimeout", "clearTimeout",
+    ],
+  });
+}

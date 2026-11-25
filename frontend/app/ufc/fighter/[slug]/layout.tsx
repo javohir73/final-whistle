@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { getUfcFighterServer } from "@/lib/api";
-import { isFighterSlug } from "@/lib/ufcDisplay";
+import { isFighterSlug, isTba } from "@/lib/ufcDisplay";
 
 /** Real 404s for /ufc/fighter/{slug}. The page's own notFound() runs inside
  *  this segment's loading.tsx Suspense boundary, where it would stream as HTTP
@@ -26,6 +26,7 @@ export default async function FighterLayout({
   } catch {
     return children;
   }
-  if (!fighter) notFound();
+  // A placeholder ("TBA", "Opponent TBA") is not a person: no page for it.
+  if (!fighter || isTba(fighter)) notFound();
   return children;
 }

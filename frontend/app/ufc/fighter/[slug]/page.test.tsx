@@ -57,7 +57,8 @@ describe("metadata", () => {
   it("falls back when there is no record", async () => {
     mockFighter.mockResolvedValue(FIGHTER_NO_HISTORY);
     const m = await generateMetadata(params("shara-magomedov-4421784"));
-    expect(m.description).toBe("Shara Magomedov's UFC fights, upcoming and past.");
+    expect(m.description).toBe("Shara Magomedov: UFC fights and fighter facts.");
+    expect(JSON.stringify(m)).not.toMatch(/No UFC fights|record/i);
   });
 
   it("is generic for an unknown, malformed or unreachable fighter", async () => {

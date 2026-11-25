@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { BoutRow } from "./BoutRow";
 import { FighterMark } from "./FighterMark";
-import { FINISHED_EVENT, UPCOMING_EVENT } from "./fixtures.testutil";
+import { FINISHED_EVENT, OPPONENT_TBA_BOUT, UPCOMING_EVENT } from "./fixtures.testutil";
 import type { UfcBoutSummary } from "@/lib/ufcTypes";
 
 const [main, tbaBout, cancelled] = UPCOMING_EVENT.segments[0].bouts;
@@ -100,4 +100,47 @@ describe("FighterMark", () => {
     expect(screen.getByText("JV")).toBeInTheDocument();
     expect(screen.getByText("SO")).toBeInTheDocument();
   });
+});
+
+it("shows no time and a plain v when the segment already says it", () => {
+  render(<BoutRow bout={main} tz="Australia/Sydney" isMainEvent showTime={false} />);
+  expect(screen.getByRole("link", { name: "Israel Adesanya v Shara Magomedov, upcoming" })).toBeInTheDocument();
+  expect(screen.getByText("v")).toBeInTheDocument();
+  expect(screen.queryByText(/\d:\d\d (am|pm)/)).toBeNull();
+});
+
+it("names a scheduled fight with no time as upcoming when the time is hidden", () => {
+  render(<BoutRow bout={{ ...main, scheduled_utc: null }} tz="UTC" isMainEvent={false} showTime={false} />);
+  expect(screen.getByRole("link", { name: "Israel Adesanya v Shara Magomedov, upcoming" })).toBeInTheDocument();
+});
+
+it("keeps showing the time by default", () => {
+  render(<BoutRow bout={main} tz="Australia/Sydney" isMainEvent />);
+  expect(screen.getByText("5:00 am")).toBeInTheDocument();
+});
+
+it("does not throw on a malformed time", () => {
+  render(<BoutRow bout={{ ...main, scheduled_utc: "garbage" }} tz="UTC" isMainEvent={false} />);
+  expect(screen.getByRole("link", { name: "Israel Adesanya v Shara Magomedov, TBC" })).toBeInTheDocument();
+});
+
+it("does not mute anybody on a draw even when a winner is recorded", () => {
+  const odd: UfcBoutSummary = { ...draw, result: { ...draw.result!, winner: "a" } };
+  render(<BoutRow bout={odd} tz="UTC" isMainEvent={false} />);
+  expect(screen.getByText("Dan Hooker").className).not.toContain("text-muted");
+  expect(screen.getByText("Brian Ortega").className).not.toContain("text-muted");
+});
+
+it("draws an Opponent TBA as ? with no fighter link", () => {
+  render(<BoutRow bout={OPPONENT_TBA_BOUT} tz="UTC" isMainEvent={false} />);
+  expect(screen.getByText("?")).toBeInTheDocument();
+  expect(screen.getByText("Opponent TBA")).toBeInTheDocument();
+  for (const a of screen.getAllByRole("link")) expect(a.getAttribute("href")).not.toMatch(/\/ufc\/fighter\//);
+});
+
+it("narrows its side padding on small phones so long names wrap between words", () => {
+  render(<BoutRow bout={main} tz="UTC" isMainEvent />);
+  const row = screen.getByRole("link", { name: /Israel Adesanya v Shara Magomedov/ }).closest("div.grid");
+  expect(row?.className).toContain("max-[400px]:px-1.5");
+  expect(row?.className).toContain("min-[900px]:px-7");
 });

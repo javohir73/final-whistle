@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { TaleOfTheTape } from "./TaleOfTheTape";
-import { SCHEDULED_BOUT, UNKNOWN_TAPE_BOUT } from "./fixtures.testutil";
+import { PLACEHOLDER_BOUT, SCHEDULED_BOUT, UNKNOWN_TAPE_BOUT } from "./fixtures.testutil";
 
 const rowText = (label: string) => {
   const row = screen.getByRole("rowheader", { name: label }).closest("tr") as HTMLElement;
@@ -53,4 +53,16 @@ it("makes the label the row header of its values", () => {
   render(<TaleOfTheTape bout={SCHEDULED_BOUT} />);
   const cell = screen.getByText("6′ 4″");
   expect(within(cell.closest("tr") as HTMLElement).getByRole("rowheader")).toHaveTextContent("Height");
+});
+
+it("shows the not-available note for two placeholders (0 / 0 / --)", () => {
+  render(<TaleOfTheTape bout={PLACEHOLDER_BOUT} />);
+  expect(screen.getByText("Measurements for these fighters are not available yet.")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).toBeNull();
+});
+
+it("drops a stance with no letters but keeps a real one", () => {
+  const side = { age: null, height_in: null, reach_in: null };
+  render(<TaleOfTheTape bout={{ ...SCHEDULED_BOUT, tape: { a: { ...side, stance: "--" }, b: { ...side, stance: "Southpaw" } } }} />);
+  expect(rowText("Stance")).toEqual(["–", "Stance", "Southpaw"]);
 });
