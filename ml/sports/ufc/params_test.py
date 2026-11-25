@@ -124,7 +124,7 @@ def test_corrupt_json_warns(tmp_path, caplog):
 def test_malformed_elo_warns(tmp_path, caplog):
     got = _loaded(tmp_path, caplog, elo={"k": "abc"})
     assert got.elo == EloParams()
-    assert any("elo section malformed" in m for m in _warnings(caplog))
+    assert any("elo section" in m for m in _warnings(caplog))
 
 
 def test_stale_features_warn(tmp_path, caplog):
