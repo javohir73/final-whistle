@@ -1,7 +1,8 @@
 """Public UFC card API: GET /api/ufc/events, /events/next, /events/{slug}.
 
-Read-only and public. No model fields (probabilities, odds, ratings, picks)
-are exposed until phase 4. Times are always sent with the UTC zone attached
+Read-only and public. Model fields appear only through
+`ufc_model.public_calls` (the model's call, once a fight is locked and a public
+model is set); no odds, ratings or player picks are exposed. Times are always sent with the UTC zone attached
 (in-memory SQLite returns timezone-aware columns naive; Postgres does not).
 
 A fighter's record is derived from stored finished card bouts in ONE grouped
@@ -19,6 +20,7 @@ from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.ufc_model import public_calls
 from app.ufc_rules import is_placeholder_name
 from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter
 from app.schemas import (
@@ -230,6 +232,11 @@ def _detail(db: Session, event: UfcEvent) -> UfcEventDetailOut:
                 bouts=[bout_summary(b, minis) for b in members],
             )
         )
+    names = {i: m.name for i, m in minis.items()}
+    calls = public_calls(db, bouts, names, datetime.now(timezone.utc))
+    for seg in segments:
+        for out in seg.bouts:
+            out.model = calls.get(out.id)
     segments.sort(
         key=lambda s: (
             s.key != "main",
@@ -397,6 +404,9 @@ def bout_detail(bout_id: int, db: Session = Depends(get_db)):
 
     key = bout.segment or "other"
     summary = bout_summary(bout, minis)
+    summary.model = public_calls(
+        db, [bout], {i: m.name for i, m in minis.items()}, now
+    ).get(bout.id)
     return UfcBoutDetailOut(
         **summary.model_dump(),
         event=UfcEventRefOut(

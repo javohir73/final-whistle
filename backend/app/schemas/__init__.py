@@ -611,6 +611,16 @@ class UfcResultOut(BaseModel):
     end_clock: str | None
 
 
+class UfcModelCallOut(BaseModel):
+    model_version: str
+    winner: Literal["a", "b"] | None
+    p_a: float
+    p_b: float
+    method: Literal["ko_tko", "submission", "decision"] | None
+    method_probs: dict[str, float] | None
+    reasons: list[str]
+
+
 class UfcBoutSummaryOut(BaseModel):
     id: int
     card_order: int | None
@@ -622,6 +632,7 @@ class UfcBoutSummaryOut(BaseModel):
     fighter_a: UfcFighterMiniOut
     fighter_b: UfcFighterMiniOut
     result: UfcResultOut | None
+    model: UfcModelCallOut | None = None
 
 
 class UfcSegmentOut(BaseModel):
