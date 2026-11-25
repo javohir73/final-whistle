@@ -2,9 +2,8 @@
 
 Scoring is decided by `app.ufc_rules.score_pick`; this module only decides which
 picks to look at and writes the outcome. A pick is graded when its bout is settled
-(finished, cancelled or changed) and the pick was last changed at or before the lock;
-a pick stamped after the lock, or for a bout with no lock, is never graded (counted
-as late, never scored zero). A void grade is stored as `graded_at` set with NULL
+(finished, cancelled or changed). A pick created after the lock (the ingest may move
+an unlocked bout's start earlier), or for a bout with no lock, is voided, never scored. A void grade is stored as `graded_at` set with NULL
 points and NULL correctness.
 
 Picks are re-read for `RECONCILE_DAYS` after the bout so an overturned result (a new
@@ -27,11 +26,12 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcPick
-from app.ufc_rules import lock_time, score_pick, utc
+from app.ufc_rules import PickScore, lock_time, score_pick, utc
 from pipeline.sports.ufc_predict import RECONCILE_DAYS
 
 log = logging.getLogger(__name__)
 
+_VOID = PickScore(None, None, None, True)
 SETTLED = ("finished", "cancelled", "changed")
 
 
@@ -40,7 +40,7 @@ class PickGradeSummary:
     written: int = 0      # rows given a new or changed grade
     voided: int = 0       # of those, void
     reset: int = 0        # grades removed because the bout is no longer settled
-    late: int = 0         # picks never graded: stamped after the lock, or no lock
+    late: int = 0         # of the voided, picks created after the lock (or with no lock)
     failed: int = 0       # bouts whose picks could not be graded this run
 
 
@@ -49,16 +49,21 @@ def _grade_bout(picks: list[UfcPick], bout: UfcBout, now: datetime, in_window: b
     lock = lock_time(bout)
     settled = bout.status in SETTLED
     for pick in picks:
-        if pick.graded_at is None:
-            if not settled:
-                continue
-            updated = utc(pick.updated_at)
-            if lock is None or updated is None or updated > lock:
-                out.late += 1
-                continue
-        elif not in_window:
+        if pick.graded_at is not None and not in_window:
+            continue
+        if pick.graded_at is None and not settled:
             continue
         score = score_pick(pick.winner, pick.method, bout) if settled else None
+        late = False
+        if score is not None and not score.void:
+            # The submit rule refuses a pick at `now >= lock`, so a stored pick never has
+            # created_at == lock: `>` lock is late, `<=` lock is on time. The ingest can move an
+            # unlocked bout's start earlier, so a good-faith pick may land after the real lock;
+            # it is voided (never scored: the fight may have started), not left ungraded.
+            created = utc(pick.created_at)
+            late = lock is None or created is None or created > lock
+            if late:
+                score = _VOID
         if score is None:
             if pick.graded_at is not None:
                 pick.points = pick.winner_correct = pick.method_correct = pick.graded_at = None
@@ -71,6 +76,7 @@ def _grade_bout(picks: list[UfcPick], bout: UfcBout, now: datetime, in_window: b
         pick.graded_at = now
         out.written += 1
         out.voided += int(score.void)
+        out.late += int(late)
     return out
 
 
@@ -127,7 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     db = SessionLocal()
     code = 0
     try:
-        grade_picks(db)
+        summary = grade_picks(db)
+        if summary.failed:  # everything that succeeded is already committed
+            code = 1
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         log.error("ufc picks: grading failed (%s)", type(exc).__name__)
