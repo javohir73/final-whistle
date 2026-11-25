@@ -9,7 +9,7 @@ export { Segmented } from "./Segmented";
 export type { SegmentedItem } from "./Segmented";
 export { PageHead, BackLink, H1_CLASS } from "./PageHead";
 export { PageLayout, Main, Rail } from "./PageLayout";
-export { FixtureRow, FixturePair, KickoffBox, ScoreBox } from "./FixtureRow";
+export { FixtureRow, FixturePair, KickoffBox, ResultBox, ScoreBox } from "./FixtureRow";
 export type { FixtureRowProps, FixtureSide } from "./FixtureRow";
 export {
   TableScroll,
