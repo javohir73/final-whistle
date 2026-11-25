@@ -706,3 +706,40 @@ def test_feed_cancelled_before_the_start_stays_locked_if_it_returns_after_that_s
     later = T0 + timedelta(days=7)
     assert _reinstate(db_session, bout, later, T0 + timedelta(minutes=10)) == 0
     assert (bout.status, _utc(bout.locked_at), _utc(bout.scheduled_utc)) == ("cancelled", T0, T0)
+
+
+def test_a_swept_bout_that_came_back_locked_is_finished_by_the_results_step(db_session):
+    from pipeline.sports.ufc_ingest import IngestSummary, current_bout
+
+    _bare_bout(db_session, (("b1", "scheduled"), ("b2", "scheduled")))
+    db_session.commit()
+
+    def card(*bouts):
+        return EventCard(provider_id="e1", name="UFC Test Night", first_bout_utc=T0, last_bout_utc=T0,
+                         venue="Arena", is_card=True, bouts=tuple(bouts))
+
+    def card_bout(bid, order, when=T0):
+        return BoutCard(
+            provider_id=bid, card_order=order, segment="main", segment_label="Main Card",
+            weight_class="Lightweight", scheduled_rounds=3, scheduled_utc=when,
+            fighter_a=FighterRef(f"{bid}-a", f"A {bid}"), fighter_b=FighterRef(f"{bid}-b", f"B {bid}"),
+        )
+
+    upsert_event(db_session, "espn", card(card_bout("b2", 2)), now=T0 + timedelta(minutes=10))
+    assert _bout(db_session, "b1").status == "cancelled"
+    summary = IngestSummary()
+    upsert_event(db_session, "espn", card(card_bout("b1", 1, T0 + timedelta(hours=11)), card_bout("b2", 2)),
+                 now=T0 + timedelta(hours=12), summary=summary)
+    db_session.commit()
+    bout = current_bout(db_session, "espn", "b1")
+    assert (bout.status, _utc(bout.locked_at), _utc(bout.scheduled_utc)) == ("scheduled", T0, T0)
+    assert summary.bouts_reinstated == 1
+
+    class Final(RecordedUfcProvider):
+        def fetch_outcome(self, event_id, b):
+            return KO if b.provider_id == "b1" else None
+
+    result = refresh_results(db_session, Final(RAW), now=T0 + timedelta(hours=13))
+    db_session.refresh(bout)
+    assert (bout.status, bout.winner, bout.method) == ("finished", "b", "ko_tko")
+    assert result.finished == 1
