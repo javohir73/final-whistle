@@ -917,3 +917,92 @@ def test_the_counts_line_carries_rechecked_and_overturned(monkeypatch, caplog):
     with caplog.at_level("INFO"):
         assert ufc_results.main([]) == 0
     assert any("rechecked=4 overturned=1" in r.getMessage() for r in caplog.records)
+
+
+# --- the re-check's time budget and failure streak ---
+
+class _Clock:
+    """A fake monotonic clock: each reading advances by `step` seconds."""
+
+    def __init__(self, step=0.0):
+        self.now, self.step = 0.0, step
+
+    def __call__(self):
+        value = self.now
+        self.now += self.step
+        return value
+
+
+def _ids(n):
+    return tuple(f"b{i}" for i in range(1, n + 1))
+
+
+def test_the_recheck_stops_when_its_time_budget_is_spent_and_leaves_the_rest(db_session):
+    _finished_with_stats(db_session, _ids(4))
+    provider = _OutcomeOnlyProvider({i: NO_CONTEST for i in _ids(4)})
+    # readings: start=0, then one per bout: 100 (ok), 200 (ok), 300 (over 240, stop)
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock(step=100))
+    assert [c[1] for c in provider.calls] == ["b1", "b2"]
+    assert (summary.rechecked, summary.recheck_stopped) == (2, "budget")
+    assert _bout(db_session, "b3").method == "ko_tko" and _bout(db_session, "b4").method == "ko_tko"
+
+
+def test_five_consecutive_missing_answers_stop_the_recheck(db_session):
+    _finished_with_stats(db_session, _ids(6))
+    answers = {i: None for i in _ids(5)}
+    answers["b6"] = NO_CONTEST
+    provider = _OutcomeOnlyProvider(answers)
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock())
+    assert [c[1] for c in provider.calls] == list(_ids(5))
+    assert (summary.rechecked, summary.recheck_skipped, summary.recheck_stopped) == (5, 5, "errors")
+    assert _bout(db_session, "b6").method == "ko_tko"
+
+
+def test_raised_errors_count_toward_the_streak_too(db_session):
+    _finished_with_stats(db_session, _ids(6))
+    provider = _OutcomeOnlyProvider({i: RuntimeError("boom") for i in _ids(6)})
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock())
+    assert len(provider.calls) == 5
+    assert (summary.recheck_skipped, summary.failed, summary.bouts_failed, summary.recheck_stopped) == (5, 5, 0, "errors")
+
+
+def test_an_answer_between_failures_resets_the_streak(db_session):
+    _finished_with_stats(db_session, _ids(9))
+    answers = {i: None for i in _ids(9)}
+    answers["b5"] = WINNER_A  # an answer (unchanged here is fine; it is not None)
+    for i in ("b1",):
+        answers[i] = None
+    provider = _OutcomeOnlyProvider(answers)
+    summary = refresh_results(db_session, provider, now=AFTER_CARD, clock=_Clock())
+    # b1-b4 None (4), b5 answers (reset), b6-b9 None (4): never five in a row
+    assert len(provider.calls) == 9
+    assert (summary.recheck_skipped, summary.recheck_stopped) == (8, "none")
+
+
+def test_a_normal_run_reports_none_stopped_and_the_counts_line_carries_the_new_fields(db_session, monkeypatch, caplog):
+    _finished_with_stats(db_session, _ids(2))
+    summary = refresh_results(db_session, _OutcomeOnlyProvider({"b1": NO_CONTEST, "b2": WINNER_A}),
+                              now=AFTER_CARD, clock=_Clock())
+    assert (summary.rechecked, summary.recheck_skipped, summary.recheck_stopped) == (2, 0, "none")
+
+    import app.db
+    import pipeline.sports.ufc_provider as prov
+    from pipeline.sports import ufc_results
+
+    class _Db:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(app.db, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(prov, "get_provider", lambda name=None: object())
+    monkeypatch.setattr(ufc_results, "refresh_results", lambda db, provider: ResultsSummary(
+        rechecked=7, overturned=1, recheck_skipped=5, recheck_stopped="errors"))
+    with caplog.at_level("INFO"):
+        ufc_results.main([])
+    assert any("recheck_skipped=5 recheck_stopped=errors" in r.getMessage() for r in caplog.records)
+
+
+def test_the_budget_is_240_seconds():
+    from pipeline.sports import ufc_results
+
+    assert ufc_results.RECHECK_BUDGET_SECONDS == 240 and ufc_results.RECHECK_MAX_MISSES == 5
