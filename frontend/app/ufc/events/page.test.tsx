@@ -1,5 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
-import EventsPage, { EVENTS_PAGE, offsetParam } from "./page";
+import EventsPage from "./page";
+import * as pageModule from "./page";
+import { EVENTS_PAGE, offsetParam } from "./paging";
 import { getUfcEventsServer } from "@/lib/api";
 import { PAST_LIST, UPCOMING_LIST } from "@/components/ufc/fixtures.testutil";
 import type { UfcEventSummary } from "@/lib/ufcTypes";
@@ -93,4 +95,11 @@ it("leaves the affiliation line to the section layout", async () => {
   mockEvents.mockResolvedValue({ events: [] });
   render(await EventsPage({ searchParams: Promise.resolve({}) }));
   expect(screen.queryByText(/not affiliated/)).not.toBeInTheDocument();
+});
+
+it("exports only what a Next.js page module may export", () => {
+  // Any other export from a page file makes `next build` fail its type check,
+  // which jest and a plain typecheck do not catch.
+  const allowed = ["default", "metadata", "generateMetadata", "revalidate", "dynamic", "dynamicParams", "fetchCache", "runtime", "preferredRegion", "maxDuration", "viewport", "generateViewport", "generateStaticParams"];
+  expect(Object.keys(pageModule).filter((k) => !allowed.includes(k))).toEqual([]);
 });

@@ -3,22 +3,12 @@ import { getUfcEventsServer } from "@/lib/api";
 import { UfcEventList } from "@/components/ufc/UfcEventList";
 import { Card, CardHead, CARD_X, Note, PageHead } from "@/components/ui";
 import type { UfcEventSummary } from "@/lib/ufcTypes";
-
-export const EVENTS_PAGE = 20;
-/** The API answers anything above this offset with a 4xx. */
-const MAX_OFFSET = 10_000;
+import { EVENTS_PAGE, MAX_OFFSET, offsetParam } from "./paging";
 
 export const metadata: Metadata = {
   title: "UFC events: upcoming cards and results | FinalWhistle",
   description: "Every upcoming UFC card and past results, with the main event and the number of fights.",
 };
-
-/** A non-negative whole number up to the API's cap; anything else is 0. */
-export function offsetParam(v: string | string[] | undefined): number {
-  if (typeof v !== "string" || !/^\d{1,5}$/.test(v)) return 0;
-  const n = Number(v);
-  return n <= MAX_OFFSET ? n : 0;
-}
 
 const href = (up: number, past: number) => {
   const q = new URLSearchParams();
