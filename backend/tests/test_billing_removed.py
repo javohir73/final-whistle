@@ -66,6 +66,13 @@ def test_settings_load_with_stripe_secret_in_environment(monkeypatch):
     assert not hasattr(fresh, "stripe_secret_key")
 
 
+def test_settings_load_with_stripe_keys_in_env_file(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("STRIPE_SECRET_KEY=leftover\nNEXT_PUBLIC_BILLING_ENABLED=true\n")
+    fresh = Settings(_env_file=env_file)
+    assert not hasattr(fresh, "stripe_secret_key")
+
+
 def test_importing_the_app_does_not_import_stripe():
     code = "import sys; import app.main; sys.exit(1 if 'stripe' in sys.modules else 0)"
     root = Path(__file__).resolve().parents[2]

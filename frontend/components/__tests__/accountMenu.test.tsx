@@ -93,6 +93,8 @@ it("keeps the account actions after the navigation entries", () => {
   ]);
 });
 
+// Guard against the item being added back unconditionally (it was already hidden in tests
+// before the removal, since the billing flag was never set under Jest).
 it("has no Manage subscription item, even for an old cached premium session", () => {
   const cached = { ...user, premium: true, premium_status: "active" } as SessionUser;
   mockPath = "/";
