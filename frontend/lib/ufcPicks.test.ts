@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/session";
 import {
   UFC_PICK_METHODS,
   UFC_PICK_RULES,
@@ -161,5 +162,48 @@ describe("requests", () => {
     const h = mock({ cards: [] });
     await getUfcPicksSummary(DEVICE);
     expect(String(h.mock.calls[0][0])).toMatch(/\/api\/ufc\/picks\/summary\?device_id=/);
+  });
+});
+
+it("gives no line for a missing time or a missing name", () => {
+  expect(pickLockLine("", "Europe/London", new Date())).toBe("");
+  expect(pickLockLine("not a date", "Europe/London", new Date())).toBe("");
+  expect(pickLockLine("2026-12-05T18:00:00Z", "Not/AZone", new Date())).toBe("");
+  const blank = { fighter_a: "", fighter_b: "Shara Magomedov" };
+  expect(pickLine(blank, { winner: "a", method: "decision" })).toBe("");
+  expect(modelLine(blank, call({ winner: "a" }))).toBe("");
+  expect(modelLine(blank, call({ winner: null }))).toBe("Model: too close to call");
+  expect(agreementLine(blank, PICK_B_DEC, call({ winner: "a" }))).toBeNull();
+});
+
+describe("what a caller receives on failure", () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+  const DEVICE = "7b0f6d52-3c1a-4e1f-9d3a-1a2b3c4d5e6f";
+  const body = { device_id: DEVICE, bout_id: 7, winner: "b" as const, method: "decision" as const };
+  const reply = (status: number, json: unknown) => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status, json: async () => json }) as unknown as typeof fetch;
+  };
+  it.each([
+    [409, "pick_finalized"],
+    [422, "fight_locked"],
+    [429, "too_many_attempts"],
+  ])("rejects an HTTP %i with an ApiError carrying the envelope's code %s", async (status, code) => {
+    reply(status, { error: { code, message: "m" } });
+    const err = await submitUfcPick(body).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status, code });
+  });
+  it("uses http_<status> when the body is not the envelope", async () => {
+    reply(502, "<html>");
+    await expect(submitUfcPick(body)).rejects.toMatchObject({ status: 502, code: "http_502" });
+  });
+  it("rejects a network failure with the raw TypeError", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new TypeError("Failed to fetch")) as unknown as typeof fetch;
+    const err = await getMyUfcPicks(DEVICE, "x").catch((e) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(err).not.toBeInstanceOf(ApiError);
   });
 });

@@ -55,6 +55,8 @@ it("starts loading, then serves this device's picks for the card", async () => {
 
 it("renders loading with no data, and touches neither the device id nor storage, until after mount", async () => {
   const seen: { status?: string; data: boolean; deviceReads: number; storageReads: number }[] = [];
+  // The real device-id helper, so a storage read before mount would be seen.
+  device.mockImplementation(jest.requireActual("@/lib/session").getOrCreateDeviceId);
   const storage = jest.spyOn(Storage.prototype, "getItem");
   function Spy() {
     const c = useUfcPicks();
@@ -64,7 +66,7 @@ it("renders loading with no data, and touches neither the device id nor storage,
   render(<UfcPicksProvider eventSlug={SLUG}><Spy /></UfcPicksProvider>);
   // The first render is what the server (and hydration) produces: the same for every visitor.
   expect(seen[0]).toEqual({ status: "loading", data: false, deviceReads: 0, storageReads: 0 });
-  expect(mine).toHaveBeenCalledWith(DEVICE, SLUG);
+  expect(storage.mock.calls.length).toBeGreaterThan(0); // the mount effect does read it
   await waitFor(() => expect(seen[seen.length - 1].status).toBe("ready"));
   storage.mockRestore();
 });
@@ -111,4 +113,111 @@ it("reports the handle for the leaderboard", async () => {
 it("is null outside a provider", () => {
   render(<Probe />);
   expect(ctx).toBeNull();
+});
+
+const SUB = (over: Partial<UfcPickSubmitResponse> = {}): UfcPickSubmitResponse => ({
+  ok: true, handle: "SwiftStriker42", bout_id: 1, pick: PICK, model: null, disclaimer: "d", ...over,
+});
+const deferred = <T,>() => {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+};
+const OTHER: UfcMyPicksResponse = {
+  ...PAYLOAD,
+  event: { slug: "ufc-y", name: "UFC Y", first_bout_utc: null },
+  handle: "OtherHandle",
+  totals: { picked: 3, graded: 1, points: 5, winner_method: 1 },
+};
+const Slug = ({ slug }: { slug: string }) => (
+  <UfcPicksProvider eventSlug={slug}><Probe /><Who /></UfcPicksProvider>
+);
+function Who() {
+  const c = useUfcPicks();
+  return <p data-testid="who">{c?.data?.event.slug ?? "none"}</p>;
+}
+
+it("never shows the previous card's data after the slug changes", async () => {
+  const next = deferred<UfcMyPicksResponse>();
+  const { rerender } = render(<Slug slug={SLUG} />);
+  await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("ready|data"));
+  expect(screen.getByTestId("who")).toHaveTextContent(SLUG);
+  mine.mockReturnValueOnce(next.promise);
+  rerender(<Slug slug="ufc-y" />);
+  expect(screen.getByTestId("s")).toHaveTextContent("loading|nodata");
+  expect(screen.getByTestId("who")).toHaveTextContent("none");
+  await act(async () => next.resolve(OTHER));
+  expect(screen.getByTestId("who")).toHaveTextContent("ufc-y");
+  expect(mine).toHaveBeenLastCalledWith(DEVICE, "ufc-y");
+});
+
+it("shows an error with no data when the new card's fetch fails", async () => {
+  const { rerender } = render(<Slug slug={SLUG} />);
+  await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("ready|data"));
+  mine.mockRejectedValueOnce(new Error("x"));
+  rerender(<Slug slug="ufc-y" />);
+  await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("error|nodata"));
+});
+
+it("keeps the same card's data when a later refresh fails", async () => {
+  view();
+  await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("ready|data"));
+  mine.mockRejectedValueOnce(new Error("x"));
+  act(() => announceTipsIdentityChanged());
+  await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("error|data"));
+});
+
+it("does not update state after unmount", async () => {
+  const d = deferred<UfcMyPicksResponse>();
+  mine.mockReturnValueOnce(d.promise);
+  const err = jest.spyOn(console, "error").mockImplementation(() => {});
+  const { unmount } = view();
+  unmount();
+  await act(async () => d.resolve(PAYLOAD));
+  expect(reportViewerHandle).not.toHaveBeenCalled();
+  expect(err).not.toHaveBeenCalled();
+  err.mockRestore();
+});
+
+it("ignores an older request that resolves after a newer one", async () => {
+  const older = deferred<UfcMyPicksResponse>();
+  const newer = deferred<UfcMyPicksResponse>();
+  mine.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+  view();
+  act(() => announceTipsIdentityChanged());
+  await act(async () => newer.resolve({ ...PAYLOAD, handle: "NewHandle" }));
+  await act(async () => older.resolve({ ...PAYLOAD, handle: "OldHandle" }));
+  expect(reportViewerHandle).toHaveBeenCalledWith("NewHandle");
+  expect(reportViewerHandle).not.toHaveBeenCalledWith("OldHandle");
+});
+
+it("applySubmitted sets picks_open false, bumps picked once, and is a no-op without data or for an unknown bout", async () => {
+  const d = deferred<UfcMyPicksResponse>();
+  mine.mockReturnValueOnce(d.promise);
+  view();
+  act(() => ctx!.applySubmitted(SUB()));
+  expect(ctx!.data).toBeNull(); // unloaded: nothing to change now
+  await act(async () => d.resolve(PAYLOAD));
+  expect(ctx!.data!.totals.picked).toBe(1); // remembered, and laid over the read that landed
+  act(() => ctx!.applySubmitted(SUB({ bout_id: 999 })));
+  expect(ctx!.data!.bouts).toHaveLength(1);
+  expect(ctx!.data!.totals.picked).toBe(1); // unknown bout: no change
+  act(() => ctx!.applySubmitted(SUB()));
+  act(() => ctx!.applySubmitted(SUB()));
+  expect(ctx!.myBout(1)!.picks_open).toBe(false);
+  expect(ctx!.data!.totals.picked).toBe(1);
+});
+
+it("a read that was in flight when a pick was saved never drops that pick", async () => {
+  const d = deferred<UfcMyPicksResponse>();
+  view();
+  await waitFor(() => expect(screen.getByTestId("s")).toHaveTextContent("ready"));
+  mine.mockReturnValueOnce(d.promise);
+  act(() => announceTipsIdentityChanged());
+  act(() => ctx!.applySubmitted(SUB()));
+  await act(async () => d.resolve(PAYLOAD)); // read before the pick was stored: pick null, open
+  expect(ctx!.myBout(1)!.pick?.method).toBe("decision");
+  expect(ctx!.myBout(1)!.picks_open).toBe(false);
+  expect(ctx!.data!.totals.picked).toBe(1);
 });

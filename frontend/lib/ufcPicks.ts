@@ -53,13 +53,15 @@ export function pickedName(bout: { fighter_a: Named; fighter_b: Named }, side: "
 type BoutNames = { fighter_a: Named; fighter_b: Named };
 
 export function pickLine(bout: BoutNames, pick: { winner: "a" | "b"; method: UfcPickMethod | null }): string {
-  const name = pickedName(bout, pick.winner);
+  const name = pickedName(bout, pick.winner).trim();
+  if (!name) return "";
   return pick.method ? `You: ${name}, ${methodWord(pick.method)}` : `You: ${name}`;
 }
 
-/** "Model: Shara Magomedov 54%", or "Model: too close to call" when it names no one. */
+/** "" when the model's fighter has no name. "Model: Shara Magomedov 54%", or "Model: too close to call" when it names no one. */
 export function modelLine(bout: BoutNames, call: UfcModelCall): string {
   if (call.winner == null) return "Model: too close to call";
+  if (!pickedName(bout, call.winner).trim()) return "";
   const pct = Math.round(100 * Math.max(call.p_a, call.p_b));
   return `Model: ${pickedName(bout, call.winner)} ${pct}%`;
 }
@@ -71,7 +73,8 @@ export function agreementLine(
   call: UfcModelCall | null,
 ): string | null {
   if (!call || call.winner == null) return null;
-  const name = pickedName(bout, call.winner);
+  const name = pickedName(bout, call.winner).trim();
+  if (!name) return null;
   const m = call.method ? methodWord(call.method) : null;
   if (call.winner !== pick.winner) return m ? `The model picks ${name} by ${m}.` : `The model picks ${name}.`;
   if (!m) return `The model also picks ${name}.`;
@@ -87,12 +90,17 @@ export function pickOpenByClock(bout: UfcBoutSummary, now: Date): boolean {
   return !isTba(bout.fighter_a) && !isTba(bout.fighter_b);
 }
 
-/** "Picks close at 6:00 pm GMT" today in the viewer's zone, else "Picks close Sat 5 Dec, 6:00 pm GMT". */
+/** "" for a missing or invalid time. "Picks close at 6:00 pm GMT" today in the viewer's zone, else "Picks close Sat 5 Dec, 6:00 pm GMT". */
 export function pickLockLine(lockIso: string, tz: string, now: Date): string {
-  const time = `${kickoffTimeLower(lockIso, tz)} ${tzAbbrev(lockIso, tz)}`;
-  return relativeDayLabel(lockIso, tz, now) === "Today"
-    ? `Picks close at ${time}`
-    : `Picks close ${kickoffDate(lockIso, tz)}, ${time}`;
+  if (!lockIso || !Number.isFinite(Date.parse(lockIso))) return "";
+  try {
+    const time = `${kickoffTimeLower(lockIso, tz)} ${tzAbbrev(lockIso, tz)}`;
+    return relativeDayLabel(lockIso, tz, now) === "Today"
+      ? `Picks close at ${time}`
+      : `Picks close ${kickoffDate(lockIso, tz)}, ${time}`;
+  } catch {
+    return ""; // a bad time or zone: no line rather than a thrown render
+  }
 }
 
 export type Verdict = { label: string; tone: ChipTone | undefined };
