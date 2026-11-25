@@ -814,3 +814,363 @@ def test_a_graded_pick_with_no_points_is_void_even_on_a_finished_fight(client):
     assert body["totals"] == {"picked": 2, "graded": 1, "points": 0, "winner_method": 0}
     card = _summary(c)["cards"][0]
     assert (card["picked"], card["graded"], card["points"], card["winner_method"]) == (2, 1, 0, 0)
+
+
+# ---- GET /api/ufc/picks/leaderboard ----------------------------------------------------------
+
+MODEL_HANDLE = "FinalWhistle model"
+GRADED_AT = NOW - timedelta(minutes=5)
+
+
+def _lb(c, expect=200, **params):
+    r = c.get("/api/ufc/picks/leaderboard", params=params)
+    assert r.status_code == expect, r.text
+    return r.json()
+
+
+def _player(Session, handle, n=None):
+    """A tip_players row with a unique device id; returns its id."""
+    db = Session()
+    n = db.query(TipPlayer).count() + 100 if n is None else n
+    p = TipPlayer(device_id=f"{n:08d}-5717-4562-b3fc-2c963f66afa6", handle=handle)
+    db.add(p)
+    db.commit()
+    pid = p.id
+    db.close()
+    return pid
+
+
+def _grade(Session, bout_id, player_id, points, winner="a", method="decision", graded=True, updated=None):
+    """A pick row as the grader leaves it: points 5/2/0, or None for a void grade."""
+    db = Session()
+    at = NOW - timedelta(hours=3)
+    db.add(UfcPick(bout_id=bout_id, player_id=player_id, winner=winner, method=method,
+                   created_at=at, updated_at=updated or at, points=points,
+                   winner_correct=None if points is None else points > 0,
+                   method_correct=None if points is None else points == 5,
+                   graded_at=GRADED_AT if graded else None))
+    db.commit()
+    db.close()
+
+
+def _finish(Session, *ids, winner="a", method="decision", **kw):
+    for bid in ids:
+        _set(Session, bid, status="finished", winner=winner, method=method, **kw)
+
+
+def _names(body):
+    return [e["handle"] for e in body["entries"]]
+
+
+def test_card_board_lists_only_players_with_a_graded_pick(client):
+    c, Session = client
+    b1, b2, b3, b4, b5 = _card(Session, n=5)
+    _finish(Session, b1, b2, b3, b4)
+    _set(Session, b5, status="cancelled")
+    graded, zero, ungraded, void_only, by_state = (_player(Session, h) for h in
+                                                   ("Graded", "Zero", "Ungraded", "VoidOnly", "ByState"))
+    _grade(Session, b1, graded, 5, method="decision")
+    _grade(Session, b2, graded, 2, method="ko_tko")
+    _grade(Session, b1, zero, 0, winner="b")                    # a graded 0 is played
+    _grade(Session, b1, ungraded, None, graded=False)           # finished, grader has not run
+    _grade(Session, b2, void_only, None)                        # stored void grade on a finished fight
+    _grade(Session, b5, by_state, 2)                            # graded, then the bout was cancelled
+    body = _lb(c, event=SLUG)
+    assert body["scope"] == "card" and body["year"] is None
+    assert body["event"] == {"slug": SLUG, "name": SLUG, "first_bout_utc": ANY}
+    assert body["participant_count"] == 2
+    assert body["entries"] == [
+        {"rank": 1, "handle": "Graded", "points": 7, "winner_method": 1, "graded": 2, "is_model": False},
+        {"rank": 2, "handle": "Zero", "points": 0, "winner_method": 0, "graded": 1, "is_model": False}]
+
+
+@pytest.mark.parametrize("state", [
+    {"status": "cancelled"}, {"status": "changed"},
+    {"status": "finished", "winner": "a", "method": "draw"},
+    {"status": "finished", "winner": "a", "method": "no_contest"},
+    {"status": "finished", "winner": None, "method": None},
+])
+def test_a_pick_on_a_void_bout_counts_for_nothing_even_if_graded(client, state):
+    c, Session = client
+    (b1,) = _card(Session)
+    _set(Session, b1, **state)
+    pid = _player(Session, "Someone")
+    _grade(Session, b1, pid, 2)
+    body = _lb(c, event=SLUG)
+    assert body["participant_count"] == 0 and body["entries"] == []
+
+
+def test_ties_break_by_winner_and_method_then_handle_then_age(client):
+    c, Session = client
+    bouts = _card(Session, n=5)
+    _finish(Session, *bouts)
+    twos = _player(Session, "Aaa")                 # 2 x 5 = 10, no 5
+    fives = _player(Session, "Zzz")                # 5 + 5 + 0 + 0 + 0 = 10, two 5s
+    dup1, dup2 = _player(Session, "SwiftStriker7"), _player(Session, "SwiftStriker7")
+    for b in bouts:
+        _grade(Session, b, twos, 2)
+    for b, pts in zip(bouts, (5, 5, 0, 0, 0)):
+        _grade(Session, b, fives, pts)
+    for pid in (dup1, dup2):
+        _grade(Session, bouts[0], pid, 2)
+    body = _lb(c, event=SLUG)
+    assert [(e["handle"], e["points"], e["winner_method"]) for e in body["entries"]] == [
+        ("Zzz", 10, 2), ("Aaa", 10, 0), ("SwiftStriker7", 2, 0), ("SwiftStriker7", 2, 0)]
+    assert [e["rank"] for e in body["entries"]] == [1, 2, 3, 4]
+    assert body["participant_count"] == 4
+
+
+def test_year_board_uses_the_cards_utc_year(client):
+    c, Session = client
+    db = Session()
+    late = _event(db, "late-card", "finished", datetime(2026, 12, 31, 23, 0, tzinfo=timezone.utc), None)
+    early = _event(db, "early-card", "finished", datetime(2027, 1, 1, 1, 0, tzinfo=timezone.utc), None)
+    nc = _event(db, "not-a-card", "finished", datetime(2027, 6, 1, tzinfo=timezone.utc), None, is_card=False)
+    a = _seed_bout(db, late, a="Late One", b="Late Two", status="finished", winner="a", method="decision")
+    b = _seed_bout(db, early, a="Early One", b="Early Two", status="finished", winner="a", method="decision")
+    x = _seed_bout(db, nc, a="Other One", b="Other Two", status="finished", winner="a", method="decision")
+    db.commit()
+    a_id, b_id, x_id = a.id, b.id, x.id
+    db.close()
+    p = _player(Session, "Year")
+    _grade(Session, a_id, p, 5)
+    _grade(Session, b_id, p, 2)
+    _grade(Session, x_id, p, 2)
+    y26, y27 = _lb(c, year=2026), _lb(c, year=2027)
+    assert y26["scope"] == "year" and y26["year"] == 2026 and y26["event"] is None
+    assert [(e["points"], e["graded"]) for e in y26["entries"]] == [(5, 1)]
+    assert [(e["points"], e["graded"]) for e in y27["entries"]] == [(2, 1)]    # the non-card event is out
+    assert _lb(c, year=2030) == {"scope": "year", "event": None, "year": 2030,
+                                 "participant_count": 0, "entries": []}
+
+
+@pytest.mark.parametrize("params", [{}, {"event": SLUG, "year": 2026}, {"year": 1999}, {"year": 2101},
+                                    {"year": "abc"}, {"year": ""}, {"year": "20x6"}, {"year": "-2026"},
+                                    {"year": "٢٠٢٦"}])
+def test_scope_is_one_card_or_one_year(client, params):
+    c, Session = client
+    _card(Session)
+    r = c.get("/api/ufc/picks/leaderboard", params=params)
+    assert _code(r) == (422, "bad_scope")
+    assert r.json()["error"]["message"] == "Ask for one card or one year."
+
+
+@pytest.mark.parametrize("slug", ["no-such-card", "Bad Slug!", "x" * 300, "../etc", ""])
+def test_unknown_or_malformed_card_is_404(client, slug):
+    c, Session = client
+    _card(Session)
+    assert _code(c.get("/api/ufc/picks/leaderboard", params={"event": slug})) == (404, "not_found")
+
+
+def test_a_non_card_event_is_404(client):
+    c, Session = client
+    _card(Session, is_card=False)
+    assert _code(c.get("/api/ufc/picks/leaderboard", params={"event": SLUG})) == (404, "not_found")
+
+
+def test_a_card_with_no_graded_picks_is_an_empty_board(client):
+    c, Session = client
+    (b1,) = _card(Session)
+    _grade(Session, b1, _player(Session, "Waiting"), None, graded=False)
+    body = _lb(c, event=SLUG)
+    assert body["participant_count"] == 0 and body["entries"] == [] and body["event"]["slug"] == SLUG
+
+
+def test_production_state_default_board_is_complete_and_empty(client):
+    c, Session = client
+    assert _lb(c, year=2026) == {"scope": "year", "event": None, "year": 2026,
+                                 "participant_count": 0, "entries": []}
+    _card(Session)
+    assert _lb(c, event=SLUG)["entries"] == []
+
+
+def test_no_model_row_without_a_public_model(client):
+    c, Session = client
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    _predict(Session, b1, LOCK - timedelta(days=2), p_a=0.9)
+    _grade(Session, b1, _player(Session, "Solo"), 5)
+    body = _lb(c, event=SLUG)
+    assert [e["is_model"] for e in body["entries"]] == [False]
+
+
+def _model_row(body):
+    rows = [e for e in body["entries"] if e["is_model"]]
+    assert len(rows) <= 1
+    return rows[0] if rows else None
+
+
+def test_model_row_scores_settled_bouts_with_a_counting_call(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    b1, b2, b3, b4, b5 = _card(Session, n=5)
+    _finish(Session, b1, b2, b3, b4, b5)
+    _predict(Session, b1, LOCK - timedelta(days=2), p_a=0.9)                  # a by decision: 5
+    _predict(Session, b2, LOCK - timedelta(days=2), p_a=0.9)                  # held back: a pick awaits grading
+    _predict(Session, b3, LOCK + timedelta(minutes=1), p_a=0.9)               # made after the lock
+    _predict(Session, b4, LOCK - timedelta(days=2), p_a=0.5)                  # sits out
+    _grade(Session, b2, _player(Session, "Waiting"), None, graded=False)
+    body = _lb(c, event=SLUG)
+    row = _model_row(body)
+    assert row == {"rank": 1, "handle": MODEL_HANDLE, "points": 5, "winner_method": 1, "graded": 1, "is_model": True}
+    assert body["participant_count"] == 0
+
+
+def test_model_does_not_wait_for_a_pick_that_was_never_eligible(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    _predict(Session, b1, LOCK - timedelta(days=2), p_a=0.9)
+    _grade(Session, b1, _player(Session, "Late"), None, graded=False, updated=LOCK + timedelta(minutes=1))
+    assert _model_row(_lb(c, event=SLUG))["points"] == 5
+
+
+def test_model_skips_void_bouts_and_has_no_row_when_it_scored_nothing(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    b1, b2, b3 = _card(Session, n=3)
+    _finish(Session, b1, method="draw")
+    _finish(Session, b2, method="no_contest")
+    _set(Session, b3, status="cancelled")
+    for b in (b1, b2, b3):
+        _predict(Session, b, LOCK - timedelta(days=2), p_a=0.9)
+    assert _lb(c, event=SLUG)["entries"] == []
+    _predict(Session, b1, LOCK - timedelta(days=1), p_a=0.9, version="another-version")
+    assert _lb(c, event=SLUG)["entries"] == []
+
+
+def test_model_counts_a_wrong_call_as_played_and_uses_the_latest_counting_call(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    b1, b2 = _card(Session, n=2)
+    _finish(Session, b1, b2, winner="b")
+    _predict(Session, b1, LOCK - timedelta(days=3), p_a=0.1)       # b: right, decision -> would be 5
+    _predict(Session, b1, LOCK - timedelta(days=1), p_a=0.9)       # latest before the lock: a -> wrong, 0
+    _predict(Session, b2, LOCK - timedelta(days=2), p_a=0.1)       # 5
+    row = _model_row(_lb(c, event=SLUG))
+    assert (row["points"], row["winner_method"], row["graded"]) == (5, 1, 2)
+
+
+def test_model_row_never_counts_an_open_fight_while_the_card_is_in_progress(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    prelim, main = _card(Session, n=2)
+    _finish(Session, prelim)
+    _predict(Session, prelim, LOCK - timedelta(days=2), p_a=0.9)
+    _predict(Session, main, LOCK - timedelta(days=2), p_a=0.9)                 # open fight: never counts
+    player = _player(Session, "Early")
+    _grade(Session, prelim, player, 2)
+    body = _lb(c, event=SLUG)
+    assert _model_row(body)["graded"] == 1
+    assert _model_row(_lb(c, year=2027))["graded"] == 1
+    assert [e["points"] for e in body["entries"]] == [5, 2]       # the open fight adds nothing
+
+
+def test_model_row_ranks_below_a_tied_player(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    _predict(Session, b1, LOCK - timedelta(days=2), p_a=0.9)
+    _grade(Session, b1, _player(Session, "Zoe"), 5)
+    body = _lb(c, event=SLUG)
+    assert [(e["handle"], e["is_model"], e["rank"]) for e in body["entries"]] == [
+        ("Zoe", False, 1), (MODEL_HANDLE, True, 2)]
+    assert body["participant_count"] == 1
+
+
+def test_a_player_named_like_the_model_is_not_the_model(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    _predict(Session, b1, LOCK - timedelta(days=2), p_a=0.9)
+    _grade(Session, b1, _player(Session, MODEL_HANDLE), 5)
+    body = _lb(c, event=SLUG)
+    assert [(e["handle"], e["is_model"]) for e in body["entries"]] == [(MODEL_HANDLE, False), (MODEL_HANDLE, True)]
+    assert body["participant_count"] == 1
+
+
+def test_a_player_without_a_handle_gets_the_fallback_name(client):
+    c, Session = client
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    _grade(Session, b1, _player(Session, ""), 2)
+    _grade(Session, b1, _player(Session, "   "), 2)
+    assert _names(_lb(c, event=SLUG)) == ["Anonymous", "Anonymous"]
+
+
+def test_board_never_exposes_devices_or_picks(client, monkeypatch):
+    c, Session = client
+    monkeypatch.setattr(settings, "ufc_public_model", VERSION)
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    _predict(Session, b1, LOCK - timedelta(days=2), p_a=0.9)
+    _stored_pick(Session, b1, DEVICE_A, "a", "decision", points=5, winner_correct=True, method_correct=True,
+                 graded_at=GRADED_AT)
+    r = c.get("/api/ufc/picks/leaderboard", params={"event": SLUG})
+    body = r.json()
+
+    def _keys(o):
+        if isinstance(o, dict):
+            return set(o) | {k for v in o.values() for k in _keys(v)}
+        if isinstance(o, list):
+            return {k for v in o for k in _keys(v)}
+        return set()
+
+    assert _keys(body) == {"scope", "event", "year", "participant_count", "entries", "slug", "name",
+                           "first_bout_utc", "rank", "handle", "points", "winner_method", "graded", "is_model"}
+    assert DEVICE_A not in r.text and "device" not in r.text and "player_id" not in r.text
+
+
+def test_leaderboard_is_publicly_cacheable_and_per_player_routes_stay_no_store(client):
+    c, Session = client
+    (b1,) = _card(Session)
+    for params in ({"event": SLUG}, {"year": 2027}):
+        r = c.get("/api/ufc/picks/leaderboard", params=params)
+        assert r.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
+    assert _mine(c).get("bouts") is not None
+    for path, extra in (("mine", {"event": SLUG}), ("summary", {})):
+        r = c.get(f"/api/ufc/picks/{path}", params={"device_id": DEVICE_A, **extra})
+        assert r.headers["cache-control"] == "no-store"
+    assert _submit(c, b1).headers["cache-control"] == "no-store"
+
+
+def test_board_order_is_total_and_stable(client):
+    c, Session = client
+    (b1,) = _card(Session)
+    _finish(Session, b1)
+    ids = [_player(Session, h) for h in ("b", "B", "a", "a", "")]
+    for pid in ids:
+        _grade(Session, b1, pid, 2)
+    first = _lb(c, event=SLUG)
+    assert _names(first) == ["Anonymous", "B", "a", "a", "b"]      # code-point order; the fallback sorts as a name
+    for _ in range(3):
+        assert _lb(c, event=SLUG) == first
+
+
+def test_leaderboard_query_count_does_not_grow_with_players(client, monkeypatch):
+    c, Session = client
+    engine = Session.kw["bind"]
+    ids = _card(Session, n=3)
+    _finish(Session, *ids)
+    for model in ("", VERSION):
+        monkeypatch.setattr(settings, "ufc_public_model", model)
+        for bid in ids:
+            _predict(Session, bid, LOCK - timedelta(days=2), p_a=0.9)
+        for k in range(2):
+            pid = _player(Session, f"P{model[:2]}{k}")
+            _grade(Session, ids[0], pid, 5)
+        small = _count(engine, lambda: _lb(c, event=SLUG))
+        small_year = _count(engine, lambda: _lb(c, year=2027))
+        for k in range(40):
+            pid = _player(Session, f"Q{model[:2]}{k}")
+            for bid in ids:
+                _grade(Session, bid, pid, 2)
+        assert _count(engine, lambda: _lb(c, event=SLUG)) == small <= 6
+        assert _count(engine, lambda: _lb(c, year=2027)) == small_year <= 6
+    # With no public model the answer costs nothing extra.
+    monkeypatch.setattr(settings, "ufc_public_model", "")
+    no_model = _count(engine, lambda: _lb(c, event=SLUG))
+    assert no_model < small or no_model <= 3

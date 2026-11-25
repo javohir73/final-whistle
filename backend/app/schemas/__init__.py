@@ -828,3 +828,20 @@ class UfcPicksSummaryOut(BaseModel):
     handle: str | None
     cards: list[UfcPicksCardOut]
     totals: UfcPicksTotalsOut
+
+
+class UfcLeaderboardEntryOut(BaseModel):
+    rank: int
+    handle: str
+    points: int
+    winner_method: int
+    graded: int
+    is_model: bool
+
+
+class UfcLeaderboardOut(BaseModel):
+    scope: Literal["card", "year"]
+    event: UfcEventRefOut | None
+    year: int | None
+    participant_count: int
+    entries: list[UfcLeaderboardEntryOut]

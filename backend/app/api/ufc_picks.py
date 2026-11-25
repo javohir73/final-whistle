@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import and_, case, func, not_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,10 +27,10 @@ from app.api.auth import _email_action_rate_limited
 from app.api.league_score_predictions import _DEVICE_ID_RE, _player_for_submit
 from app.auth import get_current_user_optional
 from app.db import get_db
-from app.models import AppUser, EmailActionAttempt, UfcBout, UfcEvent, UfcFighter, UfcPick
+from app.models import AppUser, EmailActionAttempt, TipPlayer, UfcBout, UfcEvent, UfcFighter, UfcPick
 from app.security import client_ip, hash_ip, require_same_origin
-from app.ufc_model import calls_for
-from app.ufc_rules import PICK_METHODS, pick_block, score_pick, utc
+from app.ufc_model import calls_for, counting_predictions
+from app.ufc_rules import PICK_METHODS, VOID_METHODS, lock_expr, model_pick, pick_block, score_pick, utc
 from app.api.league_score_predictions import _player_for_read
 from app.api.ufc import SLUG_PATTERN, public_card
 from app.ufc_model import public_version
@@ -303,3 +304,124 @@ def picks_summary(
                                              winner_method=t.winner_method))
     return schemas.UfcPicksSummaryOut(
         handle=player.handle, cards=cards, totals=_totals([o for _, outs in per_card.values() for o in outs]))
+
+
+# ---- the leaderboard: per card or per year, public ------------------------------------
+
+MODEL_HANDLE = "FinalWhistle model"        # football's _MODEL_HANDLE
+_FALLBACK_HANDLE = "Anonymous"             # football's bracket board name for a player with none
+_BAD_SCOPE = {"code": "bad_scope", "message": "Ask for one card or one year."}
+_YEAR_RE = re.compile(r"[0-9]{4}")
+_MIN_YEAR, _MAX_YEAR = 2020, 2100
+
+
+def _counts_expr():
+    """SQL form of "this bout can score a pick": not void by its state, the
+    same cases `score_pick` calls void (cancelled, changed, draw, no contest,
+    a finished bout with no winner)."""
+    void = or_(
+        UfcBout.status.in_(("cancelled", "changed")),
+        and_(UfcBout.status == "finished",
+             or_(UfcBout.winner.is_(None), UfcBout.winner.not_in(("a", "b")),
+                 and_(UfcBout.method.is_not(None), UfcBout.method.in_(VOID_METHODS)))))
+    return not_(void)
+
+
+def _scope_filter(card: UfcEvent | None, year: int | None):
+    """Conditions on `UfcBout` joined to `UfcEvent`: one card, or every card
+    whose first bout falls in the UTC calendar year."""
+    if card is not None:
+        return [UfcBout.event_id == card.id]
+    start = datetime(year, 1, 1, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    return [UfcEvent.is_card.is_(True), UfcEvent.first_bout_utc.is_not(None),
+            UfcEvent.first_bout_utc >= start, UfcEvent.first_bout_utc < end]
+
+
+def _model_entry(db: Session, version: str, conditions: list) -> dict | None:
+    """The model's row: every finished, scorable bout in scope with a counting
+    call, a winner pick, and no eligible player pick still awaiting the grading
+    pass (football's rule: eligible = stamped at or before the lock). None when
+    it scored nothing."""
+    bouts = (db.query(UfcBout).join(UfcEvent, UfcEvent.id == UfcBout.event_id)
+             .filter(UfcBout.status == "finished", *conditions).all())
+    if not bouts:
+        return None
+    ids = [b.id for b in bouts]
+    waiting = {bid for (bid,) in (
+        db.query(UfcPick.bout_id).join(UfcBout, UfcBout.id == UfcPick.bout_id)
+        .filter(UfcPick.bout_id.in_(ids), UfcPick.graded_at.is_(None),
+                UfcPick.updated_at <= lock_expr())
+        .distinct().all())}
+    calls = counting_predictions(db, [i for i in ids if i not in waiting], version)
+    points = five = played = 0
+    for bout in bouts:
+        pred = calls.get(bout.id)
+        if pred is None:
+            continue
+        winner, method = model_pick(pred.p_a, pred.method_probs)
+        if winner is None:
+            continue
+        score = score_pick(winner, method, bout)
+        if score is None or score.void or score.points is None:
+            continue
+        points += score.points
+        five += score.points == 5
+        played += 1
+    if played == 0:
+        return None
+    return {"handle": MODEL_HANDLE, "points": points, "winner_method": five, "graded": played,
+            "is_model": True, "id": 0}
+
+
+@router.get("/leaderboard", response_model=schemas.UfcLeaderboardOut)
+def leaderboard(
+    event: str | None = Query(None), year: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Ranked players for one card or one UTC year, with the model as one marked
+    row when a model is public and has scored a fight. Public and identical for
+    every visitor (so cacheable); shows names and totals only, never an id or a
+    single pick. Only graded, non-void picks count; an ungraded pick on a
+    finished fight counts for nobody, and holds the model's row back too."""
+    if (event is None) == (year is None):
+        raise HTTPException(status_code=422, detail=_BAD_SCOPE)
+    card: UfcEvent | None = None
+    year_n: int | None = None
+    if event is not None:
+        card = public_card(db, event) if len(event) <= 220 and _SLUG_RE.match(event) else None
+        if card is None:
+            raise HTTPException(status_code=404, detail=_NO_CARD)
+    else:
+        if not _YEAR_RE.fullmatch(year) or not _MIN_YEAR <= int(year) <= _MAX_YEAR:
+            raise HTTPException(status_code=422, detail=_BAD_SCOPE)
+        year_n = int(year)
+    conditions = _scope_filter(card, year_n)
+
+    rows = (db.query(TipPlayer.id, TipPlayer.handle, func.count(UfcPick.id),
+                     func.coalesce(func.sum(UfcPick.points), 0),
+                     func.coalesce(func.sum(case((UfcPick.points == 5, 1), else_=0)), 0))
+            .join(UfcPick, UfcPick.player_id == TipPlayer.id)
+            .join(UfcBout, UfcBout.id == UfcPick.bout_id)
+            .join(UfcEvent, UfcEvent.id == UfcBout.event_id)
+            .filter(UfcPick.graded_at.is_not(None), UfcPick.points.is_not(None), _counts_expr(), *conditions)
+            .group_by(TipPlayer.id, TipPlayer.handle).all())
+    entries = [{"id": pid, "handle": (handle or "").strip() or _FALLBACK_HANDLE, "points": int(points),
+                "winner_method": int(five), "graded": int(played), "is_model": False}
+               for pid, handle, played, points, five in rows]
+    participant_count = len(entries)
+    version = public_version()
+    if version is not None:
+        model = _model_entry(db, version, conditions)
+        if model is not None:
+            entries.append(model)
+    # Total order, nothing left to the database: points, winner-and-method
+    # count, players before the model, handle, then the player's id.
+    entries.sort(key=lambda e: (-e["points"], -e["winner_method"], e["is_model"], e["handle"], e["id"]))
+    return schemas.UfcLeaderboardOut(
+        scope="card" if card is not None else "year",
+        event=schemas.UfcEventRefOut(slug=card.slug, name=card.name, first_bout_utc=utc(card.first_bout_utc))
+        if card is not None else None,
+        year=year_n, participant_count=participant_count,
+        entries=[schemas.UfcLeaderboardEntryOut(rank=i + 1, **{k: v for k, v in e.items() if k != "id"})
+                 for i, e in enumerate(entries)])
