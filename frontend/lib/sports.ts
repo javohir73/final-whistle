@@ -1,7 +1,7 @@
 /** Competition registry and the one navigation template derived from it.
  *  Adding a competition = adding an entry to COMPETITIONS; SiteNav, BottomNav,
  *  the switcher, the sitemap and the /football hub all derive from it. */
-export type SportId = "football" | "nrl";
+export type SportId = "football" | "nrl" | "ufc";
 
 /* ============================================================================
  * Competition registry (Floodlight P1 slice p1-s2): terminology, standings
@@ -15,7 +15,7 @@ export type SportId = "football" | "nrl";
  *  knockout-format entry (hasBracket/hasGroups). UCL currently exposes its
  *  league-phase standings, fixtures, and tips; a knockout bracket stays hidden
  *  until the backend has a real bracket tree to serve. */
-export type CompetitionId = "epl" | "laliga" | "bundesliga" | "ucl" | "wc26" | "nrl";
+export type CompetitionId = "epl" | "laliga" | "bundesliga" | "ucl" | "wc26" | "nrl" | "ufc";
 
 /** A contiguous rank band on a standings/ladder table, e.g. "positions 1-4
  *  qualify for the Champions League." Consumed by the P2 StandingsTable to
@@ -37,10 +37,13 @@ export interface Competition {
   sport: SportId;
   label: string; // 'Premier League', 'World Cup 2026', 'NRL'
   shortLabel: string; // 'EPL', 'LaLiga', 'BUN', 'WC26', 'NRL' (eyebrow chip)
-  logoSrc: string; // self-hosted competition identity used by switchers, filters, and hubs
+  /** Self-hosted competition identity used by switchers, filters, and hubs.
+   *  null = no logo file (UFC: we hold no licence to its mark), so
+   *  CompetitionLogo draws a text monogram instead. */
+  logoSrc: string | null;
   basePath: string; // '/football/epl', '/football/wc26', '/nrl'
   accentVar: string; // '--accent-epl' etc. (globals.css, Floodlight P1 tokens)
-  format: "league" | "knockout";
+  format: "league" | "knockout" | "cards"; // "cards" = a combat sport's event cards, no table
   hasBracket: boolean; // wc26 only
   hasGroups: boolean; // wc26 only
   hasTips: boolean; // league comps + wc26's Tips slot + nrl
@@ -206,6 +209,27 @@ export const COMPETITIONS: Record<CompetitionId, Competition> = {
       { from: 5, to: 8, label: "Finals (5–8)", tone: "europa" },
     ],
   },
+  // UFC is read-only in this slice: event cards, fights and fighters, with no
+  // picks game, leaderboard or standings, so hasTips is false and the
+  // registry's "Rankings" term is vocabulary only.
+  ufc: {
+    id: "ufc",
+    sport: "ufc",
+    label: "UFC",
+    shortLabel: "UFC",
+    logoSrc: null,
+    basePath: "/ufc",
+    accentVar: "--accent-ufc",
+    format: "cards",
+    hasBracket: false,
+    hasGroups: false,
+    hasTips: false,
+    enabled: true,
+    archived: false,
+    recordPath: null,
+    terms: { fixtures: "Fights", standings: "Rankings" },
+    zones: [],
+  },
 };
 
 /** The competition every unscoped surface falls back to when nothing better
@@ -219,14 +243,15 @@ const FOOTBALL_IDS = (Object.keys(COMPETITIONS) as CompetitionId[]).filter(
 );
 
 /** The competition the URL itself names, or null for unscoped routes ("/",
- *  "/play", "/leaderboard", "/football", "/methodology", ...). NRL is checked
- *  first (its own space, never nested under /football/); then football
+ *  "/play", "/leaderboard", "/football", "/methodology", ...). NRL and UFC are
+ *  checked first (its own space, never nested under /football/); then football
  *  competitions by their /football/<comp> basePath, picking the longest
  *  matching basePath so a future prefix collision resolves to the more
  *  specific competition. Pure -- no cookies, no storage -- so it is safe in
  *  render, SSR and middleware alike. */
 export function competitionInPathname(pathname: string): CompetitionId | null {
   if (pathname === "/nrl" || pathname.startsWith("/nrl/")) return "nrl";
+  if (pathname === "/ufc" || pathname.startsWith("/ufc/")) return "ufc";
   let best: CompetitionId | null = null;
   for (const id of FOOTBALL_IDS) {
     const base = COMPETITIONS[id].basePath;
@@ -274,7 +299,7 @@ export interface CompetitionLinks {
   home: string;
   fixtures: string;
   table: string;
-  tableLabel: "Table" | "Ladder" | "Groups";
+  tableLabel: "Table" | "Ladder" | "Groups" | "Events";
   picks: string;
   picksLabel: "My picks" | "My tips";
   leaderboard: string;
@@ -284,15 +309,32 @@ export interface CompetitionLinks {
 /** The Table slot's word: "Ladder" in rugby league, "Groups" where the
  *  competition's table IS its group tables (WC26), "Table" everywhere else.
  *  Page headings keep their own vocabulary (UCL's "League phase"). */
-export function tableTabLabel(id: CompetitionId): "Table" | "Ladder" | "Groups" {
+export function tableTabLabel(id: CompetitionId): "Table" | "Ladder" | "Groups" | "Events" {
   const c = COMPETITIONS[id];
   if (c.sport === "nrl") return "Ladder";
+  // UFC has no table: its second tab lists the event cards.
+  if (c.sport === "ufc") return "Events";
   return c.hasGroups ? "Groups" : "Table";
 }
 
 export function competitionLinks(id: CompetitionId): CompetitionLinks {
   const c = COMPETITIONS[id];
   const base = c.basePath;
+  // UFC has no picks game or leaderboard yet, so "My picks" and Leaderboard
+  // point at the football hubs (the account menu reads `picks`), and both
+  // list slots are the events page.
+  if (c.sport === "ufc") {
+    return {
+      home: base,
+      fixtures: `${base}/events`,
+      table: `${base}/events`,
+      tableLabel: "Events",
+      picks: "/play",
+      picksLabel: "My picks",
+      leaderboard: "/leaderboard",
+      bracket: null,
+    };
+  }
   // NRL keeps its own slugs (/nrl/matches, /nrl/ladder) and its own tips
   // and leaderboard pages.
   const nrl = c.sport === "nrl";
@@ -313,6 +355,20 @@ function buildNavTabs(id: CompetitionId): readonly NavTab[] {
   const base = c.basePath;
   const nrl = c.sport === "nrl";
   const links = competitionLinks(id);
+  // UFC reuses the "matches" and "table" tab ids (NavIcon keys on them) for
+  // its Card and Events tabs, and has no picks or leaderboard tabs.
+  if (c.sport === "ufc") {
+    return [
+      {
+        id: "matches",
+        label: "Card",
+        href: links.home,
+        activeExact: links.home,
+        activePrefixes: [`${base}/event`, `${base}/fight`, `${base}/fighter`],
+      },
+      { id: "table", label: "Events", href: links.table, activePrefixes: [links.table] },
+    ];
+  }
   const tabs: NavTab[] = [
     {
       id: "matches",

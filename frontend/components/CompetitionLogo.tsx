@@ -1,3 +1,4 @@
+import { Monogram } from "@/components/ClubBadge";
 import { COMPETITIONS, type CompetitionId } from "@/lib/sports";
 import { cn } from "@/lib/utils";
 
@@ -10,8 +11,9 @@ const COMPETITION_LOGO_SRC: Partial<Record<CompetitionId, string>> = {
   ucl: "/competitions/ucl.svg",
 };
 
-/** The self-hosted logo path rendered for a competition. */
-export function competitionLogoSrc(competition: CompetitionId): string {
+/** The self-hosted logo path rendered for a competition, or null when it has
+ *  no logo file (UFC), in which case CompetitionLogo draws a text mark. */
+export function competitionLogoSrc(competition: CompetitionId): string | null {
   return COMPETITION_LOGO_SRC[competition] ?? COMPETITIONS[competition].logoSrc;
 }
 
@@ -49,6 +51,18 @@ export function CompetitionLogo({
   const src = competitionLogoSrc(competition);
   const canvasWidth = width ?? size;
   const canvasHeight = height ?? size;
+  // No logo file (UFC): the same round monogram as a fighter, in the same box.
+  if (src === null) {
+    return (
+      <span
+        data-competition-logo={competition}
+        className={cn("inline-grid shrink-0 place-items-center", className)}
+        style={{ width: canvasWidth, height: canvasHeight }}
+      >
+        <Monogram label={config.label} initials="UFC" size={Math.min(canvasWidth, canvasHeight)} shape="round" decorative={decorative} />
+      </span>
+    );
+  }
   const hidden = decorative && !labelled;
   // WC26: the only file on hand is the owner-supplied mark on a black field
   // (FIFA's own transparent version is white-on-transparent and vanishes on

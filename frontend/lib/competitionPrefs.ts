@@ -47,6 +47,14 @@ export function competitionForCountry(country: string | null | undefined): Compe
   return code === "AU" || code === "NZ" ? "nrl" : DEFAULT_COMPETITION;
 }
 
+/** Whether a competition may be written to the fw_comp cookie. UFC has no
+ *  picks game or leaderboard yet, and "/", "/play" and "/leaderboard" open on
+ *  the remembered competition, so remembering UFC would strand a visitor on
+ *  pages that redirect them away. */
+export function canRemember(id: CompetitionId): boolean {
+  return COMPETITIONS[id].sport !== "ufc";
+}
+
 /** What a URL should make the remembered competition, or null when it should
  *  change nothing. The competition a path names -- unless the registry marks
  *  it archived: old World Cup shares and four months of search traffic land on
@@ -54,13 +62,14 @@ export function competitionForCountry(country: string | null | undefined): Compe
  *  used to scope the whole shell to the finished tournament for a year). An
  *  explicit `?competition=` on an unscoped route is a choice and counts, as do
  *  the switcher and its "Set as default" star (they write the cookie
- *  themselves). Shared by middleware.ts and CompetitionProvider. */
+ *  themselves). A competition that canRemember() refuses (UFC) never counts.
+ *  Shared by middleware.ts and CompetitionProvider. */
 export function competitionToRemember(
   fromPath: CompetitionId | null,
   fromQuery: CompetitionId | null,
 ): CompetitionId | null {
-  if (fromPath) return COMPETITIONS[fromPath].archived ? null : fromPath;
-  return fromQuery;
+  if (fromPath) return COMPETITIONS[fromPath].archived || !canRemember(fromPath) ? null : fromPath;
+  return fromQuery && canRemember(fromQuery) ? fromQuery : null;
 }
 
 /** Everything after the URL: cookie -> country -> EPL. Callers check the URL

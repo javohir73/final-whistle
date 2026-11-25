@@ -27,11 +27,18 @@ describe.each(Object.entries(CLUBS_BY_COMPETITION))("%s crests", (_competition, 
   });
 });
 
+const COMPETITION_IDS = Object.keys(COMPETITIONS) as CompetitionId[];
+const LOGO_IDS = COMPETITION_IDS.filter((id) => competitionLogoSrc(id) !== null);
+
 describe("competition logos", () => {
-  it.each(Object.keys(COMPETITIONS) as CompetitionId[])("%s logo is self-hosted and on disk", (id) => {
-    const src = competitionLogoSrc(id);
+  it.each(LOGO_IDS)("%s logo is self-hosted and on disk", (id) => {
+    const src = competitionLogoSrc(id)!;
     expect(src).toMatch(/^\/competitions\//);
     expect(existsSync(publicFile(src))).toBe(true);
+  });
+
+  it("leaves UFC as the only competition drawn as a text mark", () => {
+    expect(COMPETITION_IDS.filter((id) => competitionLogoSrc(id) === null)).toEqual(["ufc"]);
   });
 });
 
@@ -39,7 +46,7 @@ describe("logo files are safe, local and sized", () => {
   const files = Object.values(CLUBS_BY_COMPETITION)
     .flat()
     .map((club) => clubLogoSrc(club)!)
-    .concat((Object.keys(COMPETITIONS) as CompetitionId[]).map(competitionLogoSrc));
+    .concat(LOGO_IDS.map((id) => competitionLogoSrc(id)!));
 
   it.each(Array.from(new Set(files)).filter((f) => f.endsWith(".svg")))(
     "%s has no script, handlers or external references",

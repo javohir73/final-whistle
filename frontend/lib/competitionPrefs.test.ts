@@ -3,6 +3,7 @@ import {
   COMPETITION_COOKIE,
   clearCompetitionCookie,
   competitionForCountry,
+  canRemember,
   competitionToRemember,
   migratePinnedCompetition,
   parseCompetition,
@@ -176,5 +177,19 @@ describe("migratePinnedCompetition (old localStorage star -> cookie)", () => {
     });
     expect(() => migratePinnedCompetition(null)).not.toThrow();
     spy.mockRestore();
+  });
+});
+
+describe("canRemember: UFC has no picks game, so it is never the remembered competition", () => {
+  it("refuses UFC and allows every other competition", () => {
+    expect(canRemember("ufc")).toBe(false);
+    expect(canRemember("nrl")).toBe(true);
+    expect(canRemember("epl")).toBe(true);
+  });
+
+  it("makes a UFC URL or ?competition=ufc remember nothing", () => {
+    expect(competitionToRemember("ufc", null)).toBeNull();
+    expect(competitionToRemember(null, "ufc")).toBeNull();
+    expect(competitionToRemember("ufc", "epl")).toBeNull();
   });
 });

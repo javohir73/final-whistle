@@ -27,6 +27,7 @@ import {
   competitionLinks,
   footballMatchHref,
   footballTeamHref,
+  navTabsFor,
   type CompetitionId,
 } from "@/lib/sports";
 import { cn } from "@/lib/utils";
@@ -52,17 +53,31 @@ const LIVE_FOOTBALL = (Object.values(COMPETITIONS) as Array<(typeof COMPETITIONS
   (c) => c.sport === "football" && c.enabled && !c.archived,
 );
 
+/** UFC's own pages, straight from its nav tabs (Card, Events): it has no
+ *  picks, leaderboard, bracket or model record to offer. */
+function ufcOwnPages(current: CompetitionId): SearchItem[] {
+  return navTabsFor(current).map((t) => ({
+    kind: "page" as const,
+    label: t.label,
+    context: COMPETITIONS[current].label,
+    href: t.href,
+  }));
+}
+
 /** Static pages: the competition's own tabs first, then every other
  *  competition's home, then the about pages. */
 export function pageItems(current: CompetitionId): SearchItem[] {
   const c = COMPETITIONS[current];
   const links = competitionLinks(current);
-  const own: SearchItem[] = [
-    { kind: "page", label: "Matches", context: c.label, href: links.home },
-    { kind: "page", label: links.tableLabel, context: c.label, href: links.table },
-    { kind: "page", label: links.picksLabel, context: c.label, href: links.picks },
-    { kind: "page", label: "Leaderboard", context: c.label, href: links.leaderboard },
-  ];
+  const own: SearchItem[] =
+    c.sport === "ufc"
+      ? ufcOwnPages(current)
+      : [
+          { kind: "page", label: "Matches", context: c.label, href: links.home },
+          { kind: "page", label: links.tableLabel, context: c.label, href: links.table },
+          { kind: "page", label: links.picksLabel, context: c.label, href: links.picks },
+          { kind: "page", label: "Leaderboard", context: c.label, href: links.leaderboard },
+        ];
   if (links.bracket) own.push({ kind: "page", label: "Bracket", context: c.label, href: links.bracket });
   const others: SearchItem[] = (Object.values(COMPETITIONS) as Array<(typeof COMPETITIONS)[CompetitionId]>)
     .filter((x) => x.enabled && x.id !== current)
@@ -99,15 +114,20 @@ export function pageItems(current: CompetitionId): SearchItem[] {
 export function goToItems(current: CompetitionId): SearchItem[] {
   const c = COMPETITIONS[current];
   const links = competitionLinks(current);
-  const items: SearchItem[] = [
-    { kind: "page", label: "Matches", context: c.label, href: links.home },
-    { kind: "page", label: links.tableLabel, context: c.label, href: links.table },
-  ];
+  const items: SearchItem[] =
+    c.sport === "ufc"
+      ? ufcOwnPages(current)
+      : [
+          { kind: "page", label: "Matches", context: c.label, href: links.home },
+          { kind: "page", label: links.tableLabel, context: c.label, href: links.table },
+        ];
   if (links.bracket) items.push({ kind: "page", label: "Bracket", context: c.label, href: links.bracket });
-  items.push(
-    { kind: "page", label: "Leaderboard", context: c.label, href: links.leaderboard },
-    { kind: "page", label: links.picksLabel, context: c.label, href: links.picks },
-  );
+  if (c.sport !== "ufc") {
+    items.push(
+      { kind: "page", label: "Leaderboard", context: c.label, href: links.leaderboard },
+      { kind: "page", label: links.picksLabel, context: c.label, href: links.picks },
+    );
+  }
   const other = c.sport === "nrl" ? COMPETITIONS.epl : COMPETITIONS.nrl;
   if (other.enabled) items.push({ kind: "page", label: other.label, context: "Competition", href: other.basePath });
   const record = c.recordPath ?? (other.recordPath && !other.archived ? other.recordPath : null);
@@ -203,6 +223,8 @@ async function loadClubs(): Promise<SearchItem[]> {
 async function loadMatches(comp: CompetitionId): Promise<SearchItem[]> {
   const c = COMPETITIONS[comp];
   const out: SearchItem[] = [];
+  // UFC has no match list to search; resolve empty without a request.
+  if (c.sport === "ufc") return out;
   if (c.sport === "nrl") {
     const data = await getNrlMatches();
     for (const round of data.rounds) {

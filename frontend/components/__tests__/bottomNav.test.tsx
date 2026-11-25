@@ -218,3 +218,10 @@ it("keeps the safe-area inset on the fixed bar", () => {
   expect(nav.className).toContain("safe-bottom");
   expect(nav.className).toContain("safe-x");
 });
+
+it("shows UFC's two tabs, Card and Events, with Card current on a fight page", () => {
+  renderAt("/ufc/fight/1");
+  expect(hrefs()).toEqual(["/ufc", "/ufc/events"]);
+  expect(labels()).toEqual(["Card", "Events"]);
+  expect(current()).toEqual(["Card"]);
+});
