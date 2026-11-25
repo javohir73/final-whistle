@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { announceTipsIdentityChanged } from "@/components/play/tipsIdentity";
 import { BoutPickStatus, hasPickSlot } from "./BoutPickStatus";
 import { UfcPicksProvider } from "./UfcPicksProvider";
 import { FINISHED_EVENT, UPCOMING_EVENT, freezeNow } from "./fixtures.testutil";
@@ -70,9 +71,9 @@ it("keeps a locked pick as the pick line", async () => {
 });
 
 it.each([
-  [5, "Winner and method · 5 points"],
-  [2, "Winner · 2 points"],
-  [0, "Missed · 0 points"],
+  [5, "5 points"],
+  [2, "2 points"],
+  [0, "0 points"],
 ] as const)("shows the graded verdict for %s points instead of the model line", async (pts, label) => {
   const ev = FINISHED_EVENT;
   mockMine(mineFor(ev, { [ko.id]: { pick: graded(pts), model: call() } }));
@@ -85,7 +86,7 @@ it.each([
 it("shows a void pick as void, with no points", async () => {
   mockMine(mineFor(FINISHED_EVENT, { [draw.id]: { pick: pick({ state: "void" }) } }));
   view(draw, NOW, FINISHED_EVENT);
-  expect(await screen.findByText("Void · no points")).toBeInTheDocument();
+  expect(await screen.findByText("Void")).toBeInTheDocument();
 });
 
 it("shows the public call on a finished fight the viewer did not pick", async () => {
@@ -116,14 +117,103 @@ it("falls back to the read-only look when the picks cannot be read", async () =>
   expect(screen.queryByText(/error|wrong|fail/i)).toBeNull();
 });
 
-it("reserves more room on a finished fight, where the verdict adds a line", () => {
-  mockMine("pending");
-  const a = view(main);
-  const open = slot().className;
-  a.unmount();
-  view(ko, NOW, FINISHED_EVENT);
-  expect(slot().className).not.toBe(open);
-  expect(open).toContain("min-h-[44px]");
+const reserved = () => slot().className.includes("min-h-[44px]");
+
+describe("reserved space", () => {
+  it("is held for a scheduled fight with a time, before the picks arrive and after", async () => {
+    mockMine(mineFor(UPCOMING_EVENT));
+    view(main);
+    expect(reserved()).toBe(true);
+    await screen.findByRole("link", { name: /^Pick the winner of/ });
+    expect(reserved()).toBe(true);
+  });
+
+  it("is not held for a finished or live fight, which grow only for a player who picked them", async () => {
+    mockMine(mineFor(FINISHED_EVENT));
+    const a = view(ko, NOW, FINISHED_EVENT);
+    expect(slot().className).not.toMatch(/min-h/);
+    a.unmount();
+    view({ ...main, status: "live" });
+    expect(slot().className).not.toMatch(/min-h/);
+    await act(async () => {});
+  });
+
+  it("is not held for a scheduled fight with no time", async () => {
+    mockMine(mineFor(UPCOMING_EVENT));
+    view({ ...main, scheduled_utc: null });
+    expect(slot().className).not.toMatch(/min-h/);
+    await act(async () => {});
+  });
+
+  it("is given back when the picks cannot be read", async () => {
+    const fetchMock = mockMine("fail");
+    view(main);
+    expect(reserved()).toBe(true);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(reserved()).toBe(false));
+  });
+
+  it("is given back when the browser keeps no storage", async () => {
+    jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    mockMine(mineFor(UPCOMING_EVENT));
+    view(main);
+    await waitFor(() => expect(reserved()).toBe(false));
+    expect(slot()).toBeEmptyDOMElement();
+    jest.restoreAllMocks();
+  });
+});
+
+describe("more states", () => {
+  it("shows the call on a live fight when there is one, and nothing when there is not", async () => {
+    mockMine(mineFor(UPCOMING_EVENT));
+    const a = view({ ...main, status: "live", model: call({ winner: "a", p_a: 0.7, p_b: 0.3 }) });
+    expect(await screen.findByText("Model: Israel Adesanya 70%")).toBeInTheDocument();
+    a.unmount();
+    const fetchMock = mockMine(mineFor(UPCOMING_EVENT));
+    view({ ...main, status: "live" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await act(async () => {});
+    expect(slot()).toBeEmptyDOMElement();
+  });
+
+  it("calls a pick on a fight that ended no contest void, not a miss", async () => {
+    mockMine(mineFor(FINISHED_EVENT, { [ko.id]: { pick: pick({ state: "void" }) } }));
+    view(ko, NOW, FINISHED_EVENT);
+    expect(await screen.findByText("Void")).toBeInTheDocument();
+    expect(screen.queryByText(/0 points/)).toBeNull();
+  });
+
+  it("shows a pick and the call together on a locked fight", async () => {
+    served(prelimA, { pick: pick({ winner: "a" }), picks_open: false, model: call({ winner: "a", p_a: 0.6, p_b: 0.4 }) });
+    view(prelimA, new Date("2026-12-05T16:00:00Z"));
+    expect(await screen.findByText("You: Mateusz Rębecki, decision")).toBeInTheDocument();
+    expect(screen.getByText("Model: Mateusz Rębecki 60%")).toBeInTheDocument();
+  });
+
+  it("does not offer a pick on a fight the server did not list", async () => {
+    const answer = mineFor(UPCOMING_EVENT);
+    answer.bouts = answer.bouts.filter((b) => b.bout_id !== main.id);
+    const fetchMock = mockMine(answer);
+    view(main);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("keeps showing the same card's earlier picks when a refresh fails", async () => {
+    served(main, { pick: pick() });
+    view(main);
+    expect(await screen.findByText("You: Shara Magomedov, decision")).toBeInTheDocument();
+    mockMine("fail");
+    await act(async () => announceTipsIdentityChanged());
+    await act(async () => {});
+    expect(screen.getByText("You: Shara Magomedov, decision")).toBeInTheDocument();
+  });
 });
 
 it("opens by the server answer when the clock is not known yet", async () => {

@@ -145,7 +145,15 @@ it("narrows its side padding on small phones so long names wrap between words", 
   expect(row?.className).toContain("min-[900px]:px-7");
 });
 
-const WRAP_CLASSES = / max-\[400px\]:\[&amp;>a\]:gap-x-1 \[&amp;_span\]:\[hyphens:manual\]/;
+const WRAP_CLASSES = new RegExp(
+  " " + [
+    "max-\\[400px\\]:\\[&amp;>a\\]:gap-x-1",
+    "\\[&amp;_span\\]:\\[hyphens:manual\\]",
+    "max-\\[370px\\]:\\[&amp;>a\\]:grid-cols-\\[minmax\\(0,1fr\\)_22px_58px_22px_minmax\\(0,1fr\\)\\]",
+    "max-\\[370px\\]:\\[&amp;_span\\[style\\]\\]:!h-\\[22px\\]",
+    "max-\\[370px\\]:\\[&amp;_span\\[style\\]\\]:!w-\\[22px\\]",
+  ].join(" "),
+);
 
 describe("right slot", () => {
   it("uses a given right slot and keeps the default without one", () => {
@@ -172,5 +180,23 @@ describe("right slot", () => {
     const row = screen.getByRole("link", { name: /Israel Adesanya v/ }).closest("div.grid");
     expect(row?.className).toContain("[&_span]:[hyphens:manual]");
     expect(row?.className).toContain("max-[400px]:[&>a]:gap-x-1");
+  });
+
+  it("gives the name columns 8px more under 370px: 22px marks and a 58px centre", () => {
+    // 360px: 90px a column today (the row's own figures); two marks 4px narrower and a centre 8px
+    // narrower free 16px, 8px for each name column: 98px, over the 96px that "Mehemmedeli" (95.5px) needs.
+    const { container } = render(<BoutRow bout={main} tz="UTC" isMainEvent showTime={false} />);
+    const row = container.firstElementChild!;
+    expect(row.className).toContain("max-[370px]:[&>a]:grid-cols-[minmax(0,1fr)_22px_58px_22px_minmax(0,1fr)]");
+    expect(row.className).toContain("max-[370px]:[&_span[style]]:!w-[22px]");
+    expect(row.className).toContain("max-[370px]:[&_span[style]]:!h-[22px]");
+  });
+
+  it("narrows the result and live boxes to the 58px centre under 370px", () => {
+    const a = render(<BoutRow bout={ko} tz="UTC" isMainEvent />);
+    expect(screen.getByText("KO R2").className).toContain("max-[370px]:min-w-[58px]");
+    a.unmount();
+    render(<BoutRow bout={{ ...main, status: "live" }} tz="UTC" isMainEvent />);
+    expect(screen.getByText("Live").className).toContain("max-[370px]:min-w-[58px]");
   });
 });

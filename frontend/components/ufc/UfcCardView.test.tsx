@@ -90,6 +90,19 @@ it("labels the rail and links to all cards", () => {
   expect(screen.getByRole("link", { name: "All cards" })).toHaveAttribute("href", "/ufc/events");
 });
 
+it("gives the eyebrow a range in Sydney when the main card is the next local day", () => {
+  setTz("Australia/Sydney");
+  const ev = {
+    ...NEXT_DAY_EVENT,
+    first_bout_utc: "2026-12-12T12:00:00Z", // Sat 12 Dec 11:00 pm
+    segments: NEXT_DAY_EVENT.segments.map((s) => ({
+      ...s, scheduled_utc: s.key === "main" ? "2026-12-12T14:00:00Z" : "2026-12-12T12:00:00Z", // Sun 13 Dec 1:00 am
+    })),
+  };
+  render(<UfcCardView event={ev} upcoming={[]} />);
+  expect(screen.getByText("UFC · Sat 12 – Sun 13 Dec")).toBeInTheDocument();
+});
+
 it("shows a single day in the eyebrow when the whole card falls on it", () => {
   setTz("America/New_York");
   render(<UfcCardView event={NEXT_DAY_EVENT} upcoming={[]} />);
@@ -156,10 +169,11 @@ describe("pick status", () => {
     const prelims = section("Prelims");
     const mainCard = section("Main card");
     await within(prelims).findByText("Picks closed");
-    expect(within(prelims).getAllByText("Picks closed")).toHaveLength(1);
+    expect(within(prelims).getAllByText("Picks closed")).toHaveLength(1); // prelim A; prelim B is picked
+    expect(prelimA.status).toBe("scheduled");
     expect(within(prelims).getByText("You: Abdul Hussein, decision")).toBeInTheDocument();
     expect(within(mainCard).getAllByRole("link", { name: /^Pick the winner of/ })).toHaveLength(1);
-    expect(prelimA.id).toBeDefined();
+    expect(within(prelims).getByRole("link", { name: /Rębecki v Elves Brener/ })).toBeInTheDocument();
   });
 
   it("keeps the rows read-only when the picks cannot be read, with one retry in the rail", async () => {
@@ -174,29 +188,19 @@ describe("pick status", () => {
   it("shows the graded verdict on a finished card", async () => {
     mockMine(mineFor(FINISHED_EVENT, { [FINISHED_EVENT.segments[0].bouts[0].id]: { pick: graded(5), model: call() } }));
     render(<UfcCardView event={FINISHED_EVENT} upcoming={[]} />);
-    expect(await screen.findByText("Winner and method · 5 points")).toBeInTheDocument();
-    expect(screen.getByText("5 points from 1 scored fights.")).toBeInTheDocument();
+    expect(await screen.findByText("5 points")).toBeInTheDocument();
+    expect(screen.getByText("5 points from 1 scored fight.")).toBeInTheDocument();
   });
 
-  it("tells the player once that a pick on a changed fight no longer counts", async () => {
+  it("puts the notice for a changed fight in the rail, and leaves the segments where they are", async () => {
     mockMine(mineFor(UPCOMING_EVENT, {}, {
       changed: [{ bout_id: 9001, fighter_a: "Israel Adesanya", fighter_b: "Old Opponent", pick: pick({ state: "void" }), replaced_by_id: 9 }],
     }));
     render(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
-    const text = "Your pick on Israel Adesanya v Old Opponent doesn't count because the fight changed.";
-    expect(await screen.findByText(text)).toBeInTheDocument();
-    expect(screen.getAllByText(text)).toHaveLength(1);
+    const notice = await screen.findByText(/doesn't count because the fight changed/);
+    expect(screen.getByRole("complementary", { name: "Other cards" })).toContainElement(notice);
+    expect(section("Main card").parentElement?.firstElementChild).toBe(section("Main card"));
     expect(screen.getByRole("link", { name: "Pick the new fight" })).toHaveAttribute("href", "/ufc/fight/9#pick");
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("gives no link to a replacement that does not exist", async () => {
-    mockMine(mineFor(UPCOMING_EVENT, {}, {
-      changed: [{ bout_id: 9001, fighter_a: "A One", fighter_b: "B Two", pick: pick({ state: "void" }), replaced_by_id: null }],
-    }));
-    render(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
-    await screen.findByText(/doesn't count because the fight changed/);
-    expect(screen.queryByRole("link", { name: "Pick the new fight" })).toBeNull();
   });
 
   it("puts the rail card above the other cards", async () => {

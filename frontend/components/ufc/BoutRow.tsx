@@ -15,6 +15,13 @@ const ROW_GUTTER = "max-[400px]:px-1.5";
  *  its column breaks (`break-words`). Under 400px the spine also gives up 2px between its columns. */
 const NAME_WRAP = "max-[400px]:[&>a]:gap-x-1 [&_span]:[hyphens:manual]";
 
+/** Under 370px a name column is 90px at 360px (97.5px at 375px), which "Mehemmedeli" (95.5px) no
+ *  longer fits. The two marks go from 26px to 22px and the centre box from 66px to 58px: 16px freed,
+ *  8px for each name column, so 98px at 360px. (The marks are inline-sized, hence `!`.) */
+const NAME_ROOM =
+  "max-[370px]:[&>a]:grid-cols-[minmax(0,1fr)_22px_58px_22px_minmax(0,1fr)] max-[370px]:[&_span[style]]:!h-[22px] max-[370px]:[&_span[style]]:!w-[22px]";
+const CENTRE_BOX = "max-[370px]:min-w-[58px]";
+
 /** One fight on a card, on the shared fixture row. `showTime={false}` is for a
  *  card, where the segment band already gives the start and the feed repeats
  *  that start on every fight in the segment. */
@@ -50,12 +57,12 @@ export function BoutRow({
 
   switch (bout.status) {
     case "live":
-      centre = <KickoffBox>Live</KickoffBox>;
+      centre = <KickoffBox className={CENTRE_BOX}>Live</KickoffBox>;
       label = `${versus}, live now`;
       break;
     case "finished": {
       const r = bout.result;
-      if (r) centre = <ResultBox>{resultBoxText(r)}</ResultBox>;
+      if (r) centre = <ResultBox className={CENTRE_BOX}>{resultBoxText(r)}</ResultBox>;
       const decided = r && r.method !== "draw" && r.method !== "no_contest";
       if (decided && r.winner === "a") sideB = side(b, { muted: true });
       else if (decided && r.winner === "b") sideA = side(a, { muted: true });
@@ -93,7 +100,7 @@ export function BoutRow({
       centre={centre}
       right={rightSlot !== undefined ? rightSlot : right}
       label={label}
-      className={`${ROW_GUTTER} ${NAME_WRAP}`}
+      className={`${ROW_GUTTER} ${NAME_WRAP} ${NAME_ROOM}`}
     />
   );
 }

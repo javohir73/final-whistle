@@ -17,12 +17,12 @@ import {
   TextLink,
 } from "@/components/ui";
 import { dayKey, kickoffDate } from "@/lib/datetime";
-import { ABOUT_NOTE, boutHref, eventHref, eventStatusNote, mainEventId, segmentStartText, segmentTitle } from "@/lib/ufcDisplay";
+import { ABOUT_NOTE, eventHref, eventStatusNote, mainEventId, segmentStartText, segmentTitle } from "@/lib/ufcDisplay";
 import type { UfcEventDetail, UfcEventSummary } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
 import { BoutPickStatus, hasPickSlot } from "./BoutPickStatus";
 import { BoutRow } from "./BoutRow";
-import { UfcPicksProvider, useUfcPicks } from "./UfcPicksProvider";
+import { UfcPicksProvider } from "./UfcPicksProvider";
 import { UfcPicksRailCard } from "./UfcPicksRailCard";
 
 function safe(fn: () => string): string | null {
@@ -52,28 +52,6 @@ function eyebrowDay(event: UfcEventDetail, tz: string): string | null {
   return range ?? start;
 }
 
-/** One notice for each pick the player made on a fight that has since changed. */
-function ChangedPickNotices() {
-  const picks = useUfcPicks();
-  const changed = picks && picks.status !== "loading" ? (picks.data?.changed_picks ?? []) : [];
-  return (
-    <>
-      {changed.map((c) => (
-        <Card pad key={c.bout_id}>
-          <Note className="text-ink">
-            Your pick on {c.fighter_a} v {c.fighter_b} doesn&apos;t count because the fight changed.
-          </Note>
-          {c.replaced_by_id != null && (
-            <TextLink href={`${boutHref(c.replaced_by_id)}#pick`} className="mt-2">
-              Pick the new fight
-            </TextLink>
-          )}
-        </Card>
-      ))}
-    </>
-  );
-}
-
 export function UfcCardView({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEventSummary[] }) {
   return (
     <UfcPicksProvider eventSlug={event.slug}>
@@ -99,7 +77,6 @@ function UfcCard({ event, upcoming }: { event: UfcEventDetail; upcoming: UfcEven
       />
       <PageLayout>
         <Main>
-          <ChangedPickNotices />
           {segments.length === 0 ? (
             <Card pad>
               <Note>The fights for this card have not been announced yet.</Note>

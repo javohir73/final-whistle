@@ -189,8 +189,8 @@ it("shows pending, graded 5, 2 and 0, and void picks, and the server's totals", 
     summary: summaryOf([PAST_ROW], { picked: 9, graded: 6, points: 40, winner_method: 3 }),
   });
   open();
-  expect(await screen.findByText("Winner and method · 5 points")).toBeInTheDocument();
-  expect(screen.getByText("Winner · 2 points")).toBeInTheDocument();
+  expect(await screen.findByText("5 points")).toBeInTheDocument();
+  expect(screen.getByText("2 points")).toBeInTheDocument();
   expect(screen.getByText("7 points from 3 scored fights.")).toBeInTheDocument();
   expect(screen.getByText("40 points from 6 scored fights.")).toBeInTheDocument();
 });
@@ -199,7 +199,7 @@ it("shows a void pick as void, never as a loss", async () => {
   const mine = withPicks({ [PRELIM_ID]: pick({ state: "void", winner: "a", method: "decision" }) });
   mockApi({ mine: { [NEXT]: mine }, summary: summaryOf([], none) });
   open();
-  const chip = await screen.findByText("Void · no points");
+  const chip = await screen.findByText("Void");
   expect(chip.className).not.toMatch(/miss/);
   expect(screen.queryByText(/Missed/)).toBeNull();
 });
@@ -208,7 +208,7 @@ it("shows a late-void pick on a normally finished fight as void, and counts noth
   const mine = withPicks({ [MAIN_ID]: pick({ state: "void" }) });
   mockApi({ mine: { [NEXT]: mine }, summary: summaryOf([], none) });
   open(withStatus("finished", [MAIN_ID]));
-  expect(await screen.findByText("Void · no points")).toBeInTheDocument();
+  expect(await screen.findByText("Void")).toBeInTheDocument();
   expect(screen.queryByText(/Missed/)).toBeNull();
   expect(screen.getByText("1 pick · 0 scored")).toBeInTheDocument();
   expect(screen.queryByText(/points from/)).toBeNull();
@@ -218,7 +218,7 @@ it("shows a graded 0 plainly as a miss", async () => {
   const mine = withPicks({ [MAIN_ID]: pick({ state: "graded", points: 0 }) }, { totals: { picked: 1, graded: 1, points: 0, winner_method: 0 } });
   mockApi({ mine: { [NEXT]: mine }, summary: summaryOf([], none) });
   open(withStatus("finished", [MAIN_ID]));
-  const chip = await screen.findByText("Missed · 0 points");
+  const chip = await screen.findByText("0 points");
   expect(chip.className).toMatch(/miss/);
   expect(screen.getByText("0 points from 1 scored fight.")).toBeInTheDocument();
 });

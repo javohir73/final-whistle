@@ -6,11 +6,13 @@
 import { useAuth } from "@/components/AuthProvider";
 import { useClock } from "@/components/match/clock";
 import { Card, CardHead, GhostButton, Note, TextLink } from "@/components/ui";
-import { isTba } from "@/lib/ufcDisplay";
+import { boutHref, isTba } from "@/lib/ufcDisplay";
 import { UFC_SCORING } from "@/lib/ufcPicks";
 import type { UfcEventDetail } from "@/lib/ufcTypes";
 import { boutIsOpen } from "./BoutPickStatus";
 import { useUfcPicks } from "./UfcPicksProvider";
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export function UfcPicksRailCard({ event }: { event: UfcEventDetail }) {
   const picks = useUfcPicks();
@@ -33,6 +35,7 @@ export function UfcPicksRailCard({ event }: { event: UfcEventDetail }) {
       } else if (boutIsOpen(b, mine, now)) pickable += 1;
     }
   }
+  const changed = data?.changed_picks ?? [];
   const played = data != null && picked > 0;
 
   return (
@@ -41,11 +44,11 @@ export function UfcPicksRailCard({ event }: { event: UfcEventDetail }) {
       {played ? (
         <>
           <p className="mt-4 font-semibold text-ink">
-            {picked} of {pickable} fights picked.
+            {picked} of {plural(pickable, "fight", "fights")} picked.
           </p>
           {data.totals.graded > 0 && (
             <Note className="mt-1">
-              {data.totals.points} points from {data.totals.graded} scored fights.
+              {plural(data.totals.points, "point", "points")} from {plural(data.totals.graded, "scored fight", "scored fights")}.
             </Note>
           )}
         </>
@@ -57,19 +60,32 @@ export function UfcPicksRailCard({ event }: { event: UfcEventDetail }) {
         <Note className="mt-3">Picks need your browser&apos;s storage to remember you. Allow site data to play.</Note>
       )}
       {picks?.status === "error" && (
-        <Note className="mt-3">
-          Your picks did not load.{" "}
+        <div className="mt-3">
+          <Note role="status">Your picks did not load.</Note>
           <TextLink onClick={() => picks.retry()} className="min-h-[44px] text-left">
             Try again
           </TextLink>
-        </Note>
-      )}
-      {played && (
-        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
-          <TextLink href="/ufc/picks">My picks</TextLink>
-          <TextLink href={`/ufc/leaderboard?event=${event.slug}`}>Leaderboard</TextLink>
         </div>
       )}
+      {/* Always here, empty until there is something to say, so a screen reader hears it arrive. */}
+      <div role="status" className={changed.length > 0 ? "mt-4 space-y-3" : undefined}>
+        {changed.map((c) => (
+          <div key={c.bout_id}>
+            <Note className="text-ink">
+              Your pick on {c.fighter_a} v {c.fighter_b} doesn&apos;t count because the fight changed.
+            </Note>
+            {c.replaced_by_id != null && (
+              <TextLink href={`${boutHref(c.replaced_by_id)}#pick`} className="mt-1">
+                Pick the new fight
+              </TextLink>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+        <TextLink href="/ufc/picks">My picks</TextLink>
+        <TextLink href={`/ufc/leaderboard?event=${event.slug}`}>Leaderboard</TextLink>
+      </div>
       {data != null && user == null && (
         <div className="mt-4">
           <Note>A free account keeps your picks across devices.</Note>

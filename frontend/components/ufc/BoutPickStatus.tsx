@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { Chip, GhostButton } from "@/components/ui";
 import { boutHref, isTba } from "@/lib/ufcDisplay";
 import { modelLine, pickLine, pickOpenByClock, pickVerdict } from "@/lib/ufcPicks";
-import type { UfcBoutSummary, UfcMyBout } from "@/lib/ufcTypes";
+import type { UfcBoutSummary, UfcMyBout, UfcPick } from "@/lib/ufcTypes";
 import { useUfcPicks } from "./UfcPicksProvider";
 
 /** A cancelled fight keeps its "Cancelled" chip, and a fight with a placeholder fighter never
@@ -21,16 +21,20 @@ export function hasPickSlot(bout: UfcBoutSummary): boolean {
 export function boutIsOpen(bout: UfcBoutSummary, mine: UfcMyBout | undefined, now: Date | null): boolean {
   if (mine?.pick) return false;
   if (!hasPickSlot(bout)) return false;
-  const byServer = mine ? mine.picks_open : true;
+  // A fight the server did not list is never opened by the client.
+  const byServer = mine ? mine.picks_open : false;
   const byClock = now ? pickOpenByClock(bout, now) : bout.status === "scheduled" && bout.scheduled_utc != null;
   return byServer && byClock;
 }
 
-// Reserved so the row does not change height when the picks arrive: a button or two short lines, and
-// on a finished fight the verdict chip as well.
+// Room is held only where every player who can play will get something: a scheduled fight with a
+// time shows the button, or the pick, or "Picks closed". Finished and live rows grow only for a
+// player who picked them (as football's graded rows do); and the room is given back when the picks
+// cannot be read, so a row never keeps a hole that nothing will fill.
 const SLOT = "flex flex-col items-center justify-center min-[900px]:items-end";
-const RESERVE_OPEN = "min-h-[44px]";
-const RESERVE_FINISHED = "min-h-[62px]";
+const RESERVE = "min-h-[44px]";
+
+const shortVerdict = (pick: UfcPick, label: string) => (pick.state === "void" ? "Void" : (label.split(" · ").pop() ?? label));
 
 const Line = ({ children }: { children: ReactNode }) => (
   <span className="block text-notes leading-[1.4] text-muted">{children}</span>
@@ -40,9 +44,10 @@ export function BoutPickStatus({ bout, now }: { bout: UfcBoutSummary; now: Date 
   const picks = useUfcPicks();
   const ready = picks != null && picks.status !== "loading" && picks.data != null;
   const mine = ready ? picks.myBout(bout.id) : undefined;
-  const reserve = bout.status === "finished" ? RESERVE_FINISHED : RESERVE_OPEN;
+  const failed = picks != null && (picks.status === "error" || picks.status === "no-device");
+  const reserve = picks != null && !failed && bout.status === "scheduled" && bout.scheduled_utc != null;
   const slot = (content: ReactNode) => (
-    <div data-testid="pick-slot" className={`${SLOT} ${reserve}`}>
+    <div data-testid="pick-slot" className={reserve ? `${SLOT} ${RESERVE}` : SLOT}>
       {content}
     </div>
   );
@@ -59,7 +64,7 @@ export function BoutPickStatus({ bout, now }: { bout: UfcBoutSummary; now: Date 
         <Line>{pickLine(bout, pick)}</Line>
         {verdict ? (
           <Chip tone={verdict.tone} className="mt-1">
-            {verdict.label}
+            {shortVerdict(pick, verdict.label)}
           </Chip>
         ) : (
           call && <Line>{modelLine(bout, call)}</Line>
@@ -75,7 +80,7 @@ export function BoutPickStatus({ bout, now }: { bout: UfcBoutSummary; now: Date 
     );
   }
   if (bout.status === "scheduled") {
-    return slot(bout.scheduled_utc ? <Line>Picks closed</Line> : null);
+    return slot(bout.scheduled_utc && mine ? <Line>Picks closed</Line> : null);
   }
   return slot(call ? <Line>{modelLine(bout, call)}</Line> : null);
 }

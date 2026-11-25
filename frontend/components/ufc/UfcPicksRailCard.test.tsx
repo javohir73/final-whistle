@@ -47,7 +47,16 @@ it("shows the same explanation while the picks load, with nothing about the play
   view();
   expect(screen.getByText("Pick the winner of each fight, and how they win.")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-  expect(screen.queryByRole("link", { name: "My picks" })).toBeNull();
+});
+
+it("always links to My picks and the leaderboard, the same for everyone", async () => {
+  mockMine("pending");
+  view();
+  expect(screen.getByRole("link", { name: "My picks" })).toHaveAttribute("href", "/ufc/picks");
+  expect(screen.getByRole("link", { name: "Leaderboard" })).toHaveAttribute(
+    "href",
+    `/ufc/leaderboard?event=${UPCOMING_EVENT.slug}`,
+  );
 });
 
 it("counts picks, leaving out cancelled and placeholder fights", async () => {
@@ -60,14 +69,57 @@ it("counts picks, leaving out cancelled and placeholder fights", async () => {
     "href",
     `/ufc/leaderboard?event=${UPCOMING_EVENT.slug}`,
   );
-  expect(screen.queryByText(/scored fights/)).toBeNull();
+  expect(screen.queryByText(/scored fight/)).toBeNull();
+});
+
+it("says point and fight in the singular", async () => {
+  mockMine(mineFor(FINISHED_EVENT, { [ko.id]: { pick: graded(0) } }));
+  view(FINISHED_EVENT);
+  expect(await screen.findByText("1 of 1 fight picked.")).toBeInTheDocument();
+  expect(screen.getByText("0 points from 1 scored fight.")).toBeInTheDocument();
+});
+
+it("says 1 point", async () => {
+  mockMine(mineFor(FINISHED_EVENT, { [ko.id]: { pick: graded(2) } }, { totals: { points: 1 } }));
+  view(FINISHED_EVENT);
+  expect(await screen.findByText("1 point from 1 scored fight.")).toBeInTheDocument();
+});
+
+describe("a pick on a fight that changed", () => {
+  const changed = (replaced_by_id: number | null) => ({
+    bout_id: 9001, fighter_a: "Israel Adesanya", fighter_b: "Old Opponent", pick: pick({ state: "void" as const }), replaced_by_id,
+  });
+  const text = "Your pick on Israel Adesanya v Old Opponent doesn't count because the fight changed.";
+
+  it("is told once, in a status region of the rail, with a link to the new fight", async () => {
+    mockMine(mineFor(UPCOMING_EVENT, {}, { changed: [changed(9)] }));
+    view();
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.getAllByText(text)).toHaveLength(1);
+    expect(screen.getByRole("status")).toContainElement(screen.getByText(text));
+    expect(screen.getByRole("link", { name: "Pick the new fight" })).toHaveAttribute("href", "/ufc/fight/9#pick");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("has no link when there is no replacement", async () => {
+    mockMine(mineFor(UPCOMING_EVENT, {}, { changed: [changed(null)] }));
+    view();
+    await screen.findByText(text);
+    expect(screen.queryByRole("link", { name: "Pick the new fight" })).toBeNull();
+  });
+
+  it("keeps its status region, empty, before there is anything to say", () => {
+    mockMine("pending");
+    view();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
 });
 
 it("leaves a fight closed without a pick out of the count", async () => {
   mockMine(mineFor(UPCOMING_EVENT, { [main.id]: { pick: pick() } }));
   jest.setSystemTime(new Date("2026-12-05T16:00:00Z")); // prelims have started
   view();
-  expect(await screen.findByText("1 of 1 fights picked.")).toBeInTheDocument();
+  expect(await screen.findByText("1 of 1 fight picked.")).toBeInTheDocument();
 });
 
 it("counts every open fight picked", async () => {
@@ -118,6 +170,7 @@ it("offers one quiet retry when the picks could not be read", async () => {
   const retry = await screen.findByRole("button", { name: "Try again" });
   expect(screen.getAllByRole("button", { name: /try again/i })).toHaveLength(1);
   expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("Your picks did not load.")).toHaveAttribute("role", "status");
   expect(screen.getByText("Pick the winner of each fight, and how they win.")).toBeInTheDocument();
   mockMine(mineFor(UPCOMING_EVENT, { [main.id]: { pick: pick() } }));
   fireEvent.click(retry);
