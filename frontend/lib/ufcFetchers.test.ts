@@ -2,6 +2,7 @@ import {
   getUfcBoutServer, getUfcEventServer, getUfcEventsServer, getUfcFighterServer, getUfcNextEventServer,
 } from "@/lib/api";
 
+const realFetch = global.fetch;
 const mockFetch = (status: number, body: unknown = {}) => {
   const fn = jest.fn().mockResolvedValue({ status, ok: status >= 200 && status < 300, json: async () => body });
   global.fetch = fn as unknown as typeof fetch;
@@ -9,7 +10,10 @@ const mockFetch = (status: number, body: unknown = {}) => {
 };
 
 describe("UFC server fetchers", () => {
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => {
+    global.fetch = realFetch;
+    jest.restoreAllMocks();
+  });
 
   it.each([
     ["next", () => getUfcNextEventServer(), "/api/ufc/events/next", 120],
@@ -30,5 +34,24 @@ describe("UFC server fetchers", () => {
     await expect(getUfcBoutServer(1)).resolves.toBeNull();
     mockFetch(500);
     await expect(getUfcBoutServer(1)).rejects.toThrow();
+  });
+
+  it.each([
+    ["event", () => getUfcEventServer("Bad Slug")],
+    ["bout", () => getUfcBoutServer("abc")],
+    ["fighter", () => getUfcFighterServer("Bad_Slug")],
+  ] as const)("%s treats 422 as not found", async (_n, call) => {
+    mockFetch(422, { error: { code: "invalid", message: "x" } });
+    await expect(call()).resolves.toBeNull();
+    mockFetch(500);
+    await expect(call()).rejects.toThrow();
+  });
+
+  it.each([
+    ["next", () => getUfcNextEventServer()],
+    ["events", () => getUfcEventsServer("upcoming")],
+  ] as const)("%s still throws on 422", async (_n, call) => {
+    mockFetch(422);
+    await expect(call()).rejects.toThrow();
   });
 });

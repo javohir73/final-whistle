@@ -99,6 +99,7 @@ export interface UfcBoutDetail extends UfcBoutSummary {
 
 export interface UfcFighterBout {
   id: number;
+  /** `date` is the card's first-bout ISO datetime (e.g. "2026-11-21T18:00:00Z"), not a calendar date. */
   event: { slug: string; name: string; date: string | null };
   opponent: UfcOpponent;
   outcome: "win" | "loss" | "draw" | "no_contest" | null;

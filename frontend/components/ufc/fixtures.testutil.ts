@@ -1,5 +1,6 @@
-/** Shared UFC payload fixtures for frontend tests, built from the phase 1
- *  recorded data (pipeline/sports/testdata/ufc/README.md). */
+/** Shared UFC payload fixtures for frontend tests, adapted from the phase 1
+ *  recorded data (pipeline/sports/testdata/ufc/README.md). The values are
+ *  adapted test data, not a record of real results. */
 import type {
   UfcBoutDetail,
   UfcBoutSummary,
@@ -31,7 +32,7 @@ const STIRLING = fighter("navajo-stirling-5216713", "Navajo Stirling", "United S
 const STERLING = fighter("aljamain-sterling-3031559", "Aljamain Sterling", "United States", rec(24, 5));
 const VALLEJOS = fighter("kevin-vallejos-5145681", "Kevin Vallejos", "Argentina", rec(18, 1));
 const HOOKER = fighter("dan-hooker-3109135", "Dan Hooker", "New Zealand", rec(24, 13));
-const ORTEGA = fighter("brian-ortega-2961777", "Brian Ortega", "United States", rec(16, 4, 0, 1));
+const ORTEGA = fighter("brian-ortega-2961777", "Brian Ortega", "United States", rec(16, 4, 1, 1));
 
 function bout(id: number, a: UfcFighterMini, b: UfcFighterMini, over: Partial<UfcBoutSummary> = {}): UfcBoutSummary {
   return {
@@ -204,6 +205,12 @@ export const DECISION_BOUT: UfcBoutDetail = detailOf(finishedBouts[1], FINISHED_
   judges: { a: [27, 28, 27], b: [30, 29, 30] },
 });
 
+/** A finished decision whose method_detail is null, as real decisions arrive. */
+export const DECISION_NO_DETAIL_BOUT: UfcBoutDetail = {
+  ...DECISION_BOUT,
+  result: { winner: "b", method: "decision", method_detail: null, end_round: 3, end_clock: "5:00" },
+};
+
 export const SCHEDULED_BOUT: UfcBoutDetail = detailOf(ADESANYA_BOUT, UPCOMING_EVENT, MAIN_SEGMENT, {
   tape: {
     a: tape({ age: 37, height_in: 76, reach_in: 80, stance: "Switch" }),
@@ -225,17 +232,17 @@ export const FIGHTER: UfcFighterDetail = {
   record: rec(1, 1),
   bouts: [
     {
-      id: 401940001, event: { slug: "ufc-fight-night-2027-02-06", name: "UFC Fight Night", date: "2027-02-06" },
+      id: 401940001, event: { slug: "ufc-fight-night-2027-02-06", name: "UFC Fight Night", date: "2027-02-06T20:00:00Z" },
       opponent: { slug: ADESANYA.slug, name: ADESANYA.name, country: ADESANYA.country }, outcome: null, method: null,
       end_round: null, end_clock: null, weight_class: "Light Heavyweight", status: "scheduled", scheduled_utc: "2027-02-06T20:00:00Z",
     },
     {
-      id: KO_BOUT.id, event: { slug: FINISHED_EVENT.slug, name: FINISHED_EVENT.name, date: "2026-11-21" },
+      id: KO_BOUT.id, event: { slug: FINISHED_EVENT.slug, name: FINISHED_EVENT.name, date: FINISHED_EVENT.first_bout_utc },
       opponent: { slug: STIRLING.slug, name: STIRLING.name, country: STIRLING.country }, outcome: "loss", method: "ko_tko",
       end_round: 2, end_clock: "4:58", weight_class: "Light Heavyweight", status: "finished", scheduled_utc: MAIN_FINISHED_UTC,
     },
     {
-      id: 401900123, event: { slug: "ufc-310-2026-06-06", name: "UFC 310", date: "2026-06-06" },
+      id: 401900123, event: { slug: "ufc-310-2026-06-06", name: "UFC 310", date: "2026-06-06T20:00:00Z" },
       opponent: { slug: HOOKER.slug, name: HOOKER.name, country: HOOKER.country }, outcome: "win", method: "submission",
       end_round: 1, end_clock: "3:01", weight_class: "Light Heavyweight", status: "finished", scheduled_utc: "2026-06-06T22:00:00Z",
     },
@@ -254,7 +261,7 @@ export const FIGHTER_NO_HISTORY: UfcFighterDetail = {
   record: null,
   bouts: [
     {
-      id: ADESANYA_BOUT.id, event: { slug: UPCOMING_EVENT.slug, name: UPCOMING_EVENT.name, date: "2026-12-05" },
+      id: ADESANYA_BOUT.id, event: { slug: UPCOMING_EVENT.slug, name: UPCOMING_EVENT.name, date: UPCOMING_EVENT.first_bout_utc },
       opponent: { slug: ADESANYA.slug, name: ADESANYA.name, country: ADESANYA.country }, outcome: null, method: null,
       end_round: null, end_clock: null, weight_class: "Middleweight", status: "scheduled", scheduled_utc: MAIN_UPCOMING_UTC,
     },
@@ -273,12 +280,12 @@ export const FIGHTER_DRAW_NC: UfcFighterDetail = {
   record: rec(16, 4, 1, 1),
   bouts: [
     {
-      id: finishedBouts[2].id, event: { slug: FINISHED_EVENT.slug, name: FINISHED_EVENT.name, date: "2026-11-21" },
+      id: finishedBouts[2].id, event: { slug: FINISHED_EVENT.slug, name: FINISHED_EVENT.name, date: FINISHED_EVENT.first_bout_utc },
       opponent: { slug: HOOKER.slug, name: HOOKER.name, country: HOOKER.country }, outcome: "draw", method: "draw",
       end_round: 3, end_clock: "5:00", weight_class: "Lightweight", status: "finished", scheduled_utc: MAIN_FINISHED_UTC,
     },
     {
-      id: 401890077, event: { slug: "ufc-300-2026-03-07", name: "UFC 300", date: "2026-03-07" },
+      id: 401890077, event: { slug: "ufc-300-2026-03-07", name: "UFC 300", date: "2026-03-07T20:00:00Z" },
       opponent: { slug: GREEN.slug, name: GREEN.name, country: GREEN.country }, outcome: "no_contest", method: "no_contest",
       end_round: 1, end_clock: "2:10", weight_class: "Lightweight", status: "finished", scheduled_utc: "2026-03-07T21:00:00Z",
     },

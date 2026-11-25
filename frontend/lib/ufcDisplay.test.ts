@@ -102,6 +102,8 @@ describe("ufcDisplay", () => {
       { ...c, status: "scheduled" as const, card_order: 5 },
     ] }] };
     expect(mainEventId(ev)).toBe(c.id);
+    const tie = { ...ev, segments: [{ ...ev.segments[0], bouts: [{ ...a, id: 9, card_order: 2 }, { ...b, id: 4, card_order: 2 }] }] };
+    expect(mainEventId(tie)).toBe(4);
   });
   it("states the card's status in local time", () => {
     expect(eventStatusNote(UPCOMING_EVENT, "Australia/Sydney")).toBe("Main card starts 5:00 am. Times are in your local time.");

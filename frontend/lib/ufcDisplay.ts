@@ -139,7 +139,7 @@ export function controlTimeText(seconds: number | null): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** Id of the headline bout: lowest card_order among bouts not cancelled, nulls last. */
+/** Id of the headline bout: lowest card_order among bouts not cancelled, nulls last, ties on lowest id. */
 export function mainEventId(event: UfcEventDetail): number | null {
   let best: UfcBoutSummary | null = null;
   for (const seg of event.segments ?? []) {
@@ -148,7 +148,7 @@ export function mainEventId(event: UfcEventDetail): number | null {
       if (!best) { best = b; continue; }
       const cur = num(best.card_order) ? best.card_order : Infinity;
       const next = num(b.card_order) ? b.card_order : Infinity;
-      if (next < cur) best = b;
+      if (next < cur || (next === cur && b.id < best.id)) best = b;
     }
   }
   return best ? best.id : null;
