@@ -43,6 +43,8 @@ log = logging.getLogger(__name__)
 
 ELO_VERSION = EloParams().version
 EPS = 1e-9
+MIN_HISTORY_BOUTS = 1000  # below this the history is not loaded; every fighter would look like a debutant
+RATING_EPS = 0.01
 WINDOW = timedelta(days=round(365.25 * WINDOW_YEARS))
 
 
@@ -107,6 +109,9 @@ def generate(db: Session, params: UfcParams | None = None, now: datetime | None 
     params = params or load_params()
     now = _utc(now) if now else datetime.now(timezone.utc)
     summary = GenerateSummary()
+    if not params.elo_from_file:
+        log.warning("ufc predict: Elo settings are the code fallback, not the fitted file; nothing written")
+        return summary
     if params.elo.version != ELO_VERSION:
         # Rows would carry this code's label but come from other parameters.
         log.warning("ufc predict: Elo parameters are version %s, code expects %s; nothing written",
@@ -122,12 +127,15 @@ def generate(db: Session, params: UfcParams | None = None, now: datetime | None 
 
 def _generate(db: Session, params: UfcParams, now: datetime, summary: GenerateSummary) -> None:
     history = load_history(db)
+    if len(history.bouts) < MIN_HISTORY_BOUTS:
+        log.warning("ufc predict: history not loaded (%d finished bouts); nothing written", len(history.bouts))
+        return
 
     # Ratings: only fighters with an applied bout change.
     ratings = final_ratings(history, params.elo, at=now)
     if ratings:
         for f in db.scalars(select(UfcFighter).where(UfcFighter.id.in_(list(ratings)))):
-            if abs(ratings[f.id] - (f.rating if f.rating is not None else 0.0)) > EPS:
+            if f.rating is None or abs(ratings[f.id] - f.rating) > RATING_EPS:
                 f.rating = ratings[f.id]
                 summary.ratings_updated += 1
 

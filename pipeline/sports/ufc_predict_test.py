@@ -43,6 +43,11 @@ params = UfcParams(EloParams(k=80, history_from=1993), _form())
 BASE = [("2026-01-01", "A", "B", "a", "decision"), ("2026-12-05T18:00", "A", "C", None, None)]
 
 
+@pytest.fixture(autouse=True)
+def _small_history(monkeypatch):
+    monkeypatch.setattr(mod, "MIN_HISTORY_BOUTS", 0)
+
+
 def rows_for(db, bout):
     return db.scalars(
         select(UfcPrediction).where(UfcPrediction.bout_id == bout.id).order_by(UfcPrediction.id)
@@ -551,13 +556,45 @@ def test_env_example_lists_the_setting():
     assert "UFC_PUBLIC_MODEL=" in (ROOT / ".env.example").read_text()
 
 
-def test_generate_with_scheduled_bouts_and_no_finished_history(db_session):
-    # First production run: a card of scheduled bouts, nothing finished yet.
+def test_generate_with_scheduled_bouts_and_no_finished_history(db_session, monkeypatch):
+    # Production default: with history not loaded, nothing is written (every fighter would be a debutant).
+    monkeypatch.setattr(mod, "MIN_HISTORY_BOUTS", 1000)
     rows = [("2026-12-05T18:00", "A", "B", None, None), ("2026-12-05T19:00", "C", "D", None, None)]
-    build(db_session, rows)
+    build(db_session, rows, fighters={n: {"dob": "1995-01-01", "reach": 70} for n in "ABCD"})
     s = generate(db_session, params, now=NOW)
-    preds = db_session.scalars(select(UfcPrediction)).all()
-    assert s.written == len(preds)
-    for r in preds:
-        assert r.is_shadow and r.p_a == pytest.approx(0.5) and r.model_version in (ELO_V, FORM_V)
-    assert generate(db_session, params, now=NOW).written == 0
+    assert count(db_session) == 0 and s.written == 0 and s.ratings_updated == 0 and s.candidates == 0
+
+
+@pytest.mark.parametrize("n,expect", [(999, 0), (1000, 2)])
+def test_history_threshold_boundary(db_session, monkeypatch, n, expect):
+    import dataclasses
+    from ml.sports.ufc.history import History
+    monkeypatch.setattr(mod, "MIN_HISTORY_BOUTS", 1000)
+    build(db_session, BASE)
+    real = mod.load_history
+
+    def padded(db):
+        h = real(db)
+        first = h.bouts[0]
+        pad = tuple(dataclasses.replace(first, bout_id=10_000 + i, when=first.when - timedelta(hours=i + 1))
+                    for i in range(n - len(h.bouts)))
+        return History(tuple(sorted(pad + h.bouts, key=lambda b: (b.when, b.bout_id))), h.fighters)
+
+    monkeypatch.setattr(mod, "load_history", padded)
+    assert generate(db_session, params, now=NOW).written == expect
+
+
+def test_params_not_from_file_write_nothing(db_session, caplog):
+    build(db_session, BASE)
+    p = UfcParams(EloParams(k=80, history_from=1993), _form(), elo_from_file=False)
+    with caplog.at_level(logging.WARNING):
+        s = generate(db_session, p, now=NOW)
+    assert count(db_session) == 0 and s.written == 0 and s.ratings_updated == 0
+    assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
+
+
+def test_ratings_below_a_hundredth_are_not_rewritten(db_session):
+    build(db_session, [("2026-01-01", "A", "B", "a", "decision"), ("2026-12-05T18:00", "A", "C", None, None)])
+    p = UfcParams(EloParams(k=80, history_from=1993, decay=0.2), _form())
+    assert generate(db_session, p, now=NOW).ratings_updated == 2
+    assert generate(db_session, p, now=NOW + timedelta(minutes=1)).ratings_updated == 0

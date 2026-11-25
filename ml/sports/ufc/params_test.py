@@ -31,7 +31,7 @@ def _write(path, form_edit=None, elo=None):
 
 
 def test_missing_file_gives_default_elo_and_no_form(tmp_path):
-    assert load_params(tmp_path / "nope.json") == UfcParams(EloParams(), None)
+    assert load_params(tmp_path / "nope.json") == UfcParams(EloParams(), None, elo_from_file=False)
 
 
 def test_round_trip(tmp_path):
@@ -84,11 +84,24 @@ def test_malformed_elo_falls_back_to_default(tmp_path):
 
 def test_corrupt_json_falls_back(tmp_path):
     (tmp_path / "p.json").write_text("{")
-    assert load_params(tmp_path / "p.json") == UfcParams(EloParams(), None)
+    assert load_params(tmp_path / "p.json") == UfcParams(EloParams(), None, elo_from_file=False)
 
 
 def test_shipped_file_loads():
-    assert load_params().elo.version == "ufc-elo-v0.1"
+    got = load_params()
+    assert got.elo.version == "ufc-elo-v0.1"
+    assert got.form is not None and got.elo != EloParams() and got.elo_from_file is True
+
+
+def test_malformed_elo_section_is_not_from_file(tmp_path):
+    _write(tmp_path / "p.json", elo={"k": "abc"})
+    got = load_params(tmp_path / "p.json")
+    assert got.form is not None and got.elo == EloParams() and got.elo_from_file is False
+
+
+def test_good_file_is_from_file(tmp_path):
+    _write(tmp_path / "p.json")
+    assert load_params(tmp_path / "p.json").elo_from_file is True
 
 
 # --- fallbacks are logged, never silent ---------------------------------------------------
@@ -110,7 +123,7 @@ def _loaded(tmp_path, caplog, form_edit=None, elo=None):
 def test_unreadable_file_warns(tmp_path, caplog):
     with caplog.at_level(logging.DEBUG, logger="ml.sports.ufc.params"):
         got = load_params(tmp_path / "nope.json")
-    assert got == UfcParams(EloParams(), None)
+    assert got == UfcParams(EloParams(), None, elo_from_file=False)
     assert any("unreadable" in m for m in _warnings(caplog))
 
 

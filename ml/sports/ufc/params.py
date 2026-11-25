@@ -30,9 +30,12 @@ DEFAULT_PARAMS_FILE = Path(__file__).with_name("params.json")
 class UfcParams:
     elo: EloParams
     form: FormParams | None
+    # False when the Elo settings are the code fallback (unreadable file or bad Elo section):
+    # they are not the settings the rows' version label stands for.
+    elo_from_file: bool = True
 
 
-def _parse_elo(data: dict) -> EloParams:
+def _parse_elo(data: dict) -> EloParams | None:
     try:
         d = data["elo"]
         return EloParams(
@@ -41,7 +44,7 @@ def _parse_elo(data: dict) -> EloParams:
         )
     except (KeyError, TypeError, ValueError):
         log.warning("ufc params: elo section missing or malformed, using default Elo settings")
-        return EloParams()
+        return None
 
 
 def _parse_form(data: dict) -> FormParams | None:
@@ -89,8 +92,9 @@ def load_params(path: Path | None = None) -> UfcParams:
             raise ValueError("top level is not an object")
     except (OSError, ValueError):
         log.warning("ufc params: file unreadable or corrupt, using default Elo settings and no form model")
-        return UfcParams(EloParams(), None)
-    return UfcParams(_parse_elo(data), _parse_form(data))
+        return UfcParams(EloParams(), None, elo_from_file=False)
+    elo = _parse_elo(data)
+    return UfcParams(elo or EloParams(), _parse_form(data), elo_from_file=elo is not None)
 
 
 def save_params(params: UfcParams, path: Path | None = None) -> None:
