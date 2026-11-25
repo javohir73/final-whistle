@@ -15,6 +15,7 @@ from app.cache import cache
 from app.db import Base, get_db
 from app.main import app
 from app.models import UfcBout, UfcEvent, UfcFighter
+from pipeline.sports.ufc_ingest import slugify
 
 ADESANYA = "ufc-fight-night-adesanya-vs-magomedov"
 PROCHAZKA = "ufc-fight-night-prochazka-vs-stirling"
@@ -58,7 +59,7 @@ def _next_pid() -> str:
 def _fighter(db, name, slug=None, **kw):
     f = UfcFighter(
         provider="espn", provider_fighter_id=_next_pid(), name=name,
-        slug=slug or name.lower().replace(" ", "-"), **kw,
+        slug=slug or slugify(name), **kw,
     )
     db.add(f)
     db.flush()
@@ -326,12 +327,15 @@ def _keys(o):
 
 
 def test_no_model_odds_or_pick_fields(client):
-    c, _, _ = _seeded(client)
+    c, Session, _ = _seeded(client)
     banned = {"p_a", "p_b", "prediction", "predictions", "odds", "moneyline_a",
               "moneyline_b", "pick", "picks", "rating"}
     for url, params in (
         ("/api/ufc/events", {"when": "upcoming"}), ("/api/ufc/events", {"when": "past"}),
         ("/api/ufc/events/next", {}), (f"/api/ufc/events/{PROCHAZKA}", {}),
+        (f"/api/ufc/bouts/{_bout_id(Session, PROCHAZKA, 1)}", {}),
+        (f"/api/ufc/bouts/{_bout_id(Session, ADESANYA, 3)}", {}),
+        ("/api/ufc/fighters/jiri-prochazka", {}), ("/api/ufc/fighters/navajo-stirling", {}),
     ):
         assert not banned & set(_keys(c.get(url, params=params).json())), url
 
@@ -470,7 +474,7 @@ def test_fighter_profile_record_and_history(client):
 
 def test_fighter_upcoming_first_and_cancelled_kept(client):
     c, _, _ = _seeded(client)
-    rebecki = c.get("/api/ufc/fighters/mateusz-rębecki").json()
+    rebecki = c.get("/api/ufc/fighters/mateusz-rebecki").json()
     assert [b["outcome"] for b in rebecki["bouts"]] == [None, "draw"]
     stirling = c.get("/api/ufc/fighters/navajo-stirling").json()
     assert "no_contest" in [b["outcome"] for b in stirling["bouts"]]
@@ -574,3 +578,48 @@ def test_undated_finished_card_sorts_last_and_is_not_next(client):
     r = c.get("/api/ufc/events", params={"when": "past"})
     assert _slugs(r) == ["dated-finished", "undated-finished"]
     assert c.get("/api/ufc/events/next").json()["slug"] == "dated-finished"
+
+
+def test_malformed_slugs_are_4xx_in_the_envelope_on_both_endpoints(client):
+    c, _, _ = _seeded(client)
+    for prefix in ("events", "fighters"):
+        for bad in ("a%00b", "a%2Fb", "x" * 221, "Upper-Case", "a b", "r%C4%99becki"):
+            r = c.get(f"/api/ufc/{prefix}/{bad}")
+            assert 400 <= r.status_code < 500, (prefix, bad)
+            assert "code" in r.json()["error"], (prefix, bad)
+    assert c.get(f"/api/ufc/fighters/{'x' * 141}").status_code == 422
+    assert c.get(f"/api/ufc/fighters/{'x' * 140}").status_code == 404
+    assert c.get(f"/api/ufc/events/{'x' * 220}").status_code == 404
+
+
+def test_every_seeded_slug_resolves(client):
+    c, Session, _ = _seeded(client)
+    db = Session()
+    fighters = [f.slug for f in db.query(UfcFighter)]
+    events = [e.slug for e in db.query(UfcEvent).filter_by(is_card=True)]
+    db.close()
+    assert all(c.get(f"/api/ufc/fighters/{s}").status_code == 200 for s in fighters)
+    assert all(c.get(f"/api/ufc/events/{s}").status_code == 200 for s in events)
+
+
+def test_b_side_winner_is_a_win_with_the_a_side_as_opponent(client):
+    c, _, _ = _seeded(client)
+    d = c.get("/api/ufc/fighters/navajo-stirling").json()
+    top = d["bouts"][0]   # the knockout of Procházka, stored with Stirling as b
+    assert top["outcome"] == "win" and top["opponent"]["slug"] == "jiri-prochazka"
+    pro = c.get("/api/ufc/fighters/jiri-prochazka").json()["bouts"][0]
+    assert pro["outcome"] == "loss" and pro["opponent"]["slug"] == "navajo-stirling"
+
+
+def test_live_bout_past_the_grace_window_is_dropped_but_the_boundary_is_kept(client):
+    c, Session, _ = client
+    db = Session()
+    now = datetime.now(timezone.utc)
+    x, y = _fighter(db, "Grace Gary"), _fighter(db, "Grace Foe")
+    for slug, delta in (("far-card", timedelta(hours=24, minutes=5)), ("edge-card", timedelta(hours=23, minutes=55))):
+        ev = _event(db, slug, "live", now - delta, now - delta)
+        _bout(db, ev, x, y, card_order=1, scheduled_utc=now - delta, status="live")
+    db.commit()
+    db.close()
+    d = c.get("/api/ufc/fighters/grace-gary").json()
+    assert [b["event"]["slug"] for b in d["bouts"]] == ["edge-card"]

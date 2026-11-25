@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
@@ -48,6 +48,8 @@ router = APIRouter(prefix="/api/ufc", tags=["ufc"])
 
 FEED_CANCELLED = "cancelled by feed"  # must equal pipeline.sports.ufc_ingest.FEED_CANCELLED
 UPCOMING_GRACE = timedelta(hours=24)
+# What pipeline.sports.ufc_ingest.slugify emits; anything else never reaches the database.
+SLUG_PATTERN = r"^[a-z0-9-]+$"
 
 
 def _utc(dt: datetime | None) -> datetime | None:
@@ -301,7 +303,10 @@ def next_event(db: Session = Depends(get_db)):
 
 
 @router.get("/events/{slug}", response_model=UfcEventDetailOut)
-def event_detail(slug: str, db: Session = Depends(get_db)):
+def event_detail(
+    slug: str = Path(..., max_length=220, pattern=SLUG_PATTERN),
+    db: Session = Depends(get_db),
+):
     event = public_card(db, slug)
     if event is None:
         raise HTTPException(
@@ -407,7 +412,10 @@ def _outcome(bout: UfcBout, me: str) -> str | None:
 
 
 @router.get("/fighters/{slug}", response_model=UfcFighterDetailOut)
-def fighter_detail(slug: str, db: Session = Depends(get_db)):
+def fighter_detail(
+    slug: str = Path(..., max_length=140, pattern=SLUG_PATTERN),
+    db: Session = Depends(get_db),
+):
     """One fighter and the card bouts they are on, upcoming first then newest.
 
     History lists card bouts only (Contender Series excluded), without `changed`
