@@ -340,3 +340,210 @@ def test_feed_marker_matches_the_pipeline():
     from pipeline.sports.ufc_ingest import FEED_CANCELLED as PIPELINE
     from app.api.ufc import FEED_CANCELLED
     assert FEED_CANCELLED == PIPELINE
+
+
+# ---- fight and fighter detail (task 3) ----
+from app.api.ufc import age_on  # noqa: E402
+from app.models import UfcBoutStat  # noqa: E402
+
+_STAT_FIELDS = {"knockdowns", "sig_strikes_landed", "sig_strikes_attempted", "total_strikes_landed",
+                "total_strikes_attempted", "takedowns_landed", "takedowns_attempted",
+                "submission_attempts", "reversals", "control_seconds"}
+
+
+def _bout_id(Session, event_slug, order):
+    db = Session()
+    try:
+        return db.query(UfcBout).join(UfcEvent, UfcEvent.id == UfcBout.event_id).filter(
+            UfcEvent.slug == event_slug, UfcBout.card_order == order).one().id
+    finally:
+        db.close()
+
+
+def _stat(db, bout_id, fighter_id, **kw):
+    db.add(UfcBoutStat(bout_id=bout_id, fighter_id=fighter_id, **kw))
+
+
+def _fid(Session, slug):
+    db = Session()
+    try:
+        return db.query(UfcFighter).filter_by(slug=slug).one().id
+    finally:
+        db.close()
+
+
+def _ko_stats(Session):
+    ko = _bout_id(Session, PROCHAZKA, 1)
+    db = Session()
+    b = db.get(UfcBout, ko)
+    _stat(db, ko, b.fighter_a_id, knockdowns=0, sig_strikes_landed=23, sig_strikes_attempted=40,
+          total_strikes_landed=26, total_strikes_attempted=48, takedowns_landed=0,
+          takedowns_attempted=0, submission_attempts=0, reversals=0, control_seconds=18)
+    _stat(db, ko, b.fighter_b_id, knockdowns=1, sig_strikes_landed=20, sig_strikes_attempted=30,
+          total_strikes_landed=21, total_strikes_attempted=32, control_seconds=0)
+    db.commit()
+    db.close()
+    return ko
+
+
+def test_ko_fight_has_result_stats_and_no_judges(client):
+    c, Session, _ = _seeded(client)
+    ko = _ko_stats(Session)
+    d = c.get(f"/api/ufc/bouts/{ko}").json()
+    assert d["event"]["slug"] == PROCHAZKA and d["segment"] == {"key": "main", "label": "Main Card"}
+    assert d["stats"]["a"]["control_seconds"] == 18 and d["stats"]["a"]["total_strikes_attempted"] == 48
+    assert set(d["stats"]["a"]) == _STAT_FIELDS
+    assert d["judges"] is None
+
+
+def test_decision_has_judges(client):
+    c, Session, _ = _seeded(client)
+    bid = _bout_id(Session, PROCHAZKA, 2)
+    db = Session()
+    b = db.get(UfcBout, bid)
+    _stat(db, bid, b.fighter_a_id, judges=[27, 28, 27])
+    _stat(db, bid, b.fighter_b_id, judges=[30, 29, 30])
+    db.commit()
+    db.close()
+    d = c.get(f"/api/ufc/bouts/{bid}").json()
+    assert d["judges"] == {"a": [27, 28, 27], "b": [30, 29, 30]}
+
+
+def test_tape_and_age_at_fight_time(client):
+    c, Session, _ = _seeded(client)
+    ko = _bout_id(Session, PROCHAZKA, 1)
+    db = Session()
+    db.get(UfcBout, ko).scheduled_utc = datetime(2026, 11, 21, 18, 0, tzinfo=timezone.utc)
+    db.commit()
+    db.close()
+    d = c.get(f"/api/ufc/bouts/{ko}").json()
+    assert d["tape"]["a"] == {"age": 34, "height_in": 75.0, "reach_in": 80.0, "stance": "Orthodox"}
+    up = c.get(f"/api/ufc/bouts/{_bout_id(Session, ADESANYA, 1)}").json()
+    assert up["tape"]["b"] == {"age": None, "height_in": None, "reach_in": None, "stance": None}
+    assert up["stats"] is None and up["judges"] is None
+
+
+def test_age_on():
+    assert age_on(date(1992, 10, 14), datetime(2026, 10, 13, tzinfo=timezone.utc)) == 33
+    assert age_on(date(1992, 10, 14), datetime(2026, 10, 14, tzinfo=timezone.utc)) == 34
+    assert age_on(None, datetime(2026, 1, 1, tzinfo=timezone.utc)) is None
+
+
+def test_stats_null_when_one_side_is_missing(client):
+    c, Session, _ = _seeded(client)
+    ko = _bout_id(Session, PROCHAZKA, 1)
+    db = Session()
+    _stat(db, ko, db.get(UfcBout, ko).fighter_a_id, knockdowns=0)
+    db.commit()
+    db.close()
+    assert c.get(f"/api/ufc/bouts/{ko}").json()["stats"] is None
+
+
+def test_fight_404s(client):
+    c, Session, _ = _seeded(client)
+    db = Session()
+    changed = db.query(UfcBout).filter_by(status="changed").one().id
+    dwcs = db.query(UfcBout).join(UfcEvent, UfcEvent.id == UfcBout.event_id).filter(
+        UfcEvent.slug == DWCS).one().id
+    db.close()
+    for bid in (999999, changed, dwcs):
+        r = c.get(f"/api/ufc/bouts/{bid}")
+        assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+
+
+def test_stale_scheduled_bout_is_still_served_by_id(client):
+    c, Session, _ = _seeded(client)
+    r = c.get(f"/api/ufc/bouts/{_bout_id(Session, STALE, 1)}")
+    assert r.status_code == 200 and r.json()["status"] == "scheduled"
+    assert "cancelled by feed" not in c.get(f"/api/ufc/bouts/{_bout_id(Session, ADESANYA, 3)}").text
+
+
+def test_fighter_profile_record_and_history(client):
+    c, _, _ = _seeded(client)
+    d = c.get("/api/ufc/fighters/jiri-prochazka").json()
+    assert d["record"] == {"wins": 1, "losses": 1, "draws": 0, "no_contests": 0}
+    assert [b["outcome"] for b in d["bouts"]] == ["loss", "win"]
+    assert d["bouts"][0]["opponent"] == {"slug": "navajo-stirling", "name": "Navajo Stirling", "country": None}
+    assert d["bouts"][0]["method"] == "ko_tko" and d["bouts"][0]["end_round"] == 2
+    assert d["bouts"][0]["event"]["slug"] == PROCHAZKA
+
+
+def test_fighter_upcoming_first_and_cancelled_kept(client):
+    c, _, _ = _seeded(client)
+    rebecki = c.get("/api/ufc/fighters/mateusz-rębecki").json()
+    assert [b["outcome"] for b in rebecki["bouts"]] == [None, "draw"]
+    stirling = c.get("/api/ufc/fighters/navajo-stirling").json()
+    assert "no_contest" in [b["outcome"] for b in stirling["bouts"]]
+
+
+def test_fighter_without_history(client):
+    c, _, _ = _seeded(client)
+    d = c.get("/api/ufc/fighters/shara-magomedov").json()
+    assert (d["record"], d["age"], d["date_of_birth"]) == (None, None, None) and len(d["bouts"]) == 1
+
+
+def test_fighter_history_drops_unresolved_past_scheduled_bouts(client):
+    c, Session, _ = client
+    db = Session()
+    now = datetime.now(timezone.utc)
+    x, y = _fighter(db, "Stale Sam"), _fighter(db, "Other One")
+    old = _event(db, "old-card", "scheduled", now - timedelta(days=10), now - timedelta(days=10))
+    soon = _event(db, "later-card", "scheduled", now + timedelta(days=5), now + timedelta(days=5))
+    _event(db, "tonight-card", "live", now - timedelta(hours=2), now - timedelta(hours=2))
+    _bout(db, old, x, y, card_order=1, scheduled_utc=now - timedelta(days=10), status="scheduled")
+    _bout(db, soon, x, y, card_order=1, scheduled_utc=now + timedelta(days=5), status="scheduled")
+    db.commit()
+    db.close()
+    d = c.get("/api/ufc/fighters/stale-sam").json()
+    assert [b["event"]["slug"] for b in d["bouts"]] == ["later-card"]
+    db = Session()
+    _bout(db, db.query(UfcEvent).filter_by(slug="tonight-card").one(), db.query(UfcFighter).filter_by(slug="stale-sam").one(),
+          db.query(UfcFighter).filter_by(slug="other-one").one(), card_order=1,
+          scheduled_utc=now - timedelta(hours=2), status="live")
+    db.commit()
+    db.close()
+    d = c.get("/api/ufc/fighters/stale-sam").json()
+    assert [b["event"]["slug"] for b in d["bouts"]] == ["later-card", "tonight-card"]
+
+
+def test_fighter_404(client):
+    c, _, _ = _seeded(client)
+    r = c.get("/api/ufc/fighters/nobody")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+
+
+def _count(c, engine, url):
+    n = [0]
+
+    def listener(*a, **k):
+        n[0] += 1
+
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        assert c.get(url).status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    return n[0]
+
+
+def test_detail_query_counts_are_bounded(client):
+    c, Session, engine = _seeded(client)
+    ko = _ko_stats(Session)
+    assert _count(c, engine, f"/api/ufc/bouts/{ko}") <= 7
+    db = Session()
+    now = datetime.now(timezone.utc)
+    hero = _fighter(db, "Busy Bee")
+    ev2 = _event(db, "busy-2", "finished", now - timedelta(days=60), now - timedelta(days=60))
+    for i in range(2):
+        _bout(db, ev2, hero, _fighter(db, f"Foe {i}"), card_order=i + 1, status="finished",
+              winner="a", method="decision", scheduled_utc=now - timedelta(days=60 + i))
+    db.commit()
+    two = _count(c, engine, "/api/ufc/fighters/busy-bee")
+    ev8 = _event(db, "busy-8", "finished", now - timedelta(days=90), now - timedelta(days=90))
+    for i in range(6):
+        _bout(db, ev8, hero, _fighter(db, f"Rival {i}"), card_order=i + 1, status="finished",
+              winner="b", method="ko_tko", scheduled_utc=now - timedelta(days=90 + i))
+    db.commit()
+    db.close()
+    eight = _count(c, engine, "/api/ufc/fighters/busy-bee")
+    assert two == eight and eight <= 6

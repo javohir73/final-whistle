@@ -11,7 +11,7 @@ records) instead of one query per fighter.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,17 +19,29 @@ from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import UfcBout, UfcEvent, UfcFighter
+from app.models import UfcBout, UfcBoutStat, UfcEvent, UfcFighter
 from app.schemas import (
+    UfcBoutDetailOut,
     UfcBoutSummaryOut,
+    UfcEventRefOut,
     UfcEventDetailOut,
     UfcEventsOut,
     UfcEventSummaryOut,
+    UfcFighterBoutOut,
+    UfcFighterDetailOut,
+    UfcFighterEventOut,
     UfcFighterMiniOut,
+    UfcJudgesOut,
     UfcMainEventOut,
     UfcRecordOut,
+    UfcOpponentOut,
     UfcResultOut,
     UfcSegmentOut,
+    UfcSegmentRefOut,
+    UfcStatLineOut,
+    UfcStatsOut,
+    UfcTapeOut,
+    UfcTapeSideOut,
 )
 
 router = APIRouter(prefix="/api/ufc", tags=["ufc"])
@@ -287,3 +299,185 @@ def event_detail(slug: str, db: Session = Depends(get_db)):
             detail={"code": "not_found", "message": "No UFC card with that name"},
         )
     return _detail(db, event)
+
+
+_STAT_FIELDS = tuple(UfcStatLineOut.model_fields)
+INT32_MAX = 2**31 - 1
+
+
+def age_on(born: date | None, when: datetime) -> int | None:
+    """Whole years on the given day."""
+    if born is None:
+        return None
+    day = _utc(when).date()
+    return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
+
+
+def _tape_side(f: UfcFighter, when: datetime) -> UfcTapeSideOut:
+    return UfcTapeSideOut(
+        age=age_on(f.date_of_birth, when), height_in=f.height_in, reach_in=f.reach_in, stance=f.stance
+    )
+
+
+@router.get("/bouts/{bout_id}", response_model=UfcBoutDetailOut)
+def bout_detail(bout_id: int, db: Session = Depends(get_db)):
+    """One fight. A bout that is still `scheduled` long after its start time is
+    served as is (the fight page shows it as scheduled); only fighter histories
+    hide such rows. Missing, `changed` and non-card bouts are 404."""
+    missing = HTTPException(
+        status_code=404, detail={"code": "not_found", "message": "No UFC fight with that id"}
+    )
+    if not 0 < bout_id <= INT32_MAX:
+        raise missing
+    bout = db.get(UfcBout, bout_id)
+    if bout is None or bout.status == "changed":
+        raise missing
+    event = db.get(UfcEvent, bout.event_id)
+    if event is None or not event.is_card:
+        raise missing
+
+    fighters = {
+        f.id: f
+        for f in db.execute(
+            select(UfcFighter).where(UfcFighter.id.in_([bout.fighter_a_id, bout.fighter_b_id]))
+        ).scalars()
+    }
+    records = records_for(db, fighters)
+    minis = {
+        i: UfcFighterMiniOut(slug=f.slug, name=f.name, country=f.country, record=records.get(i))
+        for i, f in fighters.items()
+    }
+    now = datetime.now(timezone.utc)
+    when = _utc(bout.scheduled_utc) or now
+
+    stats = judges = None
+    rows = {
+        r.fighter_id: r
+        for r in db.execute(select(UfcBoutStat).where(UfcBoutStat.bout_id == bout.id)).scalars()
+    }
+    ra, rb = rows.get(bout.fighter_a_id), rows.get(bout.fighter_b_id)
+    if bout.status == "finished" and ra is not None and rb is not None:
+        line = lambda r: UfcStatLineOut(**{k: getattr(r, k) for k in _STAT_FIELDS})  # noqa: E731
+        stats = UfcStatsOut(a=line(ra), b=line(rb))
+    ja = ra.judges if ra is not None else None
+    jb = rb.judges if rb is not None else None
+    if isinstance(ja, list) and isinstance(jb, list) and ja and jb:
+        judges = UfcJudgesOut(a=ja, b=jb)
+
+    key = bout.segment or "other"
+    summary = bout_summary(bout, minis)
+    return UfcBoutDetailOut(
+        **summary.model_dump(),
+        event=UfcEventRefOut(
+            slug=event.slug, name=event.name, first_bout_utc=_utc(event.first_bout_utc)
+        ),
+        segment=UfcSegmentRefOut(
+            key=key, label=bout.segment_label or ("Fights" if key == "other" else key)
+        ),
+        tape=UfcTapeOut(
+            a=_tape_side(fighters[bout.fighter_a_id], when),
+            b=_tape_side(fighters[bout.fighter_b_id], when),
+        ),
+        stats=stats,
+        judges=judges,
+    )
+
+
+def _outcome(bout: UfcBout, me: str) -> str | None:
+    """Same rule as records_for; only finished rows have an outcome."""
+    if bout.status != "finished":
+        return None
+    if bout.winner == me:
+        return "win"
+    if bout.winner in ("a", "b"):
+        return "loss"
+    if bout.method in ("draw", "no_contest"):
+        return bout.method
+    return None
+
+
+@router.get("/fighters/{slug}", response_model=UfcFighterDetailOut)
+def fighter_detail(slug: str, db: Session = Depends(get_db)):
+    """One fighter and the card bouts they are on, upcoming first then newest.
+
+    History lists card bouts only (Contender Series excluded), without `changed`
+    rows, and without a bout that is still `scheduled` or `live` more than 24
+    hours after its start time: the feed never resolved it, and showing it as
+    an upcoming fight with a past date would be wrong. Bouts with no start time
+    sort first, then newest start time, then newest id (no database-specific
+    NULL ordering)."""
+    fighter = db.execute(select(UfcFighter).where(UfcFighter.slug == slug)).scalar_one_or_none()
+    if fighter is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "not_found", "message": "No UFC fighter with that name"},
+        )
+    now = datetime.now(timezone.utc)
+    bouts = (
+        db.execute(
+            select(UfcBout)
+            .join(UfcEvent, UfcEvent.id == UfcBout.event_id)
+            .where(
+                or_(UfcBout.fighter_a_id == fighter.id, UfcBout.fighter_b_id == fighter.id),
+                UfcEvent.is_card.is_(True),
+                UfcBout.status != "changed",
+                or_(
+                    UfcBout.status.not_in(("scheduled", "live")),
+                    UfcBout.scheduled_utc.is_(None),
+                    UfcBout.scheduled_utc >= now - UPCOMING_GRACE,
+                ),
+            )
+            .order_by(
+                case((UfcBout.scheduled_utc.is_(None), 0), else_=1),
+                UfcBout.scheduled_utc.desc(),
+                UfcBout.id.desc(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    opp_ids = {b.fighter_b_id if b.fighter_a_id == fighter.id else b.fighter_a_id for b in bouts}
+    opponents = (
+        {f.id: f for f in db.execute(select(UfcFighter).where(UfcFighter.id.in_(opp_ids))).scalars()}
+        if opp_ids
+        else {}
+    )
+    event_ids = {b.event_id for b in bouts}
+    events = (
+        {e.id: e for e in db.execute(select(UfcEvent).where(UfcEvent.id.in_(event_ids))).scalars()}
+        if event_ids
+        else {}
+    )
+    out = []
+    for b in bouts:
+        mine = "a" if b.fighter_a_id == fighter.id else "b"
+        opp = opponents[b.fighter_b_id if mine == "a" else b.fighter_a_id]
+        ev = events[b.event_id]
+        out.append(
+            UfcFighterBoutOut(
+                id=b.id,
+                event=UfcFighterEventOut(
+                    slug=ev.slug, name=ev.name, date=_utc(ev.first_bout_utc)
+                ),
+                opponent=UfcOpponentOut(slug=opp.slug, name=opp.name, country=opp.country),
+                outcome=_outcome(b, mine),
+                method=b.method if b.status == "finished" else None,
+                end_round=b.end_round if b.status == "finished" else None,
+                end_clock=b.end_clock if b.status == "finished" else None,
+                weight_class=b.weight_class,
+                status=b.status,
+                scheduled_utc=_utc(b.scheduled_utc),
+            )
+        )
+    return UfcFighterDetailOut(
+        slug=fighter.slug,
+        name=fighter.name,
+        country=fighter.country,
+        date_of_birth=fighter.date_of_birth,
+        age=age_on(fighter.date_of_birth, now),
+        height_in=fighter.height_in,
+        reach_in=fighter.reach_in,
+        stance=fighter.stance,
+        record=records_for(db, [fighter.id]).get(fighter.id),
+        bouts=out,
+    )

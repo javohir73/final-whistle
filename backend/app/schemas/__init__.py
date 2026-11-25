@@ -2,7 +2,7 @@
 that the frontend consumes."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -660,3 +660,95 @@ class UfcEventDetailOut(UfcEventSummaryOut):
 
 class UfcEventsOut(BaseModel):
     events: list[UfcEventSummaryOut]
+
+
+class UfcEventRefOut(BaseModel):
+    slug: str
+    name: str
+    first_bout_utc: datetime | None
+
+
+class UfcSegmentRefOut(BaseModel):
+    key: str
+    label: str
+
+
+class UfcTapeSideOut(BaseModel):
+    age: int | None
+    height_in: float | None
+    reach_in: float | None
+    stance: str | None
+
+
+class UfcTapeOut(BaseModel):
+    a: UfcTapeSideOut
+    b: UfcTapeSideOut
+
+
+class UfcStatLineOut(BaseModel):
+    knockdowns: int | None
+    sig_strikes_landed: int | None
+    sig_strikes_attempted: int | None
+    total_strikes_landed: int | None
+    total_strikes_attempted: int | None
+    takedowns_landed: int | None
+    takedowns_attempted: int | None
+    submission_attempts: int | None
+    reversals: int | None
+    control_seconds: int | None
+
+
+class UfcStatsOut(BaseModel):
+    a: UfcStatLineOut
+    b: UfcStatLineOut
+
+
+class UfcJudgesOut(BaseModel):
+    a: list[int]
+    b: list[int]
+
+
+class UfcBoutDetailOut(UfcBoutSummaryOut):
+    event: UfcEventRefOut
+    segment: UfcSegmentRefOut
+    tape: UfcTapeOut
+    stats: UfcStatsOut | None
+    judges: UfcJudgesOut | None
+
+
+class UfcOpponentOut(BaseModel):
+    slug: str
+    name: str
+    country: str | None
+
+
+class UfcFighterEventOut(BaseModel):
+    slug: str
+    name: str
+    date: datetime | None
+
+
+class UfcFighterBoutOut(BaseModel):
+    id: int
+    event: UfcFighterEventOut
+    opponent: UfcOpponentOut
+    outcome: Literal["win", "loss", "draw", "no_contest"] | None
+    method: str | None
+    end_round: int | None
+    end_clock: str | None
+    weight_class: str | None
+    status: str
+    scheduled_utc: datetime | None
+
+
+class UfcFighterDetailOut(BaseModel):
+    slug: str
+    name: str
+    country: str | None
+    date_of_birth: date | None
+    age: int | None
+    height_in: float | None
+    reach_in: float | None
+    stance: str | None
+    record: UfcRecordOut | None
+    bouts: list[UfcFighterBoutOut]
