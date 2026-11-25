@@ -21,6 +21,8 @@ def is_placeholder_name(name: str | None) -> bool:
     return _PLACEHOLDER.match(name.strip()) is not None
 
 
+RECONCILE_DAYS = 30  # a settled bout's result and picks are re-read for this long after its start
+
 PICK_METHODS: tuple[str, ...] = ("ko_tko", "submission", "decision")
 METHOD_TIE_ORDER: tuple[str, ...] = ("decision", "ko_tko", "submission")  # == ml.sports.ufc.methods._TIE_ORDER
 VOID_METHODS: tuple[str, ...] = ("draw", "no_contest")
