@@ -3,12 +3,10 @@
 import type { ReactNode } from "react";
 import {
   Card,
-  CardHead,
   Chip,
   DayBand,
   Main,
   Note,
-  PageHead,
   PageLayout,
   Table,
   TableScroll,
@@ -30,7 +28,8 @@ import {
 } from "@/lib/ufcDisplay";
 import type { UfcFighterBout, UfcFighterDetail } from "@/lib/ufcTypes";
 import { useTimezone } from "@/lib/useTimezone";
-import { FighterMark } from "./FighterMark";
+import { BandPill } from "./FightHero";
+import { BAND, FighterPortrait } from "./FighterPortrait";
 
 const EVENT_COLUMN = "hidden min-[900px]:table-cell";
 
@@ -78,7 +77,7 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
   const { tz } = useTimezone();
   const record = recordText(fighter.record);
   // A null record means "not loaded", never "no fights": say only what we know.
-  const sub = [fighter.country, record ? `UFC record ${record}` : null].filter(Boolean).join(" · ");
+  const pills = [fighter.country, record ? `UFC record ${record}` : null].filter((t): t is string => Boolean(t));
 
   const facts: { label: string; value: string }[] = [
     { label: "Age", value: fighter.age != null && fighter.age > 0 ? String(fighter.age) : "" },
@@ -90,33 +89,46 @@ export function UfcFighterView({ fighter }: { fighter: UfcFighterDetail }) {
 
   return (
     <>
-      <PageHead
-        leading={<FighterMark name={fighter.name} size={48} decorative />}
-        eyebrow="UFC fighter"
-        title={fighter.name}
-        sub={sub || undefined}
-      />
-      <PageLayout>
-        <Main>
-          <Card pad aria-labelledby="fighter-facts">
-            <CardHead id="fighter-facts" title="Fighter facts" />
+      <section
+        aria-labelledby="fighter-name"
+        className={`mt-1 rounded-card ${BAND.bg} ${BAND.text} px-4 py-7 min-[900px]:px-10 min-[900px]:py-10`}
+      >
+        <div className="mx-auto flex max-w-[880px] flex-col items-center gap-6 text-center min-[900px]:flex-row min-[900px]:items-center min-[900px]:gap-10 min-[900px]:text-left">
+          <div className="w-full max-w-[170px] shrink-0 min-[900px]:max-w-[240px]">
+            <FighterPortrait fighter={fighter} priority />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className={`text-notes font-semibold uppercase tracking-[0.08em] ${BAND.lime}`}>UFC fighter</p>
+            <h1
+              id="fighter-name"
+              className={`mt-1 break-words font-display text-[32px] font-bold leading-[1.05] tracking-[-0.025em] min-[900px]:text-[48px]`}
+            >
+              {fighter.name}
+            </h1>
+            {pills.length > 0 && (
+              <div className="mt-3 flex flex-wrap justify-center gap-1.5 min-[900px]:justify-start">
+                {pills.map((t) => (
+                  <BandPill key={t}>{t}</BandPill>
+                ))}
+              </div>
+            )}
             {facts.length > 0 ? (
-              <dl className="mt-2 max-w-[550px]">
+              <dl className="mx-auto mt-5 grid max-w-[420px] grid-cols-2 gap-x-6 gap-y-3 text-left min-[900px]:mx-0">
                 {facts.map((f) => (
-                  <div
-                    key={f.label}
-                    className="flex items-baseline justify-between gap-4 border-t border-line-soft py-3 first:border-t-0"
-                  >
-                    <dt className="text-muted">{f.label}</dt>
-                    <dd className="m-0 text-right font-semibold text-ink">{f.value}</dd>
+                  <div key={f.label}>
+                    <dt className={`text-[12px] uppercase tracking-[0.06em] ${BAND.muted}`}>{f.label}</dt>
+                    <dd className="m-0 font-semibold">{f.value}</dd>
                   </div>
                 ))}
               </dl>
             ) : (
-              <Note className="mt-1.5">Height, reach and date of birth are not available yet.</Note>
+              <p className={`mt-4 text-notes ${BAND.muted}`}>Height, reach and date of birth are not available yet.</p>
             )}
-          </Card>
-
+          </div>
+        </div>
+      </section>
+      <PageLayout className="mt-6">
+        <Main>
           <Card flush aria-label="Fights">
             <DayBand as="h2">Fights</DayBand>
             {fighter.bouts.length > 0 ? (
