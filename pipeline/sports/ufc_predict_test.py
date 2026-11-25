@@ -466,3 +466,65 @@ def test_identical_created_at_higher_id_counts(db_session):
     later = add_row(db_session, built.bouts[0], at, 0.8)
     assert grade(db_session) == 1
     assert results(db_session)[0].prediction_id == later.id
+
+
+# ---- bouts that can never be graded are not re-selected --------------------
+
+def _spy_grade_bout(monkeypatch):
+    seen: list[int] = []
+    real = mod._grade_bout
+
+    def spy(db, bout, rows, graded):
+        seen.append(bout.id)
+        return real(db, bout, rows, graded)
+
+    monkeypatch.setattr(mod, "_grade_bout", spy)
+    return seen
+
+
+def test_bouts_with_only_late_predictions_are_never_selected(db_session, monkeypatch):
+    rows = [(f"2026-11-{1 + i % 28:02d}T18:00", f"X{i}", f"Y{i}", "a", "decision") for i in range(40)]
+    built = build(db_session, rows)
+    for b in built.bouts:
+        add_row(db_session, b, _utc(b.scheduled_utc) + timedelta(hours=1), 0.7)
+    seen = _spy_grade_bout(monkeypatch)
+    assert grade(db_session) == 0 and grade(db_session) == 0
+    assert seen == []
+
+
+def test_bout_with_pre_and_post_lock_rows_is_selected_and_grades_the_pre_lock_row(db_session, monkeypatch):
+    built = build(db_session, DONE)
+    pre = add_row(db_session, built.bouts[0], T - timedelta(hours=1), 0.65)
+    add_row(db_session, built.bouts[0], T + timedelta(hours=1), 0.95)
+    seen = _spy_grade_bout(monkeypatch)
+    assert grade(db_session) == 1 and seen == [built.bouts[0].id]
+    assert results(db_session)[0].prediction_id == pre.id
+
+
+def test_bout_without_a_scheduled_time_is_never_selected(db_session, monkeypatch):
+    built = build(db_session, DONE)
+    add_row(db_session, built.bouts[0], T - timedelta(days=1), 0.7)
+    built.bouts[0].scheduled_utc = None
+    built.bouts[0].locked_at = None
+    db_session.flush()
+    seen = _spy_grade_bout(monkeypatch)
+    assert grade(db_session) == 0 and seen == []
+
+
+def test_reconcile_window_edge_is_exact(db_session):
+    now = datetime(2026, 12, 31, 12, 0, tzinfo=timezone.utc)  # cutoff 2026-12-01 12:00
+    built = build(db_session, [
+        ("2026-12-01T12:01", "A", "B", "a", "decision"),  # just inside
+        ("2026-12-01T11:59", "C", "D", "a", "decision"),  # just outside
+    ])
+    for b in built.bouts:
+        add_row(db_session, b, _utc(b.scheduled_utc) - timedelta(days=1), 0.7)
+    grade(db_session)
+    for b in built.bouts:
+        b.winner = "b"
+    db_session.flush()
+    s = grade_summary(db_session, now=now)
+    assert s.regraded == 1
+    by_bout = {r.bout_id: r for r in results(db_session)}
+    assert by_bout[built.bouts[0].id].prob_assigned == pytest.approx(0.3)
+    assert by_bout[built.bouts[1].id].prob_assigned == pytest.approx(0.7)

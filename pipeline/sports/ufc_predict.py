@@ -25,7 +25,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, select
 from sqlalchemy.orm import Session
 
 from app.models import UfcBout, UfcFighter, UfcPrediction, UfcPredictionResult
@@ -221,10 +221,13 @@ def _reconcile(db: Session, now: datetime, summary: GradeSummary) -> None:
         select(UfcPredictionResult, UfcBout, UfcPrediction)
         .join(UfcBout, UfcBout.id == UfcPredictionResult.bout_id)
         .join(UfcPrediction, UfcPrediction.id == UfcPredictionResult.prediction_id)
-        .where(UfcBout.scheduled_utc >= cutoff)
+        .where(UfcBout.scheduled_utc >= cutoff - timedelta(days=1))  # coarse; exact check below
         .order_by(UfcPredictionResult.id)
     ).all()
     for result, bout, pred in rows:
+        when = _utc(bout.scheduled_utc)
+        if when is None or when < cutoff:
+            continue
         try:
             with db.begin_nested():
                 if not _qualifies(bout):
@@ -249,9 +252,20 @@ def grade_summary(db: Session, now: datetime | None = None) -> GradeSummary:
     _reconcile(db, now, summary)
     db.flush()
 
+    # Only a selector: a prediction counts as ungraded when it was made at or before the
+    # lock (the earlier of locked_at and scheduled_utc), so bouts that can never be graded
+    # are not re-read on every run. `_grade_bout` stays the authority for the counting row.
+    lock = case(
+        (and_(UfcBout.locked_at.is_not(None), UfcBout.scheduled_utc.is_not(None),
+              UfcBout.locked_at < UfcBout.scheduled_utc), UfcBout.locked_at),
+        (UfcBout.scheduled_utc.is_not(None), UfcBout.scheduled_utc),
+        else_=UfcBout.locked_at,
+    )
     ungraded = (
         select(UfcPrediction.id).where(
             UfcPrediction.bout_id == UfcBout.id,
+            lock.is_not(None),
+            UfcPrediction.created_at <= lock,
             ~select(UfcPredictionResult.id).where(
                 UfcPredictionResult.bout_id == UfcPrediction.bout_id,
                 UfcPredictionResult.model_version == UfcPrediction.model_version,
