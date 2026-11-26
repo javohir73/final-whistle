@@ -44,7 +44,7 @@ export function BoutRow({
   const versus = `${a.name} v ${b.name}`;
   const side = (f: typeof a, extra: { muted?: boolean; struck?: boolean } = {}) => ({
     name: f.name,
-    crest: <FighterMark name={f.name} />,
+    crest: <FighterMark name={f.name} slug={f.slug} />,
     ...extra,
   });
 

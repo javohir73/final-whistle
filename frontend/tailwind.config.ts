@@ -14,6 +14,16 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // UFC dark band (fight hero, card banner, fighter page): ink-green, with text colours that
+        // keep 4.5:1+ on the band and on the tile, down to 11px.
+        ufc: {
+          band: "#0f1a15",
+          ink: "#f6f5f1",
+          muted: "#b9c7bf",
+          lime: "#c8f169",
+          "lime-hover": "#d6f68a",
+          tile: "#22342a",
+        },
         // ---- Direction G (literal hex so `/alpha` modifiers work) ----
         ground: "#ffffff",
         ink: "#14181f",

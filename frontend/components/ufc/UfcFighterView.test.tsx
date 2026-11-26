@@ -15,7 +15,8 @@ it("heads the page with country and record", () => {
   render(<UfcFighterView fighter={FIGHTER} />);
   expect(screen.getByRole("heading", { level: 1, name: "Jiří Procházka" })).toBeInTheDocument();
   expect(screen.getByText("UFC fighter")).toBeInTheDocument();
-  expect(screen.getByText("Czech Republic · UFC record 1-1-0")).toBeInTheDocument();
+  expect(screen.getByText("Czech Republic")).toBeInTheDocument();
+  expect(screen.getByText("UFC record 1-1-0")).toBeInTheDocument();
   expect(screen.getByText("14 October 1992")).toBeInTheDocument();
   expect(screen.getByText("6′ 3″")).toBeInTheDocument();
   expect(screen.getByText("80″")).toBeInTheDocument();
@@ -46,7 +47,8 @@ it("shows draw and no contest plainly", () => {
   render(<UfcFighterView fighter={FIGHTER_DRAW_NC} />);
   expect(screen.getByText("Draw")).toBeInTheDocument();
   expect(screen.getByText("No contest")).toBeInTheDocument();
-  expect(screen.getByText("United States · UFC record 16-4-1, 1 NC")).toBeInTheDocument();
+  expect(screen.getByText("United States")).toBeInTheDocument();
+  expect(screen.getByText("UFC record 16-4-1, 1 NC")).toBeInTheDocument();
 });
 
 it("works with no history", () => {
@@ -125,12 +127,13 @@ it("never says a fighter with an unknown record has no fights, and shows the cou
 it("shows nothing under the name when record and country are both unknown", () => {
   const { container } = render(<UfcFighterView fighter={{ ...FIGHTER_NO_HISTORY, country: null }} />);
   expect(container.textContent).not.toMatch(/No UFC fights/i);
-  expect(screen.getByRole("heading", { level: 1 }).parentElement?.querySelector("p")).toBeNull();
+  expect(container.textContent).not.toMatch(/UFC record/);
+  expect(screen.getByRole("heading", { level: 1 }).parentElement?.querySelector("span")).toBeNull();
 });
 
 it("still shows the record when there is one", () => {
   render(<UfcFighterView fighter={FIGHTER} />);
-  expect(screen.getByText("Czech Republic · UFC record 1-1-0")).toBeInTheDocument();
+  expect(screen.getByText("UFC record 1-1-0")).toBeInTheDocument();
 });
 
 it("links every row's date to its fight", () => {

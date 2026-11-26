@@ -76,7 +76,10 @@ it("shows the time alone when both segments are on the card's day", () => {
 
 it("does not repeat the segment's time on every fight", () => {
   render(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
-  const links = screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/ufc/fight/"));
+  const banner = screen.getByRole("region", { name: "Main event" });
+  const links = screen
+    .getAllByRole("link")
+    .filter((a) => a.getAttribute("href")?.startsWith("/ufc/fight/") && !banner.contains(a));
   expect(links.length).toBeGreaterThan(0);
   for (const a of links) {
     expect(a.getAttribute("aria-label")).toMatch(/, (upcoming|cancelled)$/);
@@ -215,7 +218,8 @@ describe("pick status", () => {
     render(<UfcCardView event={UPCOMING_EVENT} upcoming={[]} />);
     const notice = await screen.findByText(/doesn't count because the fight changed/);
     expect(screen.getByRole("complementary", { name: "About this card" })).toContainElement(notice);
-    expect(section("Main card").parentElement?.firstElementChild).toBe(section("Main card"));
+    // The main-event banner heads the column; the segments follow it in their order.
+    expect(section("Main card").previousElementSibling).toBe(screen.getByRole("region", { name: "Main event" }));
     expect(screen.getByRole("link", { name: "Pick the new fight" })).toHaveAttribute("href", "/ufc/fight/9#pick");
   });
 
