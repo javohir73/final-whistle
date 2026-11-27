@@ -855,6 +855,7 @@ frozen configs. Gate: 95% matchweek-clustered CI on Δ 1X2 LL, below 0 on both.
 | 2026-11-27 | C1_offset: +δ Elo for ENG/ESP/GER clubs (walk-forward δ 60/20/20; frozen 20) | UCL sel 375 / conf 378 | 1X2 LL +0.0027 sel; +0.0014 conf | [−0.0046, +0.0103]; [−0.0029, +0.0063] | **REFUTED** — big-3 under-rating is +0.05 ppg historically; 2026-27's +0.32 is atypical |
 | 2026-11-27 | C2_unified: joint Elo over 12 domestic leagues + UCL, tier seeds, no-feed shrinkage | same | 1X2 LL −0.0082 sel; −0.0388 conf | [−0.0453, +0.0289]; [−0.0880, +0.0125] | **NOT CREDIBLE** — favourable direction, fixes no-feed over-rating but overshoots |
 | 2026-11-27 | C3_unified_cal: C2 + UCL-fitted vector scaling (frozen t 1.2, b (0, −0.1, −0.1)) | same | 1X2 LL −0.0049 sel; −0.0519 conf | [−0.0463, +0.0343]; [−0.1005, −0.0014] | **NOT SHIPPED** — failed selection; its credible confirmation cannot rescue it |
+| 2026-11-27 | UCL unified shadows: `+unified` (C2) and `+unified_cal` (C3), forward test | live 2026-27 UCL matches kicking off after the first shadow run | 1X2 LL delta vs served v0.2, latest pre-kickoff row per match | matchweek-clustered bootstrap 95% CI | **SHADOW ONLY, pre-registered** in `docs/UCL-UNIFIED-SHADOW-PREREG.md`; promotion needs CI upper < 0 for `unified_cal` over 2026-27 AND not worse on the 2027-28 league phase |
 
 Persistent finding: clubs from countries with no domestic feed are over-rated
 by the served UCL-only Elo (actual − expected ppg −0.19 sel, −0.35 conf, −0.48
