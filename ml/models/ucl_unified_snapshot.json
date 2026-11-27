@@ -1,0 +1,2680 @@
+{
+ "version": 1,
+ "description": "C2 unified Elo state (domestic leagues + every UCL match) frozen at the cutoff; pipeline/ucl_unified_elo.py continues the replay from here.",
+ "cutoff": "2026-07-01",
+ "constants": {
+  "tier_seed": {
+   "ENG": 1600.0,
+   "ESP": 1600.0,
+   "GER": 1600.0,
+   "ITA": 1600.0,
+   "FRA": 1550.0,
+   "POR": 1550.0,
+   "NED": 1500.0,
+   "TUR": 1500.0,
+   "BEL": 1500.0,
+   "GRE": 1500.0,
+   "AUT": 1500.0,
+   "SCO": 1500.0
+  },
+  "nofeed_prior": 1450.0,
+  "newcomer_drop": 100.0,
+  "shrink_n0": 10.0,
+  "home_advantage": 60.0
+ },
+ "opening": {
+  "AUT": "1213",
+  "B1": "1112",
+  "D1": "1112",
+  "E0": "1112",
+  "F1": "1112",
+  "G1": "1112",
+  "I1": "1112",
+  "N1": "1112",
+  "P1": "1112",
+  "SC0": "1112",
+  "SP1": "1112",
+  "T1": "1112"
+ },
+ "counts": {
+  "events": 56811,
+  "clubs": 472,
+  "openfootball_parse_problems": 0,
+  "openfootball_rows_dropped_by_cleaning": 0
+ },
+ "sources": {
+  "football-data.co.uk": {
+   "note": "free to download per the site; per-match bytes are not redistributed here -- only the derived ratings and a sha256 of the canonical event lines",
+   "files": {
+    "mmz4281/1112/E0.csv": {
+     "rows": 380,
+     "sha256": "5183aa70a292e90f88bcf617bca4241071e5497f4e243d81e503ebb7c0fec3f2"
+    },
+    "mmz4281/1213/E0.csv": {
+     "rows": 380,
+     "sha256": "78a6d45b8e8dd5cb47e54fe90cc789a1e379b69e3706f06e178947168e6ebc1d"
+    },
+    "mmz4281/1314/E0.csv": {
+     "rows": 380,
+     "sha256": "d1053de0df8f5db030a609e75d99103c85d5b2bacaf546bd45913fb8e16e7109"
+    },
+    "mmz4281/1415/E0.csv": {
+     "rows": 380,
+     "sha256": "3e5f33e905f301952c44ce3c1e9cd7a266f7cfe1baa4c11039219f8436c9d29d"
+    },
+    "mmz4281/1516/E0.csv": {
+     "rows": 380,
+     "sha256": "74db0b13df5853b31a9a5763af444a3ebaddfd6c5620130d0dd641de4cbcc978"
+    },
+    "mmz4281/1617/E0.csv": {
+     "rows": 380,
+     "sha256": "35a511d2e4e9bf3a3cf9bb0dcdd97a690722232f3fb2c7b2b07a26658ddad0a4"
+    },
+    "mmz4281/1718/E0.csv": {
+     "rows": 380,
+     "sha256": "29097be9abb543dd0acb13602102d75da5c3f63ecfbece344063590072828271"
+    },
+    "mmz4281/1819/E0.csv": {
+     "rows": 380,
+     "sha256": "66a4ba3007a8a5afe20ebd94fc501837e3a3f12ab3253e865e103bd3bd4038e7"
+    },
+    "mmz4281/1920/E0.csv": {
+     "rows": 380,
+     "sha256": "4c322168e129e1267cfa51fcb1002f27ee119f095fab00f132400c0d58187fa4"
+    },
+    "mmz4281/2021/E0.csv": {
+     "rows": 380,
+     "sha256": "4f988de62ecc300c00e5c0ef6c94b7715865d07ba5460c4af3b80bbeadc9fd6f"
+    },
+    "mmz4281/2122/E0.csv": {
+     "rows": 380,
+     "sha256": "1c537fbfcd85b0871dbd2d9db687315b93e785a7fefa9b288f999de65737a5d7"
+    },
+    "mmz4281/2223/E0.csv": {
+     "rows": 380,
+     "sha256": "03a629023e9fab9a8dc4ba3d8d58000a08061e8b654397ae2d0a8a4f085539b9"
+    },
+    "mmz4281/2324/E0.csv": {
+     "rows": 380,
+     "sha256": "6f399b7db52619e5acc61672b33f3a2069e683632cc00e4131e31475d3b3af3d"
+    },
+    "mmz4281/2425/E0.csv": {
+     "rows": 380,
+     "sha256": "9d2dc35e688b5a37c2d97aaae7c6ac87dc75bf42038c482b0261bec4674ee5b2"
+    },
+    "mmz4281/2526/E0.csv": {
+     "rows": 380,
+     "sha256": "6d2aa184003b3b5dc506cf995d0277b1b5ae3527f96b33165d4010af2ea0f911"
+    },
+    "mmz4281/1112/SP1.csv": {
+     "rows": 380,
+     "sha256": "3ceb24742be6d7bf19f9a2ddf5c78f368c9d004891b7ad2c7d6a21cb1594a930"
+    },
+    "mmz4281/1213/SP1.csv": {
+     "rows": 380,
+     "sha256": "c3f39d2ec7d1046e44063ed30a74b25cd69195616850e471d1229f529d325a26"
+    },
+    "mmz4281/1314/SP1.csv": {
+     "rows": 380,
+     "sha256": "83ee72dbf1b986aae8b7ed038292dbc7c9407e43e139ff16dd57ad5fcab17692"
+    },
+    "mmz4281/1415/SP1.csv": {
+     "rows": 380,
+     "sha256": "b371cfe0628855084110355471cf636c4e13b91709560ef814092c20c1029db9"
+    },
+    "mmz4281/1516/SP1.csv": {
+     "rows": 380,
+     "sha256": "769d4066f5aefdfd8762afbb9ebf70b899f2672099358ca6be1f3de5d1305992"
+    },
+    "mmz4281/1617/SP1.csv": {
+     "rows": 380,
+     "sha256": "a9a625b05750fe89669976ed16264d62fe2f58c9e0b449761249ecd60f3b59e2"
+    },
+    "mmz4281/1718/SP1.csv": {
+     "rows": 380,
+     "sha256": "6b4259b09afb7ded5a727b7d8841da5a51e9eaecc44437472a607f5736d41a94"
+    },
+    "mmz4281/1819/SP1.csv": {
+     "rows": 380,
+     "sha256": "964d11e1b363e8215f11b3c531c35efb87ba3c888441c2098eef8d0888536366"
+    },
+    "mmz4281/1920/SP1.csv": {
+     "rows": 380,
+     "sha256": "7c6bf3adf6f0205201c9e855fcc0c8147fded7fdecb9b1cf19ec426fdf95bc64"
+    },
+    "mmz4281/2021/SP1.csv": {
+     "rows": 380,
+     "sha256": "8b6f5fcd76aa09bbdb6b1c56ced784ad7823b15f9ba873e8efc856f93476a849"
+    },
+    "mmz4281/2122/SP1.csv": {
+     "rows": 380,
+     "sha256": "7de945e6acce1ca5964989b8406437578861cc11a2110b9baf44527cf3e015c4"
+    },
+    "mmz4281/2223/SP1.csv": {
+     "rows": 380,
+     "sha256": "f20fa415dfda7c1f6fe08de9e30ae6d95cb12b0a20bfe9c9956f49eee0056732"
+    },
+    "mmz4281/2324/SP1.csv": {
+     "rows": 380,
+     "sha256": "69ba7a3f5a7690aefe24d5663c4aae7b504623b16982c8334ca57d444d9148fd"
+    },
+    "mmz4281/2425/SP1.csv": {
+     "rows": 380,
+     "sha256": "dd23243d3da59f6df14a5779d26508dfc715a12a93b6236f5123ed09f6e9217b"
+    },
+    "mmz4281/2526/SP1.csv": {
+     "rows": 380,
+     "sha256": "27c4e44e634cce6e55f1dae56e2ca5d82baac355e6215d0f5aaa6d01b7d4a732"
+    },
+    "mmz4281/1112/D1.csv": {
+     "rows": 306,
+     "sha256": "1c96973c6da578e77e0c870bb4e3538472c80ec6cb9b8ea6dd8b4bf585862576"
+    },
+    "mmz4281/1213/D1.csv": {
+     "rows": 306,
+     "sha256": "2eb9b4c6d6d12b265bbb3e5cf1b46341d5fd55d4081b531eafff7bfca4c8009d"
+    },
+    "mmz4281/1314/D1.csv": {
+     "rows": 306,
+     "sha256": "d3cb9e97489fbfdf109a19eab6a8d8c4db5d623ffbc5d8dcfc38b7d251da9eef"
+    },
+    "mmz4281/1415/D1.csv": {
+     "rows": 306,
+     "sha256": "4a7fc1a89160a98e20e5099e1231014ff640434bb80501ed12c75b83e28e0757"
+    },
+    "mmz4281/1516/D1.csv": {
+     "rows": 306,
+     "sha256": "c78149a630b58ff03ae3618f86f7fe449b5e6398a2692a84dd66b822a37c06a5"
+    },
+    "mmz4281/1617/D1.csv": {
+     "rows": 306,
+     "sha256": "1c144e2543e1ddd8056a9415d3d814c3f6078283f4e85b1f270b7c108ab8ba3b"
+    },
+    "mmz4281/1718/D1.csv": {
+     "rows": 306,
+     "sha256": "6bdc7a892b910a3299dab4521154e09776c7914503bb33d3ebc1827d6f4adbb2"
+    },
+    "mmz4281/1819/D1.csv": {
+     "rows": 306,
+     "sha256": "47bf5e6b8cff65d893f72170b1de1d61975f1df76fd18fa47f3b9ff8d65d418f"
+    },
+    "mmz4281/1920/D1.csv": {
+     "rows": 306,
+     "sha256": "5dcd49dcfdbb2ea17791ae86f36370e4c79b764b16ef5c965c28a90e19e7d120"
+    },
+    "mmz4281/2021/D1.csv": {
+     "rows": 306,
+     "sha256": "abe385292941df6e310260890c17c8dad0b3efb814d222059d90010c1e702831"
+    },
+    "mmz4281/2122/D1.csv": {
+     "rows": 306,
+     "sha256": "bc9fd7f35f75a775c41e0e86c0a0b342ba3ee018064146eec3422a48d66e7968"
+    },
+    "mmz4281/2223/D1.csv": {
+     "rows": 306,
+     "sha256": "b8a29432d15f9071592b2940aa16577f5013cfc38c90da99fe169a645d38078c"
+    },
+    "mmz4281/2324/D1.csv": {
+     "rows": 306,
+     "sha256": "ff0a38470df5fdd93b2964d25826b7db3a4f2d4a9d37d789e2fc823684af5d29"
+    },
+    "mmz4281/2425/D1.csv": {
+     "rows": 306,
+     "sha256": "14c5f5a2db91460e8a7edb739104c26d0357b580d09ddd143f2afe17afcf501a"
+    },
+    "mmz4281/2526/D1.csv": {
+     "rows": 306,
+     "sha256": "d42b620865a63e1c61b6c3d62aa962225ff75190e80e9e97cf2c61ed023f180c"
+    },
+    "mmz4281/1112/I1.csv": {
+     "rows": 380,
+     "sha256": "b60ea70ad9cbc41d4e45af54f7a24470725815df24703d9472b069366960758c"
+    },
+    "mmz4281/1213/I1.csv": {
+     "rows": 380,
+     "sha256": "03e69a276c8d54247069ec1ea85b50ede8ed3bcfe7d8476d69ed5ef1c92df197"
+    },
+    "mmz4281/1314/I1.csv": {
+     "rows": 380,
+     "sha256": "96cfaca3debf1693894e4a84f433c166105fe96dd5d7a995f040ece20416334a"
+    },
+    "mmz4281/1415/I1.csv": {
+     "rows": 380,
+     "sha256": "f2dcdec1146e21fddb06645e5488e558b6232f246eb9be9c7fdb6089dfe235dd"
+    },
+    "mmz4281/1516/I1.csv": {
+     "rows": 380,
+     "sha256": "d3fc455ff5f6f5c2430639d9c8a2b82c11e49369e4f834ccfd27c09add146797"
+    },
+    "mmz4281/1617/I1.csv": {
+     "rows": 380,
+     "sha256": "a6ba060d843365b894ba764950794ac7bd4d13656cc182323de2cdcc9ab335a5"
+    },
+    "mmz4281/1718/I1.csv": {
+     "rows": 380,
+     "sha256": "ff6ef645b519bf0e49656e1b9a68e5df26edf1f410bb10ec7f66cdbd0206c82b"
+    },
+    "mmz4281/1819/I1.csv": {
+     "rows": 380,
+     "sha256": "047a30c57593119b9329979f48492fed6c3ec17939dfb9cf688e1d813ce74d2f"
+    },
+    "mmz4281/1920/I1.csv": {
+     "rows": 380,
+     "sha256": "3c8658b06da57fbe69874fb6a24db8ea2dd8460d8c055eccf1ed1773158e3c6c"
+    },
+    "mmz4281/2021/I1.csv": {
+     "rows": 380,
+     "sha256": "ab3e3af637cf36b182f6f434c5075f1ec7db9a739e518d987eb2631b75ffdfb3"
+    },
+    "mmz4281/2122/I1.csv": {
+     "rows": 380,
+     "sha256": "94fcd87531c2a72cb1caecf98c6403b3d363c2893f85ceeb34794e017f4987ae"
+    },
+    "mmz4281/2223/I1.csv": {
+     "rows": 380,
+     "sha256": "206be693bb89aa69f51302337aacd833457257c50e60f2a459fbab82b4bf9031"
+    },
+    "mmz4281/2324/I1.csv": {
+     "rows": 380,
+     "sha256": "1e88612306eb8c1d34b24e53c217c488f7d23463d744626ecd40182945a2265d"
+    },
+    "mmz4281/2425/I1.csv": {
+     "rows": 380,
+     "sha256": "af1ebe1e277b17f434301f6e5a603666cfd8162ef5a9ea52f7601782d85ab4c5"
+    },
+    "mmz4281/2526/I1.csv": {
+     "rows": 380,
+     "sha256": "4112e00b2abe3ab58f2734e8e5d8857cf20f05a6e77b3f6cce9743b57c745657"
+    },
+    "mmz4281/1112/F1.csv": {
+     "rows": 380,
+     "sha256": "436c5aa642088ef023db161fcc7d813779931ab2993fb60c928d3a4e1cdbbc90"
+    },
+    "mmz4281/1213/F1.csv": {
+     "rows": 380,
+     "sha256": "05d36bdfa40de97611c0b309eb4a149ea9c15f7ac333d2fadc1d10e81164585a"
+    },
+    "mmz4281/1314/F1.csv": {
+     "rows": 380,
+     "sha256": "9e092ec4a8ad2cafd58bab43519773de053a5954b896cf481bd0bab8a456f901"
+    },
+    "mmz4281/1415/F1.csv": {
+     "rows": 380,
+     "sha256": "a744896236323c5478fb072ad60e1fefdade57b9a8931c48a7a8663675359d3c"
+    },
+    "mmz4281/1516/F1.csv": {
+     "rows": 380,
+     "sha256": "5d9c97802c3438772386100369e2c10bd27d685dd5bde291798ab919fde6cc72"
+    },
+    "mmz4281/1617/F1.csv": {
+     "rows": 380,
+     "sha256": "d9c27ae530f1590431ed822893c46e9536378cfb2c8e6fc6c0134b551683d47c"
+    },
+    "mmz4281/1718/F1.csv": {
+     "rows": 380,
+     "sha256": "1b378ff7279a6d1cbea776c5182e3d9297151aabfb0b507b7d57c30500e24706"
+    },
+    "mmz4281/1819/F1.csv": {
+     "rows": 380,
+     "sha256": "21a78ab2704a7af33060be3818a5b3a98d220abe6516fb85a8a03c82c50fb892"
+    },
+    "mmz4281/1920/F1.csv": {
+     "rows": 279,
+     "sha256": "4d6124827e0ec9f5bc357b30840b788de4abdd0c3d7344039c116e7aec0c9292"
+    },
+    "mmz4281/2021/F1.csv": {
+     "rows": 380,
+     "sha256": "e33bb34681b2d1fc479e95140c04fe331d574b7e2f27c3be6e634d9d0e7ce779"
+    },
+    "mmz4281/2122/F1.csv": {
+     "rows": 380,
+     "sha256": "4f74b7c6d2794c51d3d432bd39d06ea9d0cbb5c80dfc063c0c7fda9f255ca9b0"
+    },
+    "mmz4281/2223/F1.csv": {
+     "rows": 380,
+     "sha256": "d6a2f4de93a773cc0e2f8c388b03229430802836a30970aeba10832f6759c5e3"
+    },
+    "mmz4281/2324/F1.csv": {
+     "rows": 306,
+     "sha256": "8755eb70bebfb7ee2961d5b59fdcb9f7837a7bb3c1be2c50906af74e0aefa38a"
+    },
+    "mmz4281/2425/F1.csv": {
+     "rows": 306,
+     "sha256": "d503a8f34d6e02b5eebac016f3cea464b9a2cb19f8876ba05bfb5b8e2e3e6aa1"
+    },
+    "mmz4281/2526/F1.csv": {
+     "rows": 306,
+     "sha256": "a8004e35919a32f4e75c011d334b5186f9f4fc90c6a9c3cf9d8db73811329bf4"
+    },
+    "mmz4281/1112/N1.csv": {
+     "rows": 306,
+     "sha256": "f908b014880828c6037c4e171347ee5cc83966abd2fb62f07199f2f78691e92c"
+    },
+    "mmz4281/1213/N1.csv": {
+     "rows": 306,
+     "sha256": "3200dbd9b2828099cb934ee6706aef7da6c5d4a5615e05ebe43054fd6fb86395"
+    },
+    "mmz4281/1314/N1.csv": {
+     "rows": 306,
+     "sha256": "cd930edf04f5cb9210e42fc51cdec0a3aa4af11237e32a02be8c882fdb08942d"
+    },
+    "mmz4281/1415/N1.csv": {
+     "rows": 306,
+     "sha256": "812bcde731150412d8ba58f188553f22804b8744fc1d002abce0355a46f5517e"
+    },
+    "mmz4281/1516/N1.csv": {
+     "rows": 306,
+     "sha256": "b6cfb38574bf179e3665009cb9c8e16cfbde4ec1cabb5cf415a9ee6eaf8999e4"
+    },
+    "mmz4281/1617/N1.csv": {
+     "rows": 306,
+     "sha256": "1d2ca867c90746d61e8e128e6a454a3dbed79a69096b6fddf7fe40c284a58300"
+    },
+    "mmz4281/1718/N1.csv": {
+     "rows": 306,
+     "sha256": "faea68fbbb972a0e8742cef94843b0311a03e1fa76195edc3f835159bfcf329c"
+    },
+    "mmz4281/1819/N1.csv": {
+     "rows": 306,
+     "sha256": "ddefca1fa3dc48b67a1d5cd6625b3c8969f6bd663989f074dca78b1fc5ff3191"
+    },
+    "mmz4281/1920/N1.csv": {
+     "rows": 232,
+     "sha256": "fc93d54af97e2aa72ec3728f272f8f21d3cfa63c7d8e851d6707a0725d643a2f"
+    },
+    "mmz4281/2021/N1.csv": {
+     "rows": 306,
+     "sha256": "bc83b3d25e896055444c15c64743ed12d92a94177aa32d0638b0b68f39f3a9c8"
+    },
+    "mmz4281/2122/N1.csv": {
+     "rows": 306,
+     "sha256": "65ed148910ea236915647638ed812e917d0a149a6aedbd9f090edae5ebaeb1a8"
+    },
+    "mmz4281/2223/N1.csv": {
+     "rows": 306,
+     "sha256": "6fe25d8d813a142b7ca9524341f3075182b2daa96f41e5ab4ba0abab575b8468"
+    },
+    "mmz4281/2324/N1.csv": {
+     "rows": 306,
+     "sha256": "6d33b2feb367aeec0848c0063e168511119233977df5f1c6cece295220cd0b7f"
+    },
+    "mmz4281/2425/N1.csv": {
+     "rows": 306,
+     "sha256": "25b4e5a631475b2fc5c07f468cfceb7c0e788c3d196cfb2c0183898a5ab72954"
+    },
+    "mmz4281/2526/N1.csv": {
+     "rows": 306,
+     "sha256": "daa5e40c3b9a548db6d4d6cf5be6e643b1b46b32b42e4b41779841f5170f3416"
+    },
+    "mmz4281/1112/P1.csv": {
+     "rows": 240,
+     "sha256": "d8e561191f1cce77359619a57ea6d1ab68c72bfd0ef0f9d9edcecb0311d34602"
+    },
+    "mmz4281/1213/P1.csv": {
+     "rows": 240,
+     "sha256": "185ac0d39ca44be9391f16779ded8558e02d3cf5c555f375fa1c983f7b757c22"
+    },
+    "mmz4281/1314/P1.csv": {
+     "rows": 240,
+     "sha256": "7754fdb7c41a7dfd37d21eaacddbe3dbfc590d499c6eb068eb8a50857f192d40"
+    },
+    "mmz4281/1415/P1.csv": {
+     "rows": 306,
+     "sha256": "bdda8c4474a54225b2650847cfaad3b19d2bd21a7ae219f29c9c268a0355cb23"
+    },
+    "mmz4281/1516/P1.csv": {
+     "rows": 306,
+     "sha256": "205fb1b9ee55a49f0246fd3a32852b9ed03cc98f7d8064f497fa54209738a577"
+    },
+    "mmz4281/1617/P1.csv": {
+     "rows": 306,
+     "sha256": "c9d81072bb7ceb814bd67e12e202630c13838ce8eea52e4adaaddc2f053efb32"
+    },
+    "mmz4281/1718/P1.csv": {
+     "rows": 306,
+     "sha256": "34e8eed1ac5567405d810e041ae7e208ac59e2eaab3eca92d5be80106cdb196d"
+    },
+    "mmz4281/1819/P1.csv": {
+     "rows": 306,
+     "sha256": "042895f363911a72ecbceea39c29127be16995a05007693fe8c32db7bcd65f46"
+    },
+    "mmz4281/1920/P1.csv": {
+     "rows": 306,
+     "sha256": "205833725d0252567ffef14794d5d66a367d3110b132d80407b3d4fb15ace038"
+    },
+    "mmz4281/2021/P1.csv": {
+     "rows": 306,
+     "sha256": "60de7719c60db603d0dad74db75a14778e950a6fd2c8e05efdc3e8bbc6eb37dc"
+    },
+    "mmz4281/2122/P1.csv": {
+     "rows": 306,
+     "sha256": "557a8646a4007cd11b65b47b5b64a539e42933b16cf91814b09dcc1895b519f5"
+    },
+    "mmz4281/2223/P1.csv": {
+     "rows": 306,
+     "sha256": "17f9d8973c636dc3429eafd35dc5ddfefd11577710904cf5620a4585209fe5fb"
+    },
+    "mmz4281/2324/P1.csv": {
+     "rows": 306,
+     "sha256": "e32eb8f636df0cce7c92db39e1864b338159eadce757d3c5940c3a28f3ab4b96"
+    },
+    "mmz4281/2425/P1.csv": {
+     "rows": 306,
+     "sha256": "5fd084c650bcf636ab8fb3157b713a379229e7aadaaa305234f31454bfcd4048"
+    },
+    "mmz4281/2526/P1.csv": {
+     "rows": 306,
+     "sha256": "5424ff76371842f4def0405326e6be7e1c90c9331b473c3569270bc192cb7193"
+    },
+    "mmz4281/1112/T1.csv": {
+     "rows": 306,
+     "sha256": "28fe2e440c6a9a67cf305e7ce6d24a9544d5ea7a815121a2978c5376f1d92fc8"
+    },
+    "mmz4281/1213/T1.csv": {
+     "rows": 306,
+     "sha256": "42cce785fc3c7629e8cd082ab6f7ab8057fe30f5f727ec260d6568864f7d902d"
+    },
+    "mmz4281/1314/T1.csv": {
+     "rows": 306,
+     "sha256": "b0cc0a402e9e3417bb48bf6e0ac4d43bcc78bdfdf633cfb9a304378e369f496f"
+    },
+    "mmz4281/1415/T1.csv": {
+     "rows": 306,
+     "sha256": "27b5c24ea0b50b002697c360c8ec8525b9a9450c2edc32eb42622c172bf3b51f"
+    },
+    "mmz4281/1516/T1.csv": {
+     "rows": 306,
+     "sha256": "e9aa0fb82a30167650d3862dfd58dd2cbda9d199512f448f29a5010fdb43b85e"
+    },
+    "mmz4281/1617/T1.csv": {
+     "rows": 306,
+     "sha256": "ba070b5c7baa2bd519114ea435773d9ba88e2130384a9d46c97f90ad5d04ae10"
+    },
+    "mmz4281/1718/T1.csv": {
+     "rows": 306,
+     "sha256": "222cf7e18c7a2fd014922d89fbc95aa5d099b4bdd25671efd99ba5f4db6c10c3"
+    },
+    "mmz4281/1819/T1.csv": {
+     "rows": 306,
+     "sha256": "1f795ddfe59fb989741526e471749751194e8512b88b8fc27142087cb208c6cb"
+    },
+    "mmz4281/1920/T1.csv": {
+     "rows": 306,
+     "sha256": "bae1947bb1eb46d54a7b39ef294faaa9ee6ce30d3e78208c9d2690d83db2ed4d"
+    },
+    "mmz4281/2021/T1.csv": {
+     "rows": 420,
+     "sha256": "a321fe8f811fe7b8e81b68963b3d241e09e2ed51845764c3e28a46ba915c4da4"
+    },
+    "mmz4281/2122/T1.csv": {
+     "rows": 380,
+     "sha256": "4196911690cc76eecd378f9c0e1d1007f058473f7d1167eaa9c36b52d6c7e4aa"
+    },
+    "mmz4281/2223/T1.csv": {
+     "rows": 342,
+     "sha256": "5a0ad2c31ff020d074bcbae3430bb3f5a124592c24818700fdc90e7f8d7efefb"
+    },
+    "mmz4281/2324/T1.csv": {
+     "rows": 380,
+     "sha256": "7f95127460e542bc095e613a1001723f4bfcd9ee6677b7a1aa00430126148326"
+    },
+    "mmz4281/2425/T1.csv": {
+     "rows": 342,
+     "sha256": "5c6a92cd6d2aa01bb4e099742d97dd8bb7ac1736a47f431dd288e68340c4e2ca"
+    },
+    "mmz4281/2526/T1.csv": {
+     "rows": 306,
+     "sha256": "5ef6a55d8c57e269fbc965fa74551a099d966fe64a613f70af5cae92246a1ab6"
+    },
+    "mmz4281/1112/B1.csv": {
+     "rows": 240,
+     "sha256": "416cac91a0db2648af82a3cc489f36309b3f1e756b31013b753c928a1e6317bb"
+    },
+    "mmz4281/1213/B1.csv": {
+     "rows": 240,
+     "sha256": "0551e46f7ca340bff0aa809d1763cbe103d5c9c632dc000b2c2defffbac1b1ca"
+    },
+    "mmz4281/1314/B1.csv": {
+     "rows": 240,
+     "sha256": "d646f79797a59a8a5b528e06ad7eb27ce8f2ef4cb737db58ecabebde6acc2db6"
+    },
+    "mmz4281/1415/B1.csv": {
+     "rows": 240,
+     "sha256": "fb4f831303f9b5f7fba3e39ad6fcdf748cc9ebbde628029777a20b6010104269"
+    },
+    "mmz4281/1516/B1.csv": {
+     "rows": 240,
+     "sha256": "4e5904de8f2d5485bc0608c3c28be3f4c9f10194c0e29c0e156aebcd9ba8463b"
+    },
+    "mmz4281/1617/B1.csv": {
+     "rows": 240,
+     "sha256": "64f4a2d2b74ba5fb568dc809019637f35ebc238db62dfb605611e2d284ac409b"
+    },
+    "mmz4281/1718/B1.csv": {
+     "rows": 240,
+     "sha256": "90c19c74e6091893b1f3ca68bf644d5dc25e0eec05b4ffd946355563072ae2d1"
+    },
+    "mmz4281/1819/B1.csv": {
+     "rows": 240,
+     "sha256": "f1d2d2fd621d29ca719570f7adb49eef331011ecd6372ae4f895722062c0dae3"
+    },
+    "mmz4281/1920/B1.csv": {
+     "rows": 232,
+     "sha256": "382f13c543e42c7e4fa72c71ea85535ffe3beaddb104f7b140b331e1692a0107"
+    },
+    "mmz4281/2021/B1.csv": {
+     "rows": 306,
+     "sha256": "6bff7fecb6f407a8e3952bf011581b34cacb14cf1a94ec50aeb803435c56ea04"
+    },
+    "mmz4281/2122/B1.csv": {
+     "rows": 306,
+     "sha256": "5b9cbdb9de219bdeb58de77515ef2f65e4b29236aa5adfeecdbaf08faded6ce6"
+    },
+    "mmz4281/2223/B1.csv": {
+     "rows": 306,
+     "sha256": "324efffcb49b53b9744c242f1db208e24a1a63c4cfb7ec020d714da6c8bd5317"
+    },
+    "mmz4281/2324/B1.csv": {
+     "rows": 312,
+     "sha256": "e367d9e0e6e955e9260d545b41f18ba9ed613473ff43e4b0fb9aa2c3f7c65759"
+    },
+    "mmz4281/2425/B1.csv": {
+     "rows": 312,
+     "sha256": "112a491dbf4fd90a5013aa319a2dd4e9df4e9794a92426c7c6f2f01401a25fad"
+    },
+    "mmz4281/2526/B1.csv": {
+     "rows": 311,
+     "sha256": "97868f6a5d19ce38de5719de3f16bea3931a14e4948b8b11fed09457e9644aeb"
+    },
+    "mmz4281/1112/SC0.csv": {
+     "rows": 228,
+     "sha256": "58c5cbf0e99a2ff3cd45362096e8b97d0799a03291c0eec32f6c34137bfb3cc3"
+    },
+    "mmz4281/1213/SC0.csv": {
+     "rows": 228,
+     "sha256": "1f74209636079ba1e5a9f1c8749faba60ae441ff4ee60189d40d32fad298b283"
+    },
+    "mmz4281/1314/SC0.csv": {
+     "rows": 228,
+     "sha256": "3e86b9f427cb52ba650c50d8d971c0e53acffece8073d0f61d1e8f50b819e594"
+    },
+    "mmz4281/1415/SC0.csv": {
+     "rows": 228,
+     "sha256": "0b4d2afc30ab51122131f621406d43351556ca52f00983db93a13f55ef65f080"
+    },
+    "mmz4281/1516/SC0.csv": {
+     "rows": 228,
+     "sha256": "e56c155ee64dd397cd04c9a785e7df5d6f7761036df3eed614838b922e53e530"
+    },
+    "mmz4281/1617/SC0.csv": {
+     "rows": 228,
+     "sha256": "82145ef8f1ad183fca75e1d35a0efec6a8b54b24613c775ab3a0a18bbca3dbbc"
+    },
+    "mmz4281/1718/SC0.csv": {
+     "rows": 228,
+     "sha256": "b67563f73f16c617ca4bca065845045153a1eee23a6ec9c86036a38790d74838"
+    },
+    "mmz4281/1819/SC0.csv": {
+     "rows": 228,
+     "sha256": "f77011eb3cb8b291ed2e91d1e69cb6d4ca1d2b194f1e932fcb42737c1ae5dcce"
+    },
+    "mmz4281/1920/SC0.csv": {
+     "rows": 179,
+     "sha256": "2daef6f3089820a6c00f588a7b1960fadeeea45a6fade186855209a0de629ce3"
+    },
+    "mmz4281/2021/SC0.csv": {
+     "rows": 228,
+     "sha256": "5fc95d872a14eb362b11d88936ed222508038bf070d55a7c954914f8ec9f8d5c"
+    },
+    "mmz4281/2122/SC0.csv": {
+     "rows": 228,
+     "sha256": "2d49278fc126c184f5fafbbcb30a40cee8da83baa76b0ffa98a3f9c54f92f023"
+    },
+    "mmz4281/2223/SC0.csv": {
+     "rows": 228,
+     "sha256": "5f6c1eee2a36234843cf8ded80c24f72f95ced11f1acb44ea17a31fa1ea877dd"
+    },
+    "mmz4281/2324/SC0.csv": {
+     "rows": 228,
+     "sha256": "8d59f72830b2297a8ca00b14e85247d3f89b44741d726ddf81a41a0e9e7e936f"
+    },
+    "mmz4281/2425/SC0.csv": {
+     "rows": 228,
+     "sha256": "2b020f2c960152e4fe02af167d2b0346a4d4df70cfb68b05727fee94817d0144"
+    },
+    "mmz4281/2526/SC0.csv": {
+     "rows": 228,
+     "sha256": "3d81e1bf631651c8b0d98e13c8caa3f049c60a80260a81d8422f76c29b9402a3"
+    },
+    "mmz4281/1112/G1.csv": {
+     "rows": 240,
+     "sha256": "52bbc0381d09db49deb6321dfffd044c0a7430a7531218f2d277bc0f4ee1c628"
+    },
+    "mmz4281/1213/G1.csv": {
+     "rows": 240,
+     "sha256": "ad4108688f56ba5bd8659f457731c6bd2d7b4adc7b98ec3b3dacd163992c53e0"
+    },
+    "mmz4281/1314/G1.csv": {
+     "rows": 306,
+     "sha256": "849b206a1890aa07c5d43067b0649f31cae7beb1254caeef191b1299112cd981"
+    },
+    "mmz4281/1415/G1.csv": {
+     "rows": 305,
+     "sha256": "7d8ad74f22f85441f75d7e979bf7d47e309b68d6bb147b11bbd6043e0c65fd95"
+    },
+    "mmz4281/1516/G1.csv": {
+     "rows": 240,
+     "sha256": "d3071abd408356c13cf2b27579f011e106edd719d3168e8cb8dbc5e6f188e742"
+    },
+    "mmz4281/1617/G1.csv": {
+     "rows": 240,
+     "sha256": "89fb4d7a29f2decbdd5ce5341aa67fad836064587b53f9888c693f140a25cdfa"
+    },
+    "mmz4281/1718/G1.csv": {
+     "rows": 240,
+     "sha256": "d1d79b7bdd7c2d29cd7217310d94374824f0ed7b355f9f2a20e709f9f676c2e9"
+    },
+    "mmz4281/1819/G1.csv": {
+     "rows": 239,
+     "sha256": "c005c201119d77bdca1b611631f5ab14de6483d4da82e4f055ace10f3b639279"
+    },
+    "mmz4281/1920/G1.csv": {
+     "rows": 240,
+     "sha256": "052125655e42afa673f602f396e6b2b6c59acc6363670ea2fd52fb697c9dfddd"
+    },
+    "mmz4281/2021/G1.csv": {
+     "rows": 240,
+     "sha256": "811e4bfe4bf175841b8793f5a3c5bce72c9d7089915a48f872b7687447a5eda6"
+    },
+    "mmz4281/2122/G1.csv": {
+     "rows": 240,
+     "sha256": "43861a35b5347e4e1791c9284ec050c0d74be3a063d2538d559203e7d95b744f"
+    },
+    "mmz4281/2223/G1.csv": {
+     "rows": 240,
+     "sha256": "a0f75e54cf0c6795656ab68dda60a2039313042c4842f430abd65d22571bb09d"
+    },
+    "mmz4281/2324/G1.csv": {
+     "rows": 240,
+     "sha256": "df86239967b6fc9c8f6c61f0c5eaa54fa9b5908b21c17d790735f15c3f52171d"
+    },
+    "mmz4281/2425/G1.csv": {
+     "rows": 233,
+     "sha256": "6eac5938817f877b876d9e541aa8023130f9465fbae2fe8ab0b82e0bf48dc7c9"
+    },
+    "mmz4281/2526/G1.csv": {
+     "rows": 236,
+     "sha256": "d17b0d1d6ffe0f2d28f387e5f0098917b8e55c98ca831f5c242410c6e2e224db"
+    },
+    "new/AUT.csv": {
+     "rows": 2638,
+     "sha256": "5b3b6181ffd9a13f8e2d1dfbb0aba3ea06ab14f84b02fd04a115f0c78ebdf1c2"
+    }
+   }
+  },
+  "openfootball": {
+   "licence": "CC0",
+   "repo": "openfootball/champions-league",
+   "files": {
+    "2011-12/cl.txt": {
+     "rows": 125,
+     "sha256": "87f428aa63199ef3c012602b95bab144af4b9947e06e0666b73fc2d10122bf73"
+    },
+    "2012-13/cl.txt": {
+     "rows": 125,
+     "sha256": "b069f1935f2c8941d8bbf4a33bb44f3f8f416a3d7164f18254137dcb43c5bbd8"
+    },
+    "2013-14/cl.txt": {
+     "rows": 125,
+     "sha256": "550ad16209cb9c8890e78b8c0ca8cf9ce1adef77006c0d44d3d85f6decf70208"
+    },
+    "2014-15/cl.txt": {
+     "rows": 125,
+     "sha256": "f9fb580b8e439693c1f594ef2170bc73e6c898a94a54c69e5757d93e550c9cf8"
+    },
+    "2015-16/cl.txt": {
+     "rows": 125,
+     "sha256": "ece5c48e1a2ad59f36fdf302e9c46dfa1594d0882c31335f20cd9e0152fec859"
+    },
+    "2016-17/cl.txt": {
+     "rows": 125,
+     "sha256": "045ca2bcf1f62a822921f0aa5790b370cf8636a6ea42bd51700fe3dbcc7802ad"
+    },
+    "2017-18/cl.txt": {
+     "rows": 125,
+     "sha256": "98b46e72089dd04d543f2313548b3b0098996f64d95247f97be15b42bec4a8b5"
+    },
+    "2018-19/cl.txt": {
+     "rows": 125,
+     "sha256": "b5885a9e8d266d5b0289da4c9789671a3101842b1c5f279f858c57a1adbeb393"
+    },
+    "2019-20/cl.txt": {
+     "rows": 119,
+     "sha256": "e0722f8308e55799b6a57543b79f529269725f9354becd3c24781c9059c9c29f"
+    },
+    "2020-21/cl.txt": {
+     "rows": 125,
+     "sha256": "e6b1be564c2e02d82f3b0e1c58432db0d6ae02c57659566519f1921e0296966e"
+    },
+    "2021-22/cl.txt": {
+     "rows": 125,
+     "sha256": "538c60aa0b0c29487114c85f2475e9a31219b829f70d13f5a1279c0aa0929b83"
+    },
+    "2022-23/cl.txt": {
+     "rows": 125,
+     "sha256": "26a5c08d4f5f964c23543bce01fc1932b0bc989a4fff7348a81d4b78826f044a"
+    },
+    "2023-24/cl.txt": {
+     "rows": 125,
+     "sha256": "11b9c8823c25ab2ad07e8be9ee8e1ff5e297ad132643cc23e6b861c4e6161476"
+    },
+    "2024-25/cl.txt": {
+     "rows": 189,
+     "sha256": "ebd0bf861122680c07ed70629a4104a0c14b2f9162371cb77a085e0cdacb5a3d"
+    },
+    "2024-25/clq.txt": {
+     "rows": 90,
+     "sha256": "dc4096a0e2cf1a683c7d3f0f0ab4b9db70fb19a1ee03cb17bacdf58c515007f0"
+    },
+    "2025-26/cl.txt": {
+     "rows": 189,
+     "sha256": "2cfc975c1a7ec8bbf60479cabad142349825aacfb771258c4d66c3246f8eff4f"
+    },
+    "2025-26/clq.txt": {
+     "rows": 92,
+     "sha256": "a836f2aa286f035ca43230da535710355f719925b8b0cdd281e8997c75217c1e"
+    }
+   }
+  }
+ },
+ "clubs": {
+  "ALB:Egnatia Rrogozhine": {
+   "r": 1436.384889369127,
+   "n": 4
+  },
+  "AND:Inter Club d'Escaldes": {
+   "r": 1449.358699143209,
+   "n": 2
+  },
+  "AND:UE Santa Coloma": {
+   "r": 1411.547378520893,
+   "n": 4
+  },
+  "ARM:FC Noah": {
+   "r": 1434.6648985109755,
+   "n": 4
+  },
+  "ARM:Pyunik FC": {
+   "r": 1434.78555652137,
+   "n": 2
+  },
+  "AUT:A. Klagenfurt": {
+   "r": 1303.3394809740041,
+   "n": 130
+  },
+  "AUT:A. Lustenau": {
+   "r": 1359.4485077465492,
+   "n": 67
+  },
+  "AUT:Admira": {
+   "r": 1328.263235028662,
+   "n": 344
+  },
+  "AUT:Altach": {
+   "r": 1418.5328892454509,
+   "n": 401
+  },
+  "AUT:Austria Vienna": {
+   "r": 1530.8175117427318,
+   "n": 489
+  },
+  "AUT:BW Linz": {
+   "r": 1380.5416990032766,
+   "n": 96
+  },
+  "AUT:Grazer AK": {
+   "r": 1460.3677576563377,
+   "n": 64
+  },
+  "AUT:Grodig": {
+   "r": 1405.1084203265857,
+   "n": 108
+  },
+  "AUT:Hartberg": {
+   "r": 1514.674874908425,
+   "n": 261
+  },
+  "AUT:LASK": {
+   "r": 1674.7175410402951,
+   "n": 293
+  },
+  "AUT:Mattersburg": {
+   "r": 1365.7006728290858,
+   "n": 209
+  },
+  "AUT:Neustadt": {
+   "r": 1332.3934053535615,
+   "n": 110
+  },
+  "AUT:Ried": {
+   "r": 1403.9929298633,
+   "n": 308
+  },
+  "AUT:SK Rapid": {
+   "r": 1475.1417920439285,
+   "n": 477
+  },
+  "AUT:Salzburg": {
+   "r": 1560.2384644490671,
+   "n": 520
+  },
+  "AUT:St. Polten": {
+   "r": 1259.614471235023,
+   "n": 172
+  },
+  "AUT:Sturm Graz": {
+   "r": 1638.655326844401,
+   "n": 484
+  },
+  "AUT:Tirol": {
+   "r": 1381.4856814458803,
+   "n": 227
+  },
+  "AUT:Wacker Innsbruck": {
+   "r": 1360.4713375001165,
+   "n": 104
+  },
+  "AUT:Wolfsberger AC": {
+   "r": 1480.7192703259773,
+   "n": 476
+  },
+  "AZE:Qarabağ FK": {
+   "r": 1539.898471464212,
+   "n": 28
+  },
+  "BEL:Anderlecht": {
+   "r": 1531.5665318559118,
+   "n": 515
+  },
+  "BEL:Antwerp": {
+   "r": 1477.4940218910758,
+   "n": 317
+  },
+  "BEL:Beerschot VA": {
+   "r": 1316.4602004257513,
+   "n": 104
+  },
+  "BEL:Bergen": {
+   "r": 1379.4233968537671,
+   "n": 90
+  },
+  "BEL:Cercle Brugge": {
+   "r": 1448.3380012838297,
+   "n": 393
+  },
+  "BEL:Charleroi": {
+   "r": 1533.2445987087256,
+   "n": 457
+  },
+  "BEL:Club Brugge": {
+   "r": 1827.9340781420424,
+   "n": 555
+  },
+  "BEL:Dender": {
+   "r": 1316.6962317641112,
+   "n": 75
+  },
+  "BEL:Eupen": {
+   "r": 1274.6795924187174,
+   "n": 257
+  },
+  "BEL:Genk": {
+   "r": 1586.7371082780048,
+   "n": 504
+  },
+  "BEL:Gent": {
+   "r": 1505.236179929986,
+   "n": 500
+  },
+  "BEL:Germinal": {
+   "r": 1311.4759153981636,
+   "n": 60
+  },
+  "BEL:Kortrijk": {
+   "r": 1408.525974234891,
+   "n": 443
+  },
+  "BEL:Lierse": {
+   "r": 1338.7584374759747,
+   "n": 120
+  },
+  "BEL:Lokeren": {
+   "r": 1318.423958430932,
+   "n": 240
+  },
+  "BEL:Mechelen": {
+   "r": 1479.2190695117274,
+   "n": 461
+  },
+  "BEL:Mouscron": {
+   "r": 1380.604689381412,
+   "n": 153
+  },
+  "BEL:Mouscron-Peruwelz": {
+   "r": 1406.0901542115298,
+   "n": 60
+  },
+  "BEL:Oostende": {
+   "r": 1323.4806397663363,
+   "n": 311
+  },
+  "BEL:Oud-Heverlee Leuven": {
+   "r": 1409.6214673836264,
+   "n": 342
+  },
+  "BEL:RAAL La Louviere": {
+   "r": 1388.3080719029804,
+   "n": 35
+  },
+  "BEL:RWD Molenbeek": {
+   "r": 1308.0699131216315,
+   "n": 36
+  },
+  "BEL:Seraing": {
+   "r": 1251.8511130007107,
+   "n": 68
+  },
+  "BEL:St Truiden": {
+   "r": 1600.7592159163505,
+   "n": 397
+  },
+  "BEL:St. Gilloise": {
+   "r": 1765.9198560954273,
+   "n": 198
+  },
+  "BEL:Standard": {
+   "r": 1539.680942402301,
+   "n": 490
+  },
+  "BEL:Waasland-Beveren": {
+   "r": 1331.5540377527698,
+   "n": 273
+  },
+  "BEL:Waregem": {
+   "r": 1479.8753626884338,
+   "n": 407
+  },
+  "BEL:Westerlo": {
+   "r": 1480.6274955695753,
+   "n": 273
+  },
+  "BIH:Borac Banja Luka": {
+   "r": 1443.0427003424747,
+   "n": 4
+  },
+  "BIH:Zrinjski Mostar": {
+   "r": 1456.047139233338,
+   "n": 4
+  },
+  "BLR:BATE Borisov": {
+   "r": 1442.5804620983754,
+   "n": 24
+  },
+  "BLR:Dinamo Minsk": {
+   "r": 1461.7040090954379,
+   "n": 6
+  },
+  "BUL:PFC Ludogorets Razgrad": {
+   "r": 1442.2526003877144,
+   "n": 24
+  },
+  "CRO:Dinamo Zagreb": {
+   "r": 1569.0893414026436,
+   "n": 46
+  },
+  "CRO:HNK Rijeka": {
+   "r": 1451.4549196896028,
+   "n": 2
+  },
+  "CYP:APOEL Nikosia": {
+   "r": 1458.6500727841492,
+   "n": 26
+  },
+  "CYP:Pafos FC": {
+   "r": 1567.0293066459449,
+   "n": 14
+  },
+  "CZE:AC Sparta Praha": {
+   "r": 1548.2661738378436,
+   "n": 14
+  },
+  "CZE:Slavia Praha": {
+   "r": 1499.6114932480284,
+   "n": 18
+  },
+  "CZE:Viktoria Plzeň": {
+   "r": 1472.690646033997,
+   "n": 28
+  },
+  "DEN:FC København": {
+   "r": 1642.672894674679,
+   "n": 40
+  },
+  "DEN:FC Midtjylland": {
+   "r": 1502.063578054013,
+   "n": 12
+  },
+  "DEN:FC Nordsjælland": {
+   "r": 1397.3834253465627,
+   "n": 6
+  },
+  "ENG:Arsenal": {
+   "r": 2016.4993493337752,
+   "n": 657
+  },
+  "ENG:Aston Villa": {
+   "r": 1783.8873485924425,
+   "n": 468
+  },
+  "ENG:Blackburn": {
+   "r": 1464.5773480967564,
+   "n": 38
+  },
+  "ENG:Bolton": {
+   "r": 1485.6721385546903,
+   "n": 38
+  },
+  "ENG:Bournemouth": {
+   "r": 1797.1513168206243,
+   "n": 342
+  },
+  "ENG:Brentford": {
+   "r": 1726.9036704714135,
+   "n": 190
+  },
+  "ENG:Brighton": {
+   "r": 1730.8826042927253,
+   "n": 342
+  },
+  "ENG:Burnley": {
+   "r": 1461.41582503612,
+   "n": 342
+  },
+  "ENG:Cardiff": {
+   "r": 1470.6673626568954,
+   "n": 76
+  },
+  "ENG:Chelsea": {
+   "r": 1686.899197916647,
+   "n": 676
+  },
+  "ENG:Crystal Palace": {
+   "r": 1666.1510046136427,
+   "n": 494
+  },
+  "ENG:Everton": {
+   "r": 1676.8251980313362,
+   "n": 570
+  },
+  "ENG:Fulham": {
+   "r": 1706.9877890321602,
+   "n": 342
+  },
+  "ENG:Huddersfield": {
+   "r": 1356.8860378604975,
+   "n": 76
+  },
+  "ENG:Hull": {
+   "r": 1471.716167945885,
+   "n": 114
+  },
+  "ENG:Ipswich": {
+   "r": 1432.7195159564221,
+   "n": 38
+  },
+  "ENG:Leeds": {
+   "r": 1679.2466254084984,
+   "n": 152
+  },
+  "ENG:Leicester": {
+   "r": 1458.208997499332,
+   "n": 390
+  },
+  "ENG:Liverpool": {
+   "r": 1795.066659465716,
+   "n": 663
+  },
+  "ENG:Luton": {
+   "r": 1455.0812108597165,
+   "n": 38
+  },
+  "ENG:Man City": {
+   "r": 1897.1641963370603,
+   "n": 715
+  },
+  "ENG:Man United": {
+   "r": 1847.3440970323718,
+   "n": 638
+  },
+  "ENG:Middlesbrough": {
+   "r": 1443.2747082299334,
+   "n": 38
+  },
+  "ENG:Newcastle": {
+   "r": 1747.6480958062048,
+   "n": 550
+  },
+  "ENG:Norwich": {
+   "r": 1373.3602012090723,
+   "n": 228
+  },
+  "ENG:Nott'm Forest": {
+   "r": 1731.2670109202454,
+   "n": 152
+  },
+  "ENG:QPR": {
+   "r": 1449.6545978461957,
+   "n": 114
+  },
+  "ENG:Reading": {
+   "r": 1430.984539154726,
+   "n": 38
+  },
+  "ENG:Sheffield United": {
+   "r": 1359.192677195461,
+   "n": 114
+  },
+  "ENG:Southampton": {
+   "r": 1356.1553475498195,
+   "n": 456
+  },
+  "ENG:Stoke": {
+   "r": 1522.5591835800567,
+   "n": 266
+  },
+  "ENG:Sunderland": {
+   "r": 1655.958927151121,
+   "n": 266
+  },
+  "ENG:Swansea": {
+   "r": 1512.2334905486596,
+   "n": 266
+  },
+  "ENG:Tottenham": {
+   "r": 1659.1843523668272,
+   "n": 623
+  },
+  "ENG:Watford": {
+   "r": 1402.435267897096,
+   "n": 228
+  },
+  "ENG:West Brom": {
+   "r": 1470.7490425729143,
+   "n": 304
+  },
+  "ENG:West Ham": {
+   "r": 1653.9358578752772,
+   "n": 532
+  },
+  "ENG:Wigan": {
+   "r": 1519.8473111768503,
+   "n": 76
+  },
+  "ENG:Wolves": {
+   "r": 1523.2572936412341,
+   "n": 342
+  },
+  "ESP:Alaves": {
+   "r": 1586.3927442314564,
+   "n": 342
+  },
+  "ESP:Almeria": {
+   "r": 1467.6362277569322,
+   "n": 152
+  },
+  "ESP:Ath Bilbao": {
+   "r": 1601.5643140938178,
+   "n": 584
+  },
+  "ESP:Ath Madrid": {
+   "r": 1773.3276478612272,
+   "n": 701
+  },
+  "ESP:Barcelona": {
+   "r": 1946.9076457377812,
+   "n": 724
+  },
+  "ESP:Betis": {
+   "r": 1728.1610142808481,
+   "n": 532
+  },
+  "ESP:Cadiz": {
+   "r": 1503.2250928770993,
+   "n": 152
+  },
+  "ESP:Celta": {
+   "r": 1665.6102393676385,
+   "n": 532
+  },
+  "ESP:Cordoba": {
+   "r": 1353.5908644745946,
+   "n": 38
+  },
+  "ESP:Eibar": {
+   "r": 1500.7888359117644,
+   "n": 266
+  },
+  "ESP:Elche": {
+   "r": 1577.3912352397906,
+   "n": 228
+  },
+  "ESP:Espanol": {
+   "r": 1570.6814413160384,
+   "n": 494
+  },
+  "ESP:Getafe": {
+   "r": 1632.933859837785,
+   "n": 532
+  },
+  "ESP:Girona": {
+   "r": 1581.4311368728804,
+   "n": 236
+  },
+  "ESP:Granada": {
+   "r": 1430.2035783125104,
+   "n": 380
+  },
+  "ESP:Huesca": {
+   "r": 1539.2401893697602,
+   "n": 76
+  },
+  "ESP:La Coruna": {
+   "r": 1468.796103826356,
+   "n": 190
+  },
+  "ESP:Las Palmas": {
+   "r": 1473.505068612767,
+   "n": 190
+  },
+  "ESP:Leganes": {
+   "r": 1567.1664633642806,
+   "n": 190
+  },
+  "ESP:Levante": {
+   "r": 1616.250300371477,
+   "n": 418
+  },
+  "ESP:Malaga": {
+   "r": 1427.370300825364,
+   "n": 276
+  },
+  "ESP:Mallorca": {
+   "r": 1596.8382565610611,
+   "n": 304
+  },
+  "ESP:Osasuna": {
+   "r": 1581.53417569844,
+   "n": 418
+  },
+  "ESP:Oviedo": {
+   "r": 1482.3024196812132,
+   "n": 38
+  },
+  "ESP:Real Madrid": {
+   "r": 1908.2464738010888,
+   "n": 752
+  },
+  "ESP:Santander": {
+   "r": 1407.9174273954627,
+   "n": 38
+  },
+  "ESP:Sevilla": {
+   "r": 1562.6843606851944,
+   "n": 620
+  },
+  "ESP:Sociedad": {
+   "r": 1616.1934035610107,
+   "n": 584
+  },
+  "ESP:Sp Gijon": {
+   "r": 1498.510179373216,
+   "n": 114
+  },
+  "ESP:Valencia": {
+   "r": 1683.9983784407157,
+   "n": 604
+  },
+  "ESP:Valladolid": {
+   "r": 1340.0963117107494,
+   "n": 266
+  },
+  "ESP:Vallecano": {
+   "r": 1678.3303352510231,
+   "n": 418
+  },
+  "ESP:Villarreal": {
+   "r": 1723.3212859370765,
+   "n": 558
+  },
+  "ESP:Zaragoza": {
+   "r": 1467.6760789676873,
+   "n": 76
+  },
+  "EST:FC Flora": {
+   "r": 1405.2443676753585,
+   "n": 2
+  },
+  "EST:FCI Levadia": {
+   "r": 1421.2603641105534,
+   "n": 2
+  },
+  "FIN:HJK Helsinki": {
+   "r": 1427.5278286279702,
+   "n": 2
+  },
+  "FIN:Kuopion PS": {
+   "r": 1458.9559865739866,
+   "n": 4
+  },
+  "FRA:Ajaccio": {
+   "r": 1315.2429042399228,
+   "n": 152
+  },
+  "FRA:Ajaccio GFCO": {
+   "r": 1441.4407483680734,
+   "n": 38
+  },
+  "FRA:Amiens": {
+   "r": 1429.0751185991178,
+   "n": 104
+  },
+  "FRA:Angers": {
+   "r": 1464.794536204756,
+   "n": 362
+  },
+  "FRA:Auxerre": {
+   "r": 1583.4361006226643,
+   "n": 144
+  },
+  "FRA:Bastia": {
+   "r": 1448.6064994461954,
+   "n": 190
+  },
+  "FRA:Bordeaux": {
+   "r": 1416.1151241952057,
+   "n": 408
+  },
+  "FRA:Brest": {
+   "r": 1534.5544476607167,
+   "n": 330
+  },
+  "FRA:Caen": {
+   "r": 1408.1040386850136,
+   "n": 228
+  },
+  "FRA:Clermont": {
+   "r": 1438.7208633867792,
+   "n": 110
+  },
+  "FRA:Dijon": {
+   "r": 1334.6250184378239,
+   "n": 218
+  },
+  "FRA:Evian Thonon Gaillard": {
+   "r": 1434.919606008114,
+   "n": 152
+  },
+  "FRA:Guingamp": {
+   "r": 1410.4966905050014,
+   "n": 228
+  },
+  "FRA:Le Havre": {
+   "r": 1521.7240278761317,
+   "n": 102
+  },
+  "FRA:Lens": {
+   "r": 1742.420409073292,
+   "n": 260
+  },
+  "FRA:Lille": {
+   "r": 1710.5485942116331,
+   "n": 588
+  },
+  "FRA:Lorient": {
+   "r": 1579.7746416609414,
+   "n": 410
+  },
+  "FRA:Lyon": {
+   "r": 1680.274171033209,
+   "n": 586
+  },
+  "FRA:Marseille": {
+   "r": 1650.8192372656324,
+   "n": 584
+  },
+  "FRA:Metz": {
+   "r": 1356.7435507043606,
+   "n": 286
+  },
+  "FRA:Monaco": {
+   "r": 1675.127734113276,
+   "n": 526
+  },
+  "FRA:Montpellier": {
+   "r": 1322.1809213707818,
+   "n": 520
+  },
+  "FRA:Nancy": {
+   "r": 1440.7112040980383,
+   "n": 114
+  },
+  "FRA:Nantes": {
+   "r": 1458.3003443150503,
+   "n": 472
+  },
+  "FRA:Nice": {
+   "r": 1521.6223161404969,
+   "n": 550
+  },
+  "FRA:Nimes": {
+   "r": 1456.6525269123201,
+   "n": 104
+  },
+  "FRA:Paris FC": {
+   "r": 1610.560445345595,
+   "n": 34
+  },
+  "FRA:Paris SG": {
+   "r": 1961.428798865105,
+   "n": 696
+  },
+  "FRA:Reims": {
+   "r": 1474.6827788240525,
+   "n": 400
+  },
+  "FRA:Rennes": {
+   "r": 1686.6775814851203,
+   "n": 554
+  },
+  "FRA:Sochaux": {
+   "r": 1508.6809566927473,
+   "n": 114
+  },
+  "FRA:St Etienne": {
+   "r": 1453.9162426273851,
+   "n": 442
+  },
+  "FRA:Strasbourg": {
+   "r": 1666.8564961383697,
+   "n": 319
+  },
+  "FRA:Toulouse": {
+   "r": 1598.9032002065837,
+   "n": 472
+  },
+  "FRA:Troyes": {
+   "r": 1347.0989926326126,
+   "n": 190
+  },
+  "FRA:Valenciennes": {
+   "r": 1376.6302707773148,
+   "n": 114
+  },
+  "FRO:KÍ Klaksvík": {
+   "r": 1457.9796463002162,
+   "n": 4
+  },
+  "FRO:Víkingur": {
+   "r": 1417.7643789879357,
+   "n": 2
+  },
+  "GEO:Dinamo Batumi": {
+   "r": 1445.9916219849092,
+   "n": 2
+  },
+  "GEO:FC Iberia 1999": {
+   "r": 1405.995506248166,
+   "n": 2
+  },
+  "GER:Augsburg": {
+   "r": 1620.2389221422504,
+   "n": 510
+  },
+  "GER:Bayern Munich": {
+   "r": 2071.26653972501,
+   "n": 683
+  },
+  "GER:Bielefeld": {
+   "r": 1502.23464195081,
+   "n": 68
+  },
+  "GER:Bochum": {
+   "r": 1498.4019266466696,
+   "n": 136
+  },
+  "GER:Braunschweig": {
+   "r": 1451.8197965639026,
+   "n": 34
+  },
+  "GER:Darmstadt": {
+   "r": 1385.9934458520136,
+   "n": 102
+  },
+  "GER:Dortmund": {
+   "r": 1844.56965076679,
+   "n": 640
+  },
+  "GER:Ein Frankfurt": {
+   "r": 1609.8325617499895,
+   "n": 492
+  },
+  "GER:FC Koln": {
+   "r": 1520.556019097638,
+   "n": 374
+  },
+  "GER:Fortuna Dusseldorf": {
+   "r": 1517.9262957414658,
+   "n": 102
+  },
+  "GER:Freiburg": {
+   "r": 1663.8541792150668,
+   "n": 476
+  },
+  "GER:Greuther Furth": {
+   "r": 1403.0332816868859,
+   "n": 68
+  },
+  "GER:Hamburg": {
+   "r": 1583.4986860301535,
+   "n": 272
+  },
+  "GER:Hannover": {
+   "r": 1425.655901308008,
+   "n": 238
+  },
+  "GER:Heidenheim": {
+   "r": 1511.206540349912,
+   "n": 102
+  },
+  "GER:Hertha": {
+   "r": 1489.781852891581,
+   "n": 374
+  },
+  "GER:Hoffenheim": {
+   "r": 1701.7423957946019,
+   "n": 516
+  },
+  "GER:Holstein Kiel": {
+   "r": 1493.877596824213,
+   "n": 34
+  },
+  "GER:Ingolstadt": {
+   "r": 1525.4151963895088,
+   "n": 68
+  },
+  "GER:Kaiserslautern": {
+   "r": 1415.3622927102124,
+   "n": 34
+  },
+  "GER:Leverkusen": {
+   "r": 1802.947616147522,
+   "n": 582
+  },
+  "GER:M'gladbach": {
+   "r": 1619.3709214448259,
+   "n": 530
+  },
+  "GER:Mainz": {
+   "r": 1663.5804208156649,
+   "n": 510
+  },
+  "GER:Nurnberg": {
+   "r": 1381.9580776402918,
+   "n": 136
+  },
+  "GER:Paderborn": {
+   "r": 1395.464629434019,
+   "n": 68
+  },
+  "GER:RB Leipzig": {
+   "r": 1750.54663140242,
+   "n": 394
+  },
+  "GER:Schalke 04": {
+   "r": 1511.7257717607445,
+   "n": 406
+  },
+  "GER:St Pauli": {
+   "r": 1453.5718175466855,
+   "n": 68
+  },
+  "GER:Stuttgart": {
+   "r": 1789.4670344542,
+   "n": 450
+  },
+  "GER:Union Berlin": {
+   "r": 1581.2756714375084,
+   "n": 244
+  },
+  "GER:Werder Bremen": {
+   "r": 1544.5051431167271,
+   "n": 476
+  },
+  "GER:Wolfsburg": {
+   "r": 1544.865802542322,
+   "n": 526
+  },
+  "GIB:Lincoln Red Imps": {
+   "r": 1405.052946027958,
+   "n": 8
+  },
+  "GRE:AEK": {
+   "r": 1818.2300214047177,
+   "n": 430
+  },
+  "GRE:Apollon": {
+   "r": 1318.0826217615295,
+   "n": 160
+  },
+  "GRE:Aris": {
+   "r": 1607.525942399246,
+   "n": 368
+  },
+  "GRE:Asteras Tripolis": {
+   "r": 1461.339717371457,
+   "n": 484
+  },
+  "GRE:Athens Kallithea": {
+   "r": 1400.7815625657433,
+   "n": 35
+  },
+  "GRE:Atromitos": {
+   "r": 1528.0405757580224,
+   "n": 481
+  },
+  "GRE:Doxa Dramas": {
+   "r": 1316.9430764684748,
+   "n": 30
+  },
+  "GRE:Ergotelis": {
+   "r": 1399.6852140856258,
+   "n": 98
+  },
+  "GRE:Giannina": {
+   "r": 1340.932957684969,
+   "n": 383
+  },
+  "GRE:Ionikos": {
+   "r": 1411.7346745685668,
+   "n": 66
+  },
+  "GRE:Iraklis": {
+   "r": 1486.2894622320764,
+   "n": 60
+  },
+  "GRE:Kallonis": {
+   "r": 1325.8296811542523,
+   "n": 98
+  },
+  "GRE:Kerkyra": {
+   "r": 1374.5554880064822,
+   "n": 154
+  },
+  "GRE:Kifisia": {
+   "r": 1428.164754590088,
+   "n": 69
+  },
+  "GRE:Lamia": {
+   "r": 1276.6591459346907,
+   "n": 263
+  },
+  "GRE:Larisa": {
+   "r": 1367.6149622210362,
+   "n": 192
+  },
+  "GRE:Levadeiakos": {
+   "r": 1565.6824028797394,
+   "n": 348
+  },
+  "GRE:Niki Volos": {
+   "r": 1132.1208328167788,
+   "n": 33
+  },
+  "GRE:OFI": {
+   "r": 1259.027829209162,
+   "n": 127
+  },
+  "GRE:OFI Crete": {
+   "r": 1485.6289593024296,
+   "n": 262
+  },
+  "GRE:Olympiakos": {
+   "r": 1801.935322775464,
+   "n": 551
+  },
+  "GRE:PAOK": {
+   "r": 1772.6609363292248,
+   "n": 496
+  },
+  "GRE:Panathinaikos": {
+   "r": 1693.7782591152204,
+   "n": 493
+  },
+  "GRE:Panetolikos": {
+   "r": 1416.8270084751919,
+   "n": 454
+  },
+  "GRE:Panionios": {
+   "r": 1419.3019605645088,
+   "n": 281
+  },
+  "GRE:Panserraikos": {
+   "r": 1343.9616458278651,
+   "n": 104
+  },
+  "GRE:Panthrakikos": {
+   "r": 1313.9775663313546,
+   "n": 128
+  },
+  "GRE:Platanias": {
+   "r": 1262.1363445060224,
+   "n": 188
+  },
+  "GRE:Veria": {
+   "r": 1372.364028346052,
+   "n": 158
+  },
+  "GRE:Volos NFC": {
+   "r": 1360.3402730320458,
+   "n": 235
+  },
+  "GRE:Xanthi": {
+   "r": 1434.6993564042677,
+   "n": 281
+  },
+  "HUN:Ferencvárosi TC": {
+   "r": 1501.3391901165967,
+   "n": 16
+  },
+  "IRL:Shamrock Rovers": {
+   "r": 1421.3040967836819,
+   "n": 4
+  },
+  "IRL:Shelbourne FC": {
+   "r": 1421.6677933859567,
+   "n": 4
+  },
+  "ISL:Breiðablik": {
+   "r": 1421.1013388868605,
+   "n": 4
+  },
+  "ISL:Víkingur Reykjavík": {
+   "r": 1435.21444347863,
+   "n": 2
+  },
+  "ISR:Maccabi Haifa": {
+   "r": 1461.8707217433505,
+   "n": 6
+  },
+  "ISR:Maccabi Tel Aviv": {
+   "r": 1376.0829723638215,
+   "n": 10
+  },
+  "ITA:Atalanta": {
+   "r": 1742.0989816205656,
+   "n": 615
+  },
+  "ITA:Benevento": {
+   "r": 1424.3773727603725,
+   "n": 76
+  },
+  "ITA:Bologna": {
+   "r": 1670.9906454494355,
+   "n": 540
+  },
+  "ITA:Brescia": {
+   "r": 1407.087081259595,
+   "n": 38
+  },
+  "ITA:Cagliari": {
+   "r": 1572.5104230551212,
+   "n": 494
+  },
+  "ITA:Carpi": {
+   "r": 1542.8190379746807,
+   "n": 38
+  },
+  "ITA:Catania": {
+   "r": 1513.8136605121138,
+   "n": 114
+  },
+  "ITA:Cesena": {
+   "r": 1381.8729447199573,
+   "n": 76
+  },
+  "ITA:Chievo": {
+   "r": 1389.3713459154415,
+   "n": 304
+  },
+  "ITA:Como": {
+   "r": 1810.3538714048402,
+   "n": 76
+  },
+  "ITA:Cremonese": {
+   "r": 1499.849091354036,
+   "n": 76
+  },
+  "ITA:Crotone": {
+   "r": 1430.4372283049938,
+   "n": 114
+  },
+  "ITA:Empoli": {
+   "r": 1495.0363890278768,
+   "n": 304
+  },
+  "ITA:Fiorentina": {
+   "r": 1671.5298081428928,
+   "n": 570
+  },
+  "ITA:Frosinone": {
+   "r": 1500.9509078987574,
+   "n": 114
+  },
+  "ITA:Genoa": {
+   "r": 1589.945482825581,
+   "n": 532
+  },
+  "ITA:Inter": {
+   "r": 1906.2226432670072,
+   "n": 650
+  },
+  "ITA:Juventus": {
+   "r": 1795.5541901948234,
+   "n": 690
+  },
+  "ITA:Lazio": {
+   "r": 1685.493590022793,
+   "n": 586
+  },
+  "ITA:Lecce": {
+   "r": 1550.1313818550834,
+   "n": 228
+  },
+  "ITA:Livorno": {
+   "r": 1380.9694887819792,
+   "n": 38
+  },
+  "ITA:Milan": {
+   "r": 1730.474417294496,
+   "n": 630
+  },
+  "ITA:Monza": {
+   "r": 1391.2172647155546,
+   "n": 114
+  },
+  "ITA:Napoli": {
+   "r": 1778.0452206837224,
+   "n": 638
+  },
+  "ITA:Novara": {
+   "r": 1494.253545012583,
+   "n": 38
+  },
+  "ITA:Palermo": {
+   "r": 1416.1455012581775,
+   "n": 190
+  },
+  "ITA:Parma": {
+   "r": 1582.571943844706,
+   "n": 342
+  },
+  "ITA:Pescara": {
+   "r": 1337.548033821756,
+   "n": 76
+  },
+  "ITA:Pisa": {
+   "r": 1388.2137661614593,
+   "n": 38
+  },
+  "ITA:Roma": {
+   "r": 1827.2245485386932,
+   "n": 604
+  },
+  "ITA:Salernitana": {
+   "r": 1398.8950687431204,
+   "n": 114
+  },
+  "ITA:Sampdoria": {
+   "r": 1412.9759723715697,
+   "n": 418
+  },
+  "ITA:Sassuolo": {
+   "r": 1603.7090691867468,
+   "n": 456
+  },
+  "ITA:Siena": {
+   "r": 1478.272839024256,
+   "n": 76
+  },
+  "ITA:Spal": {
+   "r": 1351.1414302797364,
+   "n": 114
+  },
+  "ITA:Spezia": {
+   "r": 1481.187253247463,
+   "n": 114
+  },
+  "ITA:Torino": {
+   "r": 1600.7234920730698,
+   "n": 532
+  },
+  "ITA:Udinese": {
+   "r": 1652.485034470455,
+   "n": 570
+  },
+  "ITA:Venezia": {
+   "r": 1479.544143811019,
+   "n": 76
+  },
+  "ITA:Verona": {
+   "r": 1434.7798383944214,
+   "n": 418
+  },
+  "KAZ:FK Astana": {
+   "r": 1481.7277067830069,
+   "n": 6
+  },
+  "KAZ:FK Kairat": {
+   "r": 1458.5934197468955,
+   "n": 16
+  },
+  "KAZ:FK Ordabasy": {
+   "r": 1435.21444347863,
+   "n": 2
+  },
+  "KOS:KF Ballkani": {
+   "r": 1448.5575200660437,
+   "n": 2
+  },
+  "KOS:KF Drita": {
+   "r": 1454.7485193269042,
+   "n": 4
+  },
+  "LTU:FK Panevėžys": {
+   "r": 1422.00513708254,
+   "n": 4
+  },
+  "LTU:FK Žalgiris": {
+   "r": 1447.792240116397,
+   "n": 2
+  },
+  "LUX:FC Differdange 03": {
+   "r": 1403.0091669667117,
+   "n": 4
+  },
+  "LVA:FK RFS": {
+   "r": 1435.5371366808172,
+   "n": 8
+  },
+  "MDA:CS Petrocub": {
+   "r": 1450.463006812354,
+   "n": 4
+  },
+  "MDA:FC Milsami": {
+   "r": 1436.0534273823316,
+   "n": 2
+  },
+  "MDA:FC Sheriff": {
+   "r": 1504.6346878448915,
+   "n": 6
+  },
+  "MKD:FC Struga": {
+   "r": 1415.3690149637707,
+   "n": 2
+  },
+  "MKD:KF Shkëndija 79": {
+   "r": 1443.3691898789968,
+   "n": 6
+  },
+  "MLT:Hamrun Spartans": {
+   "r": 1424.9690085930156,
+   "n": 6
+  },
+  "MNE:FK Budućnost Podgorica": {
+   "r": 1436.0534273823316,
+   "n": 2
+  },
+  "MNE:FK Dečić Tuzi": {
+   "r": 1427.5278286279702,
+   "n": 2
+  },
+  "NED:AZ Alkmaar": {
+   "r": 1574.230230028579,
+   "n": 501
+  },
+  "NED:Ajax": {
+   "r": 1632.2619081569217,
+   "n": 571
+  },
+  "NED:Almere City": {
+   "r": 1338.5184596679003,
+   "n": 68
+  },
+  "NED:Cambuur": {
+   "r": 1282.2278547925848,
+   "n": 170
+  },
+  "NED:Den Haag": {
+   "r": 1292.6506961967082,
+   "n": 332
+  },
+  "NED:Dordrecht": {
+   "r": 1292.8854163378485,
+   "n": 34
+  },
+  "NED:Excelsior": {
+   "r": 1451.2890568603366,
+   "n": 306
+  },
+  "NED:FC Emmen": {
+   "r": 1363.0265772456808,
+   "n": 128
+  },
+  "NED:Feyenoord": {
+   "r": 1676.0248898079026,
+   "n": 527
+  },
+  "NED:For Sittard": {
+   "r": 1417.731687142377,
+   "n": 264
+  },
+  "NED:Go Ahead Eagles": {
+   "r": 1479.93237989905,
+   "n": 272
+  },
+  "NED:Graafschap": {
+   "r": 1379.628256310224,
+   "n": 102
+  },
+  "NED:Groningen": {
+   "r": 1515.8222077678615,
+   "n": 468
+  },
+  "NED:Heerenveen": {
+   "r": 1544.116389215653,
+   "n": 502
+  },
+  "NED:Heracles": {
+   "r": 1267.5167482591414,
+   "n": 468
+  },
+  "NED:NAC Breda": {
+   "r": 1368.055560971647,
+   "n": 272
+  },
+  "NED:Nijmegen": {
+   "r": 1621.646779677449,
+   "n": 340
+  },
+  "NED:PSV Eindhoven": {
+   "r": 1827.3712910283448,
+   "n": 550
+  },
+  "NED:Roda": {
+   "r": 1392.1401480189159,
+   "n": 204
+  },
+  "NED:Sparta Rotterdam": {
+   "r": 1436.0277565013891,
+   "n": 298
+  },
+  "NED:Telstar": {
+   "r": 1492.4907519445665,
+   "n": 34
+  },
+  "NED:Twente": {
+   "r": 1650.880305005588,
+   "n": 470
+  },
+  "NED:Utrecht": {
+   "r": 1618.4815951932624,
+   "n": 501
+  },
+  "NED:VVV Venlo": {
+   "r": 1286.8574553738579,
+   "n": 196
+  },
+  "NED:Vitesse": {
+   "r": 1362.2360451098975,
+   "n": 434
+  },
+  "NED:Volendam": {
+   "r": 1356.1763627531452,
+   "n": 102
+  },
+  "NED:Waalwijk": {
+   "r": 1392.9076004915596,
+   "n": 298
+  },
+  "NED:Willem II": {
+   "r": 1301.1236460485766,
+   "n": 332
+  },
+  "NED:Zwolle": {
+   "r": 1420.4548220798026,
+   "n": 434
+  },
+  "NIR:Larne FC": {
+   "r": 1398.7808331259578,
+   "n": 2
+  },
+  "NIR:Linfield FC": {
+   "r": 1436.0534273823316,
+   "n": 2
+  },
+  "NOR:FK Bodø/Glimt": {
+   "r": 1701.242232189477,
+   "n": 20
+  },
+  "NOR:SK Brann": {
+   "r": 1444.6066315049054,
+   "n": 2
+  },
+  "POL:Jagiellonia Białystok": {
+   "r": 1463.9905628529611,
+   "n": 4
+  },
+  "POL:Lech Poznań": {
+   "r": 1476.2360869350787,
+   "n": 4
+  },
+  "POL:Legia Warszawa": {
+   "r": 1472.0653490093987,
+   "n": 6
+  },
+  "POR:AVS": {
+   "r": 1397.3644865136998,
+   "n": 68
+  },
+  "POR:Academica": {
+   "r": 1364.6390856367325,
+   "n": 158
+  },
+  "POR:Alverca": {
+   "r": 1479.2281821998788,
+   "n": 34
+  },
+  "POR:Arouca": {
+   "r": 1531.171476735342,
+   "n": 302
+  },
+  "POR:Aves": {
+   "r": 1285.7463628771914,
+   "n": 102
+  },
+  "POR:Beira Mar": {
+   "r": 1401.4346371114725,
+   "n": 60
+  },
+  "POR:Belenenses": {
+   "r": 1402.2681972679723,
+   "n": 302
+  },
+  "POR:Benfica": {
+   "r": 1860.0447478556837,
+   "n": 614
+  },
+  "POR:Boavista": {
+   "r": 1343.0538677656969,
+   "n": 374
+  },
+  "POR:Casa Pia": {
+   "r": 1411.0819579220374,
+   "n": 136
+  },
+  "POR:Chaves": {
+   "r": 1364.6528662247038,
+   "n": 170
+  },
+  "POR:Estoril": {
+   "r": 1506.7139154193926,
+   "n": 366
+  },
+  "POR:Estrela": {
+   "r": 1403.7912478804933,
+   "n": 102
+  },
+  "POR:Famalicao": {
+   "r": 1633.4171536348306,
+   "n": 238
+  },
+  "POR:Farense": {
+   "r": 1412.4729257536933,
+   "n": 102
+  },
+  "POR:Feirense": {
+   "r": 1324.0004938659176,
+   "n": 132
+  },
+  "POR:Gil Vicente": {
+   "r": 1514.9998218299152,
+   "n": 362
+  },
+  "POR:Guimaraes": {
+   "r": 1489.3856010755353,
+   "n": 498
+  },
+  "POR:Leiria": {
+   "r": 1357.0479121818414,
+   "n": 30
+  },
+  "POR:Maritimo": {
+   "r": 1400.1450518475028,
+   "n": 396
+  },
+  "POR:Moreirense": {
+   "r": 1476.0116196275956,
+   "n": 404
+  },
+  "POR:Nacional": {
+   "r": 1447.1952849989793,
+   "n": 328
+  },
+  "POR:Olhanense": {
+   "r": 1381.4501339175233,
+   "n": 90
+  },
+  "POR:Pacos Ferreira": {
+   "r": 1384.2039909243904,
+   "n": 362
+  },
+  "POR:Penafiel": {
+   "r": 1336.5474913326864,
+   "n": 34
+  },
+  "POR:Portimonense": {
+   "r": 1409.7233792549218,
+   "n": 238
+  },
+  "POR:Porto": {
+   "r": 1838.1384941920946,
+   "n": 592
+  },
+  "POR:Rio Ave": {
+   "r": 1446.896779316858,
+   "n": 464
+  },
+  "POR:Santa Clara": {
+   "r": 1502.8590377983621,
+   "n": 238
+  },
+  "POR:Setubal": {
+   "r": 1420.8988144150997,
+   "n": 294
+  },
+  "POR:Sp Braga": {
+   "r": 1689.7706957547525,
+   "n": 510
+  },
+  "POR:Sp Lisbon": {
+   "r": 1870.895156471795,
+   "n": 552
+  },
+  "POR:Tondela": {
+   "r": 1396.4021372625862,
+   "n": 272
+  },
+  "POR:Uniao Madeira": {
+   "r": 1384.524972207132,
+   "n": 34
+  },
+  "POR:Vizela": {
+   "r": 1390.8515358180953,
+   "n": 102
+  },
+  "ROU:CFR Cluj": {
+   "r": 1533.6117686950502,
+   "n": 6
+  },
+  "ROU:FCSB": {
+   "r": 1458.4261787127664,
+   "n": 16
+  },
+  "ROU:Oţelul Galaţi": {
+   "r": 1393.7030689731225,
+   "n": 6
+  },
+  "RUS:CSKA Moskva": {
+   "r": 1587.9633093288007,
+   "n": 44
+  },
+  "RUS:FK Krasnodar": {
+   "r": 1471.292571620175,
+   "n": 6
+  },
+  "RUS:FK Rostov": {
+   "r": 1494.6218960655995,
+   "n": 6
+  },
+  "RUS:Lokomotiv Moskva": {
+   "r": 1475.233167913378,
+   "n": 18
+  },
+  "RUS:Spartak Moskva": {
+   "r": 1489.0234903667194,
+   "n": 12
+  },
+  "RUS:Zenit St. Petersburg": {
+   "r": 1612.9551349699911,
+   "n": 54
+  },
+  "SCO:Aberdeen": {
+   "r": 1360.5048164737575,
+   "n": 562
+  },
+  "SCO:Celtic": {
+   "r": 1723.2446769862377,
+   "n": 612
+  },
+  "SCO:Dundee": {
+   "r": 1395.096224041478,
+   "n": 380
+  },
+  "SCO:Dundee United": {
+   "r": 1401.3549195607804,
+   "n": 380
+  },
+  "SCO:Dunfermline": {
+   "r": 1315.3911902067027,
+   "n": 38
+  },
+  "SCO:Falkirk": {
+   "r": 1422.758002293109,
+   "n": 38
+  },
+  "SCO:Hamilton": {
+   "r": 1330.4635207936662,
+   "n": 258
+  },
+  "SCO:Hearts": {
+   "r": 1651.9827674347182,
+   "n": 486
+  },
+  "SCO:Hibernian": {
+   "r": 1550.347428652221,
+   "n": 448
+  },
+  "SCO:Inverness C": {
+   "r": 1397.419437656355,
+   "n": 228
+  },
+  "SCO:Kilmarnock": {
+   "r": 1446.6724433833313,
+   "n": 524
+  },
+  "SCO:Livingston": {
+   "r": 1253.5781183907543,
+   "n": 258
+  },
+  "SCO:Motherwell": {
+   "r": 1551.8241703681394,
+   "n": 562
+  },
+  "SCO:Partick": {
+   "r": 1343.4515234297476,
+   "n": 190
+  },
+  "SCO:Rangers": {
+   "r": 1659.5721581943833,
+   "n": 423
+  },
+  "SCO:Ross County": {
+   "r": 1325.4637550445418,
+   "n": 448
+  },
+  "SCO:St Johnstone": {
+   "r": 1293.2964072357697,
+   "n": 523
+  },
+  "SCO:St Mirren": {
+   "r": 1335.9531971330432,
+   "n": 448
+  },
+  "SMR:SS Virtus": {
+   "r": 1362.7442408202423,
+   "n": 4
+  },
+  "SRB:Crvena Zvezda": {
+   "r": 1538.533828683262,
+   "n": 34
+  },
+  "SRB:Partizan": {
+   "r": 1412.114332510623,
+   "n": 2
+  },
+  "SUI:BSC Young Boys": {
+   "r": 1480.1434338240808,
+   "n": 28
+  },
+  "SUI:FC Basel 1893": {
+   "r": 1624.1310466668374,
+   "n": 38
+  },
+  "SUI:FC Lugano": {
+   "r": 1444.68397473964,
+   "n": 2
+  },
+  "SUI:Servette FC": {
+   "r": 1438.8317770601082,
+   "n": 2
+  },
+  "SVK:Slovan Bratislava": {
+   "r": 1494.5952591667656,
+   "n": 20
+  },
+  "SVN:NK Celje": {
+   "r": 1466.5498811577038,
+   "n": 4
+  },
+  "SVN:NK Maribor": {
+   "r": 1448.7940617610557,
+   "n": 12
+  },
+  "SVN:Olimpija Ljubljana": {
+   "r": 1429.1041453980224,
+   "n": 2
+  },
+  "SWE:Malmö FF": {
+   "r": 1501.1738977520777,
+   "n": 30
+  },
+  "TUR:Ad. Demirspor": {
+   "r": 1242.7552282517715,
+   "n": 148
+  },
+  "TUR:Adanaspor": {
+   "r": 1325.9000994551589,
+   "n": 34
+  },
+  "TUR:Akhisar Belediyespor": {
+   "r": 1384.778604908199,
+   "n": 238
+  },
+  "TUR:Alanyaspor": {
+   "r": 1477.3669163570337,
+   "n": 358
+  },
+  "TUR:Altay": {
+   "r": 1365.7285837728355,
+   "n": 38
+  },
+  "TUR:Ankaragucu": {
+   "r": 1448.1631115552134,
+   "n": 216
+  },
+  "TUR:Antalyaspor": {
+   "r": 1393.5507425154888,
+   "n": 494
+  },
+  "TUR:Balikesirspor": {
+   "r": 1384.122221161503,
+   "n": 34
+  },
+  "TUR:Besiktas": {
+   "r": 1638.7192788476314,
+   "n": 548
+  },
+  "TUR:Bodrumspor": {
+   "r": 1428.8354507968563,
+   "n": 36
+  },
+  "TUR:Bursaspor": {
+   "r": 1439.2403624151304,
+   "n": 272
+  },
+  "TUR:Buyuksehyr": {
+   "r": 1654.0317600378892,
+   "n": 500
+  },
+  "TUR:Denizlispor": {
+   "r": 1290.6776702517095,
+   "n": 74
+  },
+  "TUR:Elazigspor": {
+   "r": 1413.548190791843,
+   "n": 68
+  },
+  "TUR:Erciyesspor": {
+   "r": 1362.39624770739,
+   "n": 68
+  },
+  "TUR:Erzurum BB": {
+   "r": 1411.0989881832963,
+   "n": 74
+  },
+  "TUR:Eskisehirspor": {
+   "r": 1396.410380764936,
+   "n": 170
+  },
+  "TUR:Eyupspor": {
+   "r": 1466.797291274692,
+   "n": 70
+  },
+  "TUR:Fenerbahce": {
+   "r": 1782.0923446918707,
+   "n": 536
+  },
+  "TUR:Galatasaray": {
+   "r": 1759.809561773324,
+   "n": 590
+  },
+  "TUR:Gaziantep": {
+   "r": 1421.005174357295,
+   "n": 256
+  },
+  "TUR:Gaziantepspor": {
+   "r": 1326.3295191186546,
+   "n": 204
+  },
+  "TUR:Genclerbirligi": {
+   "r": 1436.9911063361883,
+   "n": 346
+  },
+  "TUR:Giresunspor": {
+   "r": 1450.7168080417816,
+   "n": 74
+  },
+  "TUR:Goztep": {
+   "r": 1558.837724904404,
+   "n": 250
+  },
+  "TUR:Hatayspor": {
+   "r": 1362.419624022777,
+   "n": 188
+  },
+  "TUR:Istanbulspor": {
+   "r": 1279.847874670311,
+   "n": 74
+  },
+  "TUR:Karabukspor": {
+   "r": 1201.0413137138726,
+   "n": 204
+  },
+  "TUR:Karagumruk": {
+   "r": 1431.782370903979,
+   "n": 186
+  },
+  "TUR:Kasimpasa": {
+   "r": 1461.4053250761403,
+   "n": 494
+  },
+  "TUR:Kayserispor": {
+   "r": 1406.1716987687623,
+   "n": 494
+  },
+  "TUR:Kocaelispor": {
+   "r": 1414.446316733649,
+   "n": 34
+  },
+  "TUR:Konyaspor": {
+   "r": 1493.7423914032172,
+   "n": 460
+  },
+  "TUR:Manisaspor": {
+   "r": 1343.8000725750499,
+   "n": 34
+  },
+  "TUR:Mersin Idman Yurdu": {
+   "r": 1286.6996506830317,
+   "n": 136
+  },
+  "TUR:Orduspor": {
+   "r": 1344.450496621249,
+   "n": 68
+  },
+  "TUR:Osmanlispor": {
+   "r": 1452.2980794842717,
+   "n": 102
+  },
+  "TUR:Pendikspor": {
+   "r": 1391.6677453980599,
+   "n": 38
+  },
+  "TUR:Rizespor": {
+   "r": 1501.043143813486,
+   "n": 390
+  },
+  "TUR:Samsunspor": {
+   "r": 1577.2597750107414,
+   "n": 142
+  },
+  "TUR:Sivasspor": {
+   "r": 1419.9080305369405,
+   "n": 460
+  },
+  "TUR:Trabzonspor": {
+   "r": 1651.927575987376,
+   "n": 534
+  },
+  "TUR:Umraniyespor": {
+   "r": 1394.8926402869645,
+   "n": 36
+  },
+  "TUR:Yeni Malatyaspor": {
+   "r": 1248.0646961651705,
+   "n": 180
+  },
+  "UKR:Dinamo Kiev": {
+   "r": 1590.3850722579655,
+   "n": 42
+  },
+  "UKR:Shakhtar Donetsk": {
+   "r": 1653.7123321049753,
+   "n": 86
+  },
+  "WAL:The New Saints": {
+   "r": 1428.6035080175234,
+   "n": 6
+  }
+ }
+}

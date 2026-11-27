@@ -359,8 +359,24 @@ def club_baseline_params_for(code: str) -> "ModelParams | None":
 #: structurally rather than by configuration: no env value can name a variant
 #: that does not exist. Only Bundesliga's recut survived T1.6's
 #: multiplicity-corrected gate (docs/MODEL-EXPERIMENTS.md).
-AVAILABLE_SHADOW_VARIANTS: dict[str, dict[str, str]] = {
+#:
+#: The value is the calibrator artifact under ml/models/calibrators, or None for
+#: a variant that keeps the league's SERVED params (a ratings-only variant).
+#:
+#: "ucl" holds the two unified-Elo shadows (docs/UCL-UNIFIED-SHADOW-PREREG.md):
+#: "unified" = served params on the joint domestic+UCL Elo; "unified_cal" = the
+#: same ratings through the frozen vector-scaling calibrator. Both are listed in
+#: STRENGTH_SHADOW_VARIANTS because they also need their own base ratings.
+AVAILABLE_SHADOW_VARIANTS: dict[str, dict[str, str | None]] = {
     "bundesliga": {"cal_q3": "bundesliga_q3.json"},
+    "ucl": {"unified": None, "unified_cal": "ucl_unified_cal.json"},
+}
+
+#: Variants (per league) that are priced from their OWN base ratings rather than
+#: the league's served ones. run_pipeline supplies the ratings; if they cannot be
+#: computed the variant is skipped for the run (fail closed).
+STRENGTH_SHADOW_VARIANTS: dict[str, frozenset[str]] = {
+    "ucl": frozenset({"unified", "unified_cal"}),
 }
 
 #: Env var selecting which AVAILABLE variants are live, as comma-separated
@@ -427,8 +443,8 @@ def club_shadow_variants_for(code: str, env_value: str | None = None) -> dict[st
         return {}
     served = club_params_for(code)
     return {
-        name: replace(served, calibrator=_load_calibrator_artifact(
-            AVAILABLE_SHADOW_VARIANTS[code][name]))
+        name: (replace(served, calibrator=_load_calibrator_artifact(artifact))
+               if (artifact := AVAILABLE_SHADOW_VARIANTS[code][name]) else served)
         for name in sorted(wanted)
     }
 

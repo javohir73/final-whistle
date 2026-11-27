@@ -1,0 +1,212 @@
+{
+  "frozen": {
+    "C1_offset": {
+      "delta": 20.0,
+      "fit_seasons": [
+        "2014-15",
+        "2015-16",
+        "2016-17",
+        "2017-18",
+        "2018-19",
+        "2019-20",
+        "2020-21",
+        "2021-22",
+        "2022-23",
+        "2023-24"
+      ]
+    },
+    "C2_unified": {
+      "tier_seed": {
+        "ENG": 1600.0,
+        "ESP": 1600.0,
+        "GER": 1600.0,
+        "ITA": 1600.0,
+        "FRA": 1550.0,
+        "POR": 1550.0,
+        "NED": 1500.0,
+        "TUR": 1500.0,
+        "BEL": 1500.0,
+        "GRE": 1500.0,
+        "AUT": 1500.0,
+        "SCO": 1500.0
+      },
+      "nofeed_prior": 1450.0,
+      "newcomer_drop": 100.0,
+      "shrink_n0": 10.0
+    },
+    "C3_unified_cal": {
+      "method": "vector_scaling",
+      "t": 1.2,
+      "b": [
+        0.0,
+        -0.1,
+        -0.1
+      ],
+      "fit_seasons": [
+        "2021-22",
+        "2022-23",
+        "2023-24"
+      ],
+      "n": 375
+    },
+    "designated": null
+  },
+  "control": {
+    "candidate": "CONTROL",
+    "metrics": {
+      "n": 378,
+      "logloss": 0.9890157405461735,
+      "brier": 0.5846097718334715,
+      "accuracy": 0.5502645502645502,
+      "draw_pred": 0.23662727796155697,
+      "draw_obs": 0.15873015873015872,
+      "max_fav_prob": 0.9305197788250363,
+      "min_draw_prob": 0.053068375893825306,
+      "points_by_source": {
+        "ENG/ESP/GER": {
+          "team_games": 317,
+          "actual_ppg": 1.6719242902208202,
+          "expected_ppg": 1.6268482435955847,
+          "diff_ppg": 0.04507604662523543
+        },
+        "no domestic feed": {
+          "team_games": 102,
+          "actual_ppg": 0.7549019607843137,
+          "expected_ppg": 1.1071442328500896,
+          "diff_ppg": -0.35224227206577574
+        },
+        "other covered league": {
+          "team_games": 337,
+          "actual_ppg": 1.3857566765578635,
+          "expected_ppg": 1.234169982077216,
+          "diff_ppg": 0.15158669448064738
+        }
+      }
+    }
+  },
+  "candidates": [
+    {
+      "candidate": "C1_offset",
+      "n": 378,
+      "clusters": 34,
+      "mean_delta": 0.0013931699377815376,
+      "ci95": [
+        -0.002861979742949351,
+        0.006322154157896171
+      ],
+      "verdict": "NO CREDIBLE DIFFERENCE (CI straddles 0)",
+      "metrics": {
+        "n": 378,
+        "logloss": 0.990408910483955,
+        "brier": 0.5847061931536968,
+        "accuracy": 0.5476190476190477,
+        "draw_pred": 0.23378359666690401,
+        "draw_obs": 0.15873015873015872,
+        "max_fav_prob": 0.9400715217992933,
+        "min_draw_prob": 0.046311018107241905,
+        "points_by_source": {
+          "ENG/ESP/GER": {
+            "team_games": 317,
+            "actual_ppg": 1.6719242902208202,
+            "expected_ppg": 1.6674060805442652,
+            "diff_ppg": 0.0045182096765548786
+          },
+          "no domestic feed": {
+            "team_games": 102,
+            "actual_ppg": 0.7549019607843137,
+            "expected_ppg": 1.0806328765796158,
+            "diff_ppg": -0.32573091579530217
+          },
+          "other covered league": {
+            "team_games": 337,
+            "actual_ppg": 1.3857566765578635,
+            "expected_ppg": 1.2072329955972019,
+            "diff_ppg": 0.17852368096066162
+          }
+        }
+      }
+    },
+    {
+      "candidate": "C2_unified",
+      "n": 378,
+      "clusters": 34,
+      "mean_delta": -0.03880016263822639,
+      "ci95": [
+        -0.08798436964933226,
+        0.012479500271395345
+      ],
+      "verdict": "NO CREDIBLE DIFFERENCE (CI straddles 0)",
+      "metrics": {
+        "n": 378,
+        "logloss": 0.9502155779079471,
+        "brier": 0.5548318834119976,
+        "accuracy": 0.5846560846560847,
+        "draw_pred": 0.2270618654615598,
+        "draw_obs": 0.15873015873015872,
+        "max_fav_prob": 0.9777525052635492,
+        "min_draw_prob": 0.018232504346937205,
+        "points_by_source": {
+          "ENG/ESP/GER": {
+            "team_games": 317,
+            "actual_ppg": 1.6719242902208202,
+            "expected_ppg": 1.591098624881307,
+            "diff_ppg": 0.08082566533951306
+          },
+          "no domestic feed": {
+            "team_games": 102,
+            "actual_ppg": 0.7549019607843137,
+            "expected_ppg": 0.6036632615257773,
+            "diff_ppg": 0.15123869925853645
+          },
+          "other covered league": {
+            "team_games": 337,
+            "actual_ppg": 1.3857566765578635,
+            "expected_ppg": 1.430916018078715,
+            "diff_ppg": -0.04515934152085165
+          }
+        }
+      }
+    },
+    {
+      "candidate": "C3_unified_cal",
+      "n": 378,
+      "clusters": 34,
+      "mean_delta": -0.05187851734353491,
+      "ci95": [
+        -0.10047875727331249,
+        -0.001418214105371561
+      ],
+      "verdict": "CANDIDATE BETTER (credible: CI fully below 0)",
+      "metrics": {
+        "n": 378,
+        "logloss": 0.9371372232026385,
+        "brier": 0.5506295999072796,
+        "accuracy": 0.582010582010582,
+        "draw_pred": 0.2201121986523107,
+        "draw_obs": 0.15873015873015872,
+        "max_fav_prob": 0.9652727422843245,
+        "min_draw_prob": 0.02726301330019138,
+        "points_by_source": {
+          "ENG/ESP/GER": {
+            "team_games": 317,
+            "actual_ppg": 1.6719242902208202,
+            "expected_ppg": 1.5785713048524321,
+            "diff_ppg": 0.0933529853683881
+          },
+          "no domestic feed": {
+            "team_games": 102,
+            "actual_ppg": 0.7549019607843137,
+            "expected_ppg": 0.6475693358054878,
+            "diff_ppg": 0.10733262497882588
+          },
+          "other covered league": {
+            "team_games": 337,
+            "actual_ppg": 1.3857566765578635,
+            "expected_ppg": 1.4372059733502847,
+            "diff_ppg": -0.05144929679242107
+          }
+        }
+      }
+    }
+  ]
+}

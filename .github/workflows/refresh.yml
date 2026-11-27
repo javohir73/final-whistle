@@ -43,4 +43,9 @@ jobs:
           # The pipeline runs here, not on Render, so the wc26->league cutover is
           # controlled by the PIPELINE_TARGET repo variable (defaults to wc26).
           PIPELINE_TARGET: ${{ vars.PIPELINE_TARGET || 'wc26' }}
+          # Opt-in shadow variants (pipeline/leagues.py AVAILABLE_SHADOW_VARIANTS).
+          # Shadow-only rows, never served; pre-registered in
+          # docs/UCL-UNIFIED-SHADOW-PREREG.md. Nothing else sets this variable --
+          # append here rather than overwriting if another variant is enabled.
+          CLUB_SHADOW_VARIANTS: "ucl:unified,ucl:unified_cal"
         run: python -m pipeline.run_pipeline

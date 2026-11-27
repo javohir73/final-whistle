@@ -1222,6 +1222,7 @@ def generate_predictions(
     shadow_variants: dict[str, ModelParams] | None = None,
     vnext_shadow_spec: "VNextShadowSpec | None" = None,
     base_strengths: dict[int, float] | None = None,
+    shadow_variant_base_strengths: dict[str, dict[int, float]] | None = None,
     standings_advance_count: int = 2,
     commit: bool = True,
     kickoff_after: datetime | None = None,
@@ -1274,6 +1275,13 @@ def generate_predictions(
     and model its top-24 league-phase progression without changing the
     domestic/WC defaults.
 
+    ``shadow_variant_base_strengths`` maps a variant NAME to its own base-rating
+    map (team_id -> rating). A named variant is priced from
+    ``effective_elos(db, base_ratings=<its map>)`` -- the same tournament delta
+    and form wrapping as production, so the base rating is the only difference.
+    Variants not named here (and None, the default) share the production
+    strengths exactly as before. Only the variant's own row can see its map.
+
     ``commit=False`` lets a multi-tournament orchestrator keep every scoped
     pass in one transaction. The default preserves every existing standalone
     caller's commit behavior.
@@ -1306,6 +1314,11 @@ def generate_predictions(
     params = params or load_params()
     active_model_version = model_version or params.version
     strengths = effective_elos(db, base_ratings=base_strengths)
+    variant_strengths = {
+        name: effective_elos(db, base_ratings=base)
+        for name, base in (shadow_variant_base_strengths or {}).items()
+        if name in (shadow_variants or {})
+    }
 
     booster = None
     if params.wdl_blend:
@@ -1376,7 +1389,7 @@ def generate_predictions(
                         write_variant_prediction(
                             db, match,
                             variant_model_version_for(active_model_version, _name),
-                            strengths, _vp, booster,
+                            variant_strengths.get(_name, strengths), _vp, booster,
                         )
                 except Exception:  # noqa: BLE001 - a shadow must never break serving
                     log.exception(

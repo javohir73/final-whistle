@@ -368,6 +368,6 @@ def test_unknown_variant_names_and_junk_are_ignored_not_guessed(monkeypatch):
 def test_wc26_cannot_be_targeted_because_it_has_no_available_variant():
     from pipeline.leagues import AVAILABLE_SHADOW_VARIANTS, enabled_shadow_variants
 
-    assert set(AVAILABLE_SHADOW_VARIANTS) == {"bundesliga"}
+    assert set(AVAILABLE_SHADOW_VARIANTS) == {"bundesliga", "ucl"}
     for token in ("wc26:cal_q3", "poisson-elo-v0.5:cal_q3", "international:cal_q3"):
         assert enabled_shadow_variants(token) == {}

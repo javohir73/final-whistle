@@ -1,0 +1,27 @@
+data report: {
+ "parse_problems": [],
+ "dropped_rows": [],
+ "ucl_rows": 2359,
+ "domestic_rows": 55848,
+ "ucl_clubs": 187,
+ "covered_country_clubs_without_domestic_match": []
+}
+CTRL_ucl_only  n=90 mean|Δp|=0.0173 max=0.0663 LL=0.8844 (served LL 0.8763)
+CTRL_alt       n=90 mean|Δp|=0.0674 max=0.1984 LL=0.8495 (served LL 0.8763)
+
+largest CTRL_ucl_only gaps (date home away  pre_h pre_a  offline  served):
+  2026-09-08 GRE:AEK                  AUT:LASK                  1439.9  1498.1  0.365/0.274/0.361  0.465/0.264/0.271
+  2026-10-20 ITA:Napoli               NOR:FK Bodø/Glimt         1535.8  1621.5  0.335/0.273/0.392  0.415/0.271/0.314
+  2026-09-09 GER:Stuttgart            NOR:Viking                1478.4  1525.7  0.377/0.274/0.349  0.456/0.266/0.278
+  2026-10-21 FRA:Lille                TUR:Galatasaray           1523.2  1439.3  0.584/0.234/0.181  0.509/0.255/0.235
+  2026-09-09 POR:Sp Lisbon            TUR:Galatasaray           1585.8  1463.5  0.640/0.239/0.121  0.576/0.237/0.187
+  2026-11-24 ITA:Como                 GRE:AEK                   1564.9  1421.8  0.666/0.226/0.107  0.602/0.256/0.142
+  2026-09-10 ITA:Como                 GER:RB Leipzig            1500.0  1505.4  0.458/0.265/0.277  0.393/0.273/0.334
+  2026-10-13 NOR:Viking               GER:Bayern Munich         1504.1  1838.3  0.111/0.216/0.673  0.103/0.160/0.737
+  2026-10-20 AZE:Sabah FA             GER:Dortmund              1552.5  1611.6  0.364/0.274/0.362  0.312/0.271/0.417
+  2026-10-14 ENG:Aston Villa          TUR:Fenerbahce            1617.1  1573.1  0.528/0.251/0.221  0.578/0.237/0.186
+  2026-10-21 ITA:Como                 ENG:Man United            1508.2  1515.1  0.456/0.266/0.279  0.406/0.272/0.322
+  2026-11-25 AZE:Sabah FA             ESP:Barcelona             1513.1  1731.9  0.210/0.284/0.506  0.177/0.267/0.555
+
+league-phase clubs with no offline UCL history: ['ESP:Betis', 'ITA:Como']
+-> control: CTRL_ucl_only

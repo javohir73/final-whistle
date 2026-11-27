@@ -220,11 +220,13 @@ def test_shadow_baseline_is_the_previous_version_with_no_overrides():
 # league with no reviewed artifact cannot be switched on by configuration.
 # ---------------------------------------------------------------------------
 
-def test_only_bundesliga_has_an_available_shadow_variant():
+def test_only_bundesliga_and_ucl_have_available_shadow_variants():
     """EPL was nominal-only and La Liga showed no effect in T1.6, so neither
-    has a reviewed artifact -- they are excluded structurally, not by config."""
-    assert set(leagues_mod.AVAILABLE_SHADOW_VARIANTS) == {"bundesliga"}
+    has a reviewed artifact -- they are excluded structurally, not by config.
+    UCL holds the two pre-registered unified-Elo shadows."""
+    assert set(leagues_mod.AVAILABLE_SHADOW_VARIANTS) == {"bundesliga", "ucl"}
     assert set(leagues_mod.AVAILABLE_SHADOW_VARIANTS["bundesliga"]) == {"cal_q3"}
+    assert set(leagues_mod.AVAILABLE_SHADOW_VARIANTS["ucl"]) == {"unified", "unified_cal"}
 
 
 def test_no_variant_is_enabled_by_default(monkeypatch):
