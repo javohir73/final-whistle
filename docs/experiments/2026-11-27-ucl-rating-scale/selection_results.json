@@ -1,0 +1,328 @@
+{
+  "control": {
+    "candidate": "CONTROL",
+    "metrics": {
+      "n": 375,
+      "logloss": 0.928962517111839,
+      "brier": 0.547161190093173,
+      "accuracy": 0.584,
+      "draw_pred": 0.22974083024126724,
+      "draw_obs": 0.21066666666666667,
+      "max_fav_prob": 0.9537671746174116,
+      "min_draw_prob": 0.03638699171835617,
+      "points_by_source": {
+        "ENG/ESP/GER": {
+          "team_games": 345,
+          "actual_ppg": 1.6840579710144927,
+          "expected_ppg": 1.632646264140623,
+          "diff_ppg": 0.051411706873869804
+        },
+        "no domestic feed": {
+          "team_games": 92,
+          "actual_ppg": 0.6413043478260869,
+          "expected_ppg": 0.8279427127783068,
+          "diff_ppg": -0.18663836495221986
+        },
+        "other covered league": {
+          "team_games": 313,
+          "actual_ppg": 1.2971246006389776,
+          "expected_ppg": 1.2760814631163124,
+          "diff_ppg": 0.02104313752266526
+        }
+      }
+    }
+  },
+  "candidates": [
+    {
+      "candidate": "C1_offset",
+      "n": 375,
+      "clusters": 45,
+      "mean_delta": 0.0027352751424896803,
+      "ci95": [
+        -0.004573767229819217,
+        0.010303356528405888
+      ],
+      "verdict": "NO CREDIBLE DIFFERENCE (CI straddles 0)",
+      "metrics": {
+        "n": 375,
+        "logloss": 0.9316977922543288,
+        "brier": 0.5477377733724272,
+        "accuracy": 0.584,
+        "draw_pred": 0.22481753800757087,
+        "draw_obs": 0.21066666666666667,
+        "max_fav_prob": 0.9636094263929132,
+        "min_draw_prob": 0.029067985765914645,
+        "points_by_source": {
+          "ENG/ESP/GER": {
+            "team_games": 345,
+            "actual_ppg": 1.6840579710144927,
+            "expected_ppg": 1.6970147712861035,
+            "diff_ppg": -0.012956800271610742
+          },
+          "no domestic feed": {
+            "team_games": 92,
+            "actual_ppg": 0.6413043478260869,
+            "expected_ppg": 0.7892898364702576,
+            "diff_ppg": -0.14798548864417072
+          },
+          "other covered league": {
+            "team_games": 313,
+            "actual_ppg": 1.2971246006389776,
+            "expected_ppg": 1.2223918920070023,
+            "diff_ppg": 0.07473270863197533
+          }
+        }
+      },
+      "walk_forward": {
+        "2021-22": 60.0,
+        "2022-23": 20.0,
+        "2023-24": 20.0
+      }
+    },
+    {
+      "candidate": "C2_unified",
+      "n": 375,
+      "clusters": 45,
+      "mean_delta": -0.008206268463190275,
+      "ci95": [
+        -0.045342068845723,
+        0.02889961157491045
+      ],
+      "verdict": "NO CREDIBLE DIFFERENCE (CI straddles 0)",
+      "metrics": {
+        "n": 375,
+        "logloss": 0.9207562486486487,
+        "brier": 0.5412072774612985,
+        "accuracy": 0.5706666666666667,
+        "draw_pred": 0.22425605231184761,
+        "draw_obs": 0.21066666666666667,
+        "max_fav_prob": 0.9834363713254861,
+        "min_draw_prob": 0.013751818546624654,
+        "points_by_source": {
+          "ENG/ESP/GER": {
+            "team_games": 345,
+            "actual_ppg": 1.6840579710144927,
+            "expected_ppg": 1.5520140819991055,
+            "diff_ppg": 0.13204388901538722
+          },
+          "no domestic feed": {
+            "team_games": 92,
+            "actual_ppg": 0.6413043478260869,
+            "expected_ppg": 0.5246145069404033,
+            "diff_ppg": 0.11668984088568356
+          },
+          "other covered league": {
+            "team_games": 313,
+            "actual_ppg": 1.2971246006389776,
+            "expected_ppg": 1.4606855829228398,
+            "diff_ppg": -0.16356098228386207
+          }
+        }
+      }
+    },
+    {
+      "candidate": "C3_unified_cal",
+      "n": 375,
+      "clusters": 45,
+      "mean_delta": -0.0049422601787154795,
+      "ci95": [
+        -0.04631779168080093,
+        0.03430453884308687
+      ],
+      "verdict": "NO CREDIBLE DIFFERENCE (CI straddles 0)",
+      "metrics": {
+        "n": 375,
+        "logloss": 0.9240202569331236,
+        "brier": 0.5439603973334968,
+        "accuracy": 0.5786666666666667,
+        "draw_pred": 0.201897230313512,
+        "draw_obs": 0.21066666666666667,
+        "max_fav_prob": 0.9723166409200434,
+        "min_draw_prob": 0.02109332141141436,
+        "points_by_source": {
+          "ENG/ESP/GER": {
+            "team_games": 345,
+            "actual_ppg": 1.6840579710144927,
+            "expected_ppg": 1.5497890080668058,
+            "diff_ppg": 0.13426896294768711
+          },
+          "no domestic feed": {
+            "team_games": 92,
+            "actual_ppg": 0.6413043478260869,
+            "expected_ppg": 0.5978242785132237,
+            "diff_ppg": 0.043480069312863245
+          },
+          "other covered league": {
+            "team_games": 313,
+            "actual_ppg": 1.2971246006389776,
+            "expected_ppg": 1.46840733938073,
+            "diff_ppg": -0.1712827387417523
+          }
+        }
+      },
+      "walk_forward": {
+        "2021-22": {
+          "method": "vector_scaling",
+          "t": 1.4,
+          "b": [
+            0.0,
+            -0.2,
+            0.1
+          ],
+          "fit_seasons": [
+            "2018-19",
+            "2019-20",
+            "2020-21"
+          ],
+          "n": 369
+        },
+        "2022-23": {
+          "method": "vector_scaling",
+          "t": 1.4,
+          "b": [
+            0.0,
+            -0.2,
+            0.1
+          ],
+          "fit_seasons": [
+            "2019-20",
+            "2020-21",
+            "2021-22"
+          ],
+          "n": 369
+        },
+        "2023-24": {
+          "method": "vector_scaling",
+          "t": 1.2,
+          "b": [
+            0.0,
+            -0.1,
+            0.1
+          ],
+          "fit_seasons": [
+            "2020-21",
+            "2021-22",
+            "2022-23"
+          ],
+          "n": 375
+        }
+      }
+    }
+  ],
+  "data_report": {
+    "parse_problems": [],
+    "dropped_rows": [],
+    "ucl_rows": 2359,
+    "domestic_rows": 55848,
+    "ucl_clubs": 187,
+    "covered_country_clubs_without_domestic_match": [],
+    "no_feed_clubs": [
+      "ALB:Egnatia Rrogozhine",
+      "AND:Inter Club d'Escaldes",
+      "AND:UE Santa Coloma",
+      "ARM:Ararat-Armenia",
+      "ARM:FC Noah",
+      "ARM:Pyunik FC",
+      "AZE:Qaraba\u011f FK",
+      "AZE:Sabah FA",
+      "BIH:Borac Banja Luka",
+      "BIH:Zrinjski Mostar",
+      "BLR:BATE Borisov",
+      "BLR:Dinamo Minsk",
+      "BLR:ML Vitebsk",
+      "BUL:Levski Sofia",
+      "BUL:PFC Ludogorets Razgrad",
+      "CRO:Dinamo Zagreb",
+      "CRO:HNK Rijeka",
+      "CYP:APOEL Nikosia",
+      "CYP:Omonia Nicosia",
+      "CYP:Pafos FC",
+      "CZE:AC Sparta Praha",
+      "CZE:Slavia Praha",
+      "CZE:Viktoria Plze\u0148",
+      "DEN:Aarhus",
+      "DEN:FC K\u00f8benhavn",
+      "DEN:FC Midtjylland",
+      "DEN:FC Nordsj\u00e6lland",
+      "EST:FC Flora",
+      "EST:FCI Levadia",
+      "FIN:HJK Helsinki",
+      "FIN:Kuopion PS",
+      "FRO:K\u00cd Klaksv\u00edk",
+      "FRO:V\u00edkingur",
+      "GEO:Dinamo Batumi",
+      "GEO:FC Iberia 1999",
+      "GEO:Saburtalo",
+      "GIB:Lincoln Red Imps",
+      "HUN:Ferencv\u00e1rosi TC",
+      "HUN:Gyori ETO FC",
+      "IRL:Shamrock Rovers",
+      "IRL:Shelbourne FC",
+      "ISL:Brei\u00f0ablik",
+      "ISL:V\u00edkingur Reykjav\u00edk",
+      "ISR:Hapoel Beer Sheva",
+      "ISR:Maccabi Haifa",
+      "ISR:Maccabi Tel Aviv",
+      "KAZ:FK Astana",
+      "KAZ:FK Kairat",
+      "KAZ:FK Ordabasy",
+      "KOS:KF Ballkani",
+      "KOS:KF Drita",
+      "LTU:FK Panev\u0117\u017eys",
+      "LTU:FK \u017dalgiris",
+      "LTU:Kauno Zalgiris",
+      "LUX:Atert Bissen",
+      "LUX:FC Differdange 03",
+      "LVA:FK RFS",
+      "LVA:Riga FC",
+      "MDA:CS Petrocub",
+      "MDA:FC Milsami",
+      "MDA:FC Sheriff",
+      "MKD:FC Struga",
+      "MKD:KF Shk\u00ebndija 79",
+      "MKD:Vardar Skopje",
+      "MLT:Floriana",
+      "MLT:Hamrun Spartans",
+      "MNE:FK Budu\u0107nost Podgorica",
+      "MNE:FK De\u010di\u0107 Tuzi",
+      "MNE:Sutjeska",
+      "NIR:Larne FC",
+      "NIR:Linfield FC",
+      "NOR:FK Bod\u00f8/Glimt",
+      "NOR:SK Brann",
+      "NOR:Viking",
+      "POL:Gornik Zabrze",
+      "POL:Jagiellonia Bia\u0142ystok",
+      "POL:Lech Pozna\u0144",
+      "POL:Legia Warszawa",
+      "ROU:CFR Cluj",
+      "ROU:FCSB",
+      "ROU:O\u0163elul Gala\u0163i",
+      "ROU:Universitatea Craiova",
+      "RUS:CSKA Moskva",
+      "RUS:FK Krasnodar",
+      "RUS:FK Rostov",
+      "RUS:Lokomotiv Moskva",
+      "RUS:Spartak Moskva",
+      "RUS:Zenit St. Petersburg",
+      "SMR:SS Virtus",
+      "SMR:Tre Fiori",
+      "SRB:Crvena Zvezda",
+      "SRB:Partizan",
+      "SUI:BSC Young Boys",
+      "SUI:FC Basel 1893",
+      "SUI:FC Lugano",
+      "SUI:FC Thun",
+      "SUI:Servette FC",
+      "SVK:Slovan Bratislava",
+      "SVN:NK Celje",
+      "SVN:NK Maribor",
+      "SVN:Olimpija Ljubljana",
+      "SWE:Malm\u00f6 FF",
+      "SWE:Mjallby AIF",
+      "UKR:Dinamo Kiev",
+      "UKR:Shakhtar Donetsk",
+      "WAL:The New Saints"
+    ]
+  }
+}

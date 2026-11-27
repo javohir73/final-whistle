@@ -1,0 +1,21 @@
+{
+  "CTRL_ucl_only": {
+    "n": 90,
+    "mean_abs_prob_gap": 0.017326863654146502,
+    "max_abs_prob_gap": 0.0663171938420557,
+    "logloss": 0.8844257803632017,
+    "served_logloss": 0.8763436601701446
+  },
+  "CTRL_alt": {
+    "n": 90,
+    "mean_abs_prob_gap": 0.06743649960152065,
+    "max_abs_prob_gap": 0.19838419094862192,
+    "logloss": 0.8495087349290498,
+    "served_logloss": 0.8763436601701446
+  },
+  "cold_start_clubs_offline": [
+    "ESP:Betis",
+    "ITA:Como"
+  ],
+  "control": "CTRL_ucl_only"
+}

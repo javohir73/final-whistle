@@ -1,0 +1,26 @@
+SELECTION ('2021-22', '2022-23', '2023-24'): 375 matches
+
+CONTROL          LL 0.9290  Brier 0.5472  acc 0.584  draw pred 0.230 obs 0.211  max fav 0.954  min draw 0.036
+    ENG/ESP/GER             345 tg  actual 1.68  exp 1.63  diff +0.05
+    no domestic feed         92 tg  actual 0.64  exp 0.83  diff -0.19
+    other covered league    313 tg  actual 1.30  exp 1.28  diff +0.02
+C1_offset        ΔLL +0.0027  CI95 [-0.0046, +0.0103]  n=375/45 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.9317  Brier 0.5477  acc 0.584  draw pred 0.225 obs 0.211  max fav 0.964  min draw 0.029
+    ENG/ESP/GER             345 tg  actual 1.68  exp 1.70  diff -0.01
+    no domestic feed         92 tg  actual 0.64  exp 0.79  diff -0.15
+    other covered league    313 tg  actual 1.30  exp 1.22  diff +0.07
+C2_unified       ΔLL -0.0082  CI95 [-0.0453, +0.0289]  n=375/45 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.9208  Brier 0.5412  acc 0.571  draw pred 0.224 obs 0.211  max fav 0.983  min draw 0.014
+    ENG/ESP/GER             345 tg  actual 1.68  exp 1.55  diff +0.13
+    no domestic feed         92 tg  actual 0.64  exp 0.52  diff +0.12
+    other covered league    313 tg  actual 1.30  exp 1.46  diff -0.16
+C3_unified_cal   ΔLL -0.0049  CI95 [-0.0463, +0.0343]  n=375/45 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.9240  Brier 0.5440  acc 0.579  draw pred 0.202 obs 0.211  max fav 0.972  min draw 0.021
+    ENG/ESP/GER             345 tg  actual 1.68  exp 1.55  diff +0.13
+    no domestic feed         92 tg  actual 0.64  exp 0.60  diff +0.04
+    other covered league    313 tg  actual 1.30  exp 1.47  diff -0.17
+
+C1 walk-forward δ: {'2021-22': 60.0, '2022-23': 20.0, '2023-24': 20.0}
+C3 walk-forward calibrators: {'2021-22': (1.4, [0.0, -0.2, 0.1]), '2022-23': (1.4, [0.0, -0.2, 0.1]), '2023-24': (1.2, [0.0, -0.1, 0.1])}
+
+FROZEN: {"C1_offset": {"delta": 20.0, "fit_seasons": ["2014-15", "2015-16", "2016-17", "2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"]}, "C2_unified": {"tier_seed": {"ENG": 1600.0, "ESP": 1600.0, "GER": 1600.0, "ITA": 1600.0, "FRA": 1550.0, "POR": 1550.0, "NED": 1500.0, "TUR": 1500.0, "BEL": 1500.0, "GRE": 1500.0, "AUT": 1500.0, "SCO": 1500.0}, "nofeed_prior": 1450.0, "newcomer_drop": 100.0, "shrink_n0": 10.0}, "C3_unified_cal": {"method": "vector_scaling", "t": 1.2, "b": [0.0, -0.1, -0.1], "fit_seasons": ["2021-22", "2022-23", "2023-24"], "n": 375}, "designated": null}

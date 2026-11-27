@@ -1,0 +1,73 @@
+2026-27 LEAGUE PHASE (descriptive) ('2026-27',): 90 matches  (frozen config, no refit)
+
+CONTROL          LL 0.8844  Brier 0.5185  acc 0.711  draw pred 0.238 obs 0.122  max fav 0.893  min draw 0.078
+    ENG/ESP/GER              70 tg  actual 1.89  exp 1.56  diff +0.32
+    no domestic feed         30 tg  actual 0.63  exp 1.11  diff -0.48
+    other covered league     80 tg  actual 1.35  exp 1.32  diff +0.03
+SERVED (actual)  LL 0.8763  vs offline control ΔLL -0.0081
+    ENG/ESP/GER              70 tg  actual 1.89  exp 1.58  diff +0.30
+    no domestic feed         30 tg  actual 0.63  exp 1.07  diff -0.44
+    other covered league     80 tg  actual 1.35  exp 1.32  diff +0.03
+
+  club                       pts  served-exp  C2-exp  C3-exp
+  SVK:Slovan Bratislava        0        5.2     2.2     2.5
+  AZE:Sabah FA                 3        6.9     3.8     3.9
+  CZE:Slavia Praha             1        4.1     3.2     3.4
+  FRA:Lens                     3        5.7     5.0     5.5
+  GER:Bayern Munich            8       10.7    11.7    11.5
+  NED:PSV Eindhoven            4        6.2     6.7     6.8
+  NED:Feyenoord                3        5.1     4.4     4.8
+  GRE:AEK                      3        4.6     6.0     6.1
+  ITA:Napoli                   4        5.6     5.3     5.5
+  POR:Porto                    6        7.3     8.7     8.4
+  FRA:Lille                    4        5.1     5.1     5.2
+  ESP:Ath Madrid               7        8.0     7.6     7.6
+  UKR:Shakhtar Donetsk         4        4.8     3.8     4.3
+  ITA:Inter                    9        9.3     9.8     9.3
+  NOR:FK Bodø/Glimt            7        7.1     4.8     5.1
+  NOR:Viking                   4        4.0     2.1     2.4
+  GER:RB Leipzig               6        5.8     5.5     5.8
+  ITA:Roma                     5        4.6     7.9     7.9
+  ENG:Arsenal                 11       10.4    10.5    10.4
+  POR:Sp Lisbon               10        9.3    10.4     9.9
+  ENG:Man City                10        9.3     9.5     9.0
+  TUR:Fenerbahce               8        7.2     7.8     7.7
+  AUT:LASK                     6        4.9     5.7     5.8
+  ENG:Aston Villa              9        7.9     6.5     6.7
+  FRA:Paris SG                13       11.7     9.6     9.5
+  GER:Stuttgart                7        5.5     7.5     7.7
+  ENG:Man United               7        5.4     6.2     6.4
+  ESP:Villarreal               6        3.9     4.7     5.0
+  ENG:Liverpool               12        9.8     8.2     8.0
+  GER:Dortmund                10        7.7     8.9     8.9
+  BEL:Club Brugge              9        6.0     7.9     7.7
+  ESP:Barcelona               12        8.9    11.0    10.7
+  ESP:Real Madrid             15       11.4     9.4     9.0
+  TUR:Galatasaray              9        5.3     6.1     6.1
+  ITA:Como                    12        7.6     9.2     8.8
+  ESP:Betis                   12        6.1     7.0     7.2
+
+  extreme favourites (served max side >= 0.80):
+  FRA:Paris SG v SVK:Slovan Bratislava 6-1: served 0.87/0.09/0.04  C2 0.92/0.06/0.02  C3 0.89/0.08/0.03
+  ENG:Arsenal v FRA:Lille 3-0: served 0.84/0.11/0.05  C2 0.84/0.11/0.05  C3 0.79/0.14/0.07
+  ENG:Liverpool v ESP:Villarreal 4-3: served 0.81/0.13/0.06  C2 0.66/0.23/0.11  C3 0.62/0.22/0.17
+  ESP:Real Madrid v GER:RB Leipzig 4-1: served 0.83/0.12/0.05  C2 0.73/0.19/0.08  C3 0.68/0.19/0.13
+  CZE:Slavia Praha v ENG:Arsenal 1-2: served 0.07/0.13/0.80  C2 0.03/0.06/0.91  C3 0.03/0.07/0.90
+  ESP:Real Madrid v NED:PSV Eindhoven 5-1: served 0.81/0.13/0.06  C2 0.71/0.20/0.09  C3 0.67/0.20/0.14
+  FRA:Paris SG v ITA:Roma 2-2: served 0.91/0.07/0.02  C2 0.67/0.22/0.11  C3 0.63/0.21/0.16
+
+C1_offset        ΔLL -0.0095  CI95 [-0.0166, -0.0023]  n=90/5 wk  -> CANDIDATE BETTER (credible: CI fully below 0)
+    LL 0.8750  Brier 0.5123  acc 0.733  draw pred 0.236 obs 0.122  max fav 0.893  min draw 0.078
+    ENG/ESP/GER              70 tg  actual 1.89  exp 1.61  diff +0.28
+    no domestic feed         30 tg  actual 0.63  exp 1.09  diff -0.45
+    other covered league     80 tg  actual 1.35  exp 1.30  diff +0.05
+C2_unified       ΔLL -0.0266  CI95 [-0.1188, +0.1123]  n=90/5 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.8578  Brier 0.4965  acc 0.656  draw pred 0.223 obs 0.122  max fav 0.936  min draw 0.047
+    ENG/ESP/GER              70 tg  actual 1.89  exp 1.63  diff +0.25
+    no domestic feed         30 tg  actual 0.63  exp 0.67  diff -0.04
+    other covered league     80 tg  actual 1.35  exp 1.44  diff -0.09
+C3_unified_cal   ΔLL -0.0302  CI95 [-0.1040, +0.0800]  n=90/5 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.8542  Brier 0.4949  acc 0.656  draw pred 0.216 obs 0.122  max fav 0.926  min draw 0.055
+    ENG/ESP/GER              70 tg  actual 1.89  exp 1.63  diff +0.26
+    no domestic feed         30 tg  actual 0.63  exp 0.72  diff -0.09
+    other covered league     80 tg  actual 1.35  exp 1.44  diff -0.09

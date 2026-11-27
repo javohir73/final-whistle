@@ -1,0 +1,23 @@
+!! CONFIRMATION — consuming quarantined 2024-25 and 2025-26 once.
+
+CONFIRMATION ('2024-25', '2025-26'): 378 matches  (frozen config, no refit)
+
+CONTROL          LL 0.9890  Brier 0.5846  acc 0.550  draw pred 0.237 obs 0.159  max fav 0.931  min draw 0.053
+    ENG/ESP/GER             317 tg  actual 1.67  exp 1.63  diff +0.05
+    no domestic feed        102 tg  actual 0.75  exp 1.11  diff -0.35
+    other covered league    337 tg  actual 1.39  exp 1.23  diff +0.15
+C1_offset        ΔLL +0.0014  CI95 [-0.0029, +0.0063]  n=378/34 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.9904  Brier 0.5847  acc 0.548  draw pred 0.234 obs 0.159  max fav 0.940  min draw 0.046
+    ENG/ESP/GER             317 tg  actual 1.67  exp 1.67  diff +0.00
+    no domestic feed        102 tg  actual 0.75  exp 1.08  diff -0.33
+    other covered league    337 tg  actual 1.39  exp 1.21  diff +0.18
+C2_unified       ΔLL -0.0388  CI95 [-0.0880, +0.0125]  n=378/34 wk  -> NO CREDIBLE DIFFERENCE (CI straddles 0)
+    LL 0.9502  Brier 0.5548  acc 0.585  draw pred 0.227 obs 0.159  max fav 0.978  min draw 0.018
+    ENG/ESP/GER             317 tg  actual 1.67  exp 1.59  diff +0.08
+    no domestic feed        102 tg  actual 0.75  exp 0.60  diff +0.15
+    other covered league    337 tg  actual 1.39  exp 1.43  diff -0.05
+C3_unified_cal   ΔLL -0.0519  CI95 [-0.1005, -0.0014]  n=378/34 wk  -> CANDIDATE BETTER (credible: CI fully below 0)
+    LL 0.9371  Brier 0.5506  acc 0.582  draw pred 0.220 obs 0.159  max fav 0.965  min draw 0.027
+    ENG/ESP/GER             317 tg  actual 1.67  exp 1.58  diff +0.09
+    no domestic feed        102 tg  actual 0.75  exp 0.65  diff +0.11
+    other covered league    337 tg  actual 1.39  exp 1.44  diff -0.05

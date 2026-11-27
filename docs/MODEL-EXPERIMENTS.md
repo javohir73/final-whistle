@@ -839,3 +839,25 @@ the Bonferroni gate needs ~1,600 pooled matches — more than one season (1,066
 domestic matches). The late-January look (~640 pooled, ≈ 50% power) is a
 progress check and ships nothing; season end is the decision look, and may
 still be underpowered.
+
+## 2026-11-27 — UCL rating scale (appended)
+
+Pre-registered in `docs/experiments/2026-11-27-ucl-rating-scale/EVIDENCE.md`
+(protocol committed before any candidate was scored). Control = the served
+UCL-only Elo for every club. Code reading and fidelity check agree: mean
+|Δp| 0.017 vs the served 2026-27 triples. The "domestic Elo for big-3 clubs"
+reading is refuted as a description of serving (0.067). Selection: UCL
+2021-22..2023-24 (375). Confirmation: 2024-25 + 2025-26 (378), run once on
+frozen configs. Gate: 95% matchweek-clustered CI on Δ 1X2 LL, below 0 on both.
+
+| Date | Candidate | Holdout | Metric deltas (vs control) | Bootstrap CI / uncertainty | Verdict |
+|---|---|---|---|---|---|
+| 2026-11-27 | C1_offset: +δ Elo for ENG/ESP/GER clubs (walk-forward δ 60/20/20; frozen 20) | UCL sel 375 / conf 378 | 1X2 LL +0.0027 sel; +0.0014 conf | [−0.0046, +0.0103]; [−0.0029, +0.0063] | **REFUTED** — big-3 under-rating is +0.05 ppg historically; 2026-27's +0.32 is atypical |
+| 2026-11-27 | C2_unified: joint Elo over 12 domestic leagues + UCL, tier seeds, no-feed shrinkage | same | 1X2 LL −0.0082 sel; −0.0388 conf | [−0.0453, +0.0289]; [−0.0880, +0.0125] | **NOT CREDIBLE** — favourable direction, fixes no-feed over-rating but overshoots |
+| 2026-11-27 | C3_unified_cal: C2 + UCL-fitted vector scaling (frozen t 1.2, b (0, −0.1, −0.1)) | same | 1X2 LL −0.0049 sel; −0.0519 conf | [−0.0463, +0.0343]; [−0.1005, −0.0014] | **NOT SHIPPED** — failed selection; its credible confirmation cannot rescue it |
+
+Persistent finding: clubs from countries with no domestic feed are over-rated
+by the served UCL-only Elo (actual − expected ppg −0.19 sel, −0.35 conf, −0.48
+in 2026-27 MD1-5). Post-hoc: draws are over-predicted in the 36-team format
+(15.9% obs vs 23.7% pred, 2024-26). Next clean gate for a C2-family successor
+is matchdays 6-8 of 2026-27 plus 2027-28, under a new pre-registration.
