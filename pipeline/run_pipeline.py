@@ -30,6 +30,38 @@ class PartialLeagueRefreshError(RuntimeError):
         super().__init__(f"league fixture refresh failed for: {names}")
 
 
+def _strength_variants(db: Session, step, code: str, cfg: dict, variants: dict):
+    """Split the enabled shadow variants of ``code`` into (variants to run,
+    per-variant base ratings).
+
+    Variants named in leagues.STRENGTH_SHADOW_VARIANTS are priced from their own
+    ratings (UCL: the unified domestic+UCL Elo, pipeline/ucl_unified_elo.py).
+    If those cannot be computed -- fetch/parse failure, bad snapshot -- the
+    variants are DROPPED for this run, so a shadow input can never break or alter
+    the served predictions. Other variants (Bundesliga cal_q3) pass through.
+    """
+    from pipeline.leagues import STRENGTH_SHADOW_VARIANTS
+
+    needed = [n for n in variants if n in STRENGTH_SHADOW_VARIANTS.get(code, ())]
+    if not needed:
+        return variants, None
+    from pipeline.ucl_unified_elo import compute_unified_strengths
+
+    holder: dict = {}
+
+    def _compute() -> dict:
+        res = compute_unified_strengths(
+            db, tournament_name=cfg["tournament_name"], competition=cfg["club_competition"])
+        holder["res"] = res
+        return res.summary() if res is not None else {"status": "skipped", "variants": sorted(needed)}
+
+    step(f"{code}_unified_elo", _compute)
+    res = holder.get("res")
+    if res is None:
+        return {n: v for n, v in variants.items() if n not in needed}, None
+    return variants, {n: res.strengths for n in needed}
+
+
 def _run_league_pipeline(db: Session, step, n_sims: int,
                          kickoff_after: datetime | None = None) -> None:
     """League pivot D5/D7 (docs/LEAGUE-PIVOT-PLAN.md) + League Score
@@ -319,20 +351,25 @@ def _run_league_pipeline(db: Session, step, n_sims: int,
             home_advantage=cfg["home_advantage"],
             competition=cfg["club_competition"],
         )
+        shadow_variants, variant_strengths = _strength_variants(
+            db, step, code, cfg, club_shadow_variants_for(code))
         step(
             f"{_prefix(code)}predictions",
             lambda t=tournament, code=code, cfg=cfg, params=params,
-            base_strengths=base_strengths: generate_predictions(
+            base_strengths=base_strengths, shadow_variants=shadow_variants,
+            variant_strengths=variant_strengths: generate_predictions(
                 db, model_version=params.version,
                 n_sims=n_sims, tournament_id=t.id,
                 params=params,
                 # v0.1 twin: the per-league refit's live A/B. Offline evidence
                 # for it is one confirmation season; this accrues the real one.
                 baseline_params=club_baseline_params_for(code),
-                # Opt-in named shadow variants. Empty for every league today,
-                # so this adds no rows and changes nothing served
-                # (docs/BUNDESLIGA-CALIBRATOR-LIVE-VALIDATION.md).
-                shadow_variants=club_shadow_variants_for(code),
+                # Opt-in named shadow variants (CLUB_SHADOW_VARIANTS); empty
+                # unless enabled, so nothing is added and nothing served changes
+                # (docs/BUNDESLIGA-CALIBRATOR-LIVE-VALIDATION.md,
+                # docs/UCL-UNIFIED-SHADOW-PREREG.md).
+                shadow_variants=shadow_variants,
+                shadow_variant_base_strengths=variant_strengths,
                 base_strengths=base_strengths,
                 standings_advance_count=cfg.get("standings_advance_count", 2),
                 kickoff_after=kickoff_after,

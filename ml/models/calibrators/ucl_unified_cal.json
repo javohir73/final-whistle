@@ -1,0 +1,19 @@
+{
+  "method": "vector_scaling",
+  "t": 1.2,
+  "b": [
+    0.0,
+    -0.1,
+    -0.1
+  ],
+  "provenance": {
+    "source": "docs/experiments/2026-11-27-ucl-rating-scale/frozen.json C3_unified_cal",
+    "fit_seasons": [
+      "2021-22",
+      "2022-23",
+      "2023-24"
+    ],
+    "n": 375,
+    "note": "frozen; fitted on the C2 unified ratings' RAW probabilities (no served calibrator). Do not refit."
+  }
+}
